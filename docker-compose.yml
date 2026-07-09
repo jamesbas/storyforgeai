@@ -1,0 +1,30 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: storyforge
+      POSTGRES_PASSWORD: storyforge
+      POSTGRES_DB: storyforge
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U storyforge"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    environment:
+      NODE_ENV: production
+      # Default demo mode: in-memory store, integrations off. Switch to "prisma"
+      # to use the Postgres service above.
+      STORYFORGE_PERSISTENCE: memory
+      DATABASE_URL: postgresql://storyforge:storyforge@db:5432/storyforge
+      WANGP_MCP_ENABLED: "false"
+      AI_PLANNING_ENABLED: "false"
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy

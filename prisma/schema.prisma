@@ -1,0 +1,43 @@
+// Prisma schema — durable persistence path (generic-build-spec Data Persistence
+// Layer). The MVP runs on the in-memory repository in demo mode; this schema
+// scaffolds the Postgres-backed store selected when STORYFORGE_PERSISTENCE=prisma.
+// Enum-like fields are modeled as String, constrained by union types in
+// lib/types.ts (single source of truth), not native DB enums, for portability.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id                       String   @id
+  title                    String
+  concept                  String
+  requestedDurationSeconds Int
+  segmentSeconds           Int      @default(20)
+  segmentCount             Int
+  generatedDurationSeconds Int
+  finalTrimSeconds         Int
+  aspectRatio              String
+  resolutionPreset         String
+  style                    String
+  tone                     String
+  audience                 String?
+  creativeMode             String
+  narrationRequired        Boolean  @default(false)
+  dialogueRequired         Boolean  @default(false)
+  musicRequired            Boolean  @default(false)
+  sfxRequired              Boolean  @default(false)
+  generationMode           String
+  modelStrategy            String
+  status                   String   @default("draft")
+  // Full storyboard snapshot (brief, visual bible, scenes) stored as JSON while
+  // the schema firms up (generic-build-spec Section 10.2).
+  storyboard               Json?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+}
