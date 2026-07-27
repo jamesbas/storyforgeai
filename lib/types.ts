@@ -73,3 +73,13 @@ export const VARIANT_TYPES = [
 export type VariantType = (typeof VARIANT_TYPES)[number];
 
 export const SEGMENT_SECONDS = 20;
+
+/**
+ * Bounds for a configurable clip length. The ceiling is the video model's native
+ * window (LTX-2 defaults to video_length 481 = 20s at 24fps); going beyond it
+ * needs WanGP's sliding-window mode, which costs proportionally more time and
+ * drifts in subject coherence. The floor keeps a clip long enough to carry a
+ * camera move.
+ */
+export const MIN_SEGMENT_SECONDS = 5;
+export const MAX_SEGMENT_SECONDS = 20;

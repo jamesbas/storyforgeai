@@ -1,9 +1,12 @@
+import path from "node:path";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { Assembly } from "@/lib/schemas/assembly";
 import { repository } from "@/lib/db/store";
 import { getProjectRecord } from "@/lib/services/project-service";
 import { buildFinalCutPlan } from "@/lib/media/assembly";
-import { getFfmpegRunner } from "@/lib/media/ffmpeg";
+import { getFfmpegRunner, probeMedia } from "@/lib/media/ffmpeg";
+import { resolveCueTimeline } from "@/lib/media/audio-mix";
+import { listProjectMedia, type MediaDescriptor } from "@/lib/media/refs";
 import { config } from "@/lib/config";
 import { logEvent } from "@/lib/telemetry";
 
@@ -11,20 +14,46 @@ export type ExportDescriptor = { name: string; url: string; available: boolean }
 
 /**
  * Assemble a rough cut from approved scene clips using the ffmpeg runner
- * (mock in demo mode). Stores the final-cut plan and rough-cut path.
+ * (mock in demo mode, native subprocess when FFMPEG_ENABLED).
+ *
+ * Each clip carries its planned duration, so the native runner applies the
+ * per-scene trim during the concat. The last scene's duration already absorbs
+ * `trimAtEndSeconds`, which means the concat output lands exactly on the
+ * requested runtime — `plan.finalTrimSeconds` records how much generated
+ * material was discarded and must not be subtracted a second time.
  */
 export async function assembleRoughCut(projectId: string): Promise<ProjectRecord> {
   const record = await getProjectRecord(projectId);
   const plan = buildFinalCutPlan(record);
 
   const runner = getFfmpegRunner();
-  const outputPath = `${config.dataDir}/${projectId}/assembly/rough-cut.mp4`;
+  const assemblyDir = path.join(config.dataDir, projectId, "assembly");
+  const outputPath = path.join(assemblyDir, "rough-cut.mp4");
+
   const roughCutPath = await runner.concat(
-    plan.clips.map((c) => c.path),
+    plan.clips.map((c) => ({ path: c.path, durationSeconds: c.durationSeconds })),
     outputPath,
   );
 
-  const assembly: Assembly = { plan, roughCutPath, createdAt: new Date().toISOString() };
+  // Second pass: lay approved music/SFX cues over the cut. Video is copied, so
+  // iterating on audio never re-encodes picture. The rough cut stays intact as
+  // the un-scored reference.
+  const cues = resolveCueTimeline(plan, record.audioPlan?.cues ?? []);
+  let finalPath: string | undefined;
+  if (cues.length) {
+    finalPath = await runner.mixAudio(
+      roughCutPath,
+      cues,
+      path.join(assemblyDir, "final-cut.mp4"),
+    );
+  }
+
+  const assembly: Assembly = {
+    plan,
+    roughCutPath,
+    ...(finalPath ? { finalPath } : {}),
+    createdAt: new Date().toISOString(),
+  };
   const updated: ProjectRecord = {
     ...record,
     assembly,
@@ -36,9 +65,27 @@ export async function assembleRoughCut(projectId: string): Promise<ProjectRecord
   };
 
   await repository.update(projectId, updated);
-  logEvent("assembly.completed", { projectId, clips: plan.clips.length, mode: runner.mode });
+
+  const probe = runner.mode === "native" ? await probeMedia(finalPath ?? roughCutPath) : null;
+  logEvent("assembly.completed", {
+    projectId,
+    clips: plan.clips.length,
+    mode: runner.mode,
+    plannedSeconds: plan.totalDurationSeconds,
+    audioCues: cues.length,
+    ...(probe?.durationSeconds == null
+      ? {}
+      : { actualSeconds: Math.round(probe.durationSeconds * 100) / 100 }),
+    ...(probe ? { hasAudio: probe.hasAudio } : {}),
+  });
   return updated;
 }
+
+/** Servable media descriptors for a project (spec Section 17 playback). */
+export async function listMedia(projectId: string): Promise<MediaDescriptor[]> {
+  return listProjectMedia(await getProjectRecord(projectId));
+}
+
 
 /** The export package for a project (spec Section 2.3 / 14 exports). */
 export async function listExports(projectId: string): Promise<ExportDescriptor[]> {

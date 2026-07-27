@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { MockWangpClient } from "@/lib/wangp/mock-client";
+import { produces } from "@/lib/wangp/model-router";
 import { selectVideoModel } from "@/lib/wangp/model-router";
+import { resolveModel } from "@/lib/wangp/resolve-model";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
 
 describe("WanGP mock client — discovery → schema → manifest → job", () => {
@@ -35,10 +37,17 @@ describe("WanGP mock client — discovery → schema → manifest → job", () =
     expect(job.generatedFiles.length).toBe(1);
   });
 
-  it("lists image models separately", async () => {
+  it("lists models by what they can produce, not just their primary output", async () => {
     const client = new MockWangpClient();
     const images = await client.listModels("image");
-    expect(images.every((m) => m.metadata.mainOutput === "image")).toBe(true);
+    // Every listed model must be able to produce an image — but a model whose
+    // primary output is video still qualifies if it can render stills, which is
+    // exactly how WanGP reports LTX-2.
+    expect(images.length).toBeGreaterThan(0);
+    expect(images.every((m) => produces(m, "image"))).toBe(true);
+
+    const videos = await client.listModels("video");
+    expect(videos.every((m) => produces(m, "video"))).toBe(true);
   });
 
   it("cancels a job", async () => {
@@ -51,5 +60,41 @@ describe("WanGP mock client — discovery → schema → manifest → job", () =
   it("throws for an unknown model schema", async () => {
     const client = new MockWangpClient();
     await expect(client.getModelSchema("nope")).rejects.toThrow();
+  });
+});
+
+describe("model pin resolution", () => {
+  it("prefers an explicit pin over automatic selection", async () => {
+    const client = new MockWangpClient();
+    const videoModels = await client.listModels("video");
+    const auto = selectVideoModel(videoModels, { modelStrategy: "auto" });
+    const other = videoModels.find((m) => m.modelType !== auto?.modelType);
+    expect(other).toBeDefined();
+
+    const picked = resolveModel(videoModels, other!.modelType, () => auto, "video_segment");
+    expect(picked.modelType).toBe(other!.modelType);
+  });
+
+  it("falls back to automatic selection when no pin is given", async () => {
+    const client = new MockWangpClient();
+    const videoModels = await client.listModels("video");
+    const auto = selectVideoModel(videoModels, { modelStrategy: "prefer_wan" });
+
+    expect(resolveModel(videoModels, undefined, () => auto, "video_segment").modelType).toBe(
+      auto?.modelType,
+    );
+    // An empty pin is what a "use automatic" <option value=""> sends.
+    expect(resolveModel(videoModels, "", () => auto, "video_segment").modelType).toBe(
+      auto?.modelType,
+    );
+  });
+
+  it("falls back rather than throwing when the pinned model is not in the catalog", async () => {
+    const client = new MockWangpClient();
+    const videoModels = await client.listModels("video");
+    const auto = selectVideoModel(videoModels, { modelStrategy: "auto" });
+
+    const picked = resolveModel(videoModels, "not_a_real_model", () => auto, "video_segment");
+    expect(picked.modelType).toBe(auto?.modelType);
   });
 });

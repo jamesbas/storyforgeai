@@ -1,10 +1,60 @@
 import type { Project } from "@/lib/schemas/project";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
-import type { AnimaticPlan, AudioPlan, VoiceProfile } from "@/lib/schemas/audio";
+import type { AnimaticPlan, AudioCue, AudioPlan, VoiceProfile } from "@/lib/schemas/audio";
 
 /** Deterministic builders for the audio plan and animatic plan (spec 2A.5 / 2A.7). */
 
-export function buildAudioPlan(project: Project, sceneIds: string[]): AudioPlan {
+/** Scene context the Audio Director needs to place cues on a timeline. */
+export type AudioSceneRef = {
+  id: string;
+  sceneNumber: number;
+  durationSeconds: number;
+};
+
+/**
+ * Propose a music bed for a scene.
+ *
+ * Music enters just after the scene opens and ends a beat before the cut, so it
+ * reads as scored rather than abutting the edit. Ducks the clip's own audio so
+ * any dialogue the video model rendered stays intelligible.
+ */
+function musicCueFor(project: Project, scene: AudioSceneRef): AudioCue {
+  const startSeconds = Math.min(2, Math.max(0, scene.durationSeconds - 2));
+  const durationSeconds = Math.max(1, scene.durationSeconds - startSeconds - 1);
+  return {
+    id: `${project.id}-cue-music-${String(scene.sceneNumber).padStart(3, "0")}`,
+    sceneId: scene.id,
+    kind: "music",
+    prompt: `${project.tone} underscore for a ${project.style} scene; no vocals, supports the beat without competing with dialogue.`,
+    startSeconds,
+    durationSeconds,
+    gainDb: -8,
+    fadeInSeconds: 1,
+    fadeOutSeconds: 1.5,
+    duckNativeDb: -12,
+    approved: false,
+  };
+}
+
+/** Propose a short SFX accent, mixed on top of the clip's own audio. */
+function sfxCueFor(project: Project, scene: AudioSceneRef): AudioCue {
+  const startSeconds = Math.min(1, Math.max(0, scene.durationSeconds - 1));
+  return {
+    id: `${project.id}-cue-sfx-${String(scene.sceneNumber).padStart(3, "0")}`,
+    sceneId: scene.id,
+    kind: "sfx",
+    prompt: `Subtle diegetic accent that punctuates the opening of a ${project.tone} ${project.style} scene.`,
+    startSeconds,
+    durationSeconds: Math.min(3, Math.max(1, scene.durationSeconds - startSeconds)),
+    gainDb: -3,
+    fadeInSeconds: 0.05,
+    fadeOutSeconds: 0.05,
+    duckNativeDb: 0,
+    approved: false,
+  };
+}
+
+export function buildAudioPlan(project: Project, scenes: AudioSceneRef[]): AudioPlan {
   const voiceProfiles: VoiceProfile[] = [];
   if (project.narrationRequired) {
     voiceProfiles.push({
@@ -26,16 +76,21 @@ export function buildAudioPlan(project: Project, sceneIds: string[]): AudioPlan 
     });
   }
 
-  const sceneAudioCues = sceneIds.map((sceneId, i) => ({
-    sceneId,
+  const sceneAudioCues = scenes.map((scene, i) => ({
+    sceneId: scene.id,
     narrationText: project.narrationRequired ? `Narration for scene ${i + 1}.` : undefined,
     dialogueLines: project.dialogueRequired
       ? [{ character: "Lead Character", line: `Line for scene ${i + 1}.` }]
       : undefined,
     musicCue: project.musicRequired ? "Underscore supporting the beat." : undefined,
     sfxCues: project.sfxRequired ? ["ambient bed", "accent hit"] : undefined,
-    lipSyncRequired: project.dialogueRequired,
   }));
+
+  const cues: AudioCue[] = [];
+  for (const scene of scenes) {
+    if (project.musicRequired) cues.push(musicCueFor(project, scene));
+    if (project.sfxRequired) cues.push(sfxCueFor(project, scene));
+  }
 
   return {
     projectId: project.id,
@@ -45,6 +100,7 @@ export function buildAudioPlan(project: Project, sceneIds: string[]): AudioPlan 
     sfxRequired: project.sfxRequired,
     voiceProfiles,
     sceneAudioCues,
+    cues,
     musicDirection: project.musicRequired
       ? `${project.tone} score that tracks the emotional arc.`
       : undefined,

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { createProjectSchema } from "@/lib/schemas/intake";
+import { createProjectSchema, updateProjectModelsSchema } from "@/lib/schemas/intake";
 import { computeSegmentation } from "@/lib/duration";
 import type { Project } from "@/lib/schemas/project";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
@@ -22,6 +22,7 @@ import {
   worldBuilderAgent,
 } from "@/lib/agents/canvas-agents";
 import { audioDirectorAgent } from "@/lib/agents/audio-agents";
+import type { AudioSceneRef } from "@/lib/agents/mock-audio";
 import { buildAnimaticPlan } from "@/lib/agents/mock-audio";
 import { getPlanningProvider } from "@/lib/agents/llm/provider";
 import { NotFoundError, ValidationError } from "@/lib/errors";
@@ -39,14 +40,14 @@ function appendHistory(record: ProjectRecord, action: string, detail?: string): 
 
 export async function createProject(raw: unknown): Promise<Project> {
   const input = createProjectSchema.parse(raw);
-  const seg = computeSegmentation(input.requestedDurationSeconds);
+  const seg = computeSegmentation(input.requestedDurationSeconds, input.segmentSeconds);
   const now = new Date().toISOString();
   const project: Project = {
     id: randomUUID(),
     title: deriveTitle(input.concept),
     concept: input.concept,
     requestedDurationSeconds: input.requestedDurationSeconds,
-    segmentSeconds: 20,
+    segmentSeconds: seg.segmentSeconds,
     segmentCount: seg.segmentCount,
     generatedDurationSeconds: seg.generatedDurationSeconds,
     finalTrimSeconds: seg.finalTrimSeconds,
@@ -62,14 +63,58 @@ export async function createProject(raw: unknown): Promise<Project> {
     sfxRequired: input.sfxRequired,
     generationMode: input.generationMode,
     modelStrategy: input.modelStrategy,
+    imageModel: input.imageModel,
+    videoModel: input.videoModel,
     status: "draft",
     createdAt: now,
     updatedAt: now,
   };
 
   await repository.create({ project });
-  logEvent("project.created", { id: project.id, segmentCount: seg.segmentCount });
+  logEvent("project.created", {
+    id: project.id,
+    segmentCount: seg.segmentCount,
+    segmentSeconds: seg.segmentSeconds,
+  });
   return project;
+}
+
+/**
+ * Change the WanGP model pins for a project.
+ *
+ * Only future generations are affected, so this stays editable at any point in
+ * the lifecycle. Passing null clears a pin and returns the project to automatic
+ * selection. An empty string is treated as null so a "use automatic" option in
+ * a <select> needs no special casing.
+ */
+export async function updateProjectModels(id: string, raw: unknown): Promise<ProjectRecord> {
+  const patch = updateProjectModelsSchema.parse(raw);
+  const record = await getProjectRecord(id);
+
+  const resolve = (next: string | null | undefined, current: string | undefined) => {
+    if (next === undefined) return current;
+    return next === null || next === "" ? undefined : next;
+  };
+
+  const updated: ProjectRecord = {
+    ...record,
+    project: {
+      ...record.project,
+      imageModel: resolve(patch.imageModel, record.project.imageModel),
+      videoModel: resolve(patch.videoModel, record.project.videoModel),
+      updatedAt: new Date().toISOString(),
+    },
+    history: appendHistory(record, "project.models_updated"),
+  };
+
+  await repository.update(id, updated);
+  logEvent("project.updated", {
+    id,
+    change: "models",
+    imageModel: updated.project.imageModel ?? "auto",
+    videoModel: updated.project.videoModel ?? "auto",
+  });
+  return updated;
 }
 
 export async function listProjects(): Promise<Project[]> {
@@ -191,9 +236,25 @@ function sceneIdsFor(record: ProjectRecord): string[] {
   );
 }
 
+/** Scene context the Audio Director needs to place cues on a timeline. */
+function audioScenesFor(record: ProjectRecord): AudioSceneRef[] {
+  if (record.storyboard) {
+    return record.storyboard.scenes.map((s) => ({
+      id: s.id,
+      sceneNumber: s.sceneNumber,
+      durationSeconds: s.trimAtEndSeconds ?? s.targetDurationSeconds,
+    }));
+  }
+  return sceneIdsFor(record).map((id, i) => ({
+    id,
+    sceneNumber: i + 1,
+    durationSeconds: record.project.segmentSeconds,
+  }));
+}
+
 export async function generateAudioPlan(id: string): Promise<ProjectRecord> {
   const record = await getProjectRecord(id);
-  const audioPlan = await audioDirectorAgent(record.project, sceneIdsFor(record), getPlanningProvider());
+  const audioPlan = await audioDirectorAgent(record.project, audioScenesFor(record), getPlanningProvider());
   const updated: ProjectRecord = {
     ...record,
     audioPlan,

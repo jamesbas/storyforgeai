@@ -6,6 +6,11 @@ export const wangpModelSchema = z.object({
   name: z.string(),
   metadata: z.object({
     mainOutput: z.enum(["image", "video", "audio"]),
+    /**
+     * Everything the model emits. A video model that also renders a soundtrack
+     * (WanGP `returns_audio`, e.g. LTX-2) reports ["video", "audio"].
+     */
+    outputs: z.array(z.enum(["image", "video", "audio"])).optional(),
     inputs: z.array(z.enum(["text", "image", "video", "audio"])),
     mediaInputs: z
       .object({
@@ -16,9 +21,23 @@ export const wangpModelSchema = z.object({
             reference: z.boolean().optional(),
           })
           .optional(),
+        audio: z
+          .object({
+            /** Accepts an audio prompt / voice sample (lip-sync, voice cloning). */
+            prompt: z.boolean().optional(),
+            /** Produces an audio track. */
+            output: z.boolean().optional(),
+          })
+          .optional(),
       })
       .optional(),
     supportsLora: z.boolean().optional(),
+    /**
+     * Whether the weights are present locally. WanGP happily accepts a job for
+     * a model it does not have and downloads it first, which can mean tens of
+     * gigabytes before anything renders.
+     */
+    availability: z.enum(["available", "partial", "missing"]).optional(),
     vramProfile: z.enum(["low", "medium", "high"]).optional(),
     qualityRank: z.number().optional(),
     recommendedFps: z.array(z.number()).optional(),
@@ -31,6 +50,10 @@ export const wangpFieldSchema = z.object({
   name: z.string(),
   type: z.string(),
   allowed: z.array(z.unknown()).optional(),
+  /** Published numeric bounds, when the model schema declares them. */
+  min: z.number().optional(),
+  max: z.number().optional(),
+  step: z.number().optional(),
 });
 
 export const wangpModelSchemaSchema = z.object({
@@ -68,6 +91,10 @@ export const modelCapabilitySchema = z.object({
   supportsEndFrame: z.boolean(),
   supportsReferenceImages: z.boolean(),
   supportsLora: z.boolean(),
+  /** Emits an audio track of its own (WanGP `returns_audio` / `audio_only`). */
+  supportsAudioOutput: z.boolean(),
+  /** Accepts an audio prompt or voice sample as input. */
+  acceptsAudioPrompt: z.boolean(),
   maxFrames: z.number().optional(),
   recommendedFps: z.array(z.number()).optional(),
   vramProfile: z.enum(["low", "medium", "high"]).optional(),

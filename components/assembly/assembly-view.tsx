@@ -3,25 +3,32 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
+import type { MediaDescriptor } from "@/lib/media/refs";
+import { AudioCuePanel } from "@/components/assembly/audio-cue-panel";
 
 type ExportDescriptor = { name: string; url: string; available: boolean };
 
 export function AssemblyView({ projectId }: { projectId: string }) {
   const [record, setRecord] = useState<ProjectRecord | null>(null);
   const [exportsList, setExportsList] = useState<ExportDescriptor[]>([]);
+  const [media, setMedia] = useState<MediaDescriptor[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deepy, setDeepy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    const [rec, exp] = await Promise.all([
+    const [rec, exp, med] = await Promise.all([
       fetch(`/api/projects/${projectId}`).then((r) => (r.ok ? (r.json() as Promise<ProjectRecord>) : null)),
       fetch(`/api/projects/${projectId}/exports`).then((r) =>
         r.ok ? (r.json() as Promise<{ exports: ExportDescriptor[] }>) : { exports: [] },
       ),
+      fetch(`/api/projects/${projectId}/media`).then((r) =>
+        r.ok ? (r.json() as Promise<{ media: MediaDescriptor[] }>) : { media: [] },
+      ),
     ]);
     if (rec) setRecord(rec);
     setExportsList(exp.exports);
+    setMedia(med.media);
   }, [projectId]);
 
   useEffect(() => {
@@ -62,6 +69,8 @@ export function AssemblyView({ projectId }: { projectId: string }) {
   );
 
   const assembly = record?.assembly;
+  const cut = media.find((m) => m.role === "final_cut" && m.available)
+    ?? media.find((m) => m.role === "rough_cut" && m.available);
 
   return (
     <div className="space-y-6">
@@ -103,6 +112,28 @@ export function AssemblyView({ projectId }: { projectId: string }) {
           <p className="text-xs text-slate-500">
             {assembly.plan.clips.length} clips · {assembly.plan.totalDurationSeconds}s
           </p>
+
+          {cut ? (
+            <div className="mt-3 space-y-1" data-testid="cut-player">
+              <video
+                src={cut.url}
+                controls
+                preload="metadata"
+                className="w-full rounded-md border border-white/10 bg-black"
+              />
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>{cut.label}</span>
+                <a href={cut.downloadUrl} className="hover:text-accent">
+                  Download
+                </a>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-2 text-xs text-slate-500">
+              No playable file on disk. Set FFMPEG_ENABLED=true to render a real cut.
+            </p>
+          )}
+
           <ol className="mt-3 space-y-2">
             {assembly.plan.clips.map((c) => (
               <li
@@ -134,6 +165,27 @@ export function AssemblyView({ projectId }: { projectId: string }) {
           {deepy}
         </p>
       )}
+
+      <section>
+        <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+          Music &amp; SFX cues
+        </h2>
+        <p className="mb-3 mt-1 text-xs text-slate-500">
+          Dialogue is performed by the video model from each scene prompt. These cues are generated
+          separately and mixed over the cut.
+        </p>
+        <AudioCuePanel
+          projectId={projectId}
+          cues={record?.audioPlan?.cues ?? []}
+          scenes={(record?.storyboard?.scenes ?? []).map((s) => ({
+            id: s.id,
+            sceneNumber: s.sceneNumber,
+            durationSeconds: s.trimAtEndSeconds ?? s.targetDurationSeconds,
+          }))}
+          media={media}
+          onChanged={load}
+        />
+      </section>
 
       <section>
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">

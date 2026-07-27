@@ -3,8 +3,11 @@ import {
   ASPECT_RATIOS,
   CREATIVE_MODES,
   GENERATION_MODES,
+  MAX_SEGMENT_SECONDS,
+  MIN_SEGMENT_SECONDS,
   MODEL_STRATEGIES,
   RESOLUTION_PRESETS,
+  SEGMENT_SECONDS,
 } from "@/lib/types";
 
 /**
@@ -14,6 +17,13 @@ import {
 export const createProjectSchema = z.object({
   concept: z.string().min(1, "concept is required").max(5000),
   requestedDurationSeconds: z.number().int().positive().max(3600),
+  /** Clip length. Shorter segments mean more scenes for the same runtime. */
+  segmentSeconds: z
+    .number()
+    .int()
+    .min(MIN_SEGMENT_SECONDS)
+    .max(MAX_SEGMENT_SECONDS)
+    .default(SEGMENT_SECONDS),
   aspectRatio: z.enum(ASPECT_RATIOS).default("16:9"),
   resolutionPreset: z.enum(RESOLUTION_PRESETS).default("standard"),
   style: z.string().min(1).default("cinematic"),
@@ -26,7 +36,23 @@ export const createProjectSchema = z.object({
   sfxRequired: z.boolean().default(false),
   generationMode: z.enum(GENERATION_MODES).default("storyboard_only"),
   modelStrategy: z.enum(MODEL_STRATEGIES).default("auto"),
+  imageModel: z.string().optional(),
+  videoModel: z.string().optional(),
 });
+
+/**
+ * Settings that can be changed after creation.
+ *
+ * Model pins only affect future generations, so they are always safe to edit.
+ * `segmentSeconds` is not here: it changes scene boundaries and is handled by
+ * its own guarded path in the project service.
+ */
+export const updateProjectModelsSchema = z.object({
+  imageModel: z.string().nullable().optional(),
+  videoModel: z.string().nullable().optional(),
+});
+
+export type UpdateProjectModelsInput = z.infer<typeof updateProjectModelsSchema>;
 
 export type CreateProjectInput = z.input<typeof createProjectSchema>;
 export type CreateProjectValues = z.infer<typeof createProjectSchema>;

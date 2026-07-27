@@ -9,10 +9,14 @@ export type TelemetryEvent =
   | "storyboard.generated"
   | "storyboard.exported"
   | "agent.run"
+  | "agent.llm.failed"
   | "wangp.discovery"
+  | "wangp.model.selected"
+  | "wangp.health.failed"
   | "wangp.job.submitted"
   | "wangp.job.polled"
   | "scene.qc"
+  | "audio_cue.generated"
   | "assembly.completed"
   | "health.check";
 

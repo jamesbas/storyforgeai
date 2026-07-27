@@ -68,7 +68,7 @@ so nothing cloud is required to run, test, or demo the app.
 ```bash
 npm install
 npm run dev
-# open http://localhost:3000
+# open http://localhost:3200
 ```
 
 The app boots in **demo mode** with an empty environment — no API keys, no database,
@@ -97,18 +97,32 @@ PLATFORM_DERIVATIVES_ENABLED=false
 
 | Script | Purpose |
 |---|---|
-| `npm run dev` | Start the dev server |
+| `npm run dev` | Start the dev server on **port 3200** |
+| `npm run dev:e2e` | Dev server on port 3100 (used by the E2E suite) |
 | `npm run build` | Production build (standalone output) |
-| `npm run start` | Run the production build |
+| `npm run start` | Run the production build on **port 3200** |
 | `npm run typecheck` | `tsc --noEmit` |
 | `npm run lint` | ESLint (`next lint`) |
 | `npm test` | Vitest unit + integration + component |
-| `npm run test:e2e` | Playwright E2E (boots the dev server) |
+| `npm run test:e2e` | Playwright E2E (boots its own dev server on 3100) |
 | `npm run smoke` | `tsx` full-pipeline smoke (create → storyboard → media → assemble) |
 | `npm run prisma:generate` | Generate the Prisma client |
 | `npm run prisma:seed` | Idempotent demo seed |
 
 First E2E run downloads the browser: `npx playwright install chromium`.
+
+### Ports
+
+| Purpose | Port |
+|---|---|
+| App (dev &amp; production) | **3200** |
+| E2E test server | 3100 |
+| PostgreSQL (docker-compose) | 5432 |
+
+To use a different port for a one-off run, invoke Next directly:
+`npx next dev -p 4000` (or `npx next start -p 4000`). To change it permanently,
+edit the `dev` / `start` scripts in `package.json`, the `EXPOSE`/`PORT`/healthcheck
+values in the `Dockerfile`, and the port mapping in `docker-compose.yml`.
 
 ---
 
@@ -159,7 +173,7 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for diagrams and design detail,
 
 ```bash
 docker compose up --build
-# app on http://localhost:3000, PostgreSQL on 5432
+# app on http://localhost:3200, PostgreSQL on 5432
 ```
 
 The image is a multi-stage build producing a self-contained Next.js standalone
@@ -182,14 +196,94 @@ npm run typecheck && npm run lint && npm test && npm run test:e2e && npm run smo
 
 ---
 
+## Prompt crafting
+
+Every WanGP prompt is built from the scene's own content — visual description,
+action, story beat, camera move, and dialogue. Dialogue is quoted inline in the
+prose (`Lead says, "..."`), which is the format LTX-2 expects and how spoken
+audio reaches the clip; nothing is synthesized separately.
+
+Deterministic builders always produce a complete prompt. When `AI_PLANNING_ENABLED`
+is set, an LLM refines each artifact and falls back to the builder on any failure.
+
+### Local LLM (LM Studio, Ollama, llama.cpp)
+
+```
+AI_PLANNING_ENABLED=true
+OPENAI_BASE_URL=http://127.0.0.1:1234/v1
+OPENAI_MODEL=<model id from the server>
+OPENAI_API_KEY=lm-studio
+```
+
+JSON mode is negotiated at runtime: the provider asks for `json_object` and
+falls back to plain text if the server rejects it (LM Studio accepts only
+`json_schema` or `text`), recovering the payload from prose or a code fence.
+
+Every failure is logged as `agent.llm.failed` with a reason — `json_mode_unsupported`,
+`schema_mismatch`, `unparseable_json`, `request_failed`. **Watch for these.**
+A silent fallback to the deterministic builder looks like success but means the
+LLM contributed nothing.
+
+WanGP's own `prompt_enhancer` is explicitly disabled on every request. Several
+models ship with it on (LTX-2 22B defaults to `"T"`), and it would rewrite the
+crafted prompt with a local model that knows nothing about the visual bible or
+scene continuity.
+
+## Model selection
+
+WanGP exposes ~200 models and publishes **no quality ranking**, so automatic
+selection cannot tell a general text-to-image model from an inpainting, editing,
+or avatar variant. Left to itself it picked an image *editor* for keyframes and a
+lip-sync avatar model for video. Pin the models you want:
+
+```
+WANGP_VIDEO_MODEL=ltx2_22B_distilled_1_1
+WANGP_IMAGE_MODEL=flux_krea
+WANGP_AUDIO_MODEL=stable_audio3_small
+```
+
+The resolved model is logged as `wangp.model.selected` with a `pinned` flag.
+
 ## Repointing mocks at real systems
 
 | Integration | How to enable |
 |---|---|
 | LLM (OpenAI) | `AI_PLANNING_ENABLED=true` + `OPENAI_API_KEY`; add the `openai` package |
-| WanGP MCP | Start the WanGP MCP server, set `WANGP_MCP_ENABLED=true` + `WANGP_MCP_URL`, implement the live client in `lib/wangp/factory.ts` |
-| ffmpeg | Implement a native `FfmpegRunner` and return it from `getFfmpegRunner()` |
+| WanGP MCP | Start the WanGP MCP server, then set `WANGP_MCP_ENABLED=true` + `WANGP_MCP_URL`. `LiveWangpClient` is selected automatically |
+| ffmpeg | Install ffmpeg + ffprobe, then set `FFMPEG_ENABLED=true` (override binaries with `FFMPEG_PATH` / `FFPROBE_PATH`) |
 | Database | `STORYFORGE_PERSISTENCE=prisma` + `DATABASE_URL`, run migrations, add a Prisma-backed repository |
+
+## Media playback
+
+Generated media is served through `/api/projects/{projectId}/media/{assetId}` with
+HTTP range support. Asset ids are opaque app identifiers (`scene~{sceneId}~{attemptId}~{role}`,
+`rough-cut`, `final-cut`); the browser never receives a filesystem path. Every
+resolved path is checked against the approved roots (`STORYFORGE_DATA_DIR` and
+`WANGP_OUTPUT_DIR`) before any read, so set `WANGP_OUTPUT_DIR` to the WanGP
+outputs folder or generated clips will not be servable. For a Pinokio install
+that is usually `C:\pinokio\api\wan.git\app\outputs`.
+
+## Audio
+
+Speech is not synthesized. Dialogue and narration are performed by the video
+model from each scene's prompt (WanGP's LTX-2 renders a soundtrack with the
+video), so `VoiceProfile` is casting direction that shapes prompt wording rather
+than a TTS configuration.
+
+Music and SFX are generated separately as **audio cues** and mixed over the cut:
+
+- A cue is anchored to a scene (`sceneId` + `startSeconds`) and resolved to an
+  absolute timeline offset at assembly, so re-trimming or regenerating another
+  scene never invalidates it.
+- `duckNativeDb` is the single mixing control: `0` mixes on top of the clip's own
+  audio (SFX), `-12` pushes it under a music bed, `-60` is an effective replace.
+- Cues are generated through the same `wangp_generate` tool as video, routed to a
+  dedicated audio model (ACE-Step, Stable Audio 3).
+- Assembly runs a second pass over the rough cut with `-c:v copy`, so iterating on
+  music never re-encodes picture. The un-scored rough cut is kept alongside the
+  scored `final-cut.mp4`.
+
+Only cues that are both generated and approved are mixed in.
 
 ---
 

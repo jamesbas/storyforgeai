@@ -26,6 +26,23 @@ describe("computeSegmentation", () => {
     expect(seg.finalTrimSeconds).toBe(0);
   });
 
+  it("splits the same runtime into more scenes as clips get shorter", () => {
+    const long = computeSegmentation(60, 20);
+    const short = computeSegmentation(60, 5);
+    expect(long.segmentCount).toBe(3);
+    expect(short.segmentCount).toBe(12);
+    // Shorter clips still have to cover the requested runtime exactly.
+    expect(short.generatedDurationSeconds).toBe(60);
+    expect(short.finalTrimSeconds).toBe(0);
+  });
+
+  it("trims the final clip when the runtime is not a whole number of segments", () => {
+    const seg = computeSegmentation(38, 5);
+    expect(seg.segmentCount).toBe(8);
+    expect(seg.generatedDurationSeconds).toBe(40);
+    expect(seg.finalTrimSeconds).toBe(2);
+  });
+
   it("rejects non-positive durations", () => {
     expect(() => computeSegmentation(0)).toThrow();
     expect(() => computeSegmentation(-10)).toThrow();

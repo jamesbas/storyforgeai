@@ -41,7 +41,7 @@ export function buildCreativeBrief(project: Project): CreativeBrief {
     audience: project.audience ?? "general",
     constraints: [
       `Target runtime ~${project.requestedDurationSeconds}s`,
-      `${project.segmentCount} fixed 20-second segments`,
+      `${project.segmentCount} fixed ${project.segmentSeconds}-second segments`,
       `Aspect ratio ${project.aspectRatio}`,
     ],
   };
@@ -117,7 +117,7 @@ export function buildSceneDrafts(
       sceneNumber,
       startTimeSeconds,
       endTimeSeconds,
-      targetDurationSeconds: 20,
+      targetDurationSeconds: project.segmentSeconds,
       trimAtEndSeconds,
       title: `Scene ${sceneNumber}`,
       sceneObjective:
@@ -127,13 +127,38 @@ export function buildSceneDrafts(
             ? "Deliver the resolution and payoff."
             : `Advance beat ${sceneNumber} of the narrative.`,
       storyBeat: storyPlan.segmentBeats[i] ?? `Beat ${sceneNumber} of ${project.segmentCount}.`,
-      visualDescription: `${project.style} visualization of "${project.concept.trim()}" for beat ${sceneNumber}.`,
-      actionDescription: `Primary subject action develops over the 20-second segment for beat ${sceneNumber}.`,
+      visualDescription:
+        `${project.concept.trim()} — ` +
+        (sceneNumber === 1
+          ? "establishing the situation and the people in it"
+          : isLast
+            ? "the final confrontation and its aftermath"
+            : `the situation escalating, beat ${sceneNumber}`) +
+        `, ${storyPlan.emotionalProgression[i] ?? "rising tension"} in the performances`,
+      actionDescription:
+        sceneNumber === 1
+          ? "The subject enters the frame and the central tension is revealed through what they do."
+          : isLast
+            ? "The subject commits to a decision and the tension releases."
+            : "The subject presses the conflict further and the stakes visibly rise.",
       cameraMovement: sceneNumber % 2 === 0 ? "Slow push-in" : "Gentle lateral tracking",
       transitionIn: sceneNumber === 1 ? "Fade in" : "Cut",
       transitionOut: isLast ? "Fade out" : "Cut",
       continuityNotes: ["Maintain subject identity", "Match lighting and palette"],
       narrationText: project.narrationRequired ? `Narration cue for scene ${sceneNumber}.` : undefined,
+      dialogue: project.dialogueRequired
+        ? [
+            {
+              character: "Lead",
+              line:
+                sceneNumber === 1
+                  ? "We can't keep pretending everything is fine."
+                  : isLast
+                    ? "Then we decide now, together."
+                    : `We need to talk about this.`,
+            },
+          ]
+        : undefined,
       musicNotes: project.musicRequired ? "Underscore supporting the beat." : undefined,
       sfxNotes: project.sfxRequired ? "Ambient and accent SFX as needed." : undefined,
       status: "planned",
@@ -142,20 +167,50 @@ export function buildSceneDrafts(
   return drafts;
 }
 
+/**
+ * Render dialogue the way LTX-2 expects it: spoken lines quoted inline in the
+ * prose of the shot description, not as a separate script block. This matches
+ * the prompt format shipped in WanGP's own LTX-2 model defaults, and is how
+ * spoken audio reaches the clip — nothing here is synthesized separately.
+ */
+function dialogueProse(scene: SceneDraft): string {
+  if (!scene.dialogue?.length) return "";
+  return (
+    " " +
+    scene.dialogue
+      .map((d) => `${d.character} says, "${d.line.replace(/"/g, "'")}"`)
+      .join(" ") +
+    " Lip movement matches the spoken words."
+  );
+}
+
+function sentence(text: string | undefined): string {
+  const trimmed = (text ?? "").trim();
+  if (!trimmed) return "";
+  return /[.!?]$/.test(trimmed) ? `${trimmed} ` : `${trimmed}. `;
+}
+
 export function buildImagePrompts(
   project: Project,
   scene: SceneDraft,
 ): Pick<ScenePrompts, "startFramePrompt" | "endFramePrompt" | "imageNegativePrompt"> {
   const isLast = scene.sceneNumber === project.segmentCount;
+  const look = `${project.style} style, ${project.tone} mood, cinematic lighting.`;
+
   return {
     startFramePrompt:
-      `Cinematic still, first frame of scene ${scene.sceneNumber}. ${project.style} style, ` +
-      `${project.tone} mood. Subject: ${project.concept.trim()}. Consistent characters, wardrobe, ` +
-      `and lighting per the visual bible.`,
+      `Cinematic still. ` +
+      sentence(scene.visualDescription) +
+      sentence(scene.storyBeat) +
+      `Opening framing of the shot; ${scene.cameraMovement.toLowerCase()} begins from here. ` +
+      `${look} Consistent characters, wardrobe, and location per the visual bible.`,
     endFramePrompt:
-      `Cinematic still, final frame of scene ${scene.sceneNumber}. Logical continuation of the ` +
-      `start frame${isLast ? " and a resolving beat" : `, setting up scene ${scene.sceneNumber + 1}`}. ` +
-      `${project.style} style.`,
+      `Cinematic still. ` +
+      sentence(scene.visualDescription) +
+      sentence(scene.actionDescription) +
+      `Closing framing after ${scene.cameraMovement.toLowerCase()}, showing the result of the action` +
+      `${isLast ? " on a resolving beat" : `, setting up scene ${scene.sceneNumber + 1}`}. ` +
+      `${look} Same characters, wardrobe, and location as the start frame.`,
     imageNegativePrompt: "no watermarks, no distorted anatomy, no text artifacts, low quality",
   };
 }
@@ -163,17 +218,27 @@ export function buildImagePrompts(
 export function buildVideoPrompts(
   project: Project,
   scene: SceneDraft,
-): Pick<ScenePrompts, "videoPrompt20s" | "videoNegativePrompt" | "promptQualityChecklist"> {
+): Pick<ScenePrompts, "videoPromptSegment" | "videoNegativePrompt" | "promptQualityChecklist"> {
+  const spoken = dialogueProse(scene);
+  const narration = scene.narrationText ? ` Voice-over: "${scene.narrationText}"` : "";
+
   return {
-    videoPrompt20s:
-      `20-second video scene ${scene.sceneNumber}. Start from the provided start frame and preserve ` +
-      `subject identity, wardrobe, location, and lighting. Motion and camera evolve toward the end ` +
-      `frame. Style: ${project.style}. Tone/pacing: ${project.tone}.`,
+    videoPromptSegment:
+      sentence(scene.visualDescription) +
+      sentence(scene.actionDescription) +
+      sentence(scene.storyBeat) +
+      `Camera: ${scene.cameraMovement.toLowerCase()}, evolving from the start frame to the end frame ` +
+      `over ${scene.trimAtEndSeconds ?? scene.targetDurationSeconds} seconds.` +
+      spoken +
+      narration +
+      ` ${project.style} style, ${project.tone} tone. Preserve subject identity, wardrobe, ` +
+      `location, and lighting throughout.`,
     videoNegativePrompt: "no flicker, no warping, no duplicated subjects, no abrupt cuts",
     promptQualityChecklist: [
       "continuity with visual bible",
       "clear subject and action",
       "start-to-end evolution described",
+      ...(scene.dialogue?.length ? ["dialogue quoted inline for lip sync"] : []),
       "negative prompt present",
     ],
   };

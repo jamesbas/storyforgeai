@@ -4,12 +4,22 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { SceneCard } from "@/components/storyboard/scene-card";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
+import type { MediaDescriptor } from "@/lib/media/refs";
 
 export function StoryboardView({ projectId }: { projectId: string }) {
   const [record, setRecord] = useState<ProjectRecord | null>(null);
+  const [media, setMedia] = useState<MediaDescriptor[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const loadMedia = useCallback(async () => {
+    const res = await fetch(`/api/projects/${projectId}/media`);
+    if (res.ok) {
+      const data = (await res.json()) as { media: MediaDescriptor[] };
+      setMedia(data.media);
+    }
+  }, [projectId]);
 
   const load = useCallback(async () => {
     setError(null);
@@ -19,11 +29,12 @@ export function StoryboardView({ projectId }: { projectId: string }) {
       setRecord(null);
     } else if (res.ok) {
       setRecord((await res.json()) as ProjectRecord);
+      await loadMedia();
     } else {
       setError("Failed to load project");
     }
     setLoading(false);
-  }, [projectId]);
+  }, [projectId, loadMedia]);
 
   useEffect(() => {
     void load();
@@ -55,13 +66,14 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         });
         if (!res.ok) throw new Error("Failed to generate scene media");
         setRecord((await res.json()) as ProjectRecord);
+        await loadMedia();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to generate scene media");
       } finally {
         setSceneBusy(null);
       }
     },
-    [projectId],
+    [projectId, loadMedia],
   );
 
   const approveScene = useCallback(
@@ -74,13 +86,14 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         );
         if (!res.ok) throw new Error("Failed to approve attempt");
         setRecord((await res.json()) as ProjectRecord);
+        await loadMedia();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to approve attempt");
       } finally {
         setSceneBusy(null);
       }
     },
-    [projectId],
+    [projectId, loadMedia],
   );
 
   if (loading) return <p className="text-sm text-slate-400">Loading…</p>;
@@ -123,6 +136,12 @@ export function StoryboardView({ projectId }: { projectId: string }) {
             className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent"
           >
             Assembly
+          </Link>
+          <Link
+            href={`/settings/${projectId}`}
+            className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent"
+          >
+            Settings
           </Link>
           <button
             onClick={generate}
@@ -170,6 +189,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   key={scene.id}
                   scene={scene}
                   attempt={latest}
+                  media={media}
                   busy={sceneBusy === scene.id}
                   onGenerate={() => generateSceneMedia(scene.id)}
                   onApprove={latest ? () => approveScene(scene.id, latest.id) : undefined}

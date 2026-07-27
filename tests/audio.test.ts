@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { computeSegmentation } from "@/lib/duration";
 import type { Project } from "@/lib/schemas/project";
-import { audioPlanSchema, animaticPlanSchema, voiceProfileSchema } from "@/lib/schemas/audio";
+import { audioPlanSchema, animaticPlanSchema, voiceProfileSchema, audioCueSchema } from "@/lib/schemas/audio";
 import { buildAudioPlan, buildAnimaticPlan } from "@/lib/agents/mock-audio";
 import { runStoryboardOrchestrator } from "@/lib/agents/orchestrator";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
@@ -38,20 +38,46 @@ function makeProject(overrides: Partial<Project> = {}): Project {
 
 describe("audio plan", () => {
   const project = makeProject();
-  const sceneIds = ["s1", "s2", "s3"];
+  const scenes = [
+    { id: "s1", sceneNumber: 1, durationSeconds: 20 },
+    { id: "s2", sceneNumber: 2, durationSeconds: 20 },
+    { id: "s3", sceneNumber: 3, durationSeconds: 20 },
+  ];
 
   it("builds a schema-valid audio plan with one cue per scene", () => {
-    const plan = buildAudioPlan(project, sceneIds);
+    const plan = buildAudioPlan(project, scenes);
     expect(() => audioPlanSchema.parse(plan)).not.toThrow();
     expect(plan.sceneAudioCues).toHaveLength(3);
   });
 
   it("includes narrator and character voice profiles when required", () => {
-    const plan = buildAudioPlan(project, sceneIds);
+    const plan = buildAudioPlan(project, scenes);
     for (const v of plan.voiceProfiles) expect(() => voiceProfileSchema.parse(v)).not.toThrow();
     expect(plan.voiceProfiles.map((v) => v.role)).toContain("narrator");
     expect(plan.voiceProfiles.map((v) => v.role)).toContain("character");
-    expect(plan.sceneAudioCues.every((c) => c.lipSyncRequired)).toBe(true);
+  });
+
+  it("proposes a timed, ducked music cue per scene when music is required", () => {
+    const plan = buildAudioPlan(project, scenes);
+    expect(plan.cues).toHaveLength(3);
+    for (const cue of plan.cues) {
+      expect(cue.kind).toBe("music");
+      expect(() => audioCueSchema.parse(cue)).not.toThrow();
+      // Music sits under the clip's own audio so rendered dialogue survives.
+      expect(cue.duckNativeDb).toBeLessThan(0);
+      // The cue must fit inside its 20s anchor scene.
+      expect(cue.startSeconds + cue.durationSeconds).toBeLessThanOrEqual(20);
+      expect(cue.approved).toBe(false);
+      expect(cue.generatedPath).toBeUndefined();
+    }
+  });
+
+  it("adds an additive SFX cue when SFX are required", () => {
+    const plan = buildAudioPlan(makeProject({ sfxRequired: true }), scenes);
+    const sfx = plan.cues.filter((c) => c.kind === "sfx");
+    expect(sfx).toHaveLength(3);
+    // An SFX hit mixes on top rather than pushing the clip audio down.
+    for (const cue of sfx) expect(cue.duckNativeDb).toBe(0);
   });
 
   it("omits voices and cues when nothing is required", () => {
@@ -61,9 +87,18 @@ describe("audio plan", () => {
       musicRequired: false,
       sfxRequired: false,
     });
-    const plan = buildAudioPlan(silent, sceneIds);
+    const plan = buildAudioPlan(silent, scenes);
     expect(plan.voiceProfiles).toHaveLength(0);
-    expect(plan.sceneAudioCues.every((c) => !c.lipSyncRequired)).toBe(true);
+    expect(plan.cues).toHaveLength(0);
+  });
+
+  it("keeps cues inside very short scenes", () => {
+    const plan = buildAudioPlan(project, [{ id: "s1", sceneNumber: 1, durationSeconds: 2 }]);
+    for (const cue of plan.cues) {
+      expect(cue.startSeconds).toBeGreaterThanOrEqual(0);
+      expect(cue.durationSeconds).toBeGreaterThan(0);
+      expect(cue.startSeconds + cue.durationSeconds).toBeLessThanOrEqual(2);
+    }
   });
 });
 

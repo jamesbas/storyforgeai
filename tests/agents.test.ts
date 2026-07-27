@@ -97,7 +97,53 @@ describe("planning agents — deterministic fallback (no provider)", () => {
     expect(scenes).toHaveLength(project.segmentCount);
     for (const s of scenes) {
       expect(() => sceneSchema.parse(s)).not.toThrow();
-      expect(s.prompts.videoPrompt20s).toContain("20-second");
+      // The prompt must state the segment length the clip has to fill.
+      expect(s.prompts.videoPromptSegment).toMatch(/\b20 seconds\b/);
+    }
+  });
+
+  it("builds a distinct prompt per scene from that scene's own content", async () => {
+    const ctx: AgentContext = {
+      project,
+      brief: buildCreativeBrief(project),
+      storyPlan: buildStoryPlan(project),
+      visualBible: buildVisualBible(project),
+    };
+    const drafts = await storyboardAgent(ctx, null);
+    const scenes = await attachScenePrompts(project, drafts, null);
+
+    // Regression guard: the builders once ignored the scene draft entirely and
+    // emitted the same prompt for every scene bar the number, which would have
+    // produced near-identical clips across the whole film.
+    const videoPrompts = new Set(scenes.map((s) => s.prompts.videoPromptSegment));
+    const startPrompts = new Set(scenes.map((s) => s.prompts.startFramePrompt));
+    expect(videoPrompts.size).toBe(scenes.length);
+    expect(startPrompts.size).toBe(scenes.length);
+
+    for (const s of scenes) {
+      expect(s.prompts.videoPromptSegment).toContain(s.actionDescription);
+      expect(s.prompts.videoPromptSegment).toContain(s.cameraMovement.toLowerCase());
+      expect(s.prompts.startFramePrompt).toContain(s.visualDescription);
+    }
+  });
+
+  it("quotes dialogue inline so the video model can perform it", async () => {
+    const speaking = makeProject(40);
+    speaking.dialogueRequired = true;
+    const ctx: AgentContext = {
+      project: speaking,
+      brief: buildCreativeBrief(speaking),
+      storyPlan: buildStoryPlan(speaking),
+      visualBible: buildVisualBible(speaking),
+    };
+    const drafts = await storyboardAgent(ctx, null);
+    const scenes = await attachScenePrompts(speaking, drafts, null);
+
+    for (const s of scenes) {
+      expect(s.dialogue?.length).toBeGreaterThan(0);
+      const line = s.dialogue![0]!;
+      expect(s.prompts.videoPromptSegment).toContain(`${line.character} says, "${line.line}"`);
+      expect(s.prompts.promptQualityChecklist).toContain("dialogue quoted inline for lip sync");
     }
   });
 

@@ -80,13 +80,15 @@ export default function HelpPage() {
         <section className={card}>
           <Anchor id="concepts" />
           <h2 className={h2}>2. Key concepts</h2>
-          <h3 className={h3}>20-second segments</h3>
+          <h3 className={h3}>Segment length</h3>
           <p className={p}>
-            Every video is planned as a series of fixed <strong>20-second scenes</strong>. The number
-            of scenes is <code>ceil(duration ÷ 20)</code>. If your target isn&apos;t an exact multiple
-            of 20, the final scene is marked with a trim so the finished video matches your requested
-            length. Example: a 90-second video → 5 scenes (100s generated), with the last scene
-            trimmed by 10 seconds.
+            Every video is planned as a series of <strong>equal-length scenes</strong>. Clip length is
+            set per project, from 5 to 20 seconds, and the number of scenes is{" "}
+            <code>ceil(duration ÷ clip length)</code>. If your target isn&apos;t an exact multiple of
+            the clip length, the final scene is marked with a trim so the finished video matches your
+            requested length. Example: a 90-second video at 20s clips → 5 scenes (100s generated),
+            with the last scene trimmed by 10 seconds. The 20-second ceiling is the video model&apos;s
+            native window; longer clips would need sliding-window generation.
           </p>
           <h3 className={h3}>Project</h3>
           <p className={p}>
@@ -170,7 +172,7 @@ export default function HelpPage() {
           <h3 className={h3}>Storyboard Review</h3>
           <p className={p}>
             The heart of the app. Shows the project title, logline, synopsis, duration summary, and one
-            card per 20-second scene. Each scene card includes its objective, visual description, camera
+            card per scene. Each scene card includes its objective, visual description, camera
             movement, and expandable prompts. From here you can generate/regenerate the storyboard,
             generate media per scene, approve attempts, and export. Header buttons jump to Variant
             Review, Agentic Canvas, and the Generation Console.
@@ -246,7 +248,8 @@ export default function HelpPage() {
             StoryForgeAI generates media through WanGP/Wan2GP. It is <strong>discovery-first</strong>:
             it lists available models, prefers ones that support start frames (for scene continuity),
             fetches each model&apos;s default settings, then changes only validated fields. Video length
-            is derived from frame rate (<code>fps × 20 + 1</code> frames for a 20-second clip).
+            is derived from frame rate (<code>fps × clip length + 1</code> frames, aligned to an
+            8-frame boundary).
           </p>
           <p className={p}>
             In demo mode a built-in mock backend returns a catalog of example models and simulates job
@@ -261,7 +264,7 @@ export default function HelpPage() {
           <h2 className={h2}>8. QC, attempts &amp; approval</h2>
           <p className={p}>
             Generating media for a scene creates an <strong>attempt</strong> — a start frame, an end
-            frame, and a 20-second video. Each attempt is automatically checked by QC, which reports
+            frame, and a video clip. Each attempt is automatically checked by QC, which reports
             pass/fail, a severity, and specific issues (continuity breaks, missing outputs, artifacts,
             etc.).
           </p>
@@ -331,7 +334,8 @@ export default function HelpPage() {
 
           <h3 className={h3}>Why are all my scenes 20 seconds?</h3>
           <p className={p}>
-            By design — fixed 20-second segments keep generation consistent and continuity manageable.
+            By design — equal-length segments keep generation consistent and continuity manageable.
+            Clip length is configurable from 5 to 20 seconds per project.
             The final scene is trimmed so the finished video matches your requested duration.
           </p>
 

@@ -19,12 +19,18 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "npm run dev -- -p 3100",
+    command: "npm run dev:e2e",
     url: "http://127.0.0.1:3100",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
+    // E2E exercises demo mode. Pin every integration off so a developer's
+    // .env.local (live WanGP, real ffmpeg) cannot change the expected results.
     env: {
       STORYFORGE_PERSISTENCE: "memory",
+      AI_PLANNING_ENABLED: "false",
+      WANGP_MCP_ENABLED: "false",
+      FFMPEG_ENABLED: "false",
+      DEEPY_ASSIST_ENABLED: "false",
     },
   },
 });

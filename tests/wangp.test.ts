@@ -110,4 +110,21 @@ describe("settings manifest", () => {
     expect(manifest.settings.force_fps).toBe(16);
     expect(manifest.settings.video_length).toBe(frameCountForFps(16));
   });
+
+  it("scales frame count with a shorter segment duration", () => {
+    // 8-frame alignment plus one, so a 5s clip at 24fps is 121 frames not 120.
+    expect(frameCountForFps(24, 5)).toBe(121);
+    expect(frameCountForFps(16, 5)).toBe(81);
+
+    const manifest = buildSettingsManifest(videoSchema, {
+      sceneId: "s1",
+      purpose: "video_segment",
+      prompt: "x",
+      fps: 16,
+      durationSeconds: 5,
+    });
+    expect(manifest.settings.video_length).toBe(frameCountForFps(16, 5));
+    // A shorter clip must not silently inherit the model's default length.
+    expect(manifest.settings.video_length).not.toBe(frameCountForFps(16));
+  });
 });

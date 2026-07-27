@@ -1,15 +1,58 @@
 import type { Scene } from "@/lib/schemas/storyboard";
 import type { SceneAttempt } from "@/lib/schemas/generation";
+import type { MediaDescriptor } from "@/lib/media/refs";
 
 type SceneCardProps = {
   scene: Scene;
   attempt?: SceneAttempt;
+  media?: MediaDescriptor[];
   busy?: boolean;
   onGenerate?: () => void;
   onApprove?: () => void;
 };
 
-export function SceneCard({ scene, attempt, busy = false, onGenerate, onApprove }: SceneCardProps) {
+/** Render a player for media that exists on disk; fall back to the path. */
+function MediaTile({ descriptor }: { descriptor: MediaDescriptor }) {
+  return (
+    <figure className="space-y-1">
+      {descriptor.kind === "video" ? (
+        <video
+          src={descriptor.url}
+          controls
+          preload="metadata"
+          className="w-full rounded-md border border-white/10 bg-black"
+          data-testid="scene-video-player"
+        />
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={descriptor.url}
+          alt={descriptor.label}
+          loading="lazy"
+          className="w-full rounded-md border border-white/10 bg-black object-cover"
+          data-testid="scene-image-player"
+        />
+      )}
+      <figcaption className="flex items-center justify-between text-[11px] text-slate-500">
+        <span>{descriptor.label}</span>
+        <a href={descriptor.downloadUrl} className="hover:text-accent">
+          Download
+        </a>
+      </figcaption>
+    </figure>
+  );
+}
+
+export function SceneCard({
+  scene,
+  attempt,
+  media = [],
+  busy = false,
+  onGenerate,
+  onApprove,
+}: SceneCardProps) {
+  const playable = media.filter((m) => m.available && m.sceneId === scene.id);
+
   return (
     <article className="rounded-lg border border-white/10 bg-panel/40 p-4" data-testid="scene-card">
       <header className="flex items-baseline justify-between">
@@ -45,7 +88,7 @@ export function SceneCard({ scene, attempt, busy = false, onGenerate, onApprove 
             <span className="text-slate-500">End frame:</span> {scene.prompts.endFramePrompt}
           </p>
           <p>
-            <span className="text-slate-500">Video (20s):</span> {scene.prompts.videoPrompt20s}
+            <span className="text-slate-500">Video (20s):</span> {scene.prompts.videoPromptSegment}
           </p>
         </div>
       </details>
@@ -73,6 +116,18 @@ export function SceneCard({ scene, attempt, busy = false, onGenerate, onApprove 
           ) : (
             <p className="text-xs text-slate-500">No media generated yet.</p>
           )}
+
+          {playable.length > 0 && (
+            <div
+              className="mt-3 grid gap-3 sm:grid-cols-3"
+              data-testid="scene-media-players"
+            >
+              {playable.map((descriptor) => (
+                <MediaTile key={descriptor.assetId} descriptor={descriptor} />
+              ))}
+            </div>
+          )}
+
           <div className="mt-3 flex gap-2">
             {onGenerate && (
               <button

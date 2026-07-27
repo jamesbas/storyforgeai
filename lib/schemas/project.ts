@@ -3,6 +3,8 @@ import {
   ASPECT_RATIOS,
   CREATIVE_MODES,
   GENERATION_MODES,
+  MAX_SEGMENT_SECONDS,
+  MIN_SEGMENT_SECONDS,
   MODEL_STRATEGIES,
   PROJECT_STATUSES,
   RESOLUTION_PRESETS,
@@ -15,7 +17,7 @@ export const projectSchema = z.object({
   title: z.string(),
   concept: z.string(),
   requestedDurationSeconds: z.number().int().positive(),
-  segmentSeconds: z.literal(20),
+  segmentSeconds: z.number().int().min(MIN_SEGMENT_SECONDS).max(MAX_SEGMENT_SECONDS),
   segmentCount: z.number().int().positive(),
   generatedDurationSeconds: z.number().int().nonnegative(),
   finalTrimSeconds: z.number().int().nonnegative(),
@@ -31,6 +33,13 @@ export const projectSchema = z.object({
   sfxRequired: z.boolean(),
   generationMode: z.enum(GENERATION_MODES),
   modelStrategy: z.enum(MODEL_STRATEGIES),
+  /**
+   * Per-project WanGP model pins. When unset the env-level pin
+   * (WANGP_IMAGE_MODEL / WANGP_VIDEO_MODEL) applies, and failing that the
+   * router picks automatically from `modelStrategy`.
+   */
+  imageModel: z.string().optional(),
+  videoModel: z.string().optional(),
   status: projectStatusSchema,
   createdAt: z.string(),
   updatedAt: z.string(),

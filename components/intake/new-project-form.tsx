@@ -5,7 +5,10 @@ import {
   ASPECT_RATIOS,
   CREATIVE_MODES,
   GENERATION_MODES,
+  MAX_SEGMENT_SECONDS,
+  MIN_SEGMENT_SECONDS,
   RESOLUTION_PRESETS,
+  SEGMENT_SECONDS,
 } from "@/lib/types";
 import type { CreateProjectInput } from "@/lib/schemas/intake";
 
@@ -17,6 +20,7 @@ export type NewProjectFormProps = {
 export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormProps) {
   const [concept, setConcept] = useState("");
   const [duration, setDuration] = useState(60);
+  const [segmentSeconds, setSegmentSeconds] = useState<number>(SEGMENT_SECONDS);
   const [aspectRatio, setAspectRatio] = useState<(typeof ASPECT_RATIOS)[number]>("16:9");
   const [resolutionPreset, setResolutionPreset] =
     useState<(typeof RESOLUTION_PRESETS)[number]>("standard");
@@ -36,6 +40,7 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
     await onSubmit({
       concept,
       requestedDurationSeconds: Number(duration),
+      segmentSeconds: Number(segmentSeconds),
       aspectRatio,
       resolutionPreset,
       style,
@@ -87,6 +92,28 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
             onChange={(e) => setDuration(Number(e.target.value))}
             className={`mt-1 w-full ${field}`}
           />
+        </div>
+        <div>
+          <label htmlFor="segmentSeconds" className={label}>
+            Clip length (seconds)
+          </label>
+          <input
+            id="segmentSeconds"
+            name="segmentSeconds"
+            type="number"
+            min={MIN_SEGMENT_SECONDS}
+            max={MAX_SEGMENT_SECONDS}
+            required
+            value={segmentSeconds}
+            onChange={(e) => setSegmentSeconds(Number(e.target.value))}
+            className={`mt-1 w-full ${field}`}
+          />
+          <p className="mt-1 text-[11px] text-slate-500">
+            {MIN_SEGMENT_SECONDS}–{MAX_SEGMENT_SECONDS}s per clip.{" "}
+            {segmentSeconds >= MIN_SEGMENT_SECONDS && segmentSeconds <= MAX_SEGMENT_SECONDS && duration > 0
+              ? `${Math.ceil(duration / segmentSeconds)} scenes to generate.`
+              : ""}
+          </p>
         </div>
         <div>
           <label htmlFor="aspectRatio" className={label}>

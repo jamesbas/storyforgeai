@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { scenePromptsSchema, type Scene, type SceneDraft } from "@/lib/schemas/storyboard";
 import { buildImagePrompts, buildVideoPrompts } from "@/lib/agents/mock-agents";
+import { SEGMENT_SECONDS } from "@/lib/types";
 import type { Project } from "@/lib/schemas/project";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 
@@ -9,10 +10,14 @@ export const IMAGE_PROMPT_SYSTEM =
   "end-frame image prompt following the Visual Bible and preserving continuity. Include a " +
   "negative prompt. Return only valid JSON.";
 
-export const VIDEO_PROMPT_SYSTEM =
+export const videoPromptSystem = (segmentSeconds: number) =>
   "You are the Video Prompt Agent. For each scene, create a WanGP-ready prompt for a " +
-  "20-second video segment focused on motion, camera movement, action, and scene evolution. " +
+  `${segmentSeconds}-second video segment focused on motion, camera movement, action, and ` +
+  "scene evolution. Describe only as much action as fits the segment length. " +
   "Include a negative prompt and generation notes. Return only valid JSON.";
+
+/** Default-length wording, retained for callers that have no project in hand. */
+export const VIDEO_PROMPT_SYSTEM = videoPromptSystem(SEGMENT_SECONDS);
 
 const imagePartSchema = scenePromptsSchema.pick({
   startFramePrompt: true,
@@ -20,7 +25,7 @@ const imagePartSchema = scenePromptsSchema.pick({
   imageNegativePrompt: true,
 });
 const videoPartSchema = scenePromptsSchema.pick({
-  videoPrompt20s: true,
+  videoPromptSegment: true,
   videoNegativePrompt: true,
   promptQualityChecklist: true,
 });
@@ -44,7 +49,11 @@ export async function attachScenePrompts(
       const user = JSON.stringify({ project, scene: draft });
       const image = await provider.generateJson(IMAGE_PROMPT_SYSTEM, user, imagePartSchema);
       if (image) imagePart = image;
-      const video = await provider.generateJson(VIDEO_PROMPT_SYSTEM, user, videoPartSchema);
+      const video = await provider.generateJson(
+        videoPromptSystem(project.segmentSeconds),
+        user,
+        videoPartSchema,
+      );
       if (video) videoPart = video;
     }
 

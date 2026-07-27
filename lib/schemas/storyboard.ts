@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { SCENE_STATUSES } from "@/lib/types";
+import { MAX_SEGMENT_SECONDS, MIN_SEGMENT_SECONDS, SCENE_STATUSES } from "@/lib/types";
 import { creativeBriefSchema, visualBibleSchema } from "@/lib/schemas/agents";
 import { projectSchema } from "@/lib/schemas/project";
 import { dialogueLineSchema, audioPlanSchema, animaticPlanSchema } from "@/lib/schemas/audio";
@@ -20,7 +20,12 @@ export const scenePromptsSchema = z.object({
   startFramePrompt: z.string(),
   endFramePrompt: z.string(),
   imageNegativePrompt: z.string(),
-  videoPrompt20s: z.string(),
+  /**
+   * Prompt for the clip. Named for the segment rather than a fixed length:
+   * segment duration is configurable, and telling the model "20s" when the
+   * project renders 8s clips makes it write far too much action into the shot.
+   */
+  videoPromptSegment: z.string(),
   videoNegativePrompt: z.string(),
   promptQualityChecklist: z.array(z.string()),
 });
@@ -32,7 +37,7 @@ export const sceneSchema = z.object({
   sceneNumber: z.number().int().positive(),
   startTimeSeconds: z.number().int().nonnegative(),
   endTimeSeconds: z.number().int().positive(),
-  targetDurationSeconds: z.literal(20),
+  targetDurationSeconds: z.number().int().min(MIN_SEGMENT_SECONDS).max(MAX_SEGMENT_SECONDS),
   trimAtEndSeconds: z.number().int().positive().optional(),
   title: z.string(),
   sceneObjective: z.string(),

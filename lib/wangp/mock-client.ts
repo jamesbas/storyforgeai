@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { WangpClient } from "@/lib/wangp/client";
 import type { WangpJob, WangpModel, WangpModelSchema } from "@/lib/schemas/wangp";
+import { produces } from "@/lib/wangp/model-router";
 
 /**
  * Deterministic in-memory WanGP client. Mirrors the real MCP tool surface so the
@@ -59,6 +60,23 @@ const MODELS: WangpModel[] = [
     },
   },
   {
+    modelType: "ltx2_22B",
+    name: "LTX-2 22B (video + audio)",
+    metadata: {
+      mainOutput: "video",
+      // Mirrors the real WanGP record: LTX-2 switches between stills and
+      // motion and renders a soundtrack, so it lists all three outputs.
+      outputs: ["image", "video", "audio"],
+      inputs: ["text", "image", "audio"],
+      mediaInputs: { image: { start: true, end: true }, audio: { prompt: true, output: true } },
+      supportsLora: true,
+      vramProfile: "high",
+      qualityRank: 88,
+      recommendedFps: [24, 25],
+      maxFrames: 481,
+    },
+  },
+  {
     modelType: "hunyuan_video",
     name: "Hunyuan Video",
     metadata: {
@@ -68,6 +86,30 @@ const MODELS: WangpModel[] = [
       qualityRank: 82,
       recommendedFps: [24],
       maxFrames: 481,
+    },
+  },
+  {
+    modelType: "stable_audio3_small",
+    name: "Stable Audio 3 Small (music)",
+    metadata: {
+      mainOutput: "audio",
+      outputs: ["audio"],
+      inputs: ["text"],
+      mediaInputs: { audio: { output: true } },
+      vramProfile: "low",
+      qualityRank: 75,
+    },
+  },
+  {
+    modelType: "chatterbox",
+    name: "Chatterbox (TTS)",
+    metadata: {
+      mainOutput: "audio",
+      outputs: ["audio"],
+      inputs: ["text", "audio"],
+      mediaInputs: { audio: { prompt: true, output: true } },
+      vramProfile: "low",
+      qualityRank: 70,
     },
   },
 ];
@@ -88,6 +130,26 @@ function defaultSettingsFor(model: WangpModel): WangpModelSchema {
         { name: "negative_prompt", type: "string" },
         { name: "resolution", type: "string", allowed: ["1280x720", "1024x1024", "720x1280"] },
         { name: "num_inference_steps", type: "number" },
+      ],
+    };
+  }
+  if (model.metadata.mainOutput === "audio") {
+    return {
+      modelType: model.modelType,
+      defaultSettings: {
+        model_type: model.modelType,
+        prompt: "",
+        negative_prompt: "",
+        duration_seconds: 30,
+        num_inference_steps: 8,
+        guidance_scale: 1,
+      },
+      fields: [
+        { name: "prompt", type: "string" },
+        { name: "negative_prompt", type: "string" },
+        { name: "duration_seconds", type: "number", min: 1, max: 120 },
+        { name: "num_inference_steps", type: "number" },
+        { name: "guidance_scale", type: "number" },
       ],
     };
   }
@@ -126,7 +188,9 @@ export class MockWangpClient implements WangpClient {
   }
 
   async listModels(mainOutput?: "image" | "video" | "audio"): Promise<WangpModel[]> {
-    return mainOutput ? MODELS.filter((m) => m.metadata.mainOutput === mainOutput) : MODELS;
+    // Filter on the full output list, not just mainOutput: a model that
+    // switches between stills and motion (LTX-2) must appear in both.
+    return mainOutput ? MODELS.filter((m) => produces(m, mainOutput)) : MODELS;
   }
 
   async getModelSchema(modelType: string): Promise<WangpModelSchema> {

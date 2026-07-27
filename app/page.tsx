@@ -60,8 +60,8 @@ export default function HomePage() {
         <section>
           <h1 className="text-2xl font-semibold">New project</h1>
           <p className="mt-1 text-sm text-slate-400">
-            Describe a concept and target duration. StoryForgeAI plans a storyboard in fixed
-            20-second segments.
+            Describe a concept and target duration. StoryForgeAI plans a storyboard in
+            equal-length segments of 5 to 20 seconds.
           </p>
           {error && (
             <p role="alert" className="mt-4 rounded-md bg-red-500/10 px-3 py-2 text-sm text-red-300">

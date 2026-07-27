@@ -391,8 +391,8 @@ flowchart LR
     config --> flags{"feature flags"}
 
     flags -->|AI_PLANNING_ENABLED| llm["getPlanningProvider()<br/>null → mock builders"]
-    flags -->|WANGP_MCP_ENABLED| wangp["getWangpClient()<br/>MockWangpClient (default)"]
-    flags -->|native| ffmpeg["getFfmpegRunner()<br/>MockFfmpegRunner (default)"]
+    flags -->|WANGP_MCP_ENABLED| wangp["getWangpClient()<br/>Mock ↔ LiveWangpClient"]
+    flags -->|FFMPEG_ENABLED| ffmpeg["getFfmpegRunner()<br/>Mock ↔ NativeFfmpegRunner"]
     flags -->|DEEPY_ASSIST_ENABLED| deepy["runDeepy()<br/>simulated when off"]
     flags -->|STORYFORGE_PERSISTENCE| repo["repository<br/>InMemory (default) ↔ Prisma"]
 ```
@@ -400,8 +400,8 @@ flowchart LR
 | Interface | Mock (default) | Live (flag-gated) |
 |---|---|---|
 | `PlanningProvider` | deterministic builders | OpenAI adapter (`AI_PLANNING_ENABLED`) |
-| `WangpClient` | `MockWangpClient` | MCP client (`WANGP_MCP_ENABLED`) |
-| `FfmpegRunner` | `MockFfmpegRunner` | native subprocess |
+| `WangpClient` | `MockWangpClient` | `LiveWangpClient` over MCP (`WANGP_MCP_ENABLED`) |
+| `FfmpegRunner` | `MockFfmpegRunner` | `NativeFfmpegRunner` subprocess (`FFMPEG_ENABLED`) |
 | `ProjectRepository` | in-memory | Prisma/Postgres (`STORYFORGE_PERSISTENCE=prisma`) |
 | Deepy | simulated responses | live Deepy (`DEEPY_ASSIST_ENABLED`) |
 
@@ -429,7 +429,7 @@ flowchart TB
         dbc[("db: postgres:16-alpine<br/>pg_isready healthcheck")]
     end
     appc -->|DATABASE_URL| dbc
-    browser([Browser]) -->|:3000| appc
+    browser([Browser]) -->|:3200| appc
 ```
 
 - Multi-stage `Dockerfile` (`deps` → `builder` → `runner`) emits a self-contained

@@ -24,7 +24,7 @@ services:
       WANGP_MCP_ENABLED: "false"
       AI_PLANNING_ENABLED: "false"
     ports:
-      - "3000:3000"
+      - "3200:3200"
     depends_on:
       db:
         condition: service_healthy

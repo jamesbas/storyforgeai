@@ -105,7 +105,11 @@ export function storyboardToMarkdown(record: ProjectRecord): string {
     lines.push(`- Continuity: ${scene.continuityNotes.join("; ")}`, "");
     lines.push(`**Start-frame prompt:** ${scene.prompts.startFramePrompt}`, "");
     lines.push(`**End-frame prompt:** ${scene.prompts.endFramePrompt}`, "");
-    lines.push(`**Video prompt (20s):** ${scene.prompts.videoPrompt20s}`, "");
+    lines.push(
+      `**Video prompt (${scene.trimAtEndSeconds ?? scene.targetDurationSeconds}s):** ` +
+        scene.prompts.videoPromptSegment,
+      "",
+    );
     lines.push(`**Negative prompt:** ${scene.prompts.videoNegativePrompt}`, "");
   }
 

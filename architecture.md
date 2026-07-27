@@ -1,0 +1,857 @@
+# StoryForgeAI — Architecture & Agent Process
+
+A reference for how **StoryForgeAI** is put together and, in particular, how its
+**agent team** is wired: which agents exist, what each one consumes and produces,
+how artifacts flow between them, and where the hand-offs to media generation,
+audio, and assembly happen.
+
+- **Style:** modular monolith — a single Next.js App Router deployable, plus
+  optional sidecars (WanGP MCP server, Deepy, ffmpeg, PostgreSQL).
+- **Guiding principle:** every external integration sits behind a feature flag and
+  a swappable interface. The app boots and runs a complete pipeline with an empty
+  environment; real systems are attached by configuration, not by rewriting logic.
+- **Agent parity rule:** every agent has a deterministic builder *and* an optional
+  LLM path, and both must emit the **same artifact shape**. A missing, disabled, or
+  misbehaving LLM degrades to the deterministic builder — it never fails a request.
+
+---
+
+## 1. System context
+
+```mermaid
+flowchart TB
+    user([Creator])
+
+    subgraph app["StoryForgeAI — Next.js modular monolith"]
+        ui["UI surfaces<br/>app/ + components/"]
+        api["API route handlers<br/>app/api/**"]
+        svc["Service layer<br/>lib/services"]
+        agents["Agent layer<br/>lib/agents"]
+        data[("Project store<br/>lib/db")]
+    end
+
+    subgraph sidecars["External systems — all optional, flag-gated"]
+        llm["OpenAI-compatible LLM<br/>OpenAI · LM Studio · Ollama"]
+        wangp["WanGP MCP server<br/>image / video / audio models"]
+        deepy["Deepy media assistant"]
+        ffmpeg["ffmpeg / ffprobe"]
+        pg[("PostgreSQL")]
+    end
+
+    user -->|HTTP| ui --> api --> svc
+    svc --> agents
+    svc --> data
+    agents -.->|AI_PLANNING_ENABLED| llm
+    svc -.->|WANGP_MCP_ENABLED| wangp
+    svc -.->|DEEPY_ASSIST_ENABLED| deepy
+    svc -.->|FFMPEG_ENABLED| ffmpeg
+    svc --> disk[/"Local filesystem<br/>./projects/:projectId/"/]
+    data -. "scaffolded, not wired" .-> pg
+
+    classDef opt stroke-dasharray: 5 5;
+    class llm,wangp,deepy,ffmpeg,pg opt;
+```
+
+Dashed edges are **off by default**. Each is replaced by an in-process
+deterministic mock so the whole product is exercisable with zero dependencies.
+Structured project data lives in memory; only rendered media touches disk — see
+[§7.1](#71-where-data-actually-lives).
+
+---
+
+## 2. Layered architecture
+
+Business logic lives only in the service layer. Route handlers resolve params,
+validate with Zod, call a service, and return JSON.
+
+```mermaid
+flowchart TD
+    subgraph UI["UI — app/, components/"]
+        pages["New Project · Storyboard · Agentic Canvas ·<br/>Variant Review · Animatic · Generation Console ·<br/>Assembly · Settings · Help · About"]
+    end
+
+    subgraph API["API — app/api/**"]
+        routes["Thin handlers:<br/>resolve params → Zod validate → service → JSON"]
+    end
+
+    subgraph SVC["Services — lib/services"]
+        psvc["project-service<br/>lifecycle + all planning agents"]
+        msvc["media-service<br/>scene generation + QC"]
+        asvcAudio["audio-service<br/>music / SFX cues"]
+        asvc["assembly-service<br/>rough cut, final cut, exports"]
+        wsvc["wangp-service<br/>manifests + job queue"]
+    end
+
+    subgraph CORE["Domain & adapters — lib/"]
+        orch["agents/orchestrator<br/>storyboard pipeline"]
+        aglayer["agents/*<br/>specialists + mock builders + registry"]
+        provider["agents/llm/provider<br/>PlanningProvider · schema-hint"]
+        wangp["wangp/<br/>client · factory · model-router · settings"]
+        media["media/<br/>assembly · audio-mix · ffmpeg · refs · path-policy"]
+        deepy["deepy/"]
+        repo["db/ repository<br/>in-memory ↔ Prisma"]
+        schemas["schemas/ — Zod trust boundaries"]
+        tel["telemetry/"]
+        cfg["config.ts — feature flags"]
+        exp["export/serialize"]
+    end
+
+    pages --> routes --> SVC
+    psvc --> orch
+    psvc --> aglayer
+    psvc --> repo
+    msvc --> wsvc
+    msvc --> aglayer
+    msvc --> repo
+    asvcAudio --> wsvc
+    asvcAudio --> repo
+    asvc --> media
+    asvc --> repo
+    asvc --> exp
+    wsvc --> wangp
+    orch --> aglayer
+    aglayer --> provider
+    SVC --> schemas
+    SVC --> tel
+    CORE --> cfg
+```
+
+| Layer | Responsibility | Rule |
+|---|---|---|
+| UI components | Presentation and interaction | No data access, no business rules |
+| Route handlers | HTTP boundary, validation, delegation | Thin; validate then call a service |
+| Services | All business logic and orchestration | Dependency-injected, testable |
+| Agents | Creative reasoning, artifact production | Deterministic builder + optional LLM |
+| Adapters | External systems behind an interface | Always paired with a mock |
+| Cross-cutting | Config, schemas, telemetry | Imported everywhere; no upward deps |
+
+---
+
+## 3. The agent team
+
+Two distinct agent groups operate on a project, plus supporting agents on the
+media path.
+
+### 3.1 Roster
+
+| # | Agent | Module | Consumes | Produces | Schema | Invoked by |
+|---|---|---|---|---|---|---|
+| 1 | **Variant Explorer** | `canvas-agents.ts` | `Project` | 3+ creative directions | `creativeVariantSchema[]` | `POST /generate-variants` |
+| 2 | **World Builder** | `canvas-agents.ts` | `Project` | World Bible | `worldBibleSchema` | `POST /generate-world-bible` |
+| 3 | **Director** | `canvas-agents.ts` | `Project` | Directorial plan | `directorialPlanSchema` | `POST /generate-directorial-plan` |
+| 4 | **Cinematographer** | `canvas-agents.ts` | `Project` | Camera plan | `cinematographyPlanSchema` | `POST /generate-cinematography-plan` |
+| 5 | **Art Director** | `canvas-agents.ts` | `Project` | Art direction plan | `artDirectionPlanSchema` | `POST /generate-art-direction-plan` |
+| 6 | **Intake Producer** | `intake-agent.ts` | `Project` (+ selected variant) | Creative brief | `creativeBriefSchema` | Orchestrator, step 1 |
+| 7 | **Story Architect** | `story-architect-agent.ts` | `Project` + brief | Story plan, 1 beat per segment | `storyPlanSchema` | Orchestrator, step 2 |
+| 8 | **Visual Bible** | `visual-bible-agent.ts` | `Project` + brief | Continuity guide | `visualBibleSchema` | Orchestrator, step 3 |
+| 9 | **Storyboard Artist** | `storyboard-agent.ts` | `Project` + brief + story plan + visual bible | Scene drafts | `sceneDraftSchema[]` | Orchestrator, step 4 |
+| 10 | **Image Prompt Engineer** | `prompt-agents.ts` | `Project` + each scene draft | Start/end frame prompts + negative | subset of `scenePromptsSchema` | Orchestrator, step 5 |
+| 11 | **Video Prompt Engineer** | `prompt-agents.ts` | `Project` + each scene draft | Motion prompt + negative + checklist | subset of `scenePromptsSchema` | Orchestrator, step 5 |
+| 12 | **Audio Director** | `audio-agents.ts` | `Project` + scene refs | Audio plan, music/SFX cues | `audioPlanSchema` | `POST /generate-audio-plan` |
+| 13 | **Creative Critic (QC)** | `qc-agent.ts` | `Scene` + `SceneAttempt` | Pass/fail, severity, regen notes | `qcResultSchema` | `media-service` after each attempt |
+| — | **Deepy assistant** | `deepy/deepy.ts` | Media path + action | Inspection/suggestion text | — | `POST /scenes/{id}/deepy` |
+| — | **Animatic builder** | `mock-audio.ts` | Storyboard snapshot | Animatic plan | `animaticPlanSchema` | `POST /generate-animatic` |
+
+`lib/agents/registry.ts` is the declarative roster surfaced in the UI; it also
+carries `wangp_settings` (WanGP Producer) as a phase-3 descriptor whose behaviour
+is currently implemented directly by `wangp-service` + `lib/wangp/settings.ts`
+rather than as a standalone agent module.
+
+### 3.2 Full agent interconnection map
+
+This is the complete picture of who feeds whom. Solid edges are **artifact
+dependencies enforced in code**; dotted edges are **advisory context** that a
+creator reads on the Agentic Canvas but that is not threaded into the callee's
+input payload.
+
+```mermaid
+flowchart TB
+    P["Project record<br/>concept · duration · style · tone ·<br/>segmentCount · flags"]
+
+    subgraph CANVAS["Agentic Canvas — independent, project-scoped, re-runnable"]
+        VE["1 Variant Explorer<br/>→ CreativeVariant[]"]
+        SEL{{"Creator selects<br/>one direction"}}
+        WB["2 World Builder<br/>→ WorldBible"]
+        DIR["3 Director<br/>→ DirectorialPlan"]
+        CIN["4 Cinematographer<br/>→ CinematographyPlan"]
+        ART["5 Art Director<br/>→ ArtDirectionPlan"]
+    end
+
+    subgraph PIPE["Storyboard Orchestrator — single sequential transaction"]
+        IN["6 Intake Producer<br/>→ CreativeBrief"]
+        SA["7 Story Architect<br/>→ StoryPlan"]
+        VB["8 Visual Bible<br/>→ VisualBible"]
+        SB["9 Storyboard Artist<br/>→ SceneDraft[]"]
+        IP["10 Image Prompt Engineer<br/>→ start/end frame prompts"]
+        VP["11 Video Prompt Engineer<br/>→ motion prompt + checklist"]
+        SNAP["storyboardSnapshotSchema.parse<br/>brief + visualBible + scenes"]
+    end
+
+    subgraph POST["Downstream consumers"]
+        AD["12 Audio Director<br/>→ AudioPlan + cues"]
+        AN["Animatic builder<br/>→ AnimaticPlan"]
+        GEN["media-service<br/>→ SceneAttempt"]
+        QC["13 Creative Critic / QC<br/>→ QCResult"]
+        ASM["assembly-service<br/>→ FinalCutPlan + cut"]
+    end
+
+    P --> VE --> SEL
+    P --> WB
+    P --> DIR
+    P --> CIN
+    P --> ART
+
+    SEL -->|"selectedVariant.name appended<br/>to brief.constraints"| IN
+    P --> IN
+    IN -->|CreativeBrief| SA
+    IN -->|CreativeBrief| VB
+    P --> SA
+    P --> VB
+    IN --> SB
+    SA -->|"segmentBeats[i] → scene.storyBeat<br/>emotionalProgression[i]"| SB
+    VB -->|"continuity + negative rules"| SB
+    SB -->|SceneDraft| IP
+    SB -->|SceneDraft| VP
+    IP --> SNAP
+    VP --> SNAP
+    IN --> SNAP
+    VB --> SNAP
+
+    SNAP -->|"scene ids + durations"| AD
+    SNAP -->|"prompts + transitions"| AN
+    SNAP -->|"scene.prompts"| GEN
+    GEN -->|"attempt paths"| QC
+    QC -->|"pass → generated<br/>fail → needs_review"| GEN
+    GEN -->|"approved clips"| ASM
+    AD -->|"approved music/SFX cues"| ASM
+
+    WB -.->|"creator context only"| SB
+    DIR -.->|"creator context only"| SB
+    CIN -.->|"creator context only"| SB
+    ART -.->|"creator context only"| SB
+
+    classDef canvas fill:#12202e,stroke:#38bdf8,color:#e2e8f0;
+    classDef pipe fill:#1f2937,stroke:#6366f1,color:#e5e7eb;
+    classDef post fill:#1e1b2e,stroke:#a78bfa,color:#e5e7eb;
+    class VE,WB,DIR,CIN,ART canvas;
+    class IN,SA,VB,SB,IP,VP,SNAP pipe;
+    class AD,AN,GEN,QC,ASM post;
+```
+
+**Key structural facts this diagram encodes:**
+
+1. **Only the storyboard pipeline threads shared state.** `AgentContext` in
+   `lib/agents/types.ts` carries `project`, `selectedVariant`, `brief`,
+   `storyPlan`, `visualBible`, `sceneDrafts` and is mutated in place as each
+   agent completes. Later agents read what earlier agents wrote.
+2. **Canvas agents are deliberately independent.** World Builder, Director,
+   Cinematographer, and Art Director each receive only `{ project }`. They can be
+   run in any order, any number of times, and they never block one another. Their
+   artifacts land on the `ProjectRecord` for the creator to review.
+3. **The only cross-group coupling is the selected variant.** `selectVariant`
+   sets `selectedVariantId`; `generateStoryboard` looks the variant up and passes
+   it to the orchestrator, which appends `Selected direction: <name>` to
+   `brief.constraints`. That single string is how a chosen creative direction
+   propagates into every downstream agent, because every later agent reads the
+   brief.
+4. **Prompt agents fan out per scene.** `attachScenePrompts` loops the drafts and
+   makes *two* provider calls per scene — image then video — so a project with
+   N segments issues up to `4 + 2N` LLM calls for one storyboard run.
+5. **QC forms the only feedback loop.** Its verdict sets scene status, which gates
+   whether the creator regenerates or approves; approval gates assembly.
+
+### 3.3 Orchestrator sequence
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor U as Creator
+    participant API as POST /generate-storyboard
+    participant PS as project-service
+    participant OR as orchestrator
+    participant IN as Intake Producer
+    participant SA as Story Architect
+    participant VB as Visual Bible
+    participant SB as Storyboard Artist
+    participant PR as Image + Video Prompt Agents
+    participant LLM as PlanningProvider
+    participant DB as repository
+
+    U->>API: POST
+    API->>PS: generateStoryboard(id)
+    PS->>PS: look up selectedVariantId in record.variants
+    PS->>OR: runStoryboardOrchestrator(project, {selectedVariant})
+    OR->>OR: getPlanningProvider() → provider or null
+    Note over OR: logEvent agent.run · mode = ai:providerName or mock
+
+    OR->>IN: intakeAgent(ctx, provider)
+    IN->>LLM: generateJson(INTAKE_SYSTEM, {project})
+    LLM-->>IN: CreativeBrief or null → deterministic fallback
+    IN-->>OR: ctx.brief
+    OR->>OR: append "Selected direction: X" to brief.constraints
+
+    OR->>SA: storyArchitectAgent(ctx, provider)
+    SA->>LLM: generateJson(system(segmentSeconds), {project, brief})
+    Note right of SA: rejected unless<br/>segmentBeats.length === segmentCount
+    SA-->>OR: ctx.storyPlan
+
+    OR->>VB: visualBibleAgent(ctx, provider)
+    VB->>LLM: generateJson(VISUAL_BIBLE_SYSTEM, {project, brief})
+    VB-->>OR: ctx.visualBible
+
+    OR->>SB: storyboardAgent(ctx, provider)
+    Note right of SB: throws if brief, storyPlan,<br/>or visualBible are missing
+    SB->>LLM: generateJson(system, {project, brief, storyPlan, visualBible})
+    Note right of SB: rejected unless<br/>scenes.length === segmentCount
+    SB-->>OR: ctx.sceneDrafts
+
+    loop for each scene draft
+        OR->>PR: attachScenePrompts(project, draft, provider)
+        PR->>LLM: generateJson(IMAGE_PROMPT_SYSTEM, {project, scene})
+        PR->>LLM: generateJson(videoPromptSystem, {project, scene})
+        PR-->>OR: Scene = draft + prompts
+    end
+
+    OR->>OR: storyboardSnapshotSchema.parse(brief, visualBible, scenes)
+    OR-->>PS: StoryboardSnapshot
+    PS->>DB: update record · status = storyboard_ready · history entry
+    API-->>U: ProjectRecord
+```
+
+### 3.4 Agent contracts in detail
+
+| Agent | System prompt constant | Provider result accepted when | Deterministic fallback |
+|---|---|---|---|
+| Intake Producer | `INTAKE_SYSTEM` | parses as `creativeBriefSchema` | `buildCreativeBrief` |
+| Story Architect | `storyArchitectSystem(segmentSeconds)` | parses **and** `segmentBeats.length === segmentCount` | `buildStoryPlan` |
+| Visual Bible | `VISUAL_BIBLE_SYSTEM` | parses as `visualBibleSchema` | `buildVisualBible` |
+| Storyboard Artist | `storyboardSystem(segmentSeconds)` | parses **and** `scenes.length === segmentCount` | `buildSceneDrafts` |
+| Image Prompt | `IMAGE_PROMPT_SYSTEM` | parses the picked subset of `scenePromptsSchema` | `buildImagePrompts` |
+| Video Prompt | `videoPromptSystem(segmentSeconds)` | parses the picked subset | `buildVideoPrompts` |
+| Variant Explorer | `VARIANT_EXPLORER_SYSTEM` | parses **and** `variants.length >= 3` | `buildVariants` |
+| World Builder | `WORLD_BUILDER_SYSTEM` | parses as `worldBibleSchema` | `buildWorldBible` |
+| Director | `DIRECTOR_SYSTEM` | parses as `directorialPlanSchema` | `buildDirectorialPlan` |
+| Cinematographer | `CINEMATOGRAPHER_SYSTEM` | parses as `cinematographyPlanSchema` | `buildCinematographyPlan` |
+| Art Director | `ART_DIRECTOR_SYSTEM` | parses as `artDirectionPlanSchema` | `buildArtDirectionPlan` |
+| Audio Director | `AUDIO_DIRECTOR_SYSTEM` | parses **and** `sceneAudioCues.length === scenes.length` | `buildAudioPlan` |
+| QC | `QC_SYSTEM` | parses as `qcResultSchema` | `evaluateQc` |
+
+Segment length is **interpolated into the prompt** rather than hard-coded, because
+telling a model "20-second segments" for an 8-second project produces beats with
+far more action than the rendered clip can hold.
+
+### 3.5 How an agent actually executes
+
+Every agent follows the identical shape, which is what makes the parity rule
+enforceable:
+
+```mermaid
+flowchart TD
+    A["agentFn(ctx, provider)"] --> B{"provider present?"}
+    B -->|"no — AI_PLANNING_ENABLED off,<br/>or no key and no base URL"| Z["deterministic builder"]
+    B -->|yes| C["withSchemaHint(system, schema)<br/>append literal key list"]
+    C --> D["chat.completions.create<br/>response_format from ladder"]
+    D --> E{"HTTP ok?"}
+    E -->|"format rejected"| F["step down ladder<br/>json_schema → json_object → text"]
+    F --> D
+    E -->|"other failure"| Y["logEvent agent.llm.failed<br/>reason=request_failed"] --> Z
+    E -->|ok| G{"content present?"}
+    G -->|"no"| Y2["empty_response<br/>+ finish_reason + reasoning chars"] --> Z
+    G -->|yes| H["extractJsonObject<br/>strip &lt;think&gt;, unwrap code fence,<br/>slice outermost braces"]
+    H --> I{"parsed?"}
+    I -->|no| Y3["unparseable_json<br/>hint: raise OPENAI_MAX_TOKENS"] --> Z
+    I -->|yes| J["schema.safeParse"]
+    J -->|fail| Y4["schema_mismatch<br/>+ first 5 issue paths"] --> Z
+    J -->|pass| K{"agent-specific<br/>invariant, e.g. count"}
+    K -->|fail| Z
+    K -->|pass| L["typed artifact"]
+    Z --> L
+```
+
+Notable design points:
+
+- **Schema hint injection** (`agents/llm/schema-hint.ts`) renders a compact,
+  lossy key list from the Zod schema and appends it to the system prompt. Agent
+  prompts name schemas the model has never seen; without the hint, small local
+  models return plausible JSON with the wrong keys.
+- **Response-format ladder** — `json_schema` → `json_object` → `text`. The rung is
+  negotiated once per process and steps down permanently when a server rejects a
+  format or accepts it but returns no content. `resetResponseFormat()` restores it.
+- **Every failure is logged with a reason** (`sdk_missing`, `request_failed`,
+  `format_unsupported`, `empty_response`, `unparseable_json`, `schema_mismatch`)
+  so a silent fallback is diagnosable rather than looking like success.
+- **The SDK is a guarded dynamic import**, so a missing `openai` package degrades
+  to deterministic output instead of crashing the build.
+
+---
+
+## 4. Media generation & the QC loop
+
+Media generation is **discovery-first**: list models → resolve a model → fetch its
+schema → override only validated fields → submit → poll. Each invocation produces
+a new **attempt**, then QC runs.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant UI as Generation Console
+    participant API as POST /scenes/:sceneId/generate
+    participant MS as media-service
+    participant WS as wangp-service
+    participant RT as model-router / resolve-model
+    participant WC as WangpClient — mock ↔ live MCP
+    participant QC as QC agent
+    participant DB as repository
+
+    UI->>API: generate scene
+    API->>MS: generateSceneMedia(projectId, sceneId)
+    MS->>MS: require storyboard · find scene · read model pins
+
+    MS->>WS: buildImageManifest(start_frame)
+    WS->>WC: listModels("image")
+    WS->>RT: resolveModel(pin → env pin → selectImageModel)
+    WS->>WC: getModelSchema(modelType)
+    WS-->>MS: WangpGenerationSettings
+    MS->>WS: runToCompletion(settings)
+    WS->>WC: generate → getJob… until terminal
+
+    MS->>WS: buildImageManifest(end_frame) → runToCompletion
+    MS->>WS: buildVideoManifest(imageStart, imageEnd, duration)
+    WS->>RT: selectVideoModel — start-frame support ranks highest
+    MS->>WS: runToCompletion(video settings)
+
+    MS->>QC: qcAgent(scene, attempt, provider)
+    QC-->>MS: QCResult — passed, score, severity, issues, regen notes
+    MS->>DB: append attempt · scene status = generated or needs_review
+    MS->>MS: logEvent scene.qc
+    API-->>UI: ProjectRecord
+```
+
+**Session serialization.** WanGP holds a single generation session, so every
+submission funnels through a process-wide promise chain in `wangp-service`
+(`enqueue`). A predecessor's rejection is swallowed so one bad job cannot poison
+the queue, and a job that exceeds its poll budget is cancelled to release the
+session. This only protects one app process — the WanGP web UI can still take it.
+
+**Model resolution order:** per-project pin → env pin (`WANGP_VIDEO_MODEL` etc.)
+→ router heuristic. The router ranks by installed availability, then start-frame
+support (video), then project `modelStrategy` (`prefer_wan` / `prefer_ltx` /
+`prefer_hunyuan`), then quality rank. Models that report multiple outputs — LTX-2
+reports `["image","video"]` — are matched against the full output list rather than
+the first entry.
+
+### Scene status lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> planned: storyboard generated
+    planned --> generating: POST scenes/:sceneId/generate
+    generating --> generated: QC passed
+    generating --> needs_review: QC flagged
+    needs_review --> generating: regenerate — new attempt
+    generated --> approved: approve-attempt/:attemptId
+    needs_review --> approved: approve anyway
+    approved --> [*]: eligible for assembly
+```
+
+### WanGP job lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> submitted
+    submitted --> running: poll
+    running --> completed: files ready
+    submitted --> cancelled: cancel
+    running --> cancelled: cancel or poll budget exhausted
+    running --> failed: error
+    completed --> [*]
+    failed --> [*]
+    cancelled --> [*]
+```
+
+---
+
+## 5. Audio path
+
+Dialogue and narration are **performed by the video model** from the scene prompt —
+the mock video-prompt builder quotes spoken lines inline in prose, matching the
+format WanGP's LTX-2 defaults expect, and appends a lip-sync instruction. Nothing
+in StoryForge synthesizes speech.
+
+The Audio Director therefore plans only the beds that are generated separately:
+
+```mermaid
+flowchart LR
+    SB["Storyboard scenes<br/>id · sceneNumber · duration"] --> AD["Audio Director<br/>audioDirectorAgent"]
+    P["Project flags<br/>musicRequired · sfxRequired ·<br/>narrationRequired · dialogueRequired"] --> AD
+    AD --> PLAN["AudioPlan<br/>voiceProfiles · sceneAudioCues · cues[]"]
+    PLAN --> CUE["audio-service<br/>add / update / remove cue"]
+    CUE -->|"validates cue fits inside scene"| CUE2["AudioCue<br/>start · duration · gain ·<br/>fades · duckNativeDb"]
+    CUE2 --> GENA["generateAudioCue<br/>buildAudioManifest → runToCompletion"]
+    GENA --> APP["approveAudioCue<br/>requires generatedPath"]
+    APP --> MIX["assembly mixAudio pass"]
+```
+
+Cue defaults encode intent: **music** sits under the clip at `-8 dB` with long
+fades and ducks the native track `-12 dB`; **SFX** sits on top at `-3 dB` with
+near-instant fades and no ducking. Editing a cue's *timing* preserves rendered
+audio; editing its *prompt* clears `generatedPath` and un-approves it.
+
+---
+
+## 6. Assembly & export
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant UI as Assembly view
+    participant API as POST /assemble
+    participant AS as assembly-service
+    participant FC as buildFinalCutPlan
+    participant MX as resolveCueTimeline
+    participant FF as FfmpegRunner — mock ↔ native
+    participant DB as repository
+
+    UI->>API: assemble
+    API->>AS: assembleRoughCut(projectId)
+    AS->>FC: plan from approved attempts
+    FC-->>AS: FinalCutPlan — clips, totalDuration, finalTrimSeconds
+    AS->>FF: concat(clips → assembly/rough-cut.mp4)
+    FF-->>AS: roughCutPath
+    AS->>MX: resolveCueTimeline(plan, audioPlan.cues)
+    MX-->>AS: absolute-timeline cues
+    alt cues present
+        AS->>FF: mixAudio(roughCut, cues → assembly/final-cut.mp4)
+        FF-->>AS: finalPath
+    end
+    AS->>DB: store assembly · status = assembled
+    AS->>AS: ffprobe (native only) → logEvent assembly.completed
+    API-->>UI: ProjectRecord
+```
+
+The mix is a **second pass with the video stream copied**, so iterating on audio
+never re-encodes picture, and the rough cut survives as the un-scored reference.
+Per-scene trim is applied during the concat — the final scene's duration already
+absorbs `trimAtEndSeconds`, so `finalTrimSeconds` is a record of discarded
+material and must not be subtracted twice.
+
+Export package via `GET /api/projects/{id}/export?format=…`:
+`json` · `md` · `manifest` · `animatic` · `final-cut`.
+
+---
+
+## 7. Data model
+
+`ProjectRecord` is the per-project aggregate. Each agent owns exactly one slot on
+it, which is what makes agents independently re-runnable.
+
+```mermaid
+classDiagram
+    class ProjectRecord {
+        Project project
+        CreativeVariant[] variants
+        string selectedVariantId
+        WorldBible worldBible
+        DirectorialPlan directorialPlan
+        CinematographyPlan cinematographyPlan
+        ArtDirectionPlan artDirectionPlan
+        StoryboardSnapshot storyboard
+        AudioPlan audioPlan
+        AnimaticPlan animaticPlan
+        Map~sceneId, SceneAttempt[]~ attempts
+        Assembly assembly
+        HistoryEntry[] history
+    }
+    class Project {
+        string id
+        string concept
+        int requestedDurationSeconds
+        int segmentSeconds
+        int segmentCount
+        int finalTrimSeconds
+        string aspectRatio
+        string modelStrategy
+        string imageModel
+        string videoModel
+        ProjectStatus status
+    }
+    class StoryboardSnapshot {
+        CreativeBrief brief
+        VisualBible visualBible
+        Scene[] scenes
+    }
+    class Scene {
+        string id
+        int sceneNumber
+        int startTimeSeconds
+        int targetDurationSeconds
+        int trimAtEndSeconds
+        string storyBeat
+        string cameraMovement
+        SceneStatus status
+        ScenePrompts prompts
+    }
+    class ScenePrompts {
+        string startFramePrompt
+        string endFramePrompt
+        string imageNegativePrompt
+        string videoPromptSegment
+        string videoNegativePrompt
+        string[] promptQualityChecklist
+    }
+    class SceneAttempt {
+        string id
+        int attemptNumber
+        string startImagePath
+        string endImagePath
+        string videoPath
+        string[] settingsIds
+        QCResult qcResult
+        bool approved
+    }
+    class QCResult {
+        bool passed
+        number score
+        string severity
+        string[] issues
+        string regenerationInstructions
+    }
+    class AudioPlan {
+        VoiceProfile[] voiceProfiles
+        SceneAudioCue[] sceneAudioCues
+        AudioCue[] cues
+    }
+    class Assembly {
+        FinalCutPlan plan
+        string roughCutPath
+        string finalPath
+    }
+
+    ProjectRecord --> Project
+    ProjectRecord --> StoryboardSnapshot
+    ProjectRecord --> AudioPlan
+    ProjectRecord --> SceneAttempt
+    ProjectRecord --> Assembly
+    StoryboardSnapshot --> Scene
+    Scene --> ScenePrompts
+    SceneAttempt --> QCResult
+```
+
+`SceneDraft` is literally `Scene` minus `prompts` — the type system encodes the
+hand-off from the Storyboard Artist to the prompt agents.
+
+### 7.1 Where data actually lives
+
+**No database is in use today.** Storage is split in two:
+
+| What | Where | Durability |
+|---|---|---|
+| `ProjectRecord` — project, variants, all agent plans, storyboard, audio plan, attempts, assembly metadata, history | **In-process JavaScript `Map`**, pinned to `globalThis.__storyforgeStore` | Lost on process restart |
+| Rendered media — images, video segments, `rough-cut.mp4`, `final-cut.mp4` | **Local filesystem** under `config.dataDir` (`./projects/{projectId}/…`) | Survives restart, but is orphaned once the in-memory record is gone |
+
+```mermaid
+flowchart LR
+    svc["Services"] --> repoIface["ProjectRepository interface<br/>create · get · list · update · delete"]
+    repoIface --> impl["InMemoryProjectRepository<br/>Map&lt;projectId, ProjectRecord&gt;"]
+    impl --> glob[("globalThis.__storyforgeStore<br/>survives HMR, not restarts")]
+
+    svc --> fs[/"config.dataDir<br/>./projects/:projectId/assembly/*.mp4"/]
+    wangp["WanGP output"] --> fs
+    ff["ffmpeg concat / mixAudio"] --> fs
+
+    repoIface -. "no implementation exists" .-> prisma["PrismaProjectRepository<br/>not written"]
+    prisma -.-> pg[("PostgreSQL")]
+
+    classDef todo stroke-dasharray: 5 5,color:#94a3b8;
+    class prisma,pg todo;
+```
+
+What exists versus what is wired:
+
+- **The interface is real.** `lib/db/repository.ts` defines `ProjectRepository`,
+  and every service talks only to it — no service imports a store implementation
+  directly. Swapping in a durable store requires no application-logic changes.
+- **Only one implementation exists.** `InMemoryProjectRepository` wraps a `Map`,
+  sorting `list()` by `createdAt` descending. It is held on `globalThis` so the
+  store survives Next.js hot-module reloads in dev and is shared across route
+  handlers in the same process.
+- **`config.persistence` is read but not acted on.** `lib/config.ts` parses
+  `STORYFORGE_PERSISTENCE` into a `"memory" | "prisma"` value, but
+  `lib/db/store.ts` constructs `InMemoryProjectRepository` unconditionally. There
+  is no `PrismaProjectRepository`, and nothing in `lib/` imports
+  `@prisma/client`.
+- **`prisma/schema.prisma` is a scaffold only.** It declares a `postgresql`
+  datasource and a single `Project` model that stores the whole storyboard
+  snapshot as a `Json?` column, with enum-like fields modelled as `String`
+  (constrained by the union types in `lib/types.ts`) rather than native DB enums,
+  for portability. It is not generated, migrated, or queried by the app.
+- **`docker-compose.yml` ships a Postgres service** so the durable path can be
+  developed against, but the running app never connects to it.
+
+Practical consequences: a project vanishes on server restart; two app instances do
+not share state; and there is no transactional boundary — each service builds a
+new `ProjectRecord` immutably and calls `repository.update(id, record)` as a
+whole-object replace, which is last-write-wins under concurrency.
+
+### Project status lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> draft: POST /api/projects
+    draft --> storyboard_ready: generate-storyboard
+    storyboard_ready --> generating: first scene generated
+    generating --> generating: retry attempts
+    generating --> assembled: assemble
+    assembled --> [*]
+```
+
+Every state change also appends a `HistoryEntry` (`variants.generated`,
+`variant.selected`, `world_bible.generated`, `storyboard.generated`,
+`audio_cue.added`, `scene.generated`, `assembly.completed`, …). The Agentic Canvas
+renders this as the project's decision log.
+
+---
+
+## 8. API surface
+
+```mermaid
+flowchart LR
+    subgraph proj["/api/projects"]
+        p1["POST / · GET /"]
+        p2["GET · DELETE /:projectId"]
+        p3["PATCH /:projectId/models"]
+    end
+    subgraph agentsapi["Agent triggers — /api/projects/:projectId"]
+        a1["POST generate-variants"]
+        a2["POST variants/:variantId/select"]
+        a3["POST generate-world-bible"]
+        a4["POST generate-directorial-plan"]
+        a5["POST generate-cinematography-plan"]
+        a6["POST generate-art-direction-plan"]
+        a7["POST generate-storyboard"]
+        a8["POST generate-audio-plan"]
+        a9["POST generate-animatic"]
+    end
+    subgraph gen["Generation & media"]
+        g1["POST scenes/:sceneId/generate"]
+        g2["POST scenes/:sceneId/approve-attempt/:attemptId"]
+        g3["POST scenes/:sceneId/deepy"]
+        g4["GET media · GET media/:assetId"]
+    end
+    subgraph audio["Audio cues"]
+        c1["GET · POST audio-cues"]
+        c2["PATCH · DELETE audio-cues/:cueId"]
+    end
+    subgraph out["Assembly & export"]
+        o1["POST assemble"]
+        o2["GET exports · GET export?format="]
+    end
+    subgraph wg["/api/wangp"]
+        w1["GET status · GET models"]
+        w2["GET models/:modelType/schema"]
+        w3["POST jobs · GET jobs/:jobId · POST jobs/:jobId/cancel"]
+    end
+    h["GET /api/health"]
+```
+
+---
+
+## 9. Configuration, flags & the mock strategy
+
+`lib/config.ts` reads `process.env` once and exposes a typed, frozen object.
+Everything defaults off/local.
+
+```mermaid
+flowchart LR
+    env[".env / process.env"] --> cfg["lib/config.ts"]
+    cfg --> flags{"feature flags"}
+
+    flags -->|AI_PLANNING_ENABLED| llm["getPlanningProvider()<br/>null ⇒ deterministic builders"]
+    flags -->|WANGP_MCP_ENABLED| wangp["getWangpClient()<br/>MockWangpClient ↔ LiveWangpClient"]
+    flags -->|FFMPEG_ENABLED| ff["getFfmpegRunner()<br/>Mock ↔ Native subprocess"]
+    flags -->|DEEPY_ASSIST_ENABLED| dp["runDeepy()<br/>labelled simulation when off"]
+    flags -->|ANIMATIC_ASSEMBLY_ENABLED| an["animatic preview render"]
+    flags -->|PLATFORM_DERIVATIVES_ENABLED| pd["platform derivative exports"]
+    flags -->|STORYFORGE_PERSISTENCE| repo["repository<br/>in-memory ↔ Prisma/Postgres"]
+```
+
+| Interface | Default (mock) | Live path |
+|---|---|---|
+| `PlanningProvider` | deterministic builders | OpenAI-compatible chat completions |
+| `WangpClient` | `MockWangpClient` — completes in two polls | `LiveWangpClient` over MCP at `WANGP_MCP_URL` |
+| `FfmpegRunner` | `MockFfmpegRunner` | native `ffmpeg` / `ffprobe` subprocess |
+| `ProjectRepository` | `InMemoryProjectRepository` on a global `Map` | **not implemented** — Prisma/Postgres is scaffolded only, see [§7.1](#71-where-data-actually-lives) |
+| Deepy | simulated, clearly labelled | live Deepy sidecar |
+
+The repository and WanGP client are both pinned to `globalThis` so they survive
+Next.js hot-module reloads and are shared across route handlers. Note that
+`STORYFORGE_PERSISTENCE` is currently parsed but inert — the in-memory store is
+always selected.
+
+---
+
+## 10. Cross-cutting concerns
+
+- **Validation** — Zod at every trust boundary: request bodies, external payloads,
+  and *agent output*. The orchestrator re-parses the assembled snapshot before it
+  is ever persisted, so a malformed artifact cannot reach the store.
+- **Telemetry** — structured single-line JSON with a closed event taxonomy:
+  `project.created`, `project.updated`, `storyboard.generated`, `agent.run`,
+  `agent.llm.failed`, `wangp.discovery`, `wangp.model.selected`,
+  `wangp.job.submitted`, `wangp.job.polled`, `scene.qc`, `audio_cue.generated`,
+  `assembly.completed`, `health.check`. Fire-and-forget; never throws into a
+  request path.
+- **Error taxonomy** — `NotFoundError` / `ValidationError` in `lib/errors.ts` map
+  to 404 / 400; handlers return `{ error, details }`.
+- **Media path safety** — `lib/media/path-policy.ts` and `refs.ts` gate which
+  files may be served through `/api/projects/{id}/media/{assetId}`, so generated
+  output is never exposed by raw filesystem path.
+- **Health** — `GET /api/health` backs the container healthcheck.
+
+---
+
+## 11. Testing architecture
+
+```mermaid
+flowchart LR
+    unit["Unit — Vitest<br/>duration · schemas · model router ·<br/>settings · QC · export · audio mix"]
+    integ["Integration — Vitest + DI<br/>orchestrator · agents · canvas ·<br/>media-service · assembly · wangp mock"]
+    comp["Component — Testing Library<br/>new-project form · agentic canvas ·<br/>animatic review"]
+    e2e["E2E — Playwright<br/>storyboard · agentic canvas ·<br/>generation console · media · assembly"]
+    smoke["Scripts — tsx<br/>smoke · live-e2e · llm-probe ·<br/>llm-bench · wangp-probe · prompt-check"]
+
+    unit --> gate{{"quality gate"}}
+    integ --> gate
+    comp --> gate
+    e2e --> gate
+    smoke --> gate
+```
+
+Because every agent takes its provider as an argument and the orchestrator accepts
+`OrchestratorDeps`, the entire agent pipeline is testable by injecting a fake
+`PlanningProvider` — or `null` to assert deterministic parity. No test needs cloud
+credentials or a running WanGP server.
+
+---
+
+## 12. Deployment
+
+```mermaid
+flowchart TB
+    browser([Browser]) -->|":3200"| appc
+    subgraph compose["docker-compose"]
+        appc["app — Next.js standalone<br/>node server.js · /api/health"]
+        dbc[("db — postgres:16-alpine<br/>pg_isready healthcheck<br/>provisioned, not yet consumed")]
+    end
+    appc -. "DATABASE_URL — reserved" .-> dbc
+    appc --> vol[/"volume ./projects<br/>rendered media"/]
+    appc -.->|"WANGP_MCP_URL"| wangp["WanGP MCP server<br/>host GPU"]
+    appc -.->|"OPENAI_BASE_URL"| lm["Local LLM server"]
+```
+
+Multi-stage `Dockerfile` (`deps` → `builder` → `runner`) produces a self-contained
+Next.js standalone image running as a non-root user. It runs in in-memory demo
+mode: the bundled Postgres service is provisioned for the future durable store but
+is not yet used, so project state does not survive a container restart. Rendered
+media under `./projects` is the only persistent output and should be
+volume-mounted.

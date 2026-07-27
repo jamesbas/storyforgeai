@@ -1,5 +1,6 @@
 import { getWangpClient, wangpEnabled } from "@/lib/wangp/factory";
-import { selectImageModel, selectVideoModel } from "@/lib/wangp/model-router";
+import { selectAudioModel, selectImageModel, selectVideoModel } from "@/lib/wangp/model-router";
+import { resolveModel } from "@/lib/wangp/resolve-model";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
 import type {
   WangpGenerationSettings,
@@ -48,12 +49,20 @@ export async function buildVideoManifest(args: {
   imageStart?: string;
   imageEnd?: string;
   modelStrategy: import("@/lib/schemas/project").Project["modelStrategy"];
+  /** Per-project pin. Outranks the env pin; falls through to the router. */
+  modelType?: string;
   fps?: number;
+  /** Segment length; the last scene may be shorter than a full segment. */
+  durationSeconds?: number;
 }): Promise<WangpGenerationSettings> {
   const client = getWangpClient();
   const videoModels = await client.listModels("video");
-  const model = selectVideoModel(videoModels, { modelStrategy: args.modelStrategy });
-  if (!model) throw new Error("No suitable video model available");
+  const model = resolveModel(
+    videoModels,
+    args.modelType || config.wangp.videoModel,
+    () => selectVideoModel(videoModels, { modelStrategy: args.modelStrategy }),
+    "video_segment",
+  );
   const schema = await client.getModelSchema(model.modelType);
   return buildSettingsManifest(schema, {
     sceneId: args.sceneId,
@@ -63,6 +72,7 @@ export async function buildVideoManifest(args: {
     imageStart: args.imageStart,
     imageEnd: args.imageEnd,
     fps: args.fps ?? config.defaults.fps,
+    durationSeconds: args.durationSeconds,
     resolution: config.defaults.resolution,
   });
 }
@@ -85,19 +95,80 @@ export async function cancelJob(jobId: string): Promise<WangpJob> {
 
 const TERMINAL: WangpJob["status"][] = ["completed", "failed", "cancelled"];
 
-/** Submit a job and poll until it reaches a terminal state (spec Section 8.2). */
+const delay = (ms: number) => (ms > 0 ? new Promise((r) => setTimeout(r, ms)) : Promise.resolve());
+
+/**
+ * WanGP holds a single generation session: submitting while another job is
+ * running fails with "session already has a generation in progress". Every
+ * submission is therefore serialized through this chain, so a user generating
+ * several scenes at once queues instead of colliding.
+ *
+ * This only protects a single app process. A second StoryForge instance, or the
+ * WanGP web UI, can still take the session.
+ */
+const globalQueue = globalThis as unknown as { __storyforgeWangpQueue?: Promise<unknown> };
+
+function enqueue<T>(task: () => Promise<T>): Promise<T> {
+  const previous = globalQueue.__storyforgeWangpQueue ?? Promise.resolve();
+  // Swallow the predecessor's failure so one bad job cannot poison the queue.
+  const run = previous.catch(() => undefined).then(task);
+  globalQueue.__storyforgeWangpQueue = run.catch(() => undefined);
+  return run;
+}
+
+/** True when WanGP refused because another generation already holds the session. */
+export function isSessionBusyError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /generation in progress/i.test(message);
+}
+
+/**
+ * Submit a job and poll until it reaches a terminal state (spec Section 8.2).
+ *
+ * The mock client completes in two polls, so demo mode stays instant. Live
+ * generation takes minutes, so the live path uses the configured interval and
+ * attempt budget instead of a tight loop.
+ */
 export async function runToCompletion(
   settings: Record<string, unknown>,
-  maxPolls = 10,
+  maxPolls?: number,
 ): Promise<WangpJob> {
   const client = getWangpClient();
-  let job = await client.generate(settings);
-  logEvent("wangp.job.submitted", { jobId: job.id });
-  for (let i = 0; i < maxPolls && !TERMINAL.includes(job.status); i += 1) {
-    job = await client.getJob(job.id);
-  }
-  logEvent("wangp.job.polled", { jobId: job.id, status: job.status });
-  return job;
+  const live = client.mode === "live";
+  const attempts = maxPolls ?? (live ? config.wangp.maxPollAttempts : 10);
+  const intervalMs = live ? config.wangp.pollIntervalMs : 0;
+
+  return enqueue(async () => {
+    let job: WangpJob;
+    try {
+      job = await client.generate(settings);
+    } catch (err) {
+      if (isSessionBusyError(err)) {
+        throw new Error(
+          "WanGP is already generating. It runs one job at a time — wait for the " +
+            "current job, or cancel it (its web UI or wangp_cancel_job) and retry.",
+        );
+      }
+      throw err;
+    }
+    logEvent("wangp.job.submitted", { jobId: job.id, mode: client.mode });
+
+    for (let i = 0; i < attempts && !TERMINAL.includes(job.status); i += 1) {
+      await delay(intervalMs);
+      job = await client.getJob(job.id);
+    }
+
+    logEvent("wangp.job.polled", { jobId: job.id, status: job.status });
+    if (!TERMINAL.includes(job.status)) {
+      // Leaving it running would block every later job, so release the session.
+      await client.cancelJob(job.id).catch(() => undefined);
+      throw new Error(`WanGP job ${job.id} did not finish within ${attempts} polls; cancelled.`);
+    }
+    if (job.status !== "completed") {
+      throw new Error(job.errors[0] ?? `WanGP job ${job.id} ${job.status}.`);
+    }
+    return job;
+  });
 }
 
 /** Build an image keyframe manifest (start or end frame). */
@@ -107,11 +178,17 @@ export async function buildImageManifest(args: {
   prompt: string;
   negativePrompt?: string;
   modelStrategy: import("@/lib/schemas/project").Project["modelStrategy"];
+  /** Per-project pin. Outranks the env pin; falls through to the router. */
+  modelType?: string;
 }): Promise<WangpGenerationSettings> {
   const client = getWangpClient();
   const imageModels = await client.listModels("image");
-  const model = selectImageModel(imageModels, { modelStrategy: args.modelStrategy });
-  if (!model) throw new Error("No suitable image model available");
+  const model = resolveModel(
+    imageModels,
+    args.modelType || config.wangp.imageModel,
+    () => selectImageModel(imageModels, { modelStrategy: args.modelStrategy }),
+    args.purpose,
+  );
   const schema = await client.getModelSchema(model.modelType);
   return buildSettingsManifest(schema, {
     sceneId: args.sceneId,
@@ -119,5 +196,34 @@ export async function buildImageManifest(args: {
     prompt: args.prompt,
     negativePrompt: args.negativePrompt,
     resolution: config.defaults.resolution,
+  });
+}
+
+/**
+ * Build a manifest for a dedicated audio model (ACE-Step, Stable Audio 3).
+ * Reached through the same `wangp_generate` tool as image and video work.
+ */
+export async function buildAudioManifest(args: {
+  sceneId: string;
+  prompt: string;
+  negativePrompt?: string;
+  durationSeconds: number;
+  modelStrategy: import("@/lib/schemas/project").Project["modelStrategy"];
+}): Promise<WangpGenerationSettings> {
+  const client = getWangpClient();
+  const audioModels = await client.listModels("audio");
+  const model = resolveModel(
+    audioModels,
+    config.wangp.audioModel,
+    () => selectAudioModel(audioModels, { modelStrategy: args.modelStrategy }),
+    "audio",
+  );
+  const schema = await client.getModelSchema(model.modelType);
+  return buildSettingsManifest(schema, {
+    sceneId: args.sceneId,
+    purpose: "audio",
+    prompt: args.prompt,
+    negativePrompt: args.negativePrompt,
+    durationSeconds: args.durationSeconds,
   });
 }

@@ -28,6 +28,10 @@ mode with every integration behind a feature flag + swappable interface + mock.
   rough-cut assembly, export package (storyboard.json/.md, generation-manifest,
   animatic-plan, final-cut-plan).
 - **Audio/animatic** — AudioPlan + VoiceProfile artifacts, animatic plan + export.
+- **Audio cues** — timed music/SFX beds anchored to scenes, generated through
+  WanGP audio models and mixed over the cut at assembly with per-cue gain, fades,
+  and ducking of the clip's own audio. Speech is never synthesized; the video
+  model performs dialogue from the scene prompt.
 - **Deepy assist** — optional helper actions (inspect/extract/transcribe/suggest).
 - **Ops** — `/api/health` (200 ok), structured JSON telemetry, centralized config
   with `bool()` flags, multi-stage Dockerfile + docker-compose (app + Postgres
@@ -38,10 +42,17 @@ mode with every integration behind a feature flag + swappable interface + mock.
 - **LLM provider** — OpenAI adapter via guarded dynamic import; disabled by
   default (`AI_PLANNING_ENABLED=false`). Falls back to deterministic builders.
 - **WanGP client** — `MockWangpClient` (in-memory model catalog + simulated job
-  progression). Live MCP client is flag-gated (`WANGP_MCP_ENABLED`) and not
-  bundled in the MVP.
+  progression) is the default. `LiveWangpClient` talks to a real WanGP MCP
+  server over streamable HTTP and is selected by `WANGP_MCP_ENABLED=true`.
+  Field-name drift between WanGP models/versions is absorbed by
+  `lib/wangp/mcp/aliases.ts` (canonical vocabulary) and
+  `lib/wangp/mcp/normalize.ts` (payload mapping).
 - **ffmpeg** — `MockFfmpegRunner` records the concat command and returns the
-  output path; native subprocess runner is the swap target.
+  output path. `NativeFfmpegRunner` (`FFMPEG_ENABLED=true`) shells out to ffmpeg
+  and renders a real rough cut, normalizing mixed resolutions/frame rates and
+  applying per-scene trims through a concat filter graph. WanGP LTX-2 clips ship
+  an aac/48 kHz/stereo audio track, which is carried through the concat; clips
+  without audio are padded with `anullsrc` silence so segments stay alignable.
 - **Deepy** — deterministic simulated responses; `DEEPY_ASSIST_ENABLED` gates the
   real integration.
 - **Persistence** — in-memory (per-process, non-durable) by default; set
@@ -57,10 +68,12 @@ All off/local: `AI_PLANNING_ENABLED`, `WANGP_MCP_ENABLED`, `DEEPY_ASSIST_ENABLED
 
 1. **LLM** — set `AI_PLANNING_ENABLED=true` + `OPENAI_API_KEY`; add the `openai`
    package. Agents automatically use the provider path.
-2. **WanGP** — start the WanGP MCP server, set `WANGP_MCP_ENABLED=true` +
-   `WANGP_MCP_URL`, and implement the live `WangpClient` in `lib/wangp/factory.ts`.
-3. **ffmpeg** — implement a native `FfmpegRunner` and return it from
-   `getFfmpegRunner()`.
+2. **WanGP** — start the WanGP MCP server
+   (`python wgp.py --mcp --mcp-transport streamable-http --mcp-host 127.0.0.1
+   --mcp-port 7866`), then set `WANGP_MCP_ENABLED=true` + `WANGP_MCP_URL`.
+   `lib/wangp/factory.ts` returns `LiveWangpClient` automatically.
+3. **ffmpeg** — install ffmpeg + ffprobe and set `FFMPEG_ENABLED=true`
+   (`FFMPEG_PATH` / `FFPROBE_PATH` override the binaries).
 4. **Database** — set `STORYFORGE_PERSISTENCE=prisma` + `DATABASE_URL`, run
    `prisma migrate`, and add a Prisma-backed `ProjectRepository`.
 

@@ -27,7 +27,7 @@ function withSceneStatus(record: ProjectRecord, sceneId: string, status: Scene["
 }
 
 /**
- * Generate media for a scene: start frame, end frame, and the 20-second video,
+ * Generate media for a scene: start frame, end frame, and the segment video,
  * then run QC. Each call produces a new attempt (retry/regeneration) per spec
  * Section 8.2. Uses absolute-style mock paths from the WanGP client.
  */
@@ -36,6 +36,7 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
   if (!record.storyboard) throw new ValidationError("Generate a storyboard before media");
   const scene = findScene(record, sceneId);
   const modelStrategy = record.project.modelStrategy;
+  const { imageModel, videoModel } = record.project;
 
   const startManifest = await buildImageManifest({
     sceneId,
@@ -43,6 +44,7 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
     prompt: scene.prompts.startFramePrompt,
     negativePrompt: scene.prompts.imageNegativePrompt,
     modelStrategy,
+    modelType: imageModel,
   });
   const startJob = await runToCompletion(startManifest.settings);
 
@@ -52,16 +54,20 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
     prompt: scene.prompts.endFramePrompt,
     negativePrompt: scene.prompts.imageNegativePrompt,
     modelStrategy,
+    modelType: imageModel,
   });
   const endJob = await runToCompletion(endManifest.settings);
 
   const videoManifest = await buildVideoManifest({
     sceneId,
-    prompt: scene.prompts.videoPrompt20s,
+    prompt: scene.prompts.videoPromptSegment,
     negativePrompt: scene.prompts.videoNegativePrompt,
     imageStart: startJob.generatedFiles[0],
     imageEnd: endJob.generatedFiles[0],
     modelStrategy,
+    modelType: videoModel,
+    // The final scene is often shorter than a full segment.
+    durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
   });
   const videoJob = await runToCompletion(videoManifest.settings);
 

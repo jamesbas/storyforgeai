@@ -11,3 +11,7 @@ test-results
 next-env.d.ts
 projects/*
 !projects/.gitkeep
+
+# Local run logs / scratch output
+contend.txt
+live-e2e-output.txt
