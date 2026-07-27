@@ -32,6 +32,12 @@ export const CANONICAL_ALIASES = {
   image_refs: ["image_refs"],
   image_guide: ["image_guide"],
   image_mask: ["image_mask"],
+  /**
+   * Source clip a generation continues from. Not published in default settings
+   * — it is a media input advertised through `media_inputs.video.continue`,
+   * the same way `image_refs` is advertised through `image.reference`.
+   */
+  video_source: ["video_source", "source_video", "input_video"],
   image_prompt_type: ["image_prompt_type"],
   video_prompt_type: ["video_prompt_type"],
   prompt_enhancer: ["prompt_enhancer"],

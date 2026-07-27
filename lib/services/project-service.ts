@@ -68,6 +68,7 @@ export async function createProject(raw: unknown): Promise<Project> {
     videoModel: input.videoModel,
     useCharacterLibrary: input.useCharacterLibrary,
     characterIds: input.useCharacterLibrary ? input.characterIds : [],
+    sceneContinuity: input.sceneContinuity,
     status: "draft",
     createdAt: now,
     updatedAt: now,
@@ -105,6 +106,7 @@ export async function updateProjectModels(id: string, raw: unknown): Promise<Pro
       ...record.project,
       imageModel: resolve(patch.imageModel, record.project.imageModel),
       videoModel: resolve(patch.videoModel, record.project.videoModel),
+      sceneContinuity: patch.sceneContinuity ?? record.project.sceneContinuity,
       updatedAt: new Date().toISOString(),
     },
     history: appendHistory(record, "project.models_updated"),
@@ -116,6 +118,7 @@ export async function updateProjectModels(id: string, raw: unknown): Promise<Pro
     change: "models",
     imageModel: updated.project.imageModel ?? "auto",
     videoModel: updated.project.videoModel ?? "auto",
+    sceneContinuity: updated.project.sceneContinuity ?? "cut",
   });
   return updated;
 }

@@ -29,6 +29,14 @@ export const wangpModelSchema = z.object({
             output: z.boolean().optional(),
           })
           .optional(),
+        video: z
+          .object({
+            /** Can continue a generation from a supplied source clip. */
+            continue: z.boolean().optional(),
+            /** Can continue from the last clip WanGP generated. */
+            last: z.boolean().optional(),
+          })
+          .optional(),
       })
       .optional(),
     supportsLora: z.boolean().optional(),

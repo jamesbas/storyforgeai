@@ -6,6 +6,7 @@ import {
   CREATIVE_MODE_DOCS,
   GENERATION_MODE_DOCS,
   RESOLUTION_DOCS,
+  SCENE_CONTINUITY_OPTIONS,
   STYLE_PRESETS,
   TONE_PRESETS,
   type PresetOption,
@@ -211,6 +212,56 @@ export default function HelpPage() {
 
           <h3 className={h3}>Narration, dialogue, music &amp; SFX</h3>
           <DocList docs={AUDIO_TOGGLE_DOCS} />
+
+          <h3 className={h3}>Scene continuity (set on the Storyboard screen)</h3>
+          <p className={p}>
+            Each scene is rendered as an independent job, so by default nothing ties one clip to the
+            next beyond the prompt. This control decides what a scene inherits from the one before
+            it, trading render cost against continuity at the seam. It applies to scenes generated
+            from that point on — no regeneration needed — and scene 1 always renders its own frames.
+            If a scene&apos;s predecessor has not been generated yet, it falls back to a cut.
+          </p>
+          <OptionList options={SCENE_CONTINUITY_OPTIONS} />
+
+          <h3 className={h3}>Batch generation (Storyboard screen)</h3>
+          <p className={p}>
+            <strong>Generate all media</strong> queues every scene that has no media yet;{" "}
+            <strong>Regenerate all</strong> re-runs the whole storyboard. Scenes are generated one
+            at a time and strictly in order, for two reasons: WanGP runs a single job at a time, and
+            the continuity modes above read the previous scene&apos;s finished attempt, so overlapping
+            them would quietly degrade them to plain cuts.
+          </p>
+          <p className={p}>
+            The queue runs on the server, so closing the page does not abandon it. A scene that fails
+            is marked and skipped rather than stopping the rest, and{" "}
+            <strong>Cancel remaining</strong> abandons everything that has not started (the scene
+            already in flight finishes).
+          </p>
+          <p className={p}>
+            Two things protect a long run. Starting a batch <strong>unloads the planning model</strong>{" "}
+            first, because a local LLM and the image/video models cannot share one consumer GPU —
+            overlapping them makes WanGP thrash while swapping models and scenes die partway with
+            CUDA errors. And a scene that fails with a transient GPU fault (a CUDA error, or an
+            out-of-memory) is <strong>retried automatically</strong> after a pause; a chip showing
+            &quot;try 2&quot; means the first attempt hit one. Errors that a retry cannot fix, such as
+            an unsupported reference image, fail immediately instead.
+          </p>
+
+          <h3 className={h3}>Planning model (set on the Storyboard screen)</h3>
+          <p className={p}>
+            When planning runs on a local LLM, that model and the image/video models compete for the
+            same GPU. LM Studio keeps its model resident long after planning finishes — its default
+            idle timeout is an hour — so on a single-card machine the next render can fail with an
+            out-of-memory message from WanGP.
+          </p>
+          <p className={p}>
+            The Storyboard screen therefore shows the planning model&apos;s state with{" "}
+            <strong>Load for planning</strong> and <strong>Unload to free GPU</strong> buttons. The
+            working order is: load, generate or regenerate the storyboard, unload, then generate
+            media. The panel appears only when a local OpenAI-compatible server is configured via{" "}
+            <code>OPENAI_BASE_URL</code>, and it drives LM Studio through its <code>lms</code> CLI,
+            which the LM Studio installer puts on your PATH.
+          </p>
         </section>
 
         {/* 4. Character library */}

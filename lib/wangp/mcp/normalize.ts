@@ -82,6 +82,12 @@ export function knownKeys(
   if (image.control === true) keys.add("image_guide");
   if (image.mask === true) keys.add("image_mask");
 
+  // Continuation source. Verified against a live WanGP: setting `video_source`
+  // makes it ffprobe the path, so the key is real even though it never appears
+  // in the published defaults.
+  const video = asRecord(mediaInputs.video) ?? {};
+  if (video.continue === true) keys.add("video_source");
+
   return keys;
 }
 
@@ -265,6 +271,7 @@ export function normalizeModel(
   const mediaInputs = asRecord(read("media_inputs", "mediaInputs"));
   const image = asRecord(mediaInputs?.image);
   const audio = asRecord(mediaInputs?.audio);
+  const video = asRecord(mediaInputs?.video);
 
   const inputs = new Set<InputKind>(normalizeInputs(read("inputs")));
   for (const kind of inputsFromMediaInputs(mediaInputs)) inputs.add(kind);
@@ -299,7 +306,7 @@ export function normalizeModel(
       mainOutput: outputValue,
       ...(outputs.length ? { outputs: [...new Set(outputs)] } : {}),
       inputs: [...inputs],
-      ...(image || audio
+      ...(image || audio || video
         ? {
             mediaInputs: {
               ...(image
@@ -313,6 +320,9 @@ export function normalizeModel(
                 : {}),
               ...(audioOutput || audioPrompt
                 ? { audio: { prompt: audioPrompt, output: audioOutput } }
+                : {}),
+              ...(video
+                ? { video: { continue: video.continue === true, last: video.last === true } }
                 : {}),
             },
           }

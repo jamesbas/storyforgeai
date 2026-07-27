@@ -27,6 +27,12 @@ export type ManifestOverrides = {
    * the wrong subject.
    */
   imageRefs?: string[];
+  /**
+   * Clip this generation continues from (WanGP `video_source`). Absolute path
+   * readable by the WanGP process; it is ffprobed on submission, so a missing
+   * file fails the job immediately rather than silently rendering a fresh shot.
+   */
+  videoSource?: string;
   fps?: number;
   resolution?: string;
   /** Audio models: clip length in seconds. Video: segment length for frame maths. */
@@ -101,6 +107,20 @@ export function buildSettingsManifest(
 
   setIf("image_start", overrides.imageStart);
   setIf("image_end", overrides.imageEnd);
+
+  // Continuation replaces the keyframe pathway rather than joining it.
+  //
+  // `image_prompt_type` is a letter set: "S" start image, "E" end image,
+  // "V" continue from source video, "L" continue from the last generated video
+  // (LTX-2 publishes `allowed: "TSEVL"`). Models ship it pre-set — LTX-2
+  // defaults to "SE" — which is why start/end keyframes work today without
+  // anything setting it. Continuing means overriding that default to "V", since
+  // leaving "SE" in place would make WanGP demand keyframes this mode does not
+  // render.
+  if (overrides.videoSource) {
+    setIf("video_source", overrides.videoSource);
+    setIf("image_prompt_type", "V");
+  }
 
   // Reference images are passed as a list even for a single character: the
   // models that accept them advertise `multiple_references`, and a list is what

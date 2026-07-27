@@ -68,7 +68,13 @@ const MODELS: WangpModel[] = [
       // motion and renders a soundtrack, so it lists all three outputs.
       outputs: ["image", "video", "audio"],
       inputs: ["text", "image", "audio"],
-      mediaInputs: { image: { start: true, end: true }, audio: { prompt: true, output: true } },
+      mediaInputs: {
+        image: { start: true, end: true },
+        // Real LTX-2 advertises continuation, which drives the
+        // `continue_video` scene continuity mode.
+        video: { continue: true, last: true },
+        audio: { prompt: true, output: true },
+      },
       supportsLora: true,
       vramProfile: "high",
       qualityRank: 88,
@@ -164,6 +170,10 @@ function defaultSettingsFor(model: WangpModel): WangpModelSchema {
       ],
     };
   }
+  // Mirror the live normalizer: continuation is advertised as a capability
+  // flag, and `image_prompt_type` ships pre-set (LTX-2 defaults to "SE"), which
+  // is why continuing has to override it rather than add to it.
+  const canContinue = Boolean(model.metadata.mediaInputs?.video?.continue);
   return {
     modelType: model.modelType,
     defaultSettings: {
@@ -174,6 +184,7 @@ function defaultSettingsFor(model: WangpModel): WangpModelSchema {
       force_fps: model.metadata.recommendedFps?.[0] ?? 24,
       video_length: model.metadata.maxFrames ?? 481,
       num_inference_steps: 8,
+      ...(canContinue ? { image_prompt_type: "SE" } : {}),
     },
     fields: [
       { name: "prompt", type: "string" },
@@ -184,6 +195,12 @@ function defaultSettingsFor(model: WangpModel): WangpModelSchema {
       { name: "num_inference_steps", type: "number" },
       { name: "image_start", type: "string" },
       { name: "image_end", type: "string" },
+      ...(canContinue
+        ? [
+            { name: "video_source", type: "string" },
+            { name: "image_prompt_type", type: "string" },
+          ]
+        : []),
     ],
   };
 }

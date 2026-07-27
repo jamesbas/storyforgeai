@@ -14,3 +14,19 @@ import "@testing-library/jest-dom";
  */
 process.env.WANGP_MCP_ENABLED = "false";
 process.env.AI_PLANNING_ENABLED = "false";
+
+/**
+ * Projects now persist to disk by default. Tests must not write into the real
+ * data directory: it would leave stray records behind, make runs order
+ * dependent, and slow every case down with filesystem I/O.
+ */
+process.env.STORYFORGE_PERSISTENCE = "memory";
+
+/**
+ * The scene queue paces itself in production — it waits between scenes so the
+ * GPU can release the previous model, and backs off before retrying a
+ * transient fault. Neither is meaningful against the mock client, and both
+ * would add real seconds to every queue test.
+ */
+process.env.SCENE_QUEUE_SETTLE_DELAY_MS = "0";
+process.env.SCENE_QUEUE_RETRY_DELAY_MS = "0";

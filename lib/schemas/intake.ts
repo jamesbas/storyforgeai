@@ -7,6 +7,7 @@ import {
   MIN_SEGMENT_SECONDS,
   MODEL_STRATEGIES,
   RESOLUTION_PRESETS,
+  SCENE_CONTINUITY_MODES,
   SEGMENT_SECONDS,
 } from "@/lib/types";
 
@@ -41,6 +42,8 @@ export const createProjectSchema = z.object({
   /** Reuse saved character descriptions for this project's cast. */
   useCharacterLibrary: z.boolean().default(false),
   characterIds: z.array(z.string()).default([]),
+  /** How each scene joins the previous one. Defaults to a hard cut. */
+  sceneContinuity: z.enum(SCENE_CONTINUITY_MODES).default("cut"),
 });
 
 /**
@@ -53,6 +56,11 @@ export const createProjectSchema = z.object({
 export const updateProjectModelsSchema = z.object({
   imageModel: z.string().nullable().optional(),
   videoModel: z.string().nullable().optional(),
+  /**
+   * Continuity affects only scenes generated from here on, so like the model
+   * pins it stays editable for the life of the project.
+   */
+  sceneContinuity: z.enum(SCENE_CONTINUITY_MODES).optional(),
 });
 
 export type UpdateProjectModelsInput = z.infer<typeof updateProjectModelsSchema>;

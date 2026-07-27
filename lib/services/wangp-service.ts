@@ -55,6 +55,8 @@ export async function buildVideoManifest(args: {
   negativePrompt?: string;
   imageStart?: string;
   imageEnd?: string;
+  /** Previous scene's clip to continue from, for `continue_video` continuity. */
+  videoSource?: string;
   modelStrategy: import("@/lib/schemas/project").Project["modelStrategy"];
   /** Per-project pin. Outranks the env pin; falls through to the router. */
   modelType?: string;
@@ -78,6 +80,7 @@ export async function buildVideoManifest(args: {
     negativePrompt: args.negativePrompt,
     imageStart: args.imageStart,
     imageEnd: args.imageEnd,
+    videoSource: args.videoSource,
     fps: args.fps ?? config.defaults.fps,
     durationSeconds: args.durationSeconds,
     resolution: config.defaults.resolution,

@@ -46,6 +46,46 @@ async function resolveCastReferenceImages(record: ProjectRecord): Promise<string
     .filter((filePath): filePath is string => filePath !== null);
 }
 
+/** The attempt a scene is currently represented by: approved first, else latest. */
+function chosenAttempt(record: ProjectRecord, sceneId: string): SceneAttempt | undefined {
+  const attempts = record.attempts?.[sceneId] ?? [];
+  return attempts.find((a) => a.approved) ?? attempts[attempts.length - 1];
+}
+
+type Continuity = {
+  /** Reused start frame; when set, no start frame is rendered. */
+  startImagePath?: string;
+  /** Previous clip to continue from; when set, no keyframes are rendered. */
+  videoSource?: string;
+};
+
+/**
+ * Work out what this scene can inherit from the one before it.
+ *
+ * Falls back to a plain cut whenever the predecessor has not been generated
+ * yet, so scenes can still be rendered out of order. Continuity is a saving and
+ * a quality choice, never a prerequisite.
+ */
+function resolveContinuity(record: ProjectRecord, scene: Scene): Continuity {
+  const mode = record.project.sceneContinuity ?? "cut";
+  if (mode === "cut" || scene.sceneNumber <= 1) return {};
+
+  const previous = record.storyboard?.scenes.find(
+    (s) => s.sceneNumber === scene.sceneNumber - 1,
+  );
+  if (!previous) return {};
+  const attempt = chosenAttempt(record, previous.id);
+  if (!attempt) return {};
+
+  if (mode === "reuse_end_frame" && attempt.endImagePath) {
+    return { startImagePath: attempt.endImagePath };
+  }
+  if (mode === "continue_video" && attempt.videoPath) {
+    return { videoSource: attempt.videoPath };
+  }
+  return {};
+}
+
 /**
  * Generate media for a scene: start frame, end frame, and the segment video,
  * then run QC. Each call produces a new attempt (retry/regeneration) per spec
@@ -63,34 +103,45 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
   // references are deliberately not sent on the video job as well.
   const imageRefs = await resolveCastReferenceImages(record);
 
-  const startManifest = await buildImageManifest({
-    sceneId,
-    purpose: "start_frame",
-    prompt: scene.prompts.startFramePrompt,
-    negativePrompt: scene.prompts.imageNegativePrompt,
-    modelStrategy,
-    modelType: imageModel,
-    imageRefs,
-  });
-  const startJob = await runToCompletion(startManifest.settings);
+  const continuity = resolveContinuity(record, scene);
+  const continuing = Boolean(continuity.videoSource);
 
-  const endManifest = await buildImageManifest({
-    sceneId,
-    purpose: "end_frame",
-    prompt: scene.prompts.endFramePrompt,
-    negativePrompt: scene.prompts.imageNegativePrompt,
-    modelStrategy,
-    modelType: imageModel,
-    imageRefs,
-  });
-  const endJob = await runToCompletion(endManifest.settings);
+  const keyframe = async (
+    purpose: "start_frame" | "end_frame",
+    prompt: string,
+  ): Promise<{ id: string; path?: string }> => {
+    const manifest = await buildImageManifest({
+      sceneId,
+      purpose,
+      prompt,
+      negativePrompt: scene.prompts.imageNegativePrompt,
+      modelStrategy,
+      modelType: imageModel,
+      imageRefs,
+    });
+    const job = await runToCompletion(manifest.settings);
+    return { id: manifest.id, path: job.generatedFiles[0] };
+  };
+
+  // Continuing from the previous clip supersedes both keyframes; reusing the
+  // previous end frame supersedes only the start frame. Anything skipped here
+  // is an image render that never happens.
+  const start =
+    continuing || continuity.startImagePath
+      ? null
+      : await keyframe("start_frame", scene.prompts.startFramePrompt);
+  const end = continuing ? null : await keyframe("end_frame", scene.prompts.endFramePrompt);
+
+  const startImagePath = continuity.startImagePath ?? start?.path;
+  const endImagePath = end?.path;
 
   const videoManifest = await buildVideoManifest({
     sceneId,
     prompt: scene.prompts.videoPromptSegment,
     negativePrompt: scene.prompts.videoNegativePrompt,
-    imageStart: startJob.generatedFiles[0],
-    imageEnd: endJob.generatedFiles[0],
+    imageStart: startImagePath,
+    imageEnd: endImagePath,
+    videoSource: continuity.videoSource,
     modelStrategy,
     modelType: videoModel,
     // The final scene is often shorter than a full segment.
@@ -98,15 +149,26 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
   });
   const videoJob = await runToCompletion(videoManifest.settings);
 
+  logEvent("scene.continuity", {
+    projectId,
+    sceneId,
+    mode: record.project.sceneContinuity ?? "cut",
+    reusedStartFrame: Boolean(continuity.startImagePath),
+    continuedFromVideo: continuing,
+    imageRendersSkipped: (continuing ? 2 : 0) + (continuity.startImagePath ? 1 : 0),
+  });
+
   const existing = record.attempts?.[sceneId] ?? [];
   const attempt: SceneAttempt = {
     id: randomUUID(),
     sceneId,
     attemptNumber: existing.length + 1,
-    startImagePath: startJob.generatedFiles[0],
-    endImagePath: endJob.generatedFiles[0],
+    startImagePath,
+    endImagePath,
     videoPath: videoJob.generatedFiles[0],
-    settingsIds: [startManifest.id, endManifest.id, videoManifest.id],
+    settingsIds: [start?.id, end?.id, videoManifest.id].filter(
+      (id): id is string => id !== undefined,
+    ),
     approved: false,
     createdAt: new Date().toISOString(),
   };

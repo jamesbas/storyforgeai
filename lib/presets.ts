@@ -328,3 +328,25 @@ export const AUDIO_TOGGLE_DOCS: Readonly<Record<string, string>> = {
   Music: "Asks the Audio Director for underscore cues, each anchored to a scene with an offset and duration.",
   SFX: "Asks the Audio Director for sound-effect cues placed against specific scene moments.",
 };
+
+/** Scene continuity modes, labelled for the storyboard control. */
+export const SCENE_CONTINUITY_OPTIONS: readonly PresetOption[] = [
+  {
+    value: "cut",
+    label: "Cut between scenes (default)",
+    description:
+      "Every scene renders its own start and end frame. Correct when scenes are separate shots — reusing a frame across a hard cut looks like a freeze rather than a flow. Costs two image renders per scene.",
+  },
+  {
+    value: "reuse_end_frame",
+    label: "Continue from previous end frame",
+    description:
+      "Each scene starts from the previous scene's end frame instead of rendering a new one. The seam matches exactly, and image renders drop from 2N to N+1. Use when the action runs continuously across segments.",
+  },
+  {
+    value: "continue_video",
+    label: "Continue from previous clip (LTX-2)",
+    description:
+      "Each scene continues from the previous scene's rendered video, so motion carries across the boundary rather than restarting from a still. Skips both keyframes. Needs a video model that advertises continuation — LTX-2 does.",
+  },
+] as const;

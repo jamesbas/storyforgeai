@@ -3,6 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { SceneCard } from "@/components/storyboard/scene-card";
+import { SCENE_CONTINUITY_OPTIONS } from "@/lib/presets";
+import type { SceneContinuityMode } from "@/lib/types";
+import type { LlmRuntimeStatus } from "@/lib/services/llm-runtime-service";
+import type { SceneQueueEntry } from "@/lib/services/scene-queue";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { MediaDescriptor } from "@/lib/media/refs";
 
@@ -40,21 +44,160 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     void load();
   }, [load]);
 
+  /**
+   * Surface what the backend actually said.
+   *
+   * Generation failures are usually WanGP's own words — an out-of-memory
+   * profile hint, a missing reference file, a busy session — and every one of
+   * them is actionable. Replacing that with "failed to generate" throws away
+   * the only useful part of the response.
+   */
+  const failureMessage = useCallback(
+    async (res: Response, fallback: string): Promise<string> => {
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      return data.error ?? `${fallback} (HTTP ${res.status} ${res.statusText})`;
+    },
+    [],
+  );
+
   const generate = useCallback(async () => {
     setBusy(true);
     setError(null);
     try {
       const res = await fetch(`/api/projects/${projectId}/generate-storyboard`, { method: "POST" });
-      if (!res.ok) throw new Error("Failed to generate storyboard");
+      if (!res.ok) throw new Error(await failureMessage(res, "Failed to generate storyboard"));
       setRecord((await res.json()) as ProjectRecord);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to generate storyboard");
     } finally {
       setBusy(false);
     }
-  }, [projectId]);
+  }, [projectId, failureMessage]);
 
   const [sceneBusy, setSceneBusy] = useState<string | null>(null);
+  const [llm, setLlm] = useState<LlmRuntimeStatus | null>(null);
+  const [llmBusy, setLlmBusy] = useState<null | "load" | "unload">(null);
+  const [queue, setQueue] = useState<{ entries: SceneQueueEntry[]; active: boolean } | null>(null);
+  const [queueBusy, setQueueBusy] = useState(false);
+
+  const loadLlmStatus = useCallback(async () => {
+    try {
+      // `no-store` matters here: without it the browser can answer Refresh from
+      // its own cache and report a model as unloaded when it is resident.
+      const res = await fetch("/api/llm/status", { cache: "no-store" });
+      if (res.ok) setLlm((await res.json()) as LlmRuntimeStatus);
+    } catch {
+      // Runtime control is optional; the storyboard works without it.
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadLlmStatus();
+  }, [loadLlmStatus]);
+
+  /**
+   * Planning and generation both want the GPU, and on a single card they do not
+   * fit together. Unloading between the two phases is what keeps a render from
+   * failing with an out-of-memory hint.
+   */
+  const llmAction = useCallback(
+    async (action: "load" | "unload") => {
+      setLlmBusy(action);
+      setError(null);
+      try {
+        const res = await fetch(`/api/llm/${action}`, { method: "POST" });
+        if (!res.ok) throw new Error(await failureMessage(res, `Failed to ${action} the model`));
+        setLlm((await res.json()) as LlmRuntimeStatus);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : `Failed to ${action} the model`);
+      } finally {
+        setLlmBusy(null);
+      }
+    },
+    [failureMessage],
+  );
+
+  /**
+   * Continuity only affects scenes generated from here on, so it stays editable
+   * for the life of the project and needs no regeneration to take effect.
+   */
+  const setContinuity = useCallback(
+    async (mode: SceneContinuityMode) => {
+      setError(null);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/models`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sceneContinuity: mode }),
+        });
+        if (!res.ok) throw new Error(`Failed to save continuity (HTTP ${res.status})`);
+        setRecord((await res.json()) as ProjectRecord);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to save continuity");
+      }
+    },
+    [projectId],
+  );
+
+  /**
+   * Batch generation runs server-side so closing the tab does not abandon it,
+   * and strictly in scene order so the continuity modes can read the previous
+   * scene's finished attempt. The page just polls for progress.
+   */
+  const loadQueue = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/queue`, { cache: "no-store" });
+      if (res.ok) setQueue((await res.json()) as { entries: SceneQueueEntry[]; active: boolean });
+    } catch {
+      // Progress polling is best-effort.
+    }
+  }, [projectId]);
+
+  useEffect(() => {
+    void loadQueue();
+  }, [loadQueue]);
+
+  // Poll only while work is outstanding, and refresh the record as scenes land.
+  useEffect(() => {
+    if (!queue?.active) return;
+    const timer = window.setInterval(() => {
+      void loadQueue();
+      void load();
+    }, 3000);
+    return () => window.clearInterval(timer);
+  }, [queue?.active, loadQueue, load]);
+
+  const generateAll = useCallback(
+    async (includeGenerated: boolean) => {
+      setQueueBusy(true);
+      setError(null);
+      try {
+        const res = await fetch(
+          `/api/projects/${projectId}/queue${includeGenerated ? "?all=1" : ""}`,
+          { method: "POST" },
+        );
+        if (!res.ok) throw new Error(await failureMessage(res, "Failed to queue scenes"));
+        setQueue((await res.json()) as { entries: SceneQueueEntry[]; active: boolean });
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to queue scenes");
+      } finally {
+        setQueueBusy(false);
+      }
+    },
+    [projectId, failureMessage],
+  );
+
+  const cancelQueue = useCallback(async () => {
+    setQueueBusy(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/queue`, { method: "DELETE" });
+      if (res.ok) setQueue((await res.json()) as { entries: SceneQueueEntry[]; active: boolean });
+    } catch {
+      // Cancelling is best-effort; the running scene finishes either way.
+    } finally {
+      setQueueBusy(false);
+    }
+  }, [projectId]);
 
   const generateSceneMedia = useCallback(
     async (sceneId: string) => {
@@ -64,7 +207,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         const res = await fetch(`/api/projects/${projectId}/scenes/${sceneId}/generate`, {
           method: "POST",
         });
-        if (!res.ok) throw new Error("Failed to generate scene media");
+        if (!res.ok) throw new Error(await failureMessage(res, "Failed to generate scene media"));
         setRecord((await res.json()) as ProjectRecord);
         await loadMedia();
       } catch (e) {
@@ -73,7 +216,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         setSceneBusy(null);
       }
     },
-    [projectId, loadMedia],
+    [projectId, loadMedia, failureMessage],
   );
 
   const approveScene = useCallback(
@@ -171,12 +314,178 @@ export function StoryboardView({ projectId }: { projectId: string }) {
 
       {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
 
+      {llm?.enabled ? (
+        <section className="rounded-lg border border-white/10 bg-panel/40 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+                Planning model (LM Studio)
+              </h2>
+              <p className="mt-1 text-sm">
+                {!llm.reachable ? (
+                  <span className="text-slate-400">LM Studio is not responding.</span>
+                ) : llm.loadedModels.length === 0 ? (
+                  <span className="text-emerald-400">
+                    Unloaded — the GPU is free for image and video generation.
+                  </span>
+                ) : (
+                  <span className="text-amber-300">
+                    Loaded: {llm.loadedModels.join(", ")}
+                  </span>
+                )}
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => void llmAction("load")}
+                disabled={llmBusy !== null || !llm.reachable}
+                className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
+              >
+                {llmBusy === "load" ? "Loading…" : "Load for planning"}
+              </button>
+              <button
+                onClick={() => void llmAction("unload")}
+                disabled={llmBusy !== null || !llm.reachable}
+                className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
+              >
+                {llmBusy === "unload" ? "Unloading…" : "Unload to free GPU"}
+              </button>
+              <button
+                onClick={() => void loadLlmStatus()}
+                disabled={llmBusy !== null}
+                className="rounded-md border border-white/10 px-3 py-2 text-sm hover:border-accent disabled:opacity-50"
+              >
+                Refresh
+              </button>
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-slate-500">
+            Planning and generation compete for the same GPU. Load the model to write or regenerate a
+            storyboard, then unload it before generating media. Configured model:{" "}
+            <code>{llm.configuredModel}</code>
+            {llm.reachable && !llm.configuredModelLoaded && llm.loadedModels.length > 0
+              ? " — note a different model is currently resident."
+              : ""}
+          </p>
+        </section>
+      ) : null}
+
       {storyboard ? (
         <>
           <section className="rounded-lg border border-white/10 bg-panel/40 p-4">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Logline</h2>
             <p className="mt-1">{storyboard.brief.logline}</p>
             <p className="mt-2 text-sm text-slate-400">{storyboard.brief.synopsis}</p>
+          </section>
+
+          <section className="rounded-lg border border-white/10 bg-panel/40 p-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+              Scene continuity
+            </h2>
+            <label className="mt-2 block">
+              <select
+                value={record.project.sceneContinuity ?? "cut"}
+                onChange={(e) => void setContinuity(e.target.value as SceneContinuityMode)}
+                className="w-full rounded-md border border-white/10 bg-canvas px-3 py-2 text-sm outline-none focus:border-accent sm:max-w-md"
+              >
+                {SCENE_CONTINUITY_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="mt-2 text-xs text-slate-500">
+              {
+                SCENE_CONTINUITY_OPTIONS.find(
+                  (o) => o.value === (record.project.sceneContinuity ?? "cut"),
+                )?.description
+              }
+            </p>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Applies to scenes generated from now on. Scene 1 always renders its own frames, and any
+              scene whose predecessor has not been generated yet falls back to a cut.
+            </p>
+          </section>
+
+          <section className="rounded-lg border border-white/10 bg-panel/40 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+                  Batch generation
+                </h2>
+                <p className="mt-1 text-sm text-slate-300">
+                  {queue?.active
+                    ? `Running — ${queue.entries.filter((e) => e.state === "completed").length} of ${queue.entries.length} done`
+                    : queue?.entries.length
+                      ? `Last run: ${queue.entries.filter((e) => e.state === "completed").length} completed, ${queue.entries.filter((e) => e.state === "failed").length} failed`
+                      : "Generates every scene in order, one at a time."}
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => void generateAll(false)}
+                  disabled={queueBusy || queue?.active}
+                  className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {queue?.active ? "Generating…" : "Generate all media"}
+                </button>
+                <button
+                  onClick={() => void generateAll(true)}
+                  disabled={queueBusy || queue?.active}
+                  className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
+                >
+                  Regenerate all
+                </button>
+                {queue?.active ? (
+                  <button
+                    onClick={() => void cancelQueue()}
+                    disabled={queueBusy}
+                    className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
+                  >
+                    Cancel remaining
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
+            {queue?.entries.length ? (
+              <ul className="mt-3 flex flex-wrap gap-2">
+                {queue.entries.map((entry) => (
+                  <li
+                    key={entry.sceneId}
+                    title={entry.error ?? entry.state}
+                    className={`rounded-md border px-2 py-1 text-xs ${
+                      entry.state === "completed"
+                        ? "border-emerald-500/40 text-emerald-300"
+                        : entry.state === "running"
+                          ? "border-accent text-accent"
+                          : entry.state === "failed"
+                            ? "border-red-500/40 text-red-300"
+                            : entry.state === "cancelled"
+                              ? "border-white/10 text-slate-500"
+                              : "border-white/10 text-slate-400"
+                    }`}
+                  >
+                    Scene {entry.sceneNumber} · {entry.state}
+                    {entry.attempts > 1 ? ` · try ${entry.attempts}` : ""}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+
+            <p className="mt-2 text-[11px] text-slate-500">
+              Scenes run one at a time because WanGP generates one job at a time, and because the
+              continuity modes need the previous scene finished before the next starts. Generation
+              continues server-side if you close this page. A scene that fails does not stop the
+              rest, and transient GPU faults are retried automatically.
+            </p>
+            {llm?.reachable && llm.loadedModels.length > 0 ? (
+              <p className="mt-1 text-[11px] text-amber-300/90">
+                The planning model is currently holding the GPU. Starting a batch will unload it
+                first, because a local LLM and the image/video models cannot share one card.
+              </p>
+            ) : null}
           </section>
 
           <section className="space-y-4">

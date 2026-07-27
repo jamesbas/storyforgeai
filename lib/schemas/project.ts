@@ -8,6 +8,7 @@ import {
   MODEL_STRATEGIES,
   PROJECT_STATUSES,
   RESOLUTION_PRESETS,
+  SCENE_CONTINUITY_MODES,
 } from "@/lib/types";
 
 export const projectStatusSchema = z.enum(PROJECT_STATUSES);
@@ -50,6 +51,11 @@ export const projectSchema = z.object({
    */
   useCharacterLibrary: z.boolean().optional(),
   characterIds: z.array(z.string()).optional(),
+  /**
+   * How each scene connects to the previous one. Optional so projects created
+   * before the setting existed still parse; absent means "cut".
+   */
+  sceneContinuity: z.enum(SCENE_CONTINUITY_MODES).optional(),
   status: projectStatusSchema,
   createdAt: z.string(),
   updatedAt: z.string(),

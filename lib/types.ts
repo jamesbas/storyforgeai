@@ -75,6 +75,26 @@ export type VariantType = (typeof VARIANT_TYPES)[number];
 export const SEGMENT_SECONDS = 20;
 
 /**
+ * How each scene's video connects to the one before it.
+ *
+ * Scenes are rendered as independent jobs, so by default nothing ties scene 3
+ * to scene 2 beyond the prompt. These modes trade render cost against visual
+ * continuity at the seam.
+ *
+ * - `cut`             Fresh start and end keyframes per scene. The default,
+ *                     and correct when scenes are separate shots — reusing a
+ *                     frame across a hard cut reads as a freeze, not a flow.
+ * - `reuse_end_frame` Scene N+1 starts from scene N's end frame. Saves one
+ *                     image render per boundary and guarantees the seam
+ *                     matches, but only makes sense for continuous action.
+ * - `continue_video`  Scene N+1 continues from scene N's rendered clip via the
+ *                     video model's own continuation support. Best motion
+ *                     continuity; needs a model advertising `video.continue`.
+ */
+export const SCENE_CONTINUITY_MODES = ["cut", "reuse_end_frame", "continue_video"] as const;
+export type SceneContinuityMode = (typeof SCENE_CONTINUITY_MODES)[number];
+
+/**
  * Bounds for a configurable clip length. The ceiling is the video model's native
  * window (LTX-2 defaults to video_length 481 = 20s at 24fps); going beyond it
  * needs WanGP's sliding-window mode, which costs proportionally more time and

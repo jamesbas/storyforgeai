@@ -20,10 +20,16 @@ function int(value: string | undefined, fallback: number): number {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export type PersistenceMode = "memory" | "prisma";
+export type PersistenceMode = "memory" | "file" | "prisma";
 
+/**
+ * Defaults to `file`: a storyboard costs minutes of GPU time, and losing every
+ * project on restart is a poor trade for the simplicity of an in-memory store.
+ * `memory` stays available for tests and throwaway runs.
+ */
+const persistenceRaw = str(process.env.STORYFORGE_PERSISTENCE, "file");
 const persistence: PersistenceMode =
-  str(process.env.STORYFORGE_PERSISTENCE, "memory") === "prisma" ? "prisma" : "memory";
+  persistenceRaw === "prisma" ? "prisma" : persistenceRaw === "memory" ? "memory" : "file";
 
 export const config = {
   env: str(process.env.NODE_ENV, "development"),
@@ -90,6 +96,48 @@ export const config = {
      * reject `json_object` (LM Studio) to skip the wasted probe call.
      */
     responseFormat: str(process.env.OPENAI_RESPONSE_FORMAT, "auto"),
+  },
+  /**
+   * Control over a local LM Studio runtime.
+   *
+   * Planning (an LLM) and generation (a diffusion model) both want the GPU, and
+   * a 16 GB card cannot hold both — LM Studio keeps its model resident long
+   * after planning finishes, which starves WanGP and fails the render with an
+   * out-of-memory hint. Being able to eject the planning model between phases
+   * is the difference between the pipeline working and not.
+   *
+   * Loading and unloading go through LM Studio's `lms` CLI; status comes from
+   * its REST API. Enabled whenever a local OpenAI-compatible base URL is
+   * configured, and can be forced off with LLM_RUNTIME_CONTROL_ENABLED=false.
+   */
+  llmRuntime: {
+    enabled:
+      bool(process.env.LLM_RUNTIME_CONTROL_ENABLED, true) &&
+      Boolean(str(process.env.OPENAI_BASE_URL, "")),
+    /** `lms` is installed on PATH by LM Studio; override for unusual installs. */
+    cliPath: str(process.env.LMSTUDIO_CLI_PATH, "lms"),
+    /** Loading a large model off disk is slow; give it room before giving up. */
+    timeoutMs: int(process.env.LMSTUDIO_CLI_TIMEOUT_MS, 600_000),
+    /**
+     * Evict the planning model before a batch run. Generating a whole project
+     * is many minutes of GPU work, and starting it while an LLM holds the card
+     * produces CUDA faults partway through rather than a clean refusal.
+     */
+    unloadBeforeBatch: bool(process.env.LLM_UNLOAD_BEFORE_BATCH, true),
+  },
+  sceneQueue: {
+    /**
+     * Extra attempts for a scene that fails with a transient GPU fault.
+     *
+     * "CUDA error: resource already mapped" and out-of-memory are symptoms of
+     * memory pressure while WanGP swaps between the image and video models, not
+     * of a bad request — the same scene usually succeeds on a second pass.
+     * Losing an hour of queued work to one blip is the worse outcome.
+     */
+    retryAttempts: int(process.env.SCENE_QUEUE_RETRY_ATTEMPTS, 1),
+    retryDelayMs: int(process.env.SCENE_QUEUE_RETRY_DELAY_MS, 20_000),
+    /** Pause between scenes so WanGP can release VRAM before the next load. */
+    settleDelayMs: int(process.env.SCENE_QUEUE_SETTLE_DELAY_MS, 5_000),
   },
 } as const;
 
