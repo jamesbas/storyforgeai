@@ -18,6 +18,15 @@ export type ManifestOverrides = {
   negativePrompt?: string;
   imageStart?: string;
   imageEnd?: string;
+  /**
+   * Reference images for identity conditioning (WanGP `image_refs`).
+   *
+   * Absolute paths readable by the WanGP process. Verified against a live
+   * server: WanGP opens each path and fails the job with `[Errno 2]` if it is
+   * missing, so a bad path surfaces immediately rather than silently rendering
+   * the wrong subject.
+   */
+  imageRefs?: string[];
   fps?: number;
   resolution?: string;
   /** Audio models: clip length in seconds. Video: segment length for frame maths. */
@@ -92,6 +101,33 @@ export function buildSettingsManifest(
 
   setIf("image_start", overrides.imageStart);
   setIf("image_end", overrides.imageEnd);
+
+  // Reference images are passed as a list even for a single character: the
+  // models that accept them advertise `multiple_references`, and a list is what
+  // a multi-character cast needs. An empty list is omitted so the reference
+  // pathway stays entirely inactive when no characters are pinned.
+  if (overrides.imageRefs?.length) {
+    setIf("image_refs", overrides.imageRefs);
+
+    // Activating references is counter-intuitively `video_prompt_type`, not
+    // `image_prompt_type`, even on pure image models. Verified against a live
+    // WanGP: image models publish `image_prompt_type.allowed = ""` (text only),
+    // while `video_prompt_type` carries the reference group with
+    // `letters_filter: "KI"` —
+    //   ""   none
+    //   "KI" first reference is the main subject / landscape
+    //   "I"  references are people / objects   <- character identity
+    //
+    // The letter is enforced in both directions: `image_refs` without it is
+    // ignored, and the letter without `image_refs` fails the job with
+    // "You must provide at least one Reference Image".
+    //
+    // It is set to exactly "I" rather than merged into the model's default,
+    // because the other letter groups in this field select guide and mask
+    // inputs this pathway never sends. Flux 2 Klein ships "MV" (mask + video
+    // guide); keeping that would make WanGP demand images we do not provide.
+    setIf("video_prompt_type", "I");
+  }
 
   // Audio models express length in seconds, clamped to any published bounds.
   const durationField = schema.fields.find((f) => f.name === "duration_seconds");

@@ -79,6 +79,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
   }
 
   const { project } = record;
+  const usesCharacters = Boolean(project.useCharacterLibrary && project.characterIds?.length);
 
   const picker = (
     label: string,
@@ -86,6 +87,8 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
     options: WangpModel[],
     total: number,
     onChange: (next: string) => void,
+    /** Annotate reference-image support (image models only). */
+    showReferenceSupport = false,
   ) => (
     <label className="block space-y-1">
       <span className="text-sm text-slate-300">{label}</span>
@@ -99,6 +102,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
         {options.map((m) => (
           <option key={m.modelType} value={m.modelType}>
             {m.name} — {m.modelType}
+            {showReferenceSupport && m.metadata.mediaInputs?.image?.reference ? " ✓ refs" : ""}
             {m.metadata.availability && m.metadata.availability !== "available"
               ? ` (${m.metadata.availability})`
               : ""}
@@ -129,6 +133,14 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
         </Link>
       </header>
 
+      <p className="text-xs text-slate-500">
+        Looking for the character library?{" "}
+        <Link href="/settings" className="text-accent hover:underline">
+          Global settings
+        </Link>{" "}
+        holds the configuration shared by every project.
+      </p>
+
       {error ? (
         <p className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
           {error}
@@ -152,12 +164,25 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           often tens of gigabytes, with no progress shown here.
         </p>
 
-        {picker("Image model (start and end frames)", project.imageModel, imageModels, counts.image, (next) =>
-          save({ imageModel: next }),
+        {picker(
+          "Image model (start and end frames)",
+          project.imageModel,
+          imageModels,
+          counts.image,
+          (next) => save({ imageModel: next }),
+          true,
         )}
         {picker("Video model (clips)", project.videoModel, videoModels, counts.video, (next) =>
           save({ videoModel: next }),
         )}
+
+        {usesCharacters ? (
+          <p className="text-xs text-amber-300/90">
+            This project pins characters from the library, so the image model must accept reference
+            images (marked <span className="font-semibold">✓ refs</span>). If the pinned model cannot,
+            StoryForgeAI substitutes one that can rather than dropping the characters silently.
+          </p>
+        ) : null}
 
         {saved ? <p className="text-xs text-emerald-400">Saved.</p> : null}
       </section>

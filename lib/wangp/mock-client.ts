@@ -116,6 +116,10 @@ const MODELS: WangpModel[] = [
 
 function defaultSettingsFor(model: WangpModel): WangpModelSchema {
   if (model.metadata.mainOutput === "image") {
+    // Mirror the live client: a model that advertises reference-image input
+    // gets `image_refs` plus the `video_prompt_type` letter that activates it,
+    // so demo mode exercises the same manifest branch as a real WanGP.
+    const acceptsRefs = Boolean(model.metadata.mediaInputs?.image?.reference);
     return {
       modelType: model.modelType,
       defaultSettings: {
@@ -124,12 +128,19 @@ function defaultSettingsFor(model: WangpModel): WangpModelSchema {
         negative_prompt: "",
         resolution: "1280x720",
         num_inference_steps: 20,
+        ...(acceptsRefs ? { video_prompt_type: "" } : {}),
       },
       fields: [
         { name: "prompt", type: "string" },
         { name: "negative_prompt", type: "string" },
         { name: "resolution", type: "string", allowed: ["1280x720", "1024x1024", "720x1280"] },
         { name: "num_inference_steps", type: "number" },
+        ...(acceptsRefs
+          ? [
+              { name: "image_refs", type: "array" },
+              { name: "video_prompt_type", type: "string" },
+            ]
+          : []),
       ],
     };
   }

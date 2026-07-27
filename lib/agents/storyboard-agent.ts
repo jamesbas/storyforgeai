@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { sceneDraftSchema, type SceneDraft } from "@/lib/schemas/storyboard";
 import { buildSceneDrafts } from "@/lib/agents/mock-agents";
+import { castSystemDirective } from "@/lib/agents/cast";
+import { planningPayload, precedenceDirective } from "@/lib/agents/creative-context";
 import { SEGMENT_SECONDS } from "@/lib/types";
 import type { AgentContext } from "@/lib/agents/types";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
@@ -30,9 +32,19 @@ export async function storyboardAgent(
   }
 
   if (provider) {
-    const user = JSON.stringify({ project: ctx.project, brief, storyPlan, visualBible });
+    const cast = ctx.cast ?? [];
+    const user = JSON.stringify({
+      project: ctx.project,
+      brief,
+      storyPlan,
+      visualBible,
+      cast,
+      plans: planningPayload(ctx.plans),
+    });
     const result = await provider.generateJson(
-      storyboardSystem(ctx.project.segmentSeconds),
+      storyboardSystem(ctx.project.segmentSeconds) +
+        castSystemDirective(cast) +
+        precedenceDirective(cast, ctx.plans),
       user,
       sceneDraftsSchema,
     );
@@ -40,5 +52,5 @@ export async function storyboardAgent(
       return result.scenes;
     }
   }
-  return buildSceneDrafts(ctx.project, storyPlan, brief, visualBible);
+  return buildSceneDrafts(ctx.project, storyPlan, brief, visualBible, ctx.cast ?? [], ctx.plans);
 }

@@ -1,4 +1,15 @@
 import { AppShell } from "@/components/shell/app-shell";
+import {
+  ASPECT_RATIO_DOCS,
+  AUDIENCE_PRESETS,
+  AUDIO_TOGGLE_DOCS,
+  CREATIVE_MODE_DOCS,
+  GENERATION_MODE_DOCS,
+  RESOLUTION_DOCS,
+  STYLE_PRESETS,
+  TONE_PRESETS,
+  type PresetOption,
+} from "@/lib/presets";
 
 export const metadata = {
   title: "Help · StoryForgeAI",
@@ -10,20 +21,51 @@ type Section = { id: string; title: string };
 const TOC: Section[] = [
   { id: "overview", title: "1. What StoryForgeAI does" },
   { id: "concepts", title: "2. Key concepts" },
-  { id: "quickstart", title: "3. Quick start" },
-  { id: "workflow", title: "4. The end-to-end workflow" },
-  { id: "pages", title: "5. Every screen explained" },
-  { id: "agents", title: "6. The creative team (agents)" },
-  { id: "wangp", title: "7. WanGP & generation" },
-  { id: "qc", title: "8. QC, attempts & approval" },
-  { id: "assembly", title: "9. Assembly & exports" },
-  { id: "deepy", title: "10. Deepy assist" },
-  { id: "flags", title: "11. Modes & feature flags" },
-  { id: "faq", title: "12. FAQ & troubleshooting" },
+  { id: "fields", title: "3. Field reference (New Project)" },
+  { id: "characters", title: "4. Character library" },
+  { id: "quickstart", title: "5. Quick start" },
+  { id: "workflow", title: "6. The end-to-end workflow" },
+  { id: "pages", title: "7. Every screen explained" },
+  { id: "agents", title: "8. The creative team (agents)" },
+  { id: "wangp", title: "9. WanGP & generation" },
+  { id: "qc", title: "10. QC, attempts & approval" },
+  { id: "assembly", title: "11. Assembly & exports" },
+  { id: "deepy", title: "12. Deepy assist" },
+  { id: "flags", title: "13. Modes & feature flags" },
+  { id: "faq", title: "14. FAQ & troubleshooting" },
 ];
 
 function Anchor({ id }: { id: string }) {
   return <span id={id} className="block -mt-24 pt-24" aria-hidden />;
+}
+
+/** Option list rendered from the same catalog the New Project form uses. */
+function OptionList({ options }: { options: readonly PresetOption[] }) {
+  return (
+    <dl className="mt-2 space-y-2">
+      {options.map((option) => (
+        <div key={option.value}>
+          <dt className="text-sm font-medium text-slate-100">{option.label}</dt>
+          <dd className="text-sm leading-relaxed text-slate-300">{option.description}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function DocList({ docs }: { docs: Readonly<Record<string, string>> }) {
+  return (
+    <dl className="mt-2 space-y-2">
+      {Object.entries(docs).map(([key, description]) => (
+        <div key={key}>
+          <dt className="text-sm font-medium text-slate-100">
+            <code>{key}</code>
+          </dt>
+          <dd className="text-sm leading-relaxed text-slate-300">{description}</dd>
+        </div>
+      ))}
+    </dl>
+  );
 }
 
 export default function HelpPage() {
@@ -108,10 +150,147 @@ export default function HelpPage() {
           </p>
         </section>
 
-        {/* 3. Quick start */}
+        {/* 3. Field reference */}
+        <section className={card}>
+          <Anchor id="fields" />
+          <h2 className={h2}>3. Field reference (New Project)</h2>
+          <p className={p}>
+            Every field on the New Project form changes what the agents plan and, for most of them,
+            what text is sent to the generation models. This section defines each option.
+          </p>
+
+          <h3 className={h3}>Concept</h3>
+          <p className={p}>
+            Your idea in plain language. It is the seed for the creative brief, the story arc and
+            every scene description, so a sentence with a subject, a setting and a change works far
+            better than a single noun.
+          </p>
+
+          <h3 className={h3}>Duration &amp; clip length</h3>
+          <p className={p}>
+            Duration is the runtime you want. Clip length is how long each generated segment is, from
+            5 to 20 seconds. Scene count is <code>ceil(duration ÷ clip length)</code>. Shorter clips
+            give you more cuts and tighter control but multiply render time; longer clips cover more
+            ground per render but drift more within a shot.
+          </p>
+
+          <h3 className={h3}>Aspect ratio</h3>
+          <DocList docs={ASPECT_RATIO_DOCS} />
+
+          <h3 className={h3}>Style</h3>
+          <p className={p}>
+            The visual look. This one reaches generation directly: it is appended to every start and
+            end frame prompt and to every video prompt as{" "}
+            <code>&quot;&lt;style&gt; style, &lt;tone&gt; mood&quot;</code>. Pick <em>Custom…</em> to
+            type your own wording — it is used verbatim.
+          </p>
+          <OptionList options={STYLE_PRESETS} />
+
+          <h3 className={h3}>Tone</h3>
+          <p className={p}>
+            The emotional register. Also appended to every image and video prompt, and additionally
+            used to write the music cue prompts and the narrator voice profile.
+          </p>
+          <OptionList options={TONE_PRESETS} />
+
+          <h3 className={h3}>Audience</h3>
+          <p className={p}>
+            Who the piece is for. Shapes vocabulary, pacing and content limits in the creative brief
+            and the story arc, and is carried into the frame prompts so the framing suits the viewer.
+          </p>
+          <OptionList options={AUDIENCE_PRESETS} />
+
+          <h3 className={h3}>Resolution</h3>
+          <DocList docs={RESOLUTION_DOCS} />
+
+          <h3 className={h3}>Creative mode</h3>
+          <DocList docs={CREATIVE_MODE_DOCS} />
+
+          <h3 className={h3}>Generation mode</h3>
+          <DocList docs={GENERATION_MODE_DOCS} />
+
+          <h3 className={h3}>Narration, dialogue, music &amp; SFX</h3>
+          <DocList docs={AUDIO_TOGGLE_DOCS} />
+        </section>
+
+        {/* 4. Character library */}
+        <section className={card}>
+          <Anchor id="characters" />
+          <h2 className={h2}>4. Character library</h2>
+          <p className={p}>
+            Each scene is rendered as an independent job, so nothing inherently stops a face from
+            changing between clips. The character library is how you stop it: describe a character
+            once, then reuse that exact description in every project that features them.
+          </p>
+
+          <h3 className={h3}>Where it lives</h3>
+          <p className={p}>
+            Under <strong>Settings</strong> in the top navigation. It is global, not per-project, and
+            available whether or not you have a project open. Descriptions are saved to disk, so they
+            survive a restart.
+          </p>
+
+          <h3 className={h3}>What a character holds</h3>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li className={li}>
+              <strong>Name</strong> — how the character is referred to in scene cards, dialogue
+              attribution and continuity notes.
+            </li>
+            <li className={li}>
+              <strong>Physical description</strong> — the text injected into prompts. Write it as
+              prompt-ready prose (age, build, hair, face, skin, distinguishing features) rather than a
+              biography; it is concatenated verbatim, so backstory only dilutes it.
+            </li>
+            <li className={li}>
+              <strong>Negative prompt terms</strong> — traits to actively suppress for this character,
+              appended to the negative prompt of every scene they appear in.
+            </li>
+            <li className={li}>
+              <strong>Reference image</strong> — an optional picture. It is sent to the generation
+              backend as reference input for the start and end frames, so the render is conditioned
+              on the actual likeness rather than only the words. Requires an image model that accepts
+              reference images; if the pinned model cannot, StoryForgeAI substitutes one that can.
+            </li>
+          </ul>
+
+          <h3 className={h3}>Using it in a project</h3>
+          <p className={p}>
+            On the New Project form, tick <em>Use saved character descriptions</em> and select the
+            characters that appear in this story. Leave it off and nothing changes — the agents invent
+            their own cast as before.
+          </p>
+
+          <h3 className={h3}>What it actually changes</h3>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li className={li}>
+              The <strong>Visual Bible</strong> is seeded with your characters, and the library
+              description wins if the model tries to paraphrase or rename them.
+            </li>
+            <li className={li}>
+              The <strong>Storyboard Artist</strong> is told the cast is locked, so scene cards refer
+              to characters by name and continuity notes point back to the library.
+            </li>
+            <li className={li}>
+              The <strong>Image and Video Prompt agents</strong> append the canonical description to
+              every start frame, end frame and motion prompt, and merge the character&apos;s negative
+              terms into the negative prompt.
+            </li>
+            <li className={li}>
+              Any <strong>reference images</strong> are sent to the image model when rendering the two
+              keyframes. The video clip is generated from those frames, so the likeness carries into
+              the motion without a second reference pass.
+            </li>
+          </ul>
+          <p className={p}>
+            Descriptions are read at generation time, not at project creation. Editing a character and
+            regenerating the storyboard picks up the new wording.
+          </p>
+        </section>
+
+        {/* 5. Quick start */}
         <section className={card}>
           <Anchor id="quickstart" />
-          <h2 className={h2}>3. Quick start</h2>
+          <h2 className={h2}>5. Quick start</h2>
           <ol className="mt-2 list-decimal space-y-2 pl-5">
             <li className={li}>
               Open <strong>New Project</strong> (the home page). Enter a concept and a duration, then
@@ -136,10 +315,10 @@ export default function HelpPage() {
           </p>
         </section>
 
-        {/* 4. Workflow */}
+        {/* 6. Workflow */}
         <section className={card}>
           <Anchor id="workflow" />
-          <h2 className={h2}>4. The end-to-end workflow</h2>
+          <h2 className={h2}>6. The end-to-end workflow</h2>
           <ol className="mt-2 list-decimal space-y-2 pl-5">
             <li className={li}><strong>New Project</strong> — describe the idea and settings.</li>
             <li className={li}><strong>Variant Review</strong> (optional) — generate 3 creative directions and select one.</li>
@@ -157,16 +336,31 @@ export default function HelpPage() {
           </p>
         </section>
 
-        {/* 5. Pages */}
+        {/* 7. Pages */}
         <section className={card}>
           <Anchor id="pages" />
-          <h2 className={h2}>5. Every screen explained</h2>
+          <h2 className={h2}>7. Every screen explained</h2>
 
           <h3 className={h3}>New Project (home)</h3>
           <p className={p}>
-            Collects your concept, duration, aspect ratio, resolution, style, tone, audience, creative
-            mode, generation mode, and toggles for narration, dialogue, music, and SFX. Also lists your
-            recent projects. Submitting creates the project and opens its storyboard.
+            Collects your concept, duration, clip length, aspect ratio, resolution, style, tone,
+            audience, creative mode, generation mode, the narration/dialogue/music/SFX toggles, and
+            whether to pin characters from the{" "}
+            <a href="#characters" className="text-accent hover:underline">
+              character library
+            </a>
+            . Every option is defined in the{" "}
+            <a href="#fields" className="text-accent hover:underline">
+              field reference
+            </a>
+            . Also lists your recent projects. Submitting creates the project and opens its
+            storyboard.
+          </p>
+
+          <h3 className={h3}>Settings (global)</h3>
+          <p className={p}>
+            Reachable from the top navigation at any time, with or without an open project. Holds the
+            character library and links through to each project&apos;s model pins.
           </p>
 
           <h3 className={h3}>Storyboard Review</h3>
@@ -218,32 +412,49 @@ export default function HelpPage() {
           </p>
         </section>
 
-        {/* 6. Agents */}
+        {/* 8. Agents */}
         <section className={card}>
           <Anchor id="agents" />
-          <h2 className={h2}>6. The creative team (agents)</h2>
+          <h2 className={h2}>8. The creative team (agents)</h2>
           <p className={p}>Each agent produces one artifact you can review and regenerate:</p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
-            <li className={li}><strong>Intake Producer</strong> — turns your idea into a structured creative brief.</li>
-            <li className={li}><strong>Story Architect</strong> — builds the narrative arc, one beat per 20s segment.</li>
-            <li className={li}><strong>Variant Explorer</strong> — proposes multiple creative directions.</li>
-            <li className={li}><strong>World Builder</strong> — a World Bible: premise, rules, locations, motifs, continuity constraints.</li>
-            <li className={li}><strong>Director</strong> — creative thesis, pacing, emotional arc, and per-scene intent.</li>
-            <li className={li}><strong>Cinematographer</strong> — camera language, framing, movement, lighting, and transitions.</li>
-            <li className={li}><strong>Art Director</strong> — production design, wardrobe, props, set dressing, typography.</li>
-            <li className={li}><strong>Visual Bible</strong> — continuity rules that keep every image and clip consistent.</li>
-            <li className={li}><strong>Storyboard Artist</strong> — one scene card per 20s segment.</li>
-            <li className={li}><strong>Image &amp; Video Prompt Engineers</strong> — start/end frame prompts and the 20s motion prompt.</li>
-            <li className={li}><strong>Audio Director</strong> — narration, dialogue, music, SFX, and voice profiles.</li>
+            <li className={li}><strong>Intake Producer</strong> — turns your idea into a structured creative brief: logline, synopsis, narrative arc, visual style, tone, audience and constraints.</li>
+            <li className={li}><strong>Story Architect</strong> — builds the narrative arc: title, logline, emotional progression, and one story beat per segment.</li>
+            <li className={li}><strong>Variant Explorer</strong> — proposes three distinct creative directions (hook, story angle, visual style, strengths, risks, best-fit platform) before you commit.</li>
+            <li className={li}><strong>World Builder</strong> — a World Bible for continuity across a series: premise, universe and timeline rules, locations, character relationships, recurring motifs, and the contradictions that are forbidden.</li>
+            <li className={li}><strong>Director</strong> — the creative thesis, pacing strategy, emotional arc, performance direction and per-scene intent. Answers &quot;what is this scene <em>for</em>&quot;.</li>
+            <li className={li}><strong>Cinematographer</strong> — the camera language: lens and framing rules, movement rules, lighting rules, per-scene shot plans and transition grammar.</li>
+            <li className={li}><strong>Art Director</strong> — production design, wardrobe, props, set dressing, typography and product-placement rules.</li>
+            <li className={li}><strong>Visual Bible</strong> — the continuity guide that binds it together: characters, locations, props, colour palette, lighting, camera style and negative rules. Seeded from the character library when a project pins a cast.</li>
+            <li className={li}><strong>Storyboard Artist</strong> — one scene card per segment: objective, story beat, visual description, action, camera movement, transitions and continuity notes.</li>
+            <li className={li}><strong>Image &amp; Video Prompt Engineers</strong> — turn each scene card into start/end frame prompts and the motion prompt actually sent to the model, plus negative prompts.</li>
+            <li className={li}><strong>Audio Director</strong> — the project audio plan: music and SFX beds anchored to a scene with an offset, duration and prompt. Dialogue and narration are performed by the video model from the scene prompt, not synthesised separately.</li>
             <li className={li}><strong>WanGP Producer</strong> — selects models and builds valid generation settings.</li>
             <li className={li}><strong>Creative Critic / QC</strong> — reviews generated media and flags issues with regeneration notes.</li>
           </ul>
+          <p className={p}>
+            The World Builder, Director, Cinematographer and Art Director run on demand from the
+            Agentic Canvas rather than as part of the storyboard pipeline — run them in any order, or
+            not at all. Whichever plans exist when you generate the storyboard are folded into it:
+            the plan documents go to the Visual Bible and Storyboard agents in full, while each
+            scene&apos;s prompts receive only that scene&apos;s directorial intent and shot plan plus a
+            short art-direction summary. Render prompts are kept deliberately tight, because a prompt
+            that buries the subject and action behind pages of world-building produces worse video,
+            not better.
+          </p>
+          <p className={p}>
+            When two sources disagree — say the Art Director specifies one wardrobe and a pinned
+            library character specifies another — precedence is fixed:{" "}
+            <strong>character library, then Visual Bible, then the canvas plans</strong>. An
+            explicitly pinned character is the strongest statement of intent you can make, so it
+            wins. Regenerate the storyboard after changing a plan to pick up the new direction.
+          </p>
         </section>
 
-        {/* 7. WanGP */}
+        {/* 9. WanGP */}
         <section className={card}>
           <Anchor id="wangp" />
-          <h2 className={h2}>7. WanGP &amp; generation</h2>
+          <h2 className={h2}>9. WanGP &amp; generation</h2>
           <p className={p}>
             StoryForgeAI generates media through WanGP/Wan2GP. It is <strong>discovery-first</strong>:
             it lists available models, prefers ones that support start frames (for scene continuity),
@@ -261,7 +472,7 @@ export default function HelpPage() {
         {/* 8. QC */}
         <section className={card}>
           <Anchor id="qc" />
-          <h2 className={h2}>8. QC, attempts &amp; approval</h2>
+          <h2 className={h2}>10. QC, attempts &amp; approval</h2>
           <p className={p}>
             Generating media for a scene creates an <strong>attempt</strong> — a start frame, an end
             frame, and a video clip. Each attempt is automatically checked by QC, which reports
@@ -277,7 +488,7 @@ export default function HelpPage() {
         {/* 9. Assembly */}
         <section className={card}>
           <Anchor id="assembly" />
-          <h2 className={h2}>9. Assembly &amp; exports</h2>
+          <h2 className={h2}>11. Assembly &amp; exports</h2>
           <p className={p}>
             Assembly builds a final-cut plan from your approved clips and produces a rough cut. The last
             scene&apos;s trim is applied automatically so the total runtime matches your request.
@@ -297,7 +508,7 @@ export default function HelpPage() {
         {/* 10. Deepy */}
         <section className={card}>
           <Anchor id="deepy" />
-          <h2 className={h2}>10. Deepy assist</h2>
+          <h2 className={h2}>12. Deepy assist</h2>
           <p className={p}>
             Deepy is an optional media helper. On the Assembly page you can &quot;Ask Deepy&quot; about a
             clip to inspect it, extract the final frame, transcribe audio, suggest why a generation
@@ -309,7 +520,7 @@ export default function HelpPage() {
         {/* 11. Flags */}
         <section className={card}>
           <Anchor id="flags" />
-          <h2 className={h2}>11. Modes &amp; feature flags</h2>
+          <h2 className={h2}>13. Modes &amp; feature flags</h2>
           <p className={p}>
             Every external integration is off by default. An administrator can enable them via
             environment variables (see the project README and the <a href="/about" className="text-accent hover:underline">About</a> page for current status):
@@ -330,7 +541,7 @@ export default function HelpPage() {
         {/* 12. FAQ */}
         <section className={card}>
           <Anchor id="faq" />
-          <h2 className={h2}>12. FAQ &amp; troubleshooting</h2>
+          <h2 className={h2}>14. FAQ &amp; troubleshooting</h2>
 
           <h3 className={h3}>Why are all my scenes 20 seconds?</h3>
           <p className={p}>

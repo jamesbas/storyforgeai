@@ -109,20 +109,53 @@ export function selectVideoModel(models: WangpModel[], project: ModelPreference)
   return ranked[0] ?? null;
 }
 
-export function selectImageModel(models: WangpModel[], project: ModelPreference): WangpModel | null {
-  const images = models
+/**
+ * Preferred default families for text-to-image stills, best first.
+ *
+ * WanGP publishes no quality ranking, so without a nudge the "best" image model
+ * is whichever the catalog happened to list first. Flux 2 Klein is a
+ * text-to-image model that also accepts reference images, which makes it the
+ * right default for storyboard keyframes: the same model can render a frame
+ * with or without a pinned character.
+ */
+const IMAGE_MODEL_PREFERENCE = ["flux2_klein", "flux2", "qwen_image", "flux"] as const;
+
+function imageFamilyBonus(modelType: string): number {
+  const index = IMAGE_MODEL_PREFERENCE.findIndex((family) => modelType.startsWith(family));
+  return index === -1 ? 0 : (IMAGE_MODEL_PREFERENCE.length - index) * 10;
+}
+
+export function selectImageModel(
+  models: WangpModel[],
+  project: ModelPreference,
+  /**
+   * Restrict to models that accept reference images. Set when the project pins
+   * characters from the library — a model without reference support would
+   * silently drop them, which looks like the feature simply not working.
+   */
+  options: { requireReferenceImages?: boolean } = {},
+): WangpModel | null {
+  const candidates = models
     .filter((m) => produces(m, "image"))
-    .sort(
-      (a, b) =>
-        installedBonus(b) - installedBonus(a) ||
-        strategyBonus(b.modelType, project.modelStrategy) - strategyBonus(a.modelType, project.modelStrategy) ||
-        // Prefer a dedicated stills model over a video model running in image
-        // mode. `mainOutput` cannot distinguish them — LTX-2 reports "image"
-        // first — so test whether the model also produces video.
-        Number(!produces(b, "video")) - Number(!produces(a, "video")) ||
-        (b.metadata.qualityRank ?? 0) - (a.metadata.qualityRank ?? 0),
-    );
+    .filter((m) => !options.requireReferenceImages || toCapability(m).supportsReferenceImages);
+
+  const images = candidates.sort(
+    (a, b) =>
+      installedBonus(b) - installedBonus(a) ||
+      strategyBonus(b.modelType, project.modelStrategy) - strategyBonus(a.modelType, project.modelStrategy) ||
+      // Prefer a dedicated stills model over a video model running in image
+      // mode. `mainOutput` cannot distinguish them — LTX-2 reports "image"
+      // first — so test whether the model also produces video.
+      Number(!produces(b, "video")) - Number(!produces(a, "video")) ||
+      imageFamilyBonus(b.modelType) - imageFamilyBonus(a.modelType) ||
+      (b.metadata.qualityRank ?? 0) - (a.metadata.qualityRank ?? 0),
+  );
   return images[0] ?? null;
+}
+
+/** Does this model accept reference images for identity conditioning? */
+export function supportsReferenceImages(model: WangpModel): boolean {
+  return toCapability(model).supportsReferenceImages;
 }
 
 /**

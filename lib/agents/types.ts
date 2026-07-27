@@ -2,6 +2,8 @@ import type { Project } from "@/lib/schemas/project";
 import type { CreativeBrief, StoryPlan, VisualBible } from "@/lib/schemas/agents";
 import type { SceneDraft } from "@/lib/schemas/storyboard";
 import type { CreativeVariant } from "@/lib/schemas/canvas";
+import type { Character } from "@/lib/schemas/character";
+import type { CreativePlans } from "@/lib/agents/creative-context";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 
 /**
@@ -11,6 +13,16 @@ import type { PlanningProvider } from "@/lib/agents/llm/provider";
 export type AgentContext = {
   project: Project;
   selectedVariant?: CreativeVariant;
+  /**
+   * Locked character descriptions from the global library. Empty when the
+   * project did not opt in, so every agent can read it unconditionally.
+   */
+  cast?: Character[];
+  /**
+   * Approved Agentic Canvas plans (world, direction, camera, art). Optional:
+   * the canvas agents are run on demand, so a project may have none of them.
+   */
+  plans?: CreativePlans;
   brief?: CreativeBrief;
   storyPlan?: StoryPlan;
   visualBible?: VisualBible;
@@ -24,4 +36,6 @@ export type AgentContext = {
 export type OrchestratorDeps = {
   provider?: PlanningProvider | null;
   selectedVariant?: CreativeVariant;
+  cast?: Character[];
+  plans?: CreativePlans;
 };

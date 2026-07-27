@@ -12,6 +12,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             <Link href="/" className="hover:text-white">
               New Project
             </Link>
+            <Link href="/settings" className="hover:text-white">
+              Settings
+            </Link>
             <Link href="/help" className="hover:text-white">
               Help
             </Link>

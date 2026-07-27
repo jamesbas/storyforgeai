@@ -160,9 +160,10 @@ rather than as a standalone agent module.
 ### 3.2 Full agent interconnection map
 
 This is the complete picture of who feeds whom. Solid edges are **artifact
-dependencies enforced in code**; dotted edges are **advisory context** that a
-creator reads on the Agentic Canvas but that is not threaded into the callee's
-input payload.
+dependencies enforced in code**. The canvas plans were originally advisory
+(read by a creator, never threaded into a callee's payload); they are now
+threaded into the storyboard pipeline, whole for the planning agents and sliced
+per scene for the prompt agents.
 
 ```mermaid
 flowchart TB
@@ -225,10 +226,16 @@ flowchart TB
     GEN -->|"approved clips"| ASM
     AD -->|"approved music/SFX cues"| ASM
 
-    WB -.->|"creator context only"| SB
-    DIR -.->|"creator context only"| SB
-    CIN -.->|"creator context only"| SB
-    ART -.->|"creator context only"| SB
+    WB -->|"locations · continuity constraints<br/>forbidden contradictions"| VB
+    DIR -->|"sceneIntent[n] → scene.sceneObjective"| SB
+    CIN -->|"sceneShotPlans[n] → scene.cameraMovement<br/>lighting + camera language"| VB
+    ART -->|"production design · wardrobe · props"| VB
+    DIR -->|"sceneIntent[n] (per-scene slice)"| IP
+    DIR -->|"sceneIntent[n] (per-scene slice)"| VP
+    CIN -->|"sceneShotPlans[n] (per-scene slice)"| IP
+    CIN -->|"sceneShotPlans[n] (per-scene slice)"| VP
+    ART -->|"capped global style suffix"| IP
+    ART -->|"capped global style suffix"| VP
 
     classDef canvas fill:#12202e,stroke:#38bdf8,color:#e2e8f0;
     classDef pipe fill:#1f2937,stroke:#6366f1,color:#e5e7eb;
@@ -241,23 +248,36 @@ flowchart TB
 **Key structural facts this diagram encodes:**
 
 1. **Only the storyboard pipeline threads shared state.** `AgentContext` in
-   `lib/agents/types.ts` carries `project`, `selectedVariant`, `brief`,
-   `storyPlan`, `visualBible`, `sceneDrafts` and is mutated in place as each
-   agent completes. Later agents read what earlier agents wrote.
-2. **Canvas agents are deliberately independent.** World Builder, Director,
-   Cinematographer, and Art Director each receive only `{ project }`. They can be
-   run in any order, any number of times, and they never block one another. Their
-   artifacts land on the `ProjectRecord` for the creator to review.
-3. **The only cross-group coupling is the selected variant.** `selectVariant`
-   sets `selectedVariantId`; `generateStoryboard` looks the variant up and passes
-   it to the orchestrator, which appends `Selected direction: <name>` to
-   `brief.constraints`. That single string is how a chosen creative direction
-   propagates into every downstream agent, because every later agent reads the
-   brief.
-4. **Prompt agents fan out per scene.** `attachScenePrompts` loops the drafts and
+   `lib/agents/types.ts` carries `project`, `selectedVariant`, `cast`, `plans`,
+   `brief`, `storyPlan`, `visualBible`, `sceneDrafts` and is mutated in place as
+   each agent completes. Later agents read what earlier agents wrote.
+2. **Canvas agents are deliberately independent to *produce*, but their output is
+   consumed.** World Builder, Director, Cinematographer, and Art Director each
+   receive only `{ project }`, so they can be run in any order, any number of
+   times, and never block one another. Whatever exists on the `ProjectRecord` at
+   `generateStoryboard` time is then threaded into the pipeline by
+   `lib/agents/creative-context.ts`.
+3. **Plan context is budgeted, not dumped.** Planning agents (Visual Bible,
+   Storyboard Artist) receive the plan documents whole — they run once and emit
+   prose. Prompt agents receive only `sceneIntent[n]` and `sceneShotPlans[n]` for
+   their own scene plus a capped global style suffix, because a render prompt
+   that buries the subject and action behind pages of world-building loses
+   adherence. This is what the per-scene maps in `directorialPlanSchema` and
+   `cinematographyPlanSchema` exist for.
+4. **Conflicts resolve by stated precedence.** Pinned character library entries
+   beat the Visual Bible, which beats the Art Direction, Cinematography and World
+   Bible plans. `precedenceDirective()` states this in the system prompt and the
+   deterministic builders apply the same order, so the resolution does not vary
+   scene to scene.
+5. **The selected variant carries its substance.** `selectVariant` sets
+   `selectedVariantId`; `generateStoryboard` looks the variant up and the
+   orchestrator appends its name, summary, hook, story angle, visual style and
+   risks to `brief.constraints`. Every later agent reads the brief, so the chosen
+   direction propagates throughout.
+6. **Prompt agents fan out per scene.** `attachScenePrompts` loops the drafts and
    makes *two* provider calls per scene — image then video — so a project with
    N segments issues up to `4 + 2N` LLM calls for one storyboard run.
-5. **QC forms the only feedback loop.** Its verdict sets scene status, which gates
+7. **QC forms the only feedback loop.** Its verdict sets scene status, which gates
    whether the creator regenerates or approves; approval gates assembly.
 
 ### 3.3 Orchestrator sequence

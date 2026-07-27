@@ -1,5 +1,8 @@
 import { visualBibleSchema, type VisualBible } from "@/lib/schemas/agents";
 import { buildVisualBible } from "@/lib/agents/mock-agents";
+import { castSystemDirective } from "@/lib/agents/cast";
+import { planningPayload, precedenceDirective } from "@/lib/agents/creative-context";
+import type { Character } from "@/lib/schemas/character";
 import type { AgentContext } from "@/lib/agents/types";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 
@@ -13,10 +16,36 @@ export async function visualBibleAgent(
   ctx: AgentContext,
   provider: PlanningProvider | null,
 ): Promise<VisualBible> {
+  const cast = ctx.cast ?? [];
+
   if (provider) {
-    const user = JSON.stringify({ project: ctx.project, brief: ctx.brief });
-    const result = await provider.generateJson(VISUAL_BIBLE_SYSTEM, user, visualBibleSchema);
-    if (result) return { ...result, projectId: ctx.project.id };
+    // The planning agents get the plan documents whole: they run once and emit
+    // prose, so context budget is not the constraint it is for render prompts.
+    const user = JSON.stringify({
+      project: ctx.project,
+      brief: ctx.brief,
+      cast,
+      plans: planningPayload(ctx.plans),
+    });
+    const result = await provider.generateJson(
+      VISUAL_BIBLE_SYSTEM + castSystemDirective(cast) + precedenceDirective(cast, ctx.plans),
+      user,
+      visualBibleSchema,
+    );
+    if (result) return withPinnedCast({ ...result, projectId: ctx.project.id }, cast);
   }
-  return buildVisualBible(ctx.project);
+  return buildVisualBible(ctx.project, cast, ctx.plans);
+}
+
+/**
+ * Guarantee the pinned cast survives into the bible even if the model dropped,
+ * renamed or paraphrased a character. The library description wins on conflict —
+ * that is the entire contract of pinning one.
+ */
+function withPinnedCast(bible: VisualBible, cast: readonly Character[]): VisualBible {
+  if (cast.length === 0) return bible;
+  const pinned = cast.map((c) => ({ name: c.name, description: c.description }));
+  const pinnedNames = new Set(pinned.map((c) => c.name.toLowerCase()));
+  const rest = bible.characters.filter((c) => !pinnedNames.has(c.name.toLowerCase()));
+  return { ...bible, characters: [...pinned, ...rest] };
 }

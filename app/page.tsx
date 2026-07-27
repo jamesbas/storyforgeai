@@ -57,7 +57,12 @@ export default function HomePage() {
   return (
     <AppShell>
       <div className="grid gap-8 lg:grid-cols-[1fr_18rem]">
-        <section>
+        {/*
+          Grid items default to `min-width: auto`, so a wide child can push the
+          column past its track size and shove the sidebar off screen. `min-w-0`
+          lets the column shrink and keeps the sidebar reachable.
+        */}
+        <section className="min-w-0">
           <h1 className="text-2xl font-semibold">New project</h1>
           <p className="mt-1 text-sm text-slate-400">
             Describe a concept and target duration. StoryForgeAI plans a storyboard in

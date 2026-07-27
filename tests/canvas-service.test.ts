@@ -31,7 +31,14 @@ describe("agentic canvas service flow", () => {
 
     record = await generateStoryboard(project.id);
     expect(record.storyboard).toBeDefined();
-    expect(record.storyboard!.brief.constraints).toContain(`Selected direction: ${chosen.name}`);
+    // The substance of the chosen direction must reach the brief, not just its
+    // label: passing the name alone dropped the hook, angle and visual style
+    // that the creator actually selected.
+    const constraints = record.storyboard!.brief.constraints;
+    expect(constraints).toContain(`Selected direction: ${chosen.name} — ${chosen.summary}`);
+    expect(constraints).toContain(`Hook: ${chosen.hook}`);
+    expect(constraints).toContain(`Story angle: ${chosen.storyAngle}`);
+    expect(constraints).toContain(`Visual style: ${chosen.visualStyle}`);
   });
 
   it("records decision history for canvas actions", async () => {

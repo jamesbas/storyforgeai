@@ -40,6 +40,16 @@ export const projectSchema = z.object({
    */
   imageModel: z.string().optional(),
   videoModel: z.string().optional(),
+  /**
+   * Opt-in to the global character library. When true, `characterIds` names the
+   * cast whose locked descriptions are threaded through planning and into every
+   * image and video prompt.
+   *
+   * Optional rather than defaulted so projects created before the library
+   * existed still parse.
+   */
+  useCharacterLibrary: z.boolean().optional(),
+  characterIds: z.array(z.string()).optional(),
   status: projectStatusSchema,
   createdAt: z.string(),
   updatedAt: z.string(),

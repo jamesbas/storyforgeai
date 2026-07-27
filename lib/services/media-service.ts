@@ -4,6 +4,8 @@ import type { SceneAttempt } from "@/lib/schemas/generation";
 import { repository } from "@/lib/db/store";
 import { getProjectRecord } from "@/lib/services/project-service";
 import { buildImageManifest, buildVideoManifest, runToCompletion } from "@/lib/services/wangp-service";
+import { resolveProjectCast } from "@/lib/services/character-service";
+import { resolveReferenceImagePath } from "@/lib/db/character-store";
 import { qcAgent } from "@/lib/agents/qc-agent";
 import { getPlanningProvider } from "@/lib/agents/llm/provider";
 import { NotFoundError, ValidationError } from "@/lib/errors";
@@ -27,6 +29,24 @@ function withSceneStatus(record: ProjectRecord, sceneId: string, status: Scene["
 }
 
 /**
+ * Absolute reference-image paths for the characters this project pinned.
+ *
+ * Only characters that actually have an uploaded image contribute: a written
+ * description alone already reaches the render through the prompt, and sending
+ * an empty list would trip WanGP's "You must provide at least one Reference
+ * Image" check. Resolved fresh each run so replacing a character's photo takes
+ * effect on the next generation.
+ */
+async function resolveCastReferenceImages(record: ProjectRecord): Promise<string[]> {
+  const cast = await resolveProjectCast(record.project);
+  return cast
+    .map((character) =>
+      character.referenceImage ? resolveReferenceImagePath(character.referenceImage) : null,
+    )
+    .filter((filePath): filePath is string => filePath !== null);
+}
+
+/**
  * Generate media for a scene: start frame, end frame, and the segment video,
  * then run QC. Each call produces a new attempt (retry/regeneration) per spec
  * Section 8.2. Uses absolute-style mock paths from the WanGP client.
@@ -38,6 +58,11 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
   const modelStrategy = record.project.modelStrategy;
   const { imageModel, videoModel } = record.project;
 
+  // Character reference images condition the two keyframes. The video model
+  // then inherits that identity for free through image_start / image_end, so
+  // references are deliberately not sent on the video job as well.
+  const imageRefs = await resolveCastReferenceImages(record);
+
   const startManifest = await buildImageManifest({
     sceneId,
     purpose: "start_frame",
@@ -45,6 +70,7 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
     negativePrompt: scene.prompts.imageNegativePrompt,
     modelStrategy,
     modelType: imageModel,
+    imageRefs,
   });
   const startJob = await runToCompletion(startManifest.settings);
 
@@ -55,6 +81,7 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
     negativePrompt: scene.prompts.imageNegativePrompt,
     modelStrategy,
     modelType: imageModel,
+    imageRefs,
   });
   const endJob = await runToCompletion(endManifest.settings);
 

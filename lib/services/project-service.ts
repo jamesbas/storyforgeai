@@ -25,6 +25,7 @@ import { audioDirectorAgent } from "@/lib/agents/audio-agents";
 import type { AudioSceneRef } from "@/lib/agents/mock-audio";
 import { buildAnimaticPlan } from "@/lib/agents/mock-audio";
 import { getPlanningProvider } from "@/lib/agents/llm/provider";
+import { resolveProjectCast } from "@/lib/services/character-service";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
 
@@ -65,6 +66,8 @@ export async function createProject(raw: unknown): Promise<Project> {
     modelStrategy: input.modelStrategy,
     imageModel: input.imageModel,
     videoModel: input.videoModel,
+    useCharacterLibrary: input.useCharacterLibrary,
+    characterIds: input.useCharacterLibrary ? input.characterIds : [],
     status: "draft",
     createdAt: now,
     updatedAt: now,
@@ -131,7 +134,23 @@ export async function getProjectRecord(id: string): Promise<ProjectRecord> {
 export async function generateStoryboard(id: string): Promise<ProjectRecord> {
   const record = await getProjectRecord(id);
   const selectedVariant = record.variants?.find((v) => v.id === record.selectedVariantId);
-  const snapshot = await runStoryboardOrchestrator(record.project, { selectedVariant });
+  // Read the cast at generation time rather than at creation time, so editing a
+  // character in the library and regenerating picks up the new description.
+  const cast = await resolveProjectCast(record.project);
+  // Whichever canvas plans have been generated and approved steer the pipeline.
+  // Each is optional: the canvas agents run on demand, so a project may have
+  // none, some, or all of them.
+  const plans = {
+    worldBible: record.worldBible,
+    directorialPlan: record.directorialPlan,
+    cinematographyPlan: record.cinematographyPlan,
+    artDirectionPlan: record.artDirectionPlan,
+  };
+  const snapshot = await runStoryboardOrchestrator(record.project, {
+    selectedVariant,
+    cast,
+    plans,
+  });
   const updated: ProjectRecord = {
     ...record,
     project: { ...record.project, status: "storyboard_ready", updatedAt: new Date().toISOString() },

@@ -1,5 +1,11 @@
 import { getWangpClient, wangpEnabled } from "@/lib/wangp/factory";
-import { selectAudioModel, selectImageModel, selectVideoModel } from "@/lib/wangp/model-router";
+import {
+  findPinned,
+  selectAudioModel,
+  selectImageModel,
+  selectVideoModel,
+  supportsReferenceImages,
+} from "@/lib/wangp/model-router";
 import { resolveModel } from "@/lib/wangp/resolve-model";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
 import type {
@@ -10,6 +16,7 @@ import type {
   WangpPurpose,
 } from "@/lib/schemas/wangp";
 import { config } from "@/lib/config";
+import { ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
 
 export type WangpStatus = {
@@ -180,21 +187,58 @@ export async function buildImageManifest(args: {
   modelStrategy: import("@/lib/schemas/project").Project["modelStrategy"];
   /** Per-project pin. Outranks the env pin; falls through to the router. */
   modelType?: string;
+  /**
+   * Absolute paths to character reference images. When present the model must
+   * accept `image_refs`, so an incompatible pin is overridden rather than
+   * honoured — see below.
+   */
+  imageRefs?: string[];
 }): Promise<WangpGenerationSettings> {
   const client = getWangpClient();
   const imageModels = await client.listModels("image");
+  const needsRefs = Boolean(args.imageRefs?.length);
+
+  // A pinned model that cannot accept references would silently drop them:
+  // `buildSettingsManifest` only writes fields the schema declares, so the job
+  // would render happily with no character conditioning and nothing to debug.
+  // Model choice is therefore constrained while references are in play, and the
+  // substitution is logged so it is visible rather than mysterious.
+  const pin = args.modelType || config.wangp.imageModel;
+  const pinnedModel = findPinned(imageModels, pin);
+  const pinRejected = needsRefs && pinnedModel !== null && !supportsReferenceImages(pinnedModel);
+  if (pinRejected) {
+    logEvent("wangp.model.selected", {
+      purpose: args.purpose,
+      pinned: pin,
+      resolved: false,
+      reason: "pinned_model_cannot_accept_reference_images",
+    });
+  }
+
   const model = resolveModel(
     imageModels,
-    args.modelType || config.wangp.imageModel,
-    () => selectImageModel(imageModels, { modelStrategy: args.modelStrategy }),
+    pinRejected ? undefined : pin,
+    () => selectImageModel(imageModels, { modelStrategy: args.modelStrategy }, {
+      requireReferenceImages: needsRefs,
+    }),
     args.purpose,
   );
+
+  if (needsRefs && !supportsReferenceImages(model)) {
+    throw new ValidationError(
+      `No installed image model accepts reference images, so the pinned characters ` +
+        `cannot be applied. Install a reference-capable model (for example ` +
+        `Flux 2 Klein or Qwen Image Edit), or turn off the character library for this project.`,
+    );
+  }
+
   const schema = await client.getModelSchema(model.modelType);
   return buildSettingsManifest(schema, {
     sceneId: args.sceneId,
     purpose: args.purpose,
     prompt: args.prompt,
     negativePrompt: args.negativePrompt,
+    imageRefs: args.imageRefs,
     resolution: config.defaults.resolution,
   });
 }

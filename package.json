@@ -15,6 +15,7 @@
     "smoke": "tsx scripts/smoke.ts",
     "wangp:probe": "tsx scripts/wangp-probe.ts",
     "wangp:models": "tsx scripts/wangp-models.ts",
+    "wangp:refs": "tsx scripts/wangp-refs.ts",
     "wangp:e2e": "tsx scripts/live-e2e.ts",
     "prompts:check": "tsx scripts/prompt-check.ts",
     "llm:probe": "tsx scripts/llm-probe.ts",

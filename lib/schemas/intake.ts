@@ -38,6 +38,9 @@ export const createProjectSchema = z.object({
   modelStrategy: z.enum(MODEL_STRATEGIES).default("auto"),
   imageModel: z.string().optional(),
   videoModel: z.string().optional(),
+  /** Reuse saved character descriptions for this project's cast. */
+  useCharacterLibrary: z.boolean().default(false),
+  characterIds: z.array(z.string()).default([]),
 });
 
 /**

@@ -34,10 +34,34 @@ model Project {
   sfxRequired              Boolean  @default(false)
   generationMode           String
   modelStrategy            String
+  imageModel               String?
+  videoModel               String?
+  // Character library opt-in. Ids reference Character.id; stored as a scalar
+  // list rather than a relation so deleting a character cannot cascade into
+  // rewriting historical projects.
+  useCharacterLibrary      Boolean  @default(false)
+  characterIds             String[] @default([])
   status                   String   @default("draft")
   // Full storyboard snapshot (brief, visual bible, scenes) stored as JSON while
   // the schema firms up (generic-build-spec Section 10.2).
   storyboard               Json?
   createdAt                DateTime @default(now())
   updatedAt                DateTime @updatedAt
+}
+
+/// Reusable character definitions shared by every project (the "cast library").
+/// Global by design: the same subject description is meant to be pinned across
+/// unrelated stories so a recurring face stays consistent.
+model Character {
+  id             String   @id
+  name           String
+  /// Prompt-ready physical description interpolated verbatim into image and
+  /// video prompts.
+  description    String
+  /// Traits to suppress, appended to the negative prompt.
+  negativePrompt String?
+  /// Filename of the stored reference image, relative to the library directory.
+  referenceImage String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
 }

@@ -18,6 +18,10 @@ export type TelemetryEvent =
   | "scene.qc"
   | "audio_cue.generated"
   | "assembly.completed"
+  | "character.created"
+  | "character.updated"
+  | "character.deleted"
+  | "character.reference_image_set"
   | "health.check";
 
 export function logEvent(event: TelemetryEvent, data: Record<string, unknown> = {}): void {

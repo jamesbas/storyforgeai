@@ -1,6 +1,15 @@
 import type { Project } from "@/lib/schemas/project";
 import type { CreativeBrief, StoryPlan, VisualBible } from "@/lib/schemas/agents";
 import type { ScenePrompts, SceneDraft } from "@/lib/schemas/storyboard";
+import type { Character } from "@/lib/schemas/character";
+import { castNegativeSuffix, castPromptSuffix } from "@/lib/agents/cast";
+import {
+  continuityNegativeSuffix,
+  globalStyleSuffix,
+  sceneCreativeSlice,
+  sceneDirectionSuffix,
+  type CreativePlans,
+} from "@/lib/agents/creative-context";
 
 /**
  * Deterministic mock builders backing each agent. They produce schema-valid
@@ -72,24 +81,53 @@ export function buildStoryPlan(project: Project): StoryPlan {
   };
 }
 
-export function buildVisualBible(project: Project): VisualBible {
+export function buildVisualBible(
+  project: Project,
+  cast: readonly Character[] = [],
+  plans?: CreativePlans,
+): VisualBible {
+  // A pinned cast replaces the generic placeholder subject entirely — the point
+  // of pinning is that the described person is the one on screen.
+  const characters =
+    cast.length > 0
+      ? cast.map((c) => ({ name: c.name, description: c.description }))
+      : [
+          {
+            name: "Primary Subject",
+            description: "Consistent wardrobe and identity across all scenes.",
+          },
+        ];
+
+  // Approved plans outrank the generic defaults, in the documented precedence
+  // order: character library, then Visual Bible, then the canvas plans.
+  const locations = plans?.worldBible?.locations.length
+    ? plans.worldBible.locations
+    : [{ name: "Primary Location", description: "Recurring establishing environment for continuity." }];
+
   return {
     projectId: project.id,
-    artDirection: `${project.style} art direction with cohesive framing and deliberate composition.`,
+    artDirection:
+      plans?.artDirectionPlan?.productionDesign ??
+      `${project.style} art direction with cohesive framing and deliberate composition.`,
     colorPalette: ["#1b2430", "#e8e2d5", "#c9a227", "#3b6fb0"],
-    lightingRules: [
-      "Motivated key light with soft fill",
-      "Preserve consistent color temperature across scenes",
-    ],
-    cameraStyle: "Cinematic lensing, stable moves, purposeful framing",
-    characters: [{ name: "Primary Subject", description: "Consistent wardrobe and identity across all scenes." }],
-    locations: [{ name: "Primary Location", description: "Recurring establishing environment for continuity." }],
+    lightingRules: plans?.cinematographyPlan?.lightingRules.length
+      ? plans.cinematographyPlan.lightingRules
+      : [
+          "Motivated key light with soft fill",
+          "Preserve consistent color temperature across scenes",
+        ],
+    cameraStyle:
+      plans?.cinematographyPlan?.cameraLanguage ??
+      "Cinematic lensing, stable moves, purposeful framing",
+    characters,
+    locations,
     props: [{ name: "Signature Prop", description: "Recurring motif reinforcing the concept." }],
     negativeRules: [
       "no watermarks",
       "no distorted anatomy",
       "no text artifacts",
       "no flicker or warping",
+      ...(plans?.worldBible?.forbiddenContradictions ?? []),
     ],
   };
 }
@@ -99,7 +137,13 @@ export function buildSceneDrafts(
   storyPlan: StoryPlan,
   _brief: CreativeBrief,
   _visualBible: VisualBible,
+  cast: readonly Character[] = [],
+  plans?: CreativePlans,
 ): SceneDraft[] {
+  // Scene cards name the pinned lead so downstream prompts and reviewers refer
+  // to the same person rather than an anonymous "subject".
+  const lead = cast[0]?.name ?? "The subject";
+  const speaker = cast[0]?.name ?? "Lead";
   const drafts: SceneDraft[] = [];
   for (let i = 0; i < project.segmentCount; i += 1) {
     const sceneNumber = i + 1;
@@ -111,6 +155,10 @@ export function buildSceneDrafts(
         ? project.segmentSeconds - project.finalTrimSeconds
         : undefined;
 
+    // The Director owns scene intent and the Cinematographer owns the shot, so
+    // an approved plan overrides the generic defaults for both.
+    const slice = sceneCreativeSlice(plans, { id: "", sceneNumber });
+
     drafts.push({
       id: `${project.id}-scene-${String(sceneNumber).padStart(3, "0")}`,
       projectId: project.id,
@@ -121,11 +169,12 @@ export function buildSceneDrafts(
       trimAtEndSeconds,
       title: `Scene ${sceneNumber}`,
       sceneObjective:
-        sceneNumber === 1
+        slice.intent ??
+        (sceneNumber === 1
           ? "Open the story and orient the viewer."
           : isLast
             ? "Deliver the resolution and payoff."
-            : `Advance beat ${sceneNumber} of the narrative.`,
+            : `Advance beat ${sceneNumber} of the narrative.`),
       storyBeat: storyPlan.segmentBeats[i] ?? `Beat ${sceneNumber} of ${project.segmentCount}.`,
       visualDescription:
         `${project.concept.trim()} — ` +
@@ -137,19 +186,26 @@ export function buildSceneDrafts(
         `, ${storyPlan.emotionalProgression[i] ?? "rising tension"} in the performances`,
       actionDescription:
         sceneNumber === 1
-          ? "The subject enters the frame and the central tension is revealed through what they do."
+          ? `${lead} enters the frame and the central tension is revealed through what they do.`
           : isLast
-            ? "The subject commits to a decision and the tension releases."
-            : "The subject presses the conflict further and the stakes visibly rise.",
-      cameraMovement: sceneNumber % 2 === 0 ? "Slow push-in" : "Gentle lateral tracking",
+            ? `${lead} commits to a decision and the tension releases.`
+            : `${lead} presses the conflict further and the stakes visibly rise.`,
+      cameraMovement:
+        slice.shotPlan ?? (sceneNumber % 2 === 0 ? "Slow push-in" : "Gentle lateral tracking"),
       transitionIn: sceneNumber === 1 ? "Fade in" : "Cut",
       transitionOut: isLast ? "Fade out" : "Cut",
-      continuityNotes: ["Maintain subject identity", "Match lighting and palette"],
+      continuityNotes: [
+        cast.length > 0
+          ? `Maintain ${cast.map((c) => c.name).join(" and ")} exactly as described in the character library`
+          : "Maintain subject identity",
+        "Match lighting and palette",
+        ...(plans?.worldBible?.continuityConstraints ?? []).slice(0, 2),
+      ],
       narrationText: project.narrationRequired ? `Narration cue for scene ${sceneNumber}.` : undefined,
       dialogue: project.dialogueRequired
         ? [
             {
-              character: "Lead",
+              character: speaker,
               line:
                 sceneNumber === 1
                   ? "We can't keep pretending everything is fine."
@@ -193,9 +249,15 @@ function sentence(text: string | undefined): string {
 export function buildImagePrompts(
   project: Project,
   scene: SceneDraft,
+  cast: readonly Character[] = [],
+  plans?: CreativePlans,
 ): Pick<ScenePrompts, "startFramePrompt" | "endFramePrompt" | "imageNegativePrompt"> {
   const isLast = scene.sceneNumber === project.segmentCount;
   const look = `${project.style} style, ${project.tone} mood, cinematic lighting.`;
+  const audience = project.audience ? ` Framed for a ${project.audience} audience.` : "";
+  const castText = castPromptSuffix(cast);
+  const direction = sceneDirectionSuffix(sceneCreativeSlice(plans, scene));
+  const art = globalStyleSuffix(plans);
 
   return {
     startFramePrompt:
@@ -203,24 +265,38 @@ export function buildImagePrompts(
       sentence(scene.visualDescription) +
       sentence(scene.storyBeat) +
       `Opening framing of the shot; ${scene.cameraMovement.toLowerCase()} begins from here. ` +
-      `${look} Consistent characters, wardrobe, and location per the visual bible.`,
+      `${look} Consistent characters, wardrobe, and location per the visual bible.` +
+      audience +
+      direction +
+      art +
+      castText,
     endFramePrompt:
       `Cinematic still. ` +
       sentence(scene.visualDescription) +
       sentence(scene.actionDescription) +
       `Closing framing after ${scene.cameraMovement.toLowerCase()}, showing the result of the action` +
       `${isLast ? " on a resolving beat" : `, setting up scene ${scene.sceneNumber + 1}`}. ` +
-      `${look} Same characters, wardrobe, and location as the start frame.`,
-    imageNegativePrompt: "no watermarks, no distorted anatomy, no text artifacts, low quality",
+      `${look} Same characters, wardrobe, and location as the start frame.` +
+      audience +
+      direction +
+      art +
+      castText,
+    imageNegativePrompt:
+      "no watermarks, no distorted anatomy, no text artifacts, low quality" +
+      castNegativeSuffix(cast) +
+      continuityNegativeSuffix(plans),
   };
 }
 
 export function buildVideoPrompts(
   project: Project,
   scene: SceneDraft,
+  cast: readonly Character[] = [],
+  plans?: CreativePlans,
 ): Pick<ScenePrompts, "videoPromptSegment" | "videoNegativePrompt" | "promptQualityChecklist"> {
   const spoken = dialogueProse(scene);
   const narration = scene.narrationText ? ` Voice-over: "${scene.narrationText}"` : "";
+  const slice = sceneCreativeSlice(plans, scene);
 
   return {
     videoPromptSegment:
@@ -232,13 +308,22 @@ export function buildVideoPrompts(
       spoken +
       narration +
       ` ${project.style} style, ${project.tone} tone. Preserve subject identity, wardrobe, ` +
-      `location, and lighting throughout.`,
-    videoNegativePrompt: "no flicker, no warping, no duplicated subjects, no abrupt cuts",
+      `location, and lighting throughout.` +
+      sceneDirectionSuffix(slice) +
+      globalStyleSuffix(plans) +
+      castPromptSuffix(cast),
+    videoNegativePrompt:
+      "no flicker, no warping, no duplicated subjects, no abrupt cuts" +
+      castNegativeSuffix(cast) +
+      continuityNegativeSuffix(plans),
     promptQualityChecklist: [
       "continuity with visual bible",
       "clear subject and action",
       "start-to-end evolution described",
       ...(scene.dialogue?.length ? ["dialogue quoted inline for lip sync"] : []),
+      ...(cast.length ? ["pinned character descriptions carried into the prompt"] : []),
+      ...(slice.intent ? ["directorial intent applied"] : []),
+      ...(slice.shotPlan ? ["cinematography shot plan applied"] : []),
       "negative prompt present",
     ],
   };

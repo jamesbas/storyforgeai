@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   ASPECT_RATIOS,
   CREATIVE_MODES,
@@ -10,7 +11,15 @@ import {
   RESOLUTION_PRESETS,
   SEGMENT_SECONDS,
 } from "@/lib/types";
+import {
+  AUDIENCE_PRESETS,
+  CUSTOM_PRESET_VALUE,
+  STYLE_PRESETS,
+  TONE_PRESETS,
+  type PresetOption,
+} from "@/lib/presets";
 import type { CreateProjectInput } from "@/lib/schemas/intake";
+import type { Character } from "@/lib/schemas/character";
 
 export type NewProjectFormProps = {
   onSubmit: (values: CreateProjectInput) => Promise<void> | void;
@@ -26,7 +35,7 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
     useState<(typeof RESOLUTION_PRESETS)[number]>("standard");
   const [style, setStyle] = useState("cinematic");
   const [tone, setTone] = useState("inspirational");
-  const [audience, setAudience] = useState("");
+  const [audience, setAudience] = useState("general audience");
   const [creativeMode, setCreativeMode] = useState<(typeof CREATIVE_MODES)[number]>("film_short");
   const [generationMode, setGenerationMode] =
     useState<(typeof GENERATION_MODES)[number]>("storyboard_only");
@@ -34,6 +43,26 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
   const [dialogueRequired, setDialogue] = useState(false);
   const [musicRequired, setMusic] = useState(false);
   const [sfxRequired, setSfx] = useState(false);
+  const [useCharacterLibrary, setUseCharacterLibrary] = useState(false);
+  const [characterIds, setCharacterIds] = useState<string[]>([]);
+  const [characters, setCharacters] = useState<Character[]>([]);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/characters");
+        if (res.ok) setCharacters(((await res.json()) as { characters: Character[] }).characters);
+      } catch {
+        // non-fatal: the library is optional, the form still works without it
+      }
+    })();
+  }, []);
+
+  const toggleCharacter = useCallback((id: string) => {
+    setCharacterIds((current) =>
+      current.includes(id) ? current.filter((c) => c !== id) : [...current, id],
+    );
+  }, []);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -52,11 +81,60 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
       dialogueRequired,
       musicRequired,
       sfxRequired,
+      useCharacterLibrary,
+      characterIds: useCharacterLibrary ? characterIds : [],
     });
   }
 
   const field = "rounded-md border border-white/10 bg-canvas px-3 py-2 text-sm outline-none focus:border-accent";
   const label = "block text-xs font-medium uppercase tracking-wide text-slate-400";
+
+  /**
+   * Preset dropdown with a free-text escape hatch.
+   *
+   * These fields are interpolated verbatim into image and video prompts, so any
+   * wording is valid — the presets exist to make the useful values one click
+   * away, not to restrict them.
+   */
+  const presetPicker = (
+    id: string,
+    labelText: string,
+    presets: readonly PresetOption[],
+    value: string,
+    onChange: (next: string) => void,
+  ) => {
+    const isPreset = presets.some((p) => p.value === value);
+    return (
+      <div>
+        <label htmlFor={id} className={label}>
+          {labelText}
+        </label>
+        <select
+          id={id}
+          value={isPreset ? value : CUSTOM_PRESET_VALUE}
+          onChange={(e) => onChange(e.target.value === CUSTOM_PRESET_VALUE ? "" : e.target.value)}
+          className={`mt-1 w-full ${field}`}
+        >
+          {presets.map((p) => (
+            <option key={p.value} value={p.value}>
+              {p.label}
+            </option>
+          ))}
+          <option value={CUSTOM_PRESET_VALUE}>Custom…</option>
+        </select>
+        {!isPreset && (
+          <input
+            aria-label={`${labelText} (custom)`}
+            required
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={`Describe the ${labelText.toLowerCase()} in your own words`}
+            className={`mt-2 w-full ${field}`}
+          />
+        )}
+      </div>
+    );
+  };
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5" aria-label="New project">
@@ -132,39 +210,9 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
             ))}
           </select>
         </div>
-        <div>
-          <label htmlFor="style" className={label}>
-            Style
-          </label>
-          <input
-            id="style"
-            value={style}
-            onChange={(e) => setStyle(e.target.value)}
-            className={`mt-1 w-full ${field}`}
-          />
-        </div>
-        <div>
-          <label htmlFor="tone" className={label}>
-            Tone
-          </label>
-          <input
-            id="tone"
-            value={tone}
-            onChange={(e) => setTone(e.target.value)}
-            className={`mt-1 w-full ${field}`}
-          />
-        </div>
-        <div>
-          <label htmlFor="audience" className={label}>
-            Audience
-          </label>
-          <input
-            id="audience"
-            value={audience}
-            onChange={(e) => setAudience(e.target.value)}
-            className={`mt-1 w-full ${field}`}
-          />
-        </div>
+        {presetPicker("style", "Style", STYLE_PRESETS, style, setStyle)}
+        {presetPicker("tone", "Tone", TONE_PRESETS, tone, setTone)}
+        {presetPicker("audience", "Audience", AUDIENCE_PRESETS, audience, setAudience)}
         <div>
           <label htmlFor="resolutionPreset" className={label}>
             Resolution
@@ -239,6 +287,74 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
           <input type="checkbox" checked={sfxRequired} onChange={(e) => setSfx(e.target.checked)} />
           SFX
         </label>
+      </fieldset>
+
+      {/*
+        `min-w-0` is load-bearing: a <fieldset> defaults to `min-inline-size:
+        min-content`, so without it the element refuses to shrink and a long
+        character description drags the whole page wider than the viewport,
+        pushing the sidebar off screen.
+      */}
+      <fieldset className="min-w-0 space-y-3 rounded-md border border-white/10 bg-canvas/40 p-3">
+        <legend className="px-1 text-xs font-medium uppercase tracking-wide text-slate-400">
+          Characters
+        </legend>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={useCharacterLibrary}
+            onChange={(e) => setUseCharacterLibrary(e.target.checked)}
+          />
+          Use saved character descriptions
+        </label>
+        <p className="text-[11px] text-slate-500">
+          Locks the selected characters&apos; appearance into the visual bible, the scene cards, and
+          every image and video prompt, so the same person looks the same in every clip.
+        </p>
+
+        {useCharacterLibrary ? (
+          characters.length === 0 ? (
+            <p className="text-xs text-slate-400">
+              No characters saved yet.{" "}
+              <Link href="/settings" className="text-accent hover:underline">
+                Add one in Settings
+              </Link>
+              .
+            </p>
+          ) : (
+            <ul className="space-y-2">
+              {characters.map((character) => (
+                <li key={character.id} className="min-w-0">
+                  <label className="flex min-w-0 items-start gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      className="mt-1 flex-none"
+                      checked={characterIds.includes(character.id)}
+                      onChange={() => toggleCharacter(character.id)}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="block font-medium">{character.name}</span>
+                      {/*
+                        Clamped rather than truncated: these descriptions run to
+                        several hundred words, and `truncate` sets
+                        `white-space: nowrap`, which makes the min-content width
+                        the full length of the text. No `block` here — the
+                        line-clamp utility supplies its own `display`, and a
+                        display utility alongside it wins and cancels the clamp.
+                      */}
+                      <span
+                        className="line-clamp-2 break-words text-xs text-slate-500"
+                        title={character.description}
+                      >
+                        {character.description}
+                      </span>
+                    </span>
+                  </label>
+                </li>
+              ))}
+            </ul>
+          )
+        ) : null}
       </fieldset>
 
       <button
