@@ -33,6 +33,9 @@ so nothing cloud is required to run, test, or demo the app.
   settings-manifest generation, and job submit/poll/cancel.
 - **Media generation** — per-scene start/end keyframes + a 20s video, scene attempts
   with retry/regeneration, QC results, and human approval.
+- **Character library** — reusable cast with up to two reference images each,
+  a separable facial description that steps aside for a photo, and an optional
+  face-swap pass over generated keyframes.
 - **LoRA selection** — pick LoRAs for the whole storyboard or override them per
   scene, filtered to those installed for the pinned image/video model, with
   per-LoRA strengths. Trigger words are read from WanGP's sidecar metadata and
@@ -244,6 +247,57 @@ best and exhaust VRAM at worst — and a storyboard issues `4 + 2N` of them. Eve
 call goes through one chain whenever `OPENAI_BASE_URL` is set, which also covers
 the Agentic Canvas firing several agents and a second browser tab. Hosted APIs
 have no such limit and are left to run in parallel.
+
+## Character identity
+
+Holding one face across independently rendered scenes is the hardest part of the
+pipeline, and the app uses four mechanisms that compound.
+
+**Reference images.** Up to two per character, sent to the image model as
+`image_refs` with the activating prompt-type letter. A second angle measurably
+helps; two is the ceiling of the reference-capable models in use. The background
+behind the subject is stripped (`remove_background_images_ref`), so the setting in
+the photo does not become part of the reference — disable with
+`WANGP_REMOVE_REFERENCE_BACKGROUND=false`.
+
+**Withholding the written face.** A character has an optional `facialDescription`
+separate from its main description, and that field is **withheld from image and
+video prompts whenever a reference image exists**. A written face and a photograph
+are competing conditioning signals, and under classifier-free guidance the text
+wins — backwards, when the photo was supplied to fix the likeness. Removing those
+sentences measurably improved identity in testing. Planning agents still receive
+it, having no photo to work from, and the main description keeps carrying build,
+hair and anything a headshot cannot show.
+
+**Face swap.** Optional per character. After each keyframe renders, a Qwen Image
+Edit pass replaces the head in the generated frame with the head from the
+character's first reference image — four Lightning steps, so seconds rather than
+minutes.
+
+It is synchronous, and the ordering is the point:
+
+```
+start frame → swap → end frame (rendered against the SWAPPED start) → swap → clip
+```
+
+The end frame is conditioned on the start frame and the clip is rendered from
+both, so a swap arriving afterwards would be overwritten by the frames it was
+meant to correct. A failed swap keeps the original frame rather than failing the
+scene.
+
+Requires a reference image, a Qwen Image Edit model, and both face-swap LoRAs in
+WanGP's `loras/qwen` folder. Only runs when exactly one character in the project
+has it enabled — the recipe is written around a single subject, so with two there
+is no way to say which face belongs where. Disable globally with
+`FACE_SWAP_ENABLED=false`; change the model with `FACE_SWAP_MODEL`.
+
+**Scene continuity.** `reuse_end_frame` (the default) starts each scene from the
+previous scene's end frame, so a corrected face propagates forward rather than
+being re-synthesised per scene.
+
+> Face swap corrects keyframes. The clip between them is model-interpolated, so
+> identity can still drift mid-motion; the endpoints of every scene are the frames
+> it fixes.
 
 ## Model selection
 

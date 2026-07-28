@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { config } from "@/lib/config";
 import { SEGMENT_SECONDS } from "@/lib/types";
 import type { LoraSelection } from "@/lib/schemas/lora";
 import type { WangpModelSchema, WangpGenerationSettings, WangpPurpose } from "@/lib/schemas/wangp";
@@ -184,6 +185,12 @@ export function buildSettingsManifest(
   // pathway stays entirely inactive when no characters are pinned.
   if (overrides.imageRefs?.length) {
     setIf("image_refs", overrides.imageRefs);
+
+    // Strip the background behind the person in a reference image. WanGP labels
+    // this "Remove Background behind People / Objects", and with it off the
+    // whole photo — setting, colours, composition — acts as the reference,
+    // diluting the identity signal it was supplied for.
+    if (config.media.removeReferenceBackground) setIf("remove_background_images_ref", 1);
 
     // Activating references is counter-intuitively `video_prompt_type`, not
     // `image_prompt_type`, even on pure image models. Verified against a live

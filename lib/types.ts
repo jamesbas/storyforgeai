@@ -81,9 +81,9 @@ export const SEGMENT_SECONDS = 20;
  * to scene 2 beyond the prompt. These modes trade render cost against visual
  * continuity at the seam.
  *
- * - `cut`             Fresh start and end keyframes per scene. The default,
- *                     and correct when scenes are separate shots — reusing a
- *                     frame across a hard cut reads as a freeze, not a flow.
+ * - `cut`             Fresh start and end keyframes per scene. Correct when
+ *                     scenes are separate shots — reusing a frame across a hard
+ *                     cut reads as a freeze, not a flow.
  * - `reuse_end_frame` Scene N+1 starts from scene N's end frame. Saves one
  *                     image render per boundary and guarantees the seam
  *                     matches, but only makes sense for continuous action.
@@ -93,6 +93,21 @@ export const SEGMENT_SECONDS = 20;
  */
 export const SCENE_CONTINUITY_MODES = ["cut", "reuse_end_frame", "continue_video"] as const;
 export type SceneContinuityMode = (typeof SCENE_CONTINUITY_MODES)[number];
+
+/**
+ * The mode used when a project does not state one.
+ *
+ * Named rather than repeated as a literal because it is applied in several
+ * places — the create form, the runtime resolver, and the labels — and those
+ * drifting apart would mean the UI advertising one default while generation
+ * used another.
+ *
+ * `reuse_end_frame` is the default because most projects here are one continuous
+ * piece rather than a reel of unrelated shots: it makes each seam match exactly
+ * and cuts image renders from 2N to N+1. Set `cut` per project when scenes are
+ * genuinely separate.
+ */
+export const DEFAULT_SCENE_CONTINUITY: SceneContinuityMode = "reuse_end_frame";
 
 /**
  * Bounds for a configurable clip length. The ceiling is the video model's native

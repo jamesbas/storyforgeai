@@ -6,6 +6,7 @@ import { SceneCard } from "@/components/storyboard/scene-card";
 import { CreativePlansPanel } from "@/components/storyboard/creative-plans-panel";
 import { SCENE_CONTINUITY_OPTIONS } from "@/lib/presets";
 import type { SceneContinuityMode } from "@/lib/types";
+import { DEFAULT_SCENE_CONTINUITY } from "@/lib/types";
 import { resolveSceneLoras } from "@/lib/lora/scene-selection";
 import { effectiveTriggerWords } from "@/lib/lora/trigger-words";
 import type { LoraCatalog, SceneLoraOverride } from "@/lib/schemas/lora";
@@ -283,6 +284,33 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     [projectId, loadMedia, failureMessage],
   );
 
+  /**
+   * Render one keyframe so a prompt, model or LoRA change can be judged without
+   * paying for the whole scene. Stored as a preview, so it does not disturb the
+   * scene's attempts or its approval state.
+   */
+  const generateSceneKeyframe = useCallback(
+    async (sceneId: string, purpose: "start_frame" | "end_frame") => {
+      setSceneBusy(sceneId);
+      setError(null);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/scenes/${sceneId}/keyframe`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ purpose }),
+        });
+        if (!res.ok) throw new Error(await failureMessage(res, "Failed to render the keyframe"));
+        setRecord((await res.json()) as ProjectRecord);
+        await loadMedia();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to render the keyframe");
+      } finally {
+        setSceneBusy(null);
+      }
+    },
+    [projectId, loadMedia, failureMessage],
+  );
+
   const approveScene = useCallback(
     async (sceneId: string, attemptId: string) => {
       setSceneBusy(sceneId);
@@ -455,7 +483,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
             </h2>
             <label className="mt-2 block">
               <select
-                value={record.project.sceneContinuity ?? "cut"}
+                value={record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY}
                 onChange={(e) => void setContinuity(e.target.value as SceneContinuityMode)}
                 className="w-full rounded-md border border-white/10 bg-canvas px-3 py-2 text-sm outline-none focus:border-accent sm:max-w-md"
               >
@@ -469,7 +497,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
             <p className="mt-2 text-xs text-slate-500">
               {
                 SCENE_CONTINUITY_OPTIONS.find(
-                  (o) => o.value === (record.project.sceneContinuity ?? "cut"),
+                  (o) => o.value === (record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY),
                 )?.description
               }
             </p>
@@ -597,6 +625,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   onLoraSave={(next) => void saveSceneLoras(scene.id, next)}
                   triggerWords={{ image: triggerWordsFor("image"), video: triggerWordsFor("video") }}
                   onPromptsSaved={(next) => setRecord(next)}
+                  onGenerateKeyframe={(purpose) => void generateSceneKeyframe(scene.id, purpose)}
                 />
               );
             })}

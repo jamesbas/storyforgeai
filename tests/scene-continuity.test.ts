@@ -8,8 +8,10 @@ import { generateSceneMedia, approveAttempt } from "@/lib/services/media-service
 import { buildSettingsManifest } from "@/lib/wangp/settings";
 import { MockWangpClient } from "@/lib/wangp/mock-client";
 import { setWangpClient } from "@/lib/wangp/factory";
+import { repository } from "@/lib/db/store";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { SceneContinuityMode } from "@/lib/types";
+import { DEFAULT_SCENE_CONTINUITY } from "@/lib/types";
 
 /**
  * Scene continuity modes.
@@ -44,7 +46,40 @@ describe("scene continuity", () => {
     setWangpClient(new MockWangpClient());
   });
 
-  it("defaults to a cut: every scene renders its own start and end frames", async () => {
+  /**
+   * The default is applied in several places — the create form, the runtime
+   * resolver and the labels — so it is pinned here rather than left implicit.
+   * A project that never states a mode must generate the way the UI says it
+   * will.
+   */
+  it("applies the shared default when a project states no mode", async () => {
+    const project = await createProject({
+      concept: "A courier crosses a flooded city.",
+      requestedDurationSeconds: 60,
+    });
+    expect(project.sceneContinuity).toBe(DEFAULT_SCENE_CONTINUITY);
+  });
+
+  /** An older project stored before the setting existed has no value at all. */
+  it("falls back to the shared default for a project with no stored mode", async () => {
+    let record = await projectWithStoryboard("reuse_end_frame");
+    record = {
+      ...record,
+      project: { ...record.project, sceneContinuity: undefined },
+    };
+    await repository.update(record.project.id, record);
+
+    record = await generateAndApprove(record, 0);
+    record = await generateAndApprove(record, 1);
+
+    const first = record.attempts![record.storyboard!.scenes[0]!.id]!.at(-1)!;
+    const second = record.attempts![record.storyboard!.scenes[1]!.id]!.at(-1)!;
+
+    // DEFAULT_SCENE_CONTINUITY is reuse_end_frame, so scene 2 inherits.
+    expect(second.startImagePath).toBe(first.endImagePath);
+  });
+
+  it("a cut renders every scene's own start and end frames", async () => {
     let record = await projectWithStoryboard("cut");
     expect(record.project.sceneContinuity).toBe("cut");
 

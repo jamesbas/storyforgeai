@@ -23,6 +23,8 @@ type SceneCardProps = {
   /** Trigger words appended automatically at generation, by prompt kind. */
   triggerWords?: { image: string[]; video: string[] };
   onPromptsSaved?: (record: ProjectRecord) => void;
+  /** Render a single keyframe without the other frame or the clip. */
+  onGenerateKeyframe?: (purpose: "start_frame" | "end_frame") => void;
 };
 
 /** Render a player for media that exists on disk; fall back to the path. */
@@ -69,6 +71,7 @@ export function SceneCard({
   onLoraSave,
   triggerWords,
   onPromptsSaved,
+  onGenerateKeyframe,
 }: SceneCardProps) {
   const playable = media.filter((m) => m.available && m.sceneId === scene.id);
 
@@ -186,6 +189,30 @@ export function SceneCard({
               </button>
             )}
           </div>
+
+          {onGenerateKeyframe && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="text-[11px] text-slate-500">Preview one frame:</span>
+              <button
+                onClick={() => onGenerateKeyframe("start_frame")}
+                disabled={busy}
+                className="rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-slate-300 hover:border-accent disabled:opacity-50"
+              >
+                Start frame only
+              </button>
+              <button
+                onClick={() => onGenerateKeyframe("end_frame")}
+                disabled={busy}
+                className="rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-slate-300 hover:border-accent disabled:opacity-50"
+              >
+                End frame only
+              </button>
+              <span className="text-[10px] text-slate-600">
+                One image, no clip — for checking a prompt, model or LoRA change cheaply. Previews
+                are not part of an attempt and are never assembled.
+              </span>
+            </div>
+          )}
         </div>
       )}
     </article>

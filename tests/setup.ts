@@ -1,4 +1,6 @@
 import "@testing-library/jest-dom";
+import os from "node:os";
+import path from "node:path";
 
 /**
  * Pin the external-integration flags off before any module reads config.
@@ -21,6 +23,21 @@ process.env.AI_PLANNING_ENABLED = "false";
  * dependent, and slow every case down with filesystem I/O.
  */
 process.env.STORYFORGE_PERSISTENCE = "memory";
+
+/**
+ * Point the data directory at a throwaway location.
+ *
+ * `STORYFORGE_PERSISTENCE=memory` only isolates the *project* repository. The
+ * character library is deliberately durable regardless of that setting — it is
+ * curated configuration, not disposable session state — so it writes to
+ * `config.dataDir` either way. Without this, any test touching a character
+ * writes into the real library, and a suite that creates a character per case
+ * quietly fills it with duplicates and orphaned uploads.
+ *
+ * Tests needing their own isolated root still create one; this only stops the
+ * default from being someone's actual data.
+ */
+process.env.STORYFORGE_DATA_DIR = path.join(os.tmpdir(), "storyforge-test-data");
 
 /**
  * The scene queue paces itself in production — it waits between scenes so the

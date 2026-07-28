@@ -62,7 +62,7 @@ export const projectSchema = z.object({
   characterWardrobe: z.record(z.string()).optional(),
   /**
    * How each scene connects to the previous one. Optional so projects created
-   * before the setting existed still parse; absent means "cut".
+   * before the setting existed still parse; absent means DEFAULT_SCENE_CONTINUITY.
    */
   sceneContinuity: z.enum(SCENE_CONTINUITY_MODES).optional(),
   /**

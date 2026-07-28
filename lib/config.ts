@@ -151,6 +151,21 @@ export const config = {
      * is untouched. Turn off to manage trigger words by hand.
      */
     appendLoraTriggerWords: bool(process.env.LORA_APPEND_TRIGGER_WORDS, true),
+    /**
+     * Remove the background behind the subject of a reference image.
+     *
+     * A reference photo is supplied to fix identity, but with the background
+     * intact the model treats the entire image as the reference and the signal
+     * is diluted. Measurably better on with a character photo.
+     */
+    removeReferenceBackground: bool(process.env.WANGP_REMOVE_REFERENCE_BACKGROUND, true),
+    /**
+     * Run a face-swap pass over generated keyframes for characters that ask for
+     * it. Off here disables the feature globally regardless of character setup.
+     */
+    faceSwapEnabled: bool(process.env.FACE_SWAP_ENABLED, true),
+    /** WanGP model used for the swap. Must be a Qwen Image Edit variant. */
+    faceSwapModel: str(process.env.FACE_SWAP_MODEL, "qwen_image_edit_plus2_20B"),
   },
   sceneQueue: {
     /**

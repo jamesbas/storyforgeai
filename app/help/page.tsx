@@ -303,12 +303,55 @@ export default function HelpPage() {
               appended to the negative prompt of every scene they appear in.
             </li>
             <li className={li}>
-              <strong>Reference image</strong> — an optional picture. It is sent to the generation
-              backend as reference input for the start and end frames, so the render is conditioned
-              on the actual likeness rather than only the words. Requires an image model that accepts
-              reference images; if the pinned model cannot, StoryForgeAI substitutes one that can.
+              <strong>Facial description</strong> — optional, and the field to use for eyes, nose,
+              jaw, skin and expression. It is <em>withheld from image and video prompts once a
+              reference image exists</em>, because a written face and a photograph are competing
+              instructions and the text tends to win — which is backwards when you supplied the photo
+              precisely to fix the likeness. Removing these sentences measurably improved likeness in
+              testing. Planning agents still receive it, since they have no photo to work from.
+            </li>
+            <li className={li}>
+              <strong>Reference images</strong> — up to two pictures, most representative first. They
+              are sent to the generation backend as reference input for the start and end frames, so
+              the render is conditioned on the actual likeness rather than only the words. A second
+              angle helps; two is the ceiling of the reference-capable models in use. Requires an
+              image model that accepts reference images; if the pinned model cannot, StoryForgeAI
+              substitutes one that can. The background behind the subject is stripped automatically,
+              so the setting in the photo does not become part of the reference.
+            </li>
+            <li className={li}>
+              <strong>Face swap generated frames</strong> — optional. See below.
             </li>
           </ul>
+
+          <h3 className={h3}>Face swap</h3>
+          <p className={p}>
+            Reference conditioning gets identity close but not exact — the model is still synthesising
+            a face rather than transplanting one. Ticking <strong>Face swap generated frames</strong>
+            {" "}runs a dedicated pass after each keyframe renders, replacing the head in the generated
+            frame with the head from the character&apos;s first reference image.
+          </p>
+          <p className={p}>
+            It runs automatically as part of generation, not as a background task, and that ordering
+            is deliberate: the end frame is rendered <em>against</em> the start frame and the clip is
+            rendered from both, so a swap arriving afterwards would be overwritten by the very frames
+            it was meant to correct. The swap therefore sits between renders — start frame, swap, end
+            frame, swap, then the clip. What you see on the storyboard is the swapped frame, because
+            it is the frame everything downstream uses.
+          </p>
+          <p className={p}>
+            The pass is four steps with an accelerator LoRA, so it costs seconds rather than the
+            minutes a keyframe takes. With <em>Continue from previous end frame</em> continuity you
+            pay for roughly one swap per scene. If it fails, the original frame is kept and the scene
+            still completes — a lost improvement, not a lost render.
+          </p>
+          <p className={p}>
+            Two requirements. The character needs a reference image, and it must be the{" "}
+            <strong>only</strong> character in the project with face swap enabled: the underlying
+            recipe is written around a single subject, so with two there is no way to say which face
+            belongs where and the swap is skipped rather than guessed. It also needs a Qwen Image Edit
+            model and its two face-swap LoRAs installed in WanGP.
+          </p>
 
           <h3 className={h3}>Using it in a project</h3>
           <p className={p}>

@@ -333,13 +333,13 @@ export const AUDIO_TOGGLE_DOCS: Readonly<Record<string, string>> = {
 export const SCENE_CONTINUITY_OPTIONS: readonly PresetOption[] = [
   {
     value: "cut",
-    label: "Cut between scenes (default)",
+    label: "Cut between scenes",
     description:
       "Every scene renders its own start and end frame. Correct when scenes are separate shots — reusing a frame across a hard cut looks like a freeze rather than a flow. Costs two image renders per scene.",
   },
   {
     value: "reuse_end_frame",
-    label: "Continue from previous end frame",
+    label: "Continue from previous end frame (default)",
     description:
       "Each scene starts from the previous scene's end frame instead of rendering a new one. The seam matches exactly, and image renders drop from 2N to N+1. Use when the action runs continuously across segments.",
   },

@@ -16,8 +16,13 @@ import { safeResolveMediaPath } from "@/lib/media/path-policy";
 export const MEDIA_ROLES = ["start_frame", "end_frame", "video"] as const;
 export type MediaRole = (typeof MEDIA_ROLES)[number];
 
+/** Preview renders only ever produce keyframes, never a clip. */
+export const PREVIEW_ROLES = ["start_frame", "end_frame"] as const;
+export type PreviewRole = (typeof PREVIEW_ROLES)[number];
+
 export type MediaRef =
   | { kind: "scene"; sceneId: string; attemptId: string; role: MediaRole }
+  | { kind: "preview"; sceneId: string; role: PreviewRole }
   | { kind: "cue"; cueId: string }
   | { kind: "rough_cut" }
   | { kind: "final_cut" };
@@ -32,6 +37,7 @@ export function encodeMediaRef(ref: MediaRef): string {
   if (ref.kind === "rough_cut") return ROUGH_CUT_ID;
   if (ref.kind === "final_cut") return FINAL_CUT_ID;
   if (ref.kind === "cue") return ["cue", ref.cueId].join(SEP);
+  if (ref.kind === "preview") return ["preview", ref.sceneId, ref.role].join(SEP);
   return ["scene", ref.sceneId, ref.attemptId, ref.role].join(SEP);
 }
 
@@ -43,6 +49,11 @@ export function parseMediaRef(assetId: string): MediaRef | null {
   if (parts[0] === "cue") {
     if (parts.length !== 2 || !SAFE_ID.test(parts[1]!)) return null;
     return { kind: "cue", cueId: parts[1]! };
+  }
+  if (parts[0] === "preview") {
+    if (parts.length !== 3 || !SAFE_ID.test(parts[1]!)) return null;
+    if (!(PREVIEW_ROLES as readonly string[]).includes(parts[2]!)) return null;
+    return { kind: "preview", sceneId: parts[1]!, role: parts[2] as PreviewRole };
   }
   if (parts.length !== 4 || parts[0] !== "scene") return null;
   const [, sceneId, attemptId, role] = parts;
@@ -59,16 +70,24 @@ function attemptPath(record: ProjectRecord, ref: Extract<MediaRef, { kind: "scen
   return attempt.videoPath;
 }
 
+function previewPath(record: ProjectRecord, ref: Extract<MediaRef, { kind: "preview" }>) {
+  const preview = record.previews?.[ref.sceneId];
+  if (!preview) return undefined;
+  return ref.role === "start_frame" ? preview.startFramePath : preview.endFramePath;
+}
+
 /** Resolve a reference to a policy-approved absolute path, or null. */
 export function resolveMediaPath(record: ProjectRecord, ref: MediaRef): string | null {
   const raw =
     ref.kind === "scene"
       ? attemptPath(record, ref)
-      : ref.kind === "cue"
-        ? record.audioPlan?.cues.find((c) => c.id === ref.cueId)?.generatedPath
-        : ref.kind === "rough_cut"
-          ? record.assembly?.roughCutPath
-          : record.assembly?.finalPath;
+      : ref.kind === "preview"
+        ? previewPath(record, ref)
+        : ref.kind === "cue"
+          ? record.audioPlan?.cues.find((c) => c.id === ref.cueId)?.generatedPath
+          : ref.kind === "rough_cut"
+            ? record.assembly?.roughCutPath
+            : record.assembly?.finalPath;
   if (!raw) return null;
   return safeResolveMediaPath(raw);
 }
@@ -165,6 +184,24 @@ export function listProjectMedia(record: ProjectRecord): MediaDescriptor[] {
         label,
         role,
         common,
+      );
+      if (descriptor) out.push(descriptor);
+    }
+  }
+
+  // Keyframe previews are listed alongside attempts so the scene card can show
+  // the still it just rendered. They are additive: unlike an attempt, a preview
+  // never displaces the media a finished scene already has.
+  for (const scene of record.storyboard?.scenes ?? []) {
+    if (!record.previews?.[scene.id]) continue;
+    for (const role of PREVIEW_ROLES) {
+      const descriptor = describe(
+        projectId,
+        record,
+        { kind: "preview", sceneId: scene.id, role },
+        `Scene ${scene.sceneNumber} ${role === "start_frame" ? "start" : "end"} frame preview`,
+        `preview_${role}`,
+        { sceneId: scene.id },
       );
       if (descriptor) out.push(descriptor);
     }

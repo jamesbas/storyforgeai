@@ -26,3 +26,20 @@ export const sceneAttemptSchema = z.object({
   createdAt: z.string(),
 });
 export type SceneAttempt = z.infer<typeof sceneAttemptSchema>;
+
+/**
+ * A one-off keyframe render, kept deliberately outside `attempts`.
+ *
+ * Iterating on a prompt should not cost a full scene — two images and a video is
+ * minutes of GPU time to judge a change visible in a single still. But a partial
+ * attempt would be worse than useless: media listing and assembly both take the
+ * newest attempt for a scene, so a keyframe-only entry would mask a finished
+ * clip. Previews therefore live in their own map, are never approved, and are
+ * never assembled.
+ */
+export const scenePreviewSchema = z.object({
+  startFramePath: z.string().optional(),
+  endFramePath: z.string().optional(),
+  updatedAt: z.string(),
+});
+export type ScenePreview = z.infer<typeof scenePreviewSchema>;

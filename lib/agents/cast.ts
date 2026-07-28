@@ -1,3 +1,4 @@
+import { referenceImagesOf } from "@/lib/schemas/character";
 import type { Character } from "@/lib/schemas/character";
 
 /**
@@ -8,14 +9,38 @@ import type { Character } from "@/lib/schemas/character";
  * holding a face together is that every prompt describes it identically. These
  * helpers produce that identical text once and reuse it everywhere, rather than
  * letting each agent paraphrase the description in its own words.
+ *
+ * That reasoning holds only while text is the *sole* identity signal. Once a
+ * reference photo is supplied the two compete, and under classifier-free
+ * guidance the text wins — a written face overrides a photographed one, which is
+ * exactly backwards. So `facialDescription` is withheld from render prompts when
+ * a photo exists, while everything a headshot cannot convey keeps its place.
  */
 
-/** Compact, prompt-ready cast sheet. Empty string when no cast is pinned. */
-export function castSheet(cast: readonly Character[]): string {
+/** The description text a render prompt should carry for one character. */
+function appearanceFor(character: Character, forRender: boolean): string {
+  const description = character.description.trim().replace(/\s+/g, " ");
+  const facial = character.facialDescription?.trim().replace(/\s+/g, " ");
+  if (!facial) return description;
+
+  // Planning agents still see the face: they write prose, not pixels, and the
+  // Visual Bible should record what the character looks like either way.
+  const suppress = forRender && referenceImagesOf(character).length > 0;
+  return suppress ? description : `${description} ${facial}`;
+}
+
+/**
+ * Compact, prompt-ready cast sheet. Empty string when no cast is pinned.
+ *
+ * `forRender` distinguishes text destined for an image or video prompt, where a
+ * reference photo may already be carrying the face, from text destined for a
+ * planning agent, which has no photo and needs the full description.
+ */
+export function castSheet(cast: readonly Character[], forRender = false): string {
   if (cast.length === 0) return "";
   return cast
     .map((c) => {
-      const description = c.description.trim().replace(/\s+/g, " ");
+      const description = appearanceFor(c, forRender);
       // Wardrobe is stated explicitly and last, so it is the most recent
       // instruction the model reads about this character. Left unstated, the
       // model invents an outfit per render and clothing changes between frames.
@@ -49,9 +74,12 @@ export function castSystemDirective(cast: readonly Character[]): string {
 /**
  * Sentence appended to an image or video prompt so the render itself carries
  * the description, not just the plan.
+ *
+ * Uses the render-facing cast sheet, which withholds the facial description
+ * from characters that have a reference photo.
  */
 export function castPromptSuffix(cast: readonly Character[]): string {
-  const sheet = castSheet(cast);
+  const sheet = castSheet(cast, true);
   return sheet ? ` Character continuity — ${sheet}` : "";
 }
 

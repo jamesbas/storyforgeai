@@ -565,6 +565,60 @@ into the storyboard snapshot rather than beside it. That preserves the invariant
 that the Prompts panel shows exactly what will be sent, at the cost of edits being
 replaced when the storyboard is regenerated.
 
+### 4.2 Character identity conditioning
+
+Four mechanisms, ordered by where they act in the pipeline.
+
+**Reference images** (`lib/services/media-service.ts` → `resolveCastReferenceImages`)
+resolve up to two files per character into absolute paths, sent as `image_refs`
+with `video_prompt_type` set to the activating letter. `buildSettingsManifest`
+also sets `remove_background_images_ref` when references are present: with the
+background intact the whole photo acts as the reference and the identity signal
+is diluted.
+
+**Withholding the written face** (`lib/agents/cast.ts`). `castSheet(cast, forRender)`
+takes a flag distinguishing render prompts from planning payloads. When
+`forRender` is true *and* the character has a reference image, `facialDescription`
+is dropped from the prompt.
+
+This inverts the module's original premise — that identical text is the only thing
+holding a face together. That held while text was the sole identity signal. Once a
+photo is supplied the two compete, and under classifier-free guidance text wins:
+the base (non-distilled) Flux variant, with real CFG, produced *worse* likeness
+than the distilled one precisely because it followed the written face harder.
+Empirically confirmed: removing those sentences tracked the photo far more
+closely. Planning agents keep the full description, having no photo.
+
+**Face swap** (`lib/services/face-swap-service.ts`, `lib/wangp/face-swap-preset.ts`)
+is a Qwen Image Edit post-process: `image_guide` is the generated frame,
+`image_refs` is the character photo, driven by a prompt/LoRA/step set carried
+verbatim from a proven recipe. Applied inside `renderKeyframe`, so both full scene
+generation and keyframe previews get it.
+
+```
+start frame ─▶ swapFace ─▶ end frame (references the SWAPPED start) ─▶ swapFace ─▶ clip
+```
+
+Three properties this encodes:
+
+1. **Synchronous, not deferred.** The end frame is rendered against the start
+   frame and the clip from both, so a swap landing afterwards would be overwritten
+   by the frames it was meant to correct. Four Lightning steps makes the ordering
+   constraint cheap.
+2. **Degrades rather than propagates.** `swapFace` returns null on any failure —
+   model absent, no output, request failed — and the caller keeps the original
+   frame. An enhancement failing must not fail the scene.
+3. **Single subject only.** `faceSwapSubject()` returns a character only when
+   exactly one has opted in, because the preset's prompt names "the woman" in each
+   picture. Two opted-in characters is ambiguous, and swapping the wrong face is
+   worse than not swapping, so it is skipped and logged.
+
+**Scene continuity** carries the result forward: under `reuse_end_frame` a scene
+starts from the previous scene's swapped end frame rather than re-synthesising.
+
+Face swap corrects keyframes only. The clip between them is model-interpolated, so
+identity can drift mid-motion even when every keyframe is exact.
+
 ### Scene status lifecycle
 
 ```mermaid

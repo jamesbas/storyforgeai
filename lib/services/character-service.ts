@@ -3,6 +3,8 @@ import path from "node:path";
 import {
   createCharacterSchema,
   updateCharacterSchema,
+  referenceImagesOf,
+  MAX_REFERENCE_IMAGES,
   type Character,
 } from "@/lib/schemas/character";
 import { characterStore } from "@/lib/db/character-store";
@@ -42,8 +44,10 @@ export async function createCharacter(raw: unknown): Promise<Character> {
     id: randomUUID(),
     name: input.name.trim(),
     description: input.description.trim(),
+    facialDescription: input.facialDescription?.trim() || undefined,
     wardrobe: input.wardrobe?.trim() || undefined,
     negativePrompt: input.negativePrompt?.trim() || undefined,
+    faceSwap: input.faceSwap || undefined,
     createdAt: now,
     updatedAt: now,
   };
@@ -59,12 +63,17 @@ export async function updateCharacter(id: string, raw: unknown): Promise<Charact
     ...existing,
     name: patch.name?.trim() ?? existing.name,
     description: patch.description?.trim() ?? existing.description,
+    facialDescription:
+      patch.facialDescription === undefined
+        ? existing.facialDescription
+        : patch.facialDescription.trim() || undefined,
     wardrobe:
       patch.wardrobe === undefined ? existing.wardrobe : patch.wardrobe.trim() || undefined,
     negativePrompt:
       patch.negativePrompt === undefined
         ? existing.negativePrompt
         : patch.negativePrompt.trim() || undefined,
+    faceSwap: patch.faceSwap === undefined ? existing.faceSwap : patch.faceSwap || undefined,
     updatedAt: new Date().toISOString(),
   };
   await characterStore.save(updated);
@@ -74,7 +83,11 @@ export async function updateCharacter(id: string, raw: unknown): Promise<Charact
 
 export async function deleteCharacter(id: string): Promise<void> {
   const existing = await getCharacter(id);
-  if (existing.referenceImage) await characterStore.deleteReferenceImage(existing.referenceImage);
+  // Every reference image, not just the first: a character may have two, and the
+  // rest would otherwise be orphaned on disk with nothing pointing at them.
+  for (const filename of referenceImagesOf(existing)) {
+    await characterStore.deleteReferenceImage(filename);
+  }
   await characterStore.remove(id);
   logEvent("character.deleted", { id });
 }
@@ -85,6 +98,14 @@ export async function deleteCharacter(id: string): Promise<void> {
  * The image is not sent to the generation backend yet — WanGP identity locking
  * is a later pass. It is kept so the library shows who a description refers to,
  * and so the reference is already in place when image conditioning lands.
+ */
+/**
+ * Add a reference image, up to the two-image ceiling.
+ *
+ * Filenames are slot-based rather than derived from the upload, so a crafted
+ * name can never reach the filesystem. A second angle measurably improves
+ * identity; beyond two there is nowhere for it to go, since the
+ * reference-capable models in use accept at most two.
  */
 export async function setReferenceImage(id: string, file: File): Promise<Character> {
   const existing = await getCharacter(id);
@@ -100,30 +121,48 @@ export async function setReferenceImage(id: string, file: File): Promise<Charact
   const bytes = Buffer.from(await file.arrayBuffer());
   if (bytes.byteLength === 0) throw new ValidationError("Reference image is empty");
 
-  const filename = `${existing.id}${extension}`;
-  await characterStore.writeReferenceImage(filename, bytes);
-
-  // A format change leaves the previous file orphaned; remove it explicitly.
-  if (existing.referenceImage && existing.referenceImage !== filename) {
-    await characterStore.deleteReferenceImage(existing.referenceImage);
+  const current = referenceImagesOf(existing);
+  if (current.length >= MAX_REFERENCE_IMAGES) {
+    throw new ValidationError(
+      `A character can have at most ${MAX_REFERENCE_IMAGES} reference images. Remove one first.`,
+    );
   }
 
+  // Slot 0 keeps the historical `<id>.<ext>` name so existing files stay valid.
+  const slot = current.length;
+  const filename = slot === 0 ? `${existing.id}${extension}` : `${existing.id}-${slot}${extension}`;
+  await characterStore.writeReferenceImage(filename, bytes);
+
+  // Re-uploading the same slot in a different format orphans the old file.
+  const replaced = current.filter((name) => name !== filename);
   const updated: Character = {
     ...existing,
-    referenceImage: filename,
+    referenceImage: slot === 0 ? filename : existing.referenceImage,
+    referenceImages: [...replaced, filename],
     updatedAt: new Date().toISOString(),
   };
   await characterStore.save(updated);
-  logEvent("character.reference_image_set", { id, bytes: bytes.byteLength });
+  logEvent("character.reference_image_set", {
+    id,
+    bytes: bytes.byteLength,
+    total: updated.referenceImages?.length ?? 0,
+  });
   return updated;
 }
 
-export async function clearReferenceImage(id: string): Promise<Character> {
+/** Remove one reference image, or all of them when no filename is given. */
+export async function clearReferenceImage(id: string, filename?: string): Promise<Character> {
   const existing = await getCharacter(id);
-  if (existing.referenceImage) await characterStore.deleteReferenceImage(existing.referenceImage);
+  const current = referenceImagesOf(existing);
+  const removing = filename ? current.filter((name) => name === filename) : current;
+
+  for (const name of removing) await characterStore.deleteReferenceImage(name);
+  const remaining = current.filter((name) => !removing.includes(name));
+
   const updated: Character = {
     ...existing,
-    referenceImage: undefined,
+    referenceImage: remaining[0],
+    referenceImages: remaining.length ? remaining : undefined,
     updatedAt: new Date().toISOString(),
   };
   await characterStore.save(updated);

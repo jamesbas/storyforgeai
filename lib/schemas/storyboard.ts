@@ -3,7 +3,7 @@ import { MAX_SEGMENT_SECONDS, MIN_SEGMENT_SECONDS, SCENE_STATUSES } from "@/lib/
 import { creativeBriefSchema, visualBibleSchema } from "@/lib/schemas/agents";
 import { projectSchema } from "@/lib/schemas/project";
 import { dialogueLineSchema, audioPlanSchema, animaticPlanSchema } from "@/lib/schemas/audio";
-import { sceneAttemptSchema } from "@/lib/schemas/generation";
+import { sceneAttemptSchema, scenePreviewSchema } from "@/lib/schemas/generation";
 import { assemblySchema } from "@/lib/schemas/assembly";
 import {
   artDirectionPlanSchema,
@@ -104,6 +104,8 @@ export const projectRecordSchema = z.object({
   audioPlan: audioPlanSchema.optional(),
   animaticPlan: animaticPlanSchema.optional(),
   attempts: z.record(z.array(sceneAttemptSchema)).optional(),
+  /** One-off keyframe renders, keyed by scene id. Never assembled. */
+  previews: z.record(scenePreviewSchema).optional(),
   assembly: assemblySchema.optional(),
   history: z.array(historyEntrySchema).optional(),
 });

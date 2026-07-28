@@ -1,4 +1,5 @@
-import { generateSceneMedia } from "@/lib/services/media-service";
+import { generateSceneMedia, canRunPhased, generateProjectMediaPhased } from "@/lib/services/media-service";
+import type { PhaseName } from "@/lib/services/media-service";
 import { getProjectRecord } from "@/lib/services/project-service";
 import { getLlmRuntimeStatus, unloadPlanningModel } from "@/lib/services/llm-runtime-service";
 import { config } from "@/lib/config";
@@ -32,6 +33,11 @@ export type SceneQueueEntry = {
   error?: string;
   /** How many times this scene has been attempted, including retries. */
   attempts: number;
+  /**
+   * Which stage a phased batch is in. Absent for scene-at-a-time runs, where a
+   * scene simply runs to completion.
+   */
+  phase?: PhaseName;
   startedAt?: string;
   finishedAt?: string;
 };
@@ -173,6 +179,98 @@ const TRANSIENT_FAULT =
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
+ * Run a project's pending scenes grouped by model rather than by scene.
+ *
+ * Returns false when the batch is not a fit for phasing, leaving the caller to
+ * fall back to the scene-at-a-time worker.
+ */
+async function drainPhased(projectId: string, pending: SceneQueueEntry[]): Promise<boolean> {
+  const record = await getProjectRecord(projectId);
+  const sceneIds = pending.map((entry) => entry.sceneId);
+  if (!(await canRunPhased(record, sceneIds))) return false;
+
+  const state = store();
+  const cancelled = () => state.cancelRequested.has(projectId);
+
+  for (const entry of pending) {
+    entry.state = "running";
+    entry.attempts = 1;
+    entry.startedAt = new Date().toISOString();
+  }
+
+  /**
+   * Retry a single job rather than the batch.
+   *
+   * Model swapping is exactly what provokes transient CUDA and out-of-memory
+   * faults, and a phased run does more of it than any other path. Retrying the
+   * one job keeps a blip from costing every scene behind it.
+   */
+  const runStep = async <T>(step: () => Promise<T>): Promise<T> => {
+    const maxAttempts = 1 + Math.max(0, config.sceneQueue.retryAttempts);
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      try {
+        return await step();
+      } catch (err) {
+        lastError = err;
+        const message = err instanceof Error ? err.message : String(err);
+        const retryable = attempt < maxAttempts && TRANSIENT_FAULT.test(message);
+        logEvent("scene_queue.failed", {
+          projectId,
+          sceneId: "batch",
+          attempt,
+          retrying: retryable,
+          error: message,
+        });
+        if (!retryable) throw err;
+        await sleep(config.sceneQueue.retryDelayMs);
+      }
+    }
+    throw lastError;
+  };
+
+  try {
+    await generateProjectMediaPhased(projectId, sceneIds, {
+      shouldCancel: cancelled,
+      runStep,
+      onPhase: (phase) => {
+        for (const entry of pending) if (entry.state === "running") entry.phase = phase;
+      },
+      // Scenes finish one at a time during the final phase, so the storyboard
+      // fills in as clips land rather than all at once at the end.
+      onSceneComplete: (sceneId) => {
+        const entry = pending.find((e) => e.sceneId === sceneId);
+        if (!entry) return;
+        entry.state = "completed";
+        entry.phase = undefined;
+        entry.finishedAt = new Date().toISOString();
+      },
+    });
+
+    // A cancelled or short-circuited run leaves scenes still marked running.
+    for (const entry of pending) {
+      if (entry.state !== "running") continue;
+      entry.state = cancelled() ? "cancelled" : "failed";
+      entry.error = cancelled() ? undefined : "Batch ended before this scene finished";
+      entry.phase = undefined;
+      entry.finishedAt = new Date().toISOString();
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Batch generation failed";
+    logEvent("scene_queue.failed", { projectId, sceneId: "batch", attempt: 1, retrying: false, error: message });
+    for (const entry of pending) {
+      if (entry.state !== "running") continue;
+      entry.state = "failed";
+      entry.error = message;
+      entry.phase = undefined;
+      entry.finishedAt = new Date().toISOString();
+    }
+  }
+
+  return true;
+}
+
+/**
  * Single worker. Runs until the queue empties, one scene at a time, in scene
  * order so continuity modes can read the previous scene's finished attempt.
  */
@@ -192,6 +290,17 @@ async function drain(): Promise<void> {
       if (state.cancelRequested.has(next.projectId)) {
         next.state = "cancelled";
         next.finishedAt = new Date().toISOString();
+        continue;
+      }
+
+      // Grouping a whole project by model saves a model load per job, and a load
+      // costs more than the job. Only worth it for a real batch, so a single
+      // pending scene still runs the immediate path below.
+      const pending = state.entries.filter(
+        (entry) => entry.projectId === next.projectId && entry.state === "pending",
+      );
+      if (pending.length > 1 && (await drainPhased(next.projectId, pending))) {
+        firstScene = false;
         continue;
       }
 

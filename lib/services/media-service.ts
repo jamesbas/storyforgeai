@@ -5,6 +5,10 @@ import { repository } from "@/lib/db/store";
 import { getProjectRecord } from "@/lib/services/project-service";
 import { buildImageManifest, buildVideoManifest, runToCompletion } from "@/lib/services/wangp-service";
 import { resolveSceneLoras } from "@/lib/services/lora-service";
+import { faceSwapSubject, swapFace } from "@/lib/services/face-swap-service";
+import { referenceImagesOf } from "@/lib/schemas/character";
+import type { Character } from "@/lib/schemas/character";
+import { DEFAULT_SCENE_CONTINUITY } from "@/lib/types";
 import { resolveProjectCast } from "@/lib/services/character-service";
 import { resolveReferenceImagePath } from "@/lib/db/character-store";
 import { config } from "@/lib/config";
@@ -42,9 +46,8 @@ function withSceneStatus(record: ProjectRecord, sceneId: string, status: Scene["
 async function resolveCastReferenceImages(record: ProjectRecord): Promise<string[]> {
   const cast = await resolveProjectCast(record.project);
   return cast
-    .map((character) =>
-      character.referenceImage ? resolveReferenceImagePath(character.referenceImage) : null,
-    )
+    .flatMap((character) => referenceImagesOf(character))
+    .map((filename) => resolveReferenceImagePath(filename))
     .filter((filePath): filePath is string => filePath !== null);
 }
 
@@ -69,7 +72,7 @@ type Continuity = {
  * a quality choice, never a prerequisite.
  */
 function resolveContinuity(record: ProjectRecord, scene: Scene): Continuity {
-  const mode = record.project.sceneContinuity ?? "cut";
+  const mode = record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY;
   if (mode === "cut" || scene.sceneNumber <= 1) return {};
 
   const previous = record.storyboard?.scenes.find(
@@ -93,6 +96,338 @@ function resolveContinuity(record: ProjectRecord, scene: Scene): Continuity {
  * then run QC. Each call produces a new attempt (retry/regeneration) per spec
  * Section 8.2. Uses absolute-style mock paths from the WanGP client.
  */
+/**
+ * Render one keyframe for a scene.
+ *
+ * Shared by full scene generation and the standalone preview so a preview shows
+ * exactly what generation would produce — a preview rendered down a different
+ * code path would be worth very little as a check.
+ */
+async function renderKeyframe(
+  record: ProjectRecord,
+  scene: Scene,
+  purpose: "start_frame" | "end_frame",
+  prompt: string,
+  castRefs: string[],
+  extraRefs: string[] = [],
+  swapSubject: Character | null = null,
+): Promise<{ id: string; path?: string }> {
+  const manifest = await buildImageManifest({
+    sceneId: scene.id,
+    purpose,
+    prompt,
+    negativePrompt: scene.prompts.imageNegativePrompt,
+    modelStrategy: record.project.modelStrategy,
+    modelType: record.project.imageModel,
+    imageRefs: [...extraRefs, ...castRefs],
+    // A leading scene frame is the "main subject / landscape" reference; the
+    // cast portraits that follow are the people.
+    imageRefsLeadWithScene: extraRefs.length > 0,
+    loras: resolveSceneLoras(record.project, scene.id, "image"),
+  });
+  const job = await runToCompletion(manifest.settings);
+  const rendered = job.generatedFiles[0];
+
+  // Swap before returning, so whatever consumes this frame — the end-frame
+  // render, the clip, the next scene's inherited start — sees the corrected
+  // face. Deferring it would mean those all carry the uncorrected one.
+  if (rendered && swapSubject) {
+    const swapped = await swapFace(rendered, swapSubject, { sceneId: scene.id, purpose });
+    if (swapped) return { id: manifest.id, path: swapped };
+  }
+
+  return { id: manifest.id, path: rendered };
+}
+
+/**
+ * Render a single keyframe without touching the scene's attempts.
+ *
+ * Tuning a prompt otherwise costs a whole scene — two images and a clip, minutes
+ * of GPU time — to judge a change that is obvious from one still. The result is
+ * stored as a preview rather than an attempt, because media listing and assembly
+ * both take a scene's newest attempt and a partial one would mask a finished
+ * clip. Previews are never approved and never assembled.
+ */
+export async function generateSceneKeyframe(
+  projectId: string,
+  sceneId: string,
+  purpose: "start_frame" | "end_frame",
+): Promise<ProjectRecord> {
+  const record = await getProjectRecord(projectId);
+  if (!record.storyboard) throw new ValidationError("Generate a storyboard before media");
+  const scene = findScene(record, sceneId);
+
+  const castRefs = await resolveCastReferenceImages(record);
+  const swapSubject = faceSwapSubject(await resolveProjectCast(record.project));
+
+  // The end frame is normally shown the start frame to match. Reuse whichever
+  // start frame already exists so the preview is conditioned the same way the
+  // real render would be; with none, it falls back to a plain text-to-image.
+  let extraRefs: string[] = [];
+  let prompt =
+    purpose === "start_frame" ? scene.prompts.startFramePrompt : scene.prompts.endFramePrompt;
+
+  if (purpose === "end_frame" && config.media.endFrameReferencesStartFrame) {
+    const existingStart =
+      record.previews?.[sceneId]?.startFramePath ?? chosenAttempt(record, sceneId)?.startImagePath;
+    if (existingStart) {
+      extraRefs = [existingStart];
+      prompt = `${prompt} Wardrobe, hair, styling, location and lighting exactly as in the supplied reference frame; identical clothing.`;
+    }
+  }
+
+  const result = await renderKeyframe(record, scene, purpose, prompt, castRefs, extraRefs, swapSubject);
+  if (!result.path) throw new ValidationError(`WanGP returned no image for the ${purpose}.`);
+
+  const previous = record.previews?.[sceneId];
+  const updated: ProjectRecord = {
+    ...record,
+    previews: {
+      ...(record.previews ?? {}),
+      [sceneId]: {
+        ...previous,
+        ...(purpose === "start_frame"
+          ? { startFramePath: result.path }
+          : { endFramePath: result.path }),
+        updatedAt: new Date().toISOString(),
+      },
+    },
+    project: { ...record.project, updatedAt: new Date().toISOString() },
+    history: [
+      ...(record.history ?? []),
+      {
+        at: new Date().toISOString(),
+        action: "scene.keyframe_preview",
+        detail: `Scene ${scene.sceneNumber} ${purpose.replace("_", " ")}`,
+      },
+    ],
+  };
+
+  await repository.update(projectId, updated);
+  logEvent("scene.keyframe_preview", { projectId, sceneId, purpose });
+  return updated;
+}
+
+/**
+ * Whether a batch can use the phased path.
+ *
+ * Three conditions, all necessary:
+ *
+ *  - **More than one scene.** Phasing trades immediacy for fewer model loads,
+ *    and with one scene there are no loads to save.
+ *  - **Face swap active.** Without it a scene needs only the image and video
+ *    models, so scene-at-a-time already costs two loads per scene and phasing
+ *    would save little while changing how progress appears.
+ *  - **Not `continue_video`.** That mode continues each clip from the previous
+ *    scene's *rendered clip*, so video generation cannot be deferred to a
+ *    final phase without breaking the chain it depends on.
+ */
+export async function canRunPhased(record: ProjectRecord, sceneIds: string[]): Promise<boolean> {
+  if (sceneIds.length < 2) return false;
+  if ((record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY) === "continue_video") return false;
+  return faceSwapSubject(await resolveProjectCast(record.project)) !== null;
+}
+
+export type PhaseName = "keyframes" | "face_swap" | "video";
+
+/**
+ * Generate a whole batch in three model-ordered phases.
+ *
+ * WanGP holds one model at a time, and loading one takes upwards of a minute on
+ * a single card. Generating scene-by-scene means image → swap → video → image →
+ * swap → video, so a ten-scene run pays thirty model loads to do thirty jobs.
+ * Grouping by model instead pays three, which turns roughly half an hour of
+ * loading into three minutes.
+ *
+ * The cost is that a scene is no longer finished in one pass. Frames are
+ * persisted as previews the moment each phase touches them, so the storyboard
+ * still fills in continuously — keyframes appear during phases one and two,
+ * clips one at a time during phase three — rather than going quiet.
+ *
+ * Only used for multi-scene batches; single-scene generation stays sequential,
+ * where a phase split would save nothing and cost immediacy.
+ */
+export async function generateProjectMediaPhased(
+  projectId: string,
+  sceneIds: string[],
+  hooks: {
+    onPhase?: (phase: PhaseName) => void;
+    onSceneComplete?: (sceneId: string) => void;
+    shouldCancel?: () => boolean;
+    /**
+     * Wraps each WanGP job so the caller's retry policy still applies.
+     *
+     * Transient CUDA and out-of-memory faults are exactly what heavy model
+     * swapping provokes, and without this a single blip would abandon the whole
+     * batch — strictly worse than the scene-at-a-time path it replaces.
+     */
+    runStep?: <T>(step: () => Promise<T>) => Promise<T>;
+  } = {},
+): Promise<void> {
+  const run = hooks.runStep ?? (<T>(step: () => Promise<T>) => step());
+  let record = await getProjectRecord(projectId);
+  if (!record.storyboard) throw new ValidationError("Generate a storyboard before media");
+
+  const scenes = record.storyboard.scenes
+    .filter((scene) => sceneIds.includes(scene.id))
+    .sort((a, b) => a.sceneNumber - b.sceneNumber);
+  if (!scenes.length) return;
+
+  const mode = record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY;
+  const castRefs = await resolveCastReferenceImages(record);
+  const swapSubject = faceSwapSubject(await resolveProjectCast(record.project));
+
+  /** Rendered frame paths per scene, rewritten in place as phases progress. */
+  const frames = new Map<string, { start?: string; end?: string; startId?: string; endId?: string }>();
+
+  const persistPreview = async (sceneId: string, start?: string, end?: string) => {
+    record = {
+      ...record,
+      previews: {
+        ...(record.previews ?? {}),
+        [sceneId]: {
+          ...(record.previews?.[sceneId] ?? {}),
+          ...(start ? { startFramePath: start } : {}),
+          ...(end ? { endFramePath: end } : {}),
+          updatedAt: new Date().toISOString(),
+        },
+      },
+    };
+    await repository.update(projectId, record);
+  };
+
+  // ---- Phase 1: every keyframe, on the image model -------------------------
+  hooks.onPhase?.("keyframes");
+  let previousEnd: string | undefined;
+
+  for (const scene of scenes) {
+    if (hooks.shouldCancel?.()) return;
+
+    // Reusing the previous end frame is what makes a seam match exactly; it also
+    // means most scenes render one keyframe rather than two.
+    const inherited = mode === "reuse_end_frame" ? previousEnd : undefined;
+    let startPath = inherited;
+    let startId: string | undefined;
+
+    if (!startPath) {
+      const rendered = await run(() =>
+        renderKeyframe(record, scene, "start_frame", scene.prompts.startFramePrompt, castRefs, [], null),
+      );
+      startPath = rendered.path;
+      startId = rendered.id;
+    }
+
+    const conditionOnStart = config.media.endFrameReferencesStartFrame && Boolean(startPath);
+    const matchInstruction = inherited
+      ? " The character's wardrobe, hair and styling are exactly as in the supplied reference frame; identical clothing. Follow this scene's own description for location, framing and action."
+      : " Wardrobe, hair, styling, location and lighting exactly as in the supplied reference frame; identical clothing.";
+
+    const endRender = await run(() =>
+      renderKeyframe(
+        record,
+        scene,
+        "end_frame",
+        conditionOnStart ? `${scene.prompts.endFramePrompt}${matchInstruction}` : scene.prompts.endFramePrompt,
+        castRefs,
+        conditionOnStart ? [startPath!] : [],
+        null,
+      ),
+    );
+
+    frames.set(scene.id, { start: startPath, end: endRender.path, startId, endId: endRender.id });
+    previousEnd = endRender.path;
+    await persistPreview(scene.id, startPath, endRender.path);
+  }
+
+  // ---- Phase 2: swap every distinct frame, on the edit model ---------------
+  if (swapSubject) {
+    hooks.onPhase?.("face_swap");
+
+    // Under reuse_end_frame one file is both a scene's end frame and the next
+    // scene's start frame. Swapping per scene would run it twice, wasting a
+    // render and producing two subtly different images for the same moment.
+    const distinct = new Set<string>();
+    for (const entry of frames.values()) {
+      if (entry.start) distinct.add(entry.start);
+      if (entry.end) distinct.add(entry.end);
+    }
+
+    const swapped = new Map<string, string>();
+    for (const original of distinct) {
+      if (hooks.shouldCancel?.()) return;
+      const result = await swapFace(original, swapSubject, { sceneId: "batch", purpose: "keyframe" });
+      swapped.set(original, result ?? original);
+    }
+
+    for (const [sceneId, entry] of frames) {
+      const start = entry.start ? swapped.get(entry.start) : undefined;
+      const end = entry.end ? swapped.get(entry.end) : undefined;
+      frames.set(sceneId, { ...entry, start, end });
+      await persistPreview(sceneId, start, end);
+    }
+  }
+
+  // ---- Phase 3: every clip, on the video model -----------------------------
+  hooks.onPhase?.("video");
+
+  for (const scene of scenes) {
+    if (hooks.shouldCancel?.()) return;
+    const entry = frames.get(scene.id);
+    if (!entry) continue;
+
+    const videoManifest = await buildVideoManifest({
+      sceneId: scene.id,
+      prompt: scene.prompts.videoPromptSegment,
+      negativePrompt: scene.prompts.videoNegativePrompt,
+      imageStart: entry.start,
+      imageEnd: entry.end,
+      modelStrategy: record.project.modelStrategy,
+      modelType: record.project.videoModel,
+      loras: resolveSceneLoras(record.project, scene.id, "video"),
+      durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
+    });
+    const videoJob = await run(() => runToCompletion(videoManifest.settings));
+
+    record = await getProjectRecord(projectId);
+    const existing = record.attempts?.[scene.id] ?? [];
+    const attempt: SceneAttempt = {
+      id: randomUUID(),
+      sceneId: scene.id,
+      attemptNumber: existing.length + 1,
+      startImagePath: entry.start,
+      endImagePath: entry.end,
+      videoPath: videoJob.generatedFiles[0],
+      settingsIds: [entry.startId, entry.endId, videoManifest.id].filter(
+        (id): id is string => id !== undefined,
+      ),
+      approved: false,
+      createdAt: new Date().toISOString(),
+    };
+    attempt.qcResult = await qcAgent(scene, attempt, getPlanningProvider());
+
+    const nextStatus: Scene["status"] = attempt.qcResult.passed ? "generated" : "needs_review";
+    let updated = withSceneStatus(record, scene.id, nextStatus);
+    updated = {
+      ...updated,
+      attempts: { ...(updated.attempts ?? {}), [scene.id]: [...existing, attempt] },
+      project: { ...updated.project, status: "generating", updatedAt: new Date().toISOString() },
+      history: [
+        ...(updated.history ?? []),
+        {
+          at: new Date().toISOString(),
+          action: "scene.generated",
+          detail: `${scene.id} #${attempt.attemptNumber}`,
+        },
+      ],
+    };
+    await repository.update(projectId, updated);
+    record = updated;
+
+    logEvent("scene.qc", { projectId, sceneId: scene.id, passed: attempt.qcResult.passed });
+    hooks.onSceneComplete?.(scene.id);
+  }
+}
+
 export async function generateSceneMedia(projectId: string, sceneId: string): Promise<ProjectRecord> {
   const record = await getProjectRecord(projectId);
   if (!record.storyboard) throw new ValidationError("Generate a storyboard before media");
@@ -104,6 +439,9 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
   // then inherits that identity for free through image_start / image_end, so
   // references are deliberately not sent on the video job as well.
   const imageRefs = await resolveCastReferenceImages(record);
+  // One subject per scene: the preset's prompt names "the woman", so a second
+  // opted-in character has no unambiguous place to go.
+  const swapSubject = faceSwapSubject(await resolveProjectCast(record.project));
 
   const continuity = resolveContinuity(record, scene);
   const continuing = Boolean(continuity.videoSource);
@@ -118,23 +456,8 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
     purpose: "start_frame" | "end_frame",
     prompt: string,
     extraRefs: string[] = [],
-  ): Promise<{ id: string; path?: string }> => {
-    const manifest = await buildImageManifest({
-      sceneId,
-      purpose,
-      prompt,
-      negativePrompt: scene.prompts.imageNegativePrompt,
-      modelStrategy,
-      modelType: imageModel,
-      imageRefs: [...extraRefs, ...imageRefs],
-      // A leading scene frame is the "main subject / landscape" reference; the
-      // cast portraits that follow are the people.
-      imageRefsLeadWithScene: extraRefs.length > 0,
-      loras: imageLoras,
-    });
-    const job = await runToCompletion(manifest.settings);
-    return { id: manifest.id, path: job.generatedFiles[0] };
-  };
+  ): Promise<{ id: string; path?: string }> =>
+    renderKeyframe(record, scene, purpose, prompt, imageRefs, extraRefs, swapSubject);
 
   // Continuing from the previous clip supersedes both keyframes; reusing the
   // previous end frame supersedes only the start frame. Anything skipped here
@@ -198,7 +521,7 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
   logEvent("scene.continuity", {
     projectId,
     sceneId,
-    mode: record.project.sceneContinuity ?? "cut",
+    mode: record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY,
     reusedStartFrame: Boolean(continuity.startImagePath),
     continuedFromVideo: continuing,
     imageRendersSkipped: (continuing ? 2 : 0) + (continuity.startImagePath ? 1 : 0),

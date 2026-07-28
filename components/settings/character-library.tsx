@@ -1,11 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { MAX_REFERENCE_IMAGES, referenceImagesOf } from "@/lib/schemas/character";
 import type { Character } from "@/lib/schemas/character";
 
 type CharactersResponse = { characters: Character[] };
 
-const EMPTY_DRAFT = { name: "", description: "", wardrobe: "", negativePrompt: "" };
+const EMPTY_DRAFT = {
+  name: "",
+  description: "",
+  facialDescription: "",
+  wardrobe: "",
+  negativePrompt: "",
+  faceSwap: false,
+};
 
 /**
  * The global character library.
@@ -71,8 +79,10 @@ export function CharacterLibrary() {
       const body = JSON.stringify({
         name: draft.name,
         description: draft.description,
+        facialDescription: draft.facialDescription || undefined,
         wardrobe: draft.wardrobe || undefined,
         negativePrompt: draft.negativePrompt || undefined,
+        faceSwap: draft.faceSwap,
       });
       const ok = editingId
         ? await request(
@@ -178,6 +188,46 @@ export function CharacterLibrary() {
           </p>
         </div>
         <div>
+          <label htmlFor="character-facial" className={label}>
+            Facial description (optional)
+          </label>
+          <textarea
+            id="character-facial"
+            rows={3}
+            maxLength={1000}
+            value={draft.facialDescription}
+            onChange={(e) => setDraft((d) => ({ ...d, facialDescription: e.target.value }))}
+            placeholder="Soft oval face with a gentle jawline, warm brown eyes, a straight nose and high cheekbones."
+            className={`mt-1 ${field}`}
+          />
+          <p className="mt-1 text-[11px] text-slate-500">
+            Put face-specific detail here rather than above, and this text is{" "}
+            <strong>withheld from image and video prompts once a reference image exists</strong>. A
+            written face and a photograph are competing instructions, and the text tends to win —
+            which is backwards when you supplied a photo precisely to fix the likeness. Planning
+            agents still see it. {counter(draft.facialDescription, 1000)}
+          </p>
+        </div>
+        <div>
+          <label className="flex items-start gap-2">
+            <input
+              type="checkbox"
+              checked={draft.faceSwap}
+              onChange={(e) => setDraft((d) => ({ ...d, faceSwap: e.target.checked }))}
+              className="mt-1"
+            />
+            <span>
+              <span className={label}>Face swap generated frames</span>
+              <span className="mt-1 block text-[11px] text-slate-500">
+                After each keyframe renders, run a dedicated pass that replaces the head with the one
+                in this character&apos;s first reference image. Needs a reference image, and only
+                applies when this is the single character in the project with it enabled. Adds a
+                short render per keyframe.
+              </span>
+            </span>
+          </label>
+        </div>
+        <div>
           <label htmlFor="character-wardrobe" className={label}>
             Default wardrobe (optional)
           </label>
@@ -247,13 +297,18 @@ export function CharacterLibrary() {
             key={character.id}
             className="flex gap-3 rounded-md border border-white/10 bg-canvas/40 p-3"
           >
-            {character.referenceImage ? (
-              // eslint-disable-next-line @next/next/no-img-element -- served from a local API route, not an optimizable static asset
-              <img
-                src={`/api/characters/${character.id}/image?v=${encodeURIComponent(character.updatedAt)}`}
-                alt={`Reference for ${character.name}`}
-                className="h-20 w-20 flex-none rounded-md object-cover"
-              />
+            {referenceImagesOf(character).length ? (
+              <div className="flex flex-none gap-1">
+                {referenceImagesOf(character).map((_, index) => (
+                  // eslint-disable-next-line @next/next/no-img-element -- served from a local API route, not an optimizable static asset
+                  <img
+                    key={index}
+                    src={`/api/characters/${character.id}/image?index=${index}&v=${encodeURIComponent(character.updatedAt)}`}
+                    alt={`Reference ${index + 1} for ${character.name}`}
+                    className="h-20 w-20 rounded-md object-cover"
+                  />
+                ))}
+              </div>
             ) : (
               <div className="flex h-20 w-20 flex-none items-center justify-center rounded-md border border-dashed border-white/15 text-[10px] text-slate-500">
                 No image
@@ -301,8 +356,10 @@ export function CharacterLibrary() {
                     setDraft({
                       name: character.name,
                       description: character.description,
+                      facialDescription: character.facialDescription ?? "",
                       wardrobe: character.wardrobe ?? "",
                       negativePrompt: character.negativePrompt ?? "",
+                      faceSwap: Boolean(character.faceSwap),
                     });
                   }}
                   className="text-accent hover:underline disabled:opacity-50"
@@ -311,28 +368,36 @@ export function CharacterLibrary() {
                 </button>
                 <button
                   type="button"
-                  disabled={busy}
+                  disabled={busy || referenceImagesOf(character).length >= MAX_REFERENCE_IMAGES}
                   onClick={() => fileInputs.current[character.id]?.click()}
                   className="text-accent hover:underline disabled:opacity-50"
+                  title={
+                    referenceImagesOf(character).length >= MAX_REFERENCE_IMAGES
+                      ? `At most ${MAX_REFERENCE_IMAGES} reference images — remove one first`
+                      : undefined
+                  }
                 >
-                  {character.referenceImage ? "Replace image" : "Add reference image"}
+                  {referenceImagesOf(character).length
+                    ? `Add reference image (${referenceImagesOf(character).length}/${MAX_REFERENCE_IMAGES})`
+                    : "Add reference image"}
                 </button>
-                {character.referenceImage ? (
+                {referenceImagesOf(character).map((_, index) => (
                   <button
+                    key={index}
                     type="button"
                     disabled={busy}
                     onClick={() =>
                       void request(
-                        `/api/characters/${character.id}/image`,
+                        `/api/characters/${character.id}/image?index=${index}`,
                         { method: "DELETE" },
                         "Failed to remove the reference image",
                       )
                     }
                     className="text-slate-400 hover:text-white disabled:opacity-50"
                   >
-                    Remove image
+                    Remove image {index + 1}
                   </button>
-                ) : null}
+                ))}
                 <button
                   type="button"
                   disabled={busy}

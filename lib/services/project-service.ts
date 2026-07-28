@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createProjectSchema, updateProjectModelsSchema } from "@/lib/schemas/intake";
 import { computeSegmentation } from "@/lib/duration";
+import { DEFAULT_SCENE_CONTINUITY } from "@/lib/types";
 import {
   pruneSceneLoras,
   pruneSelectionSet,
@@ -159,7 +160,7 @@ export async function updateProjectModels(id: string, raw: unknown): Promise<Pro
     change: "models",
     imageModel: updated.project.imageModel ?? "auto",
     videoModel: updated.project.videoModel ?? "auto",
-    sceneContinuity: updated.project.sceneContinuity ?? "cut",
+    sceneContinuity: updated.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY,
   });
   return updated;
 }

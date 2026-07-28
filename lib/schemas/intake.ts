@@ -3,6 +3,7 @@ import { loraSelectionSetSchema, sceneLoraMapSchema } from "@/lib/schemas/lora";
 import {
   ASPECT_RATIOS,
   CREATIVE_MODES,
+  DEFAULT_SCENE_CONTINUITY,
   GENERATION_MODES,
   MAX_SEGMENT_SECONDS,
   MIN_SEGMENT_SECONDS,
@@ -45,8 +46,8 @@ export const createProjectSchema = z.object({
   characterIds: z.array(z.string()).default([]),
   /** Per-character wardrobe for this project, keyed by character id. */
   characterWardrobe: z.record(z.string()).default({}),
-  /** How each scene joins the previous one. Defaults to a hard cut. */
-  sceneContinuity: z.enum(SCENE_CONTINUITY_MODES).default("cut"),
+  /** How each scene joins the previous one. See DEFAULT_SCENE_CONTINUITY. */
+  sceneContinuity: z.enum(SCENE_CONTINUITY_MODES).default(DEFAULT_SCENE_CONTINUITY),
 });
 
 /**
