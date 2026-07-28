@@ -5,7 +5,7 @@ import type { Character } from "@/lib/schemas/character";
 
 type CharactersResponse = { characters: Character[] };
 
-const EMPTY_DRAFT = { name: "", description: "", negativePrompt: "" };
+const EMPTY_DRAFT = { name: "", description: "", wardrobe: "", negativePrompt: "" };
 
 /**
  * The global character library.
@@ -71,6 +71,7 @@ export function CharacterLibrary() {
       const body = JSON.stringify({
         name: draft.name,
         description: draft.description,
+        wardrobe: draft.wardrobe || undefined,
         negativePrompt: draft.negativePrompt || undefined,
       });
       const ok = editingId
@@ -177,6 +178,26 @@ export function CharacterLibrary() {
           </p>
         </div>
         <div>
+          <label htmlFor="character-wardrobe" className={label}>
+            Default wardrobe (optional)
+          </label>
+          <textarea
+            id="character-wardrobe"
+            rows={2}
+            maxLength={500}
+            value={draft.wardrobe}
+            onChange={(e) => setDraft((d) => ({ ...d, wardrobe: e.target.value }))}
+            placeholder="Only for a signature look — a uniform, a mascot costume. Most characters should be left blank."
+            className={`mt-1 ${field}`}
+          />
+          <p className="mt-1 text-[11px] text-slate-500">
+            Costume belongs to the story, not the person, so wardrobe is normally set{" "}
+            <strong>per project</strong> when you pick the cast — the same character can wear
+            something different in the next one. Fill this in only for a character whose outfit never
+            changes; a project&apos;s own wardrobe always overrides it. {counter(draft.wardrobe, 500)}
+          </p>
+        </div>
+        <div>
           <label htmlFor="character-negative" className={label}>
             Negative prompt terms (optional)
           </label>
@@ -254,6 +275,14 @@ export function CharacterLibrary() {
               >
                 {character.description}
               </p>
+              {character.wardrobe ? (
+                <p
+                  className="mt-1 line-clamp-2 break-words text-xs text-slate-400"
+                  title={character.wardrobe}
+                >
+                  Default wardrobe: {character.wardrobe}
+                </p>
+              ) : null}
               {character.negativePrompt ? (
                 <p
                   className="mt-1 line-clamp-2 break-words text-xs text-slate-500"
@@ -272,6 +301,7 @@ export function CharacterLibrary() {
                     setDraft({
                       name: character.name,
                       description: character.description,
+                      wardrobe: character.wardrobe ?? "",
                       negativePrompt: character.negativePrompt ?? "",
                     });
                   }}

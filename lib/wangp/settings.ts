@@ -28,6 +28,13 @@ export type ManifestOverrides = {
    */
   imageRefs?: string[];
   /**
+   * Whether the first entry of `imageRefs` is a scene frame rather than a
+   * person. WanGP's reference group distinguishes the two: "I" means the
+   * references are people/objects, "KI" means the first is the main subject or
+   * landscape and may be followed by people/objects.
+   */
+  imageRefsLeadWithScene?: boolean;
+  /**
    * Clip this generation continues from (WanGP `video_source`). Absolute path
    * readable by the WanGP process; it is ffprobed on submission, so a missing
    * file fails the job immediately rather than silently rendering a fresh shot.
@@ -142,11 +149,11 @@ export function buildSettingsManifest(
     // ignored, and the letter without `image_refs` fails the job with
     // "You must provide at least one Reference Image".
     //
-    // It is set to exactly "I" rather than merged into the model's default,
+    // It is set explicitly rather than merged into the model's default,
     // because the other letter groups in this field select guide and mask
     // inputs this pathway never sends. Flux 2 Klein ships "MV" (mask + video
     // guide); keeping that would make WanGP demand images we do not provide.
-    setIf("video_prompt_type", "I");
+    setIf("video_prompt_type", overrides.imageRefsLeadWithScene ? "KI" : "I");
   }
 
   // Audio models express length in seconds, clamped to any published bounds.

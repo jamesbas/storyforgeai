@@ -52,6 +52,14 @@ export const projectSchema = z.object({
   useCharacterLibrary: z.boolean().optional(),
   characterIds: z.array(z.string()).optional(),
   /**
+   * Wardrobe for this project, keyed by character id.
+   *
+   * Costume is a property of the story, not the person: the same character
+   * wears different clothes in different projects. This overrides whatever
+   * default the library record carries.
+   */
+  characterWardrobe: z.record(z.string()).optional(),
+  /**
    * How each scene connects to the previous one. Optional so projects created
    * before the setting existed still parse; absent means "cut".
    */

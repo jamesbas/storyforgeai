@@ -293,6 +293,12 @@ export default function HelpPage() {
               biography; it is concatenated verbatim, so backstory only dilutes it.
             </li>
             <li className={li}>
+              <strong>Default wardrobe</strong> — optional, and usually best left blank. Costume
+              belongs to the story rather than the person, so it is normally set{" "}
+              <em>per project</em> when you pick the cast. Fill this in only for a character whose
+              outfit never changes, such as a uniform or a mascot costume.
+            </li>
+            <li className={li}>
               <strong>Negative prompt terms</strong> — traits to actively suppress for this character,
               appended to the negative prompt of every scene they appear in.
             </li>
@@ -309,6 +315,14 @@ export default function HelpPage() {
             On the New Project form, tick <em>Use saved character descriptions</em> and select the
             characters that appear in this story. Leave it off and nothing changes — the agents invent
             their own cast as before.
+          </p>
+          <p className={p}>
+            Each selected character gets a <strong>wardrobe</strong> box for that project. Name
+            specific garments, colours and materials: clothing is the detail that drifts hardest,
+            because a scene&apos;s start and end frames are separate renders and an unstated outfit
+            gets reinvented each time. Vague wording such as &quot;casual attire&quot; is the same as
+            saying nothing. The same character can wear something entirely different in your next
+            project, and wardrobe stays editable afterwards from the project&apos;s Settings screen.
           </p>
 
           <h3 className={h3}>What it actually changes</h3>
@@ -335,6 +349,23 @@ export default function HelpPage() {
           <p className={p}>
             Descriptions are read at generation time, not at project creation. Editing a character and
             regenerating the storyboard picks up the new wording.
+          </p>
+
+          <h3 className={h3}>Keeping a scene consistent with itself</h3>
+          <p className={p}>
+            A scene&apos;s start and end frames are two independent renders, so without help the model
+            reinvents anything the prompt does not pin down. Three things hold them together. The{" "}
+            <strong>end frame is rendered with the start frame as a reference image</strong>, which
+            carries wardrobe, styling, location and lighting across while the prompt still drives the
+            change in framing and action. The <strong>Image Prompt agent</strong> is instructed to
+            name specific garments and repeat that wording in both frames rather than writing a vague
+            placeholder. And a character&apos;s <strong>wardrobe</strong> field states the outfit
+            outright.
+          </p>
+          <p className={p}>
+            End-frame conditioning needs an image model that accepts reference images; it is skipped
+            automatically when continuity is set to continue from the previous clip, since no frames
+            are rendered then. Set <code>END_FRAME_REFERENCES_START_FRAME=false</code> to turn it off.
           </p>
         </section>
 

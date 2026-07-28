@@ -6,6 +6,7 @@ import { getProjectRecord } from "@/lib/services/project-service";
 import { buildImageManifest, buildVideoManifest, runToCompletion } from "@/lib/services/wangp-service";
 import { resolveProjectCast } from "@/lib/services/character-service";
 import { resolveReferenceImagePath } from "@/lib/db/character-store";
+import { config } from "@/lib/config";
 import { qcAgent } from "@/lib/agents/qc-agent";
 import { getPlanningProvider } from "@/lib/agents/llm/provider";
 import { NotFoundError, ValidationError } from "@/lib/errors";
@@ -109,6 +110,7 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
   const keyframe = async (
     purpose: "start_frame" | "end_frame",
     prompt: string,
+    extraRefs: string[] = [],
   ): Promise<{ id: string; path?: string }> => {
     const manifest = await buildImageManifest({
       sceneId,
@@ -117,7 +119,10 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
       negativePrompt: scene.prompts.imageNegativePrompt,
       modelStrategy,
       modelType: imageModel,
-      imageRefs,
+      imageRefs: [...extraRefs, ...imageRefs],
+      // A leading scene frame is the "main subject / landscape" reference; the
+      // cast portraits that follow are the people.
+      imageRefsLeadWithScene: extraRefs.length > 0,
     });
     const job = await runToCompletion(manifest.settings);
     return { id: manifest.id, path: job.generatedFiles[0] };
@@ -130,9 +135,41 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
     continuing || continuity.startImagePath
       ? null
       : await keyframe("start_frame", scene.prompts.startFramePrompt);
-  const end = continuing ? null : await keyframe("end_frame", scene.prompts.endFramePrompt);
 
   const startImagePath = continuity.startImagePath ?? start?.path;
+
+  /**
+   * Show the end-frame render the image it has to match.
+   *
+   * The two frames are otherwise independent text-to-image jobs, so anything
+   * the prompt leaves unstated is reinvented — which is how a character ends up
+   * in black trousers in one frame and blue jeans in the next.
+   *
+   * What the reference is allowed to dictate depends on where it came from:
+   *
+   *  - This scene's own start frame is the same moment seconds earlier, so the
+   *    set and lighting must match as well as the wardrobe.
+   *  - An inherited frame (reuse_end_frame continuity) is the *previous*
+   *    scene's ending. Character and wardrobe still have to carry, but the
+   *    scene is entitled to move — pinning the location here would stop the
+   *    story progressing and fight the scene's own prompt.
+   */
+  const inheritedStart = Boolean(continuity.startImagePath);
+  const conditionOnStartFrame = config.media.endFrameReferencesStartFrame && Boolean(startImagePath);
+  const matchInstruction = inheritedStart
+    ? " The character's wardrobe, hair and styling are exactly as in the supplied reference frame; identical clothing. Follow this scene's own description for location, framing and action."
+    : " Wardrobe, hair, styling, location and lighting exactly as in the supplied reference frame; identical clothing.";
+
+  const end = continuing
+    ? null
+    : await keyframe(
+        "end_frame",
+        conditionOnStartFrame
+          ? `${scene.prompts.endFramePrompt}${matchInstruction}`
+          : scene.prompts.endFramePrompt,
+        conditionOnStartFrame ? [startImagePath!] : [],
+      );
+
   const endImagePath = end?.path;
 
   const videoManifest = await buildVideoManifest({

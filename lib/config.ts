@@ -125,6 +125,18 @@ export const config = {
      */
     unloadBeforeBatch: bool(process.env.LLM_UNLOAD_BEFORE_BATCH, true),
   },
+  media: {
+    /**
+     * Render the end frame with the start frame as a reference image.
+     *
+     * The two keyframes are independent text-to-image jobs, so any detail the
+     * prompt leaves unstated is reinvented between them — wardrobe drifts the
+     * hardest. Showing the end-frame render what it has to match holds clothing,
+     * styling and set dressing steady while the prompt still drives the change
+     * in framing and action. Needs an image model that accepts references.
+     */
+    endFrameReferencesStartFrame: bool(process.env.END_FRAME_REFERENCES_START_FRAME, true),
+  },
   sceneQueue: {
     /**
      * Extra attempts for a scene that fails with a transient GPU fault.

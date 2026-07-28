@@ -196,6 +196,8 @@ export async function buildImageManifest(args: {
    * honoured — see below.
    */
   imageRefs?: string[];
+  /** Set when the first reference is a scene frame rather than a person. */
+  imageRefsLeadWithScene?: boolean;
 }): Promise<WangpGenerationSettings> {
   const client = getWangpClient();
   const imageModels = await client.listModels("image");
@@ -242,6 +244,7 @@ export async function buildImageManifest(args: {
     prompt: args.prompt,
     negativePrompt: args.negativePrompt,
     imageRefs: args.imageRefs,
+    imageRefsLeadWithScene: args.imageRefsLeadWithScene,
     resolution: config.defaults.resolution,
   });
 }

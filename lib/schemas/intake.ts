@@ -42,6 +42,8 @@ export const createProjectSchema = z.object({
   /** Reuse saved character descriptions for this project's cast. */
   useCharacterLibrary: z.boolean().default(false),
   characterIds: z.array(z.string()).default([]),
+  /** Per-character wardrobe for this project, keyed by character id. */
+  characterWardrobe: z.record(z.string()).default({}),
   /** How each scene joins the previous one. Defaults to a hard cut. */
   sceneContinuity: z.enum(SCENE_CONTINUITY_MODES).default("cut"),
 });
@@ -61,6 +63,8 @@ export const updateProjectModelsSchema = z.object({
    * pins it stays editable for the life of the project.
    */
   sceneContinuity: z.enum(SCENE_CONTINUITY_MODES).optional(),
+  /** Costume changes between projects, so it stays editable after creation. */
+  characterWardrobe: z.record(z.string()).optional(),
 });
 
 export type UpdateProjectModelsInput = z.infer<typeof updateProjectModelsSchema>;

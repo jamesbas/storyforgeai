@@ -22,6 +22,15 @@ export const characterSchema = z.object({
    */
   description: z.string().min(1).max(2000),
   /**
+   * Default outfit, used only when a project does not specify one.
+   *
+   * Wardrobe belongs to the story rather than the person — the same character
+   * wears different clothes in different projects — so this is a fallback for
+   * characters with a signature look (a uniform, a mascot costume), not the
+   * primary place to set it. Projects override it per character.
+   */
+  wardrobe: z.string().max(500).optional(),
+  /**
    * Traits to actively suppress for this character, appended to the negative
    * prompt. Comma-separated terms, e.g. "no glasses, no beard, not elderly".
    */
@@ -41,6 +50,7 @@ export type Character = z.infer<typeof characterSchema>;
 export const createCharacterSchema = characterSchema.pick({
   name: true,
   description: true,
+  wardrobe: true,
   negativePrompt: true,
 });
 

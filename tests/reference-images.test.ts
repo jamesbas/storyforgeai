@@ -79,6 +79,35 @@ describe("reference images in the image manifest", () => {
     });
     expect(manifest.settings.image_refs).toBeUndefined();
   });
+
+  it("uses KI when a scene frame leads the references, I when they are people", async () => {
+    // "I" means the references are people/objects; "KI" means the first is the
+    // main subject/landscape followed by people. Conditioning an end frame on
+    // its start frame puts a scene image first, so the letter has to change.
+    const client = new MockWangpClient();
+    const schema = await client.getModelSchema("qwen_image");
+
+    const people = buildSettingsManifest(schema, {
+      sceneId: "scene-1",
+      purpose: "start_frame",
+      prompt: "a woman in a garage",
+      imageRefs: REF_PATHS,
+    });
+    expect(people.settings.video_prompt_type).toBe("I");
+
+    const sceneFirst = buildSettingsManifest(schema, {
+      sceneId: "scene-1",
+      purpose: "end_frame",
+      prompt: "the same woman, moments later",
+      imageRefs: ["C:\\out\\scene-1-start.png", ...REF_PATHS],
+      imageRefsLeadWithScene: true,
+    });
+    expect(sceneFirst.settings.video_prompt_type).toBe("KI");
+    expect(sceneFirst.settings.image_refs).toEqual([
+      "C:\\out\\scene-1-start.png",
+      ...REF_PATHS,
+    ]);
+  });
 });
 
 describe("image model selection", () => {

@@ -24,7 +24,16 @@ export type ScenePromptContext = {
 export const IMAGE_PROMPT_SYSTEM =
   "You are the Image Prompt Agent. For each scene, create a start-frame image prompt and " +
   "end-frame image prompt following the Visual Bible and preserving continuity. Include a " +
-  "negative prompt. Return only valid JSON.";
+  "negative prompt. Return only valid JSON." +
+  // The two frames are rendered as independent jobs, so anything left vague is
+  // reinvented on each pass. A prompt reading "casual contemporary attire"
+  // produced black trousers in one frame and blue jeans in the next.
+  " The start and end frame are the same moment seconds apart: every character must wear " +
+  "identical clothing in both, and the location, lighting and time of day must match. " +
+  "State the wardrobe as specific named garments with colours and materials — never a vague " +
+  "placeholder such as 'casual attire', 'contemporary clothing' or 'appropriate outfit' — and " +
+  "repeat that same wardrobe wording verbatim in both prompts. Only framing, pose and action " +
+  "may differ between them.";
 
 export const videoPromptSystem = (segmentSeconds: number) =>
   "You are the Video Prompt Agent. For each scene, create a WanGP-ready prompt for a " +

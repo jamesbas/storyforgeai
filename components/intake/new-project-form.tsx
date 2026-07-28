@@ -45,6 +45,7 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
   const [sfxRequired, setSfx] = useState(false);
   const [useCharacterLibrary, setUseCharacterLibrary] = useState(false);
   const [characterIds, setCharacterIds] = useState<string[]>([]);
+  const [characterWardrobe, setCharacterWardrobe] = useState<Record<string, string>>({});
   const [characters, setCharacters] = useState<Character[]>([]);
 
   useEffect(() => {
@@ -83,6 +84,14 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
       sfxRequired,
       useCharacterLibrary,
       characterIds: useCharacterLibrary ? characterIds : [],
+      // Only send wardrobe for characters actually in this project.
+      characterWardrobe: useCharacterLibrary
+        ? Object.fromEntries(
+            characterIds
+              .map((id) => [id, characterWardrobe[id]?.trim() ?? ""])
+              .filter(([, value]) => value !== ""),
+          )
+        : {},
     });
   }
 
@@ -309,7 +318,8 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
         </label>
         <p className="text-[11px] text-slate-500">
           Locks the selected characters&apos; appearance into the visual bible, the scene cards, and
-          every image and video prompt, so the same person looks the same in every clip.
+          every image and video prompt, so the same person looks the same in every clip. Wardrobe is
+          set per project — the same character can wear something different in the next story.
         </p>
 
         {useCharacterLibrary ? (
@@ -350,6 +360,23 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
                       </span>
                     </span>
                   </label>
+                  {characterIds.includes(character.id) ? (
+                    <div className="ml-6 mt-1">
+                      <input
+                        aria-label={`Wardrobe for ${character.name}`}
+                        maxLength={500}
+                        value={characterWardrobe[character.id] ?? character.wardrobe ?? ""}
+                        onChange={(e) =>
+                          setCharacterWardrobe((current) => ({
+                            ...current,
+                            [character.id]: e.target.value,
+                          }))
+                        }
+                        placeholder={`What ${character.name} wears in this story — e.g. a fitted white tank top, black tailored trousers, black ankle boots`}
+                        className={`w-full ${field}`}
+                      />
+                    </div>
+                  ) : null}
                 </li>
               ))}
             </ul>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { WangpModel } from "@/lib/schemas/wangp";
+import type { Character } from "@/lib/schemas/character";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 
 type ModelsResponse = { models: WangpModel[]; total: number };
@@ -23,6 +24,8 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const [cast, setCast] = useState<Character[]>([]);
+  const [wardrobe, setWardrobe] = useState<Record<string, string>>({});
 
   const loadModels = useCallback(async (all: boolean) => {
     const suffix = all ? "" : "&installed=1";
@@ -43,7 +46,11 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
     void (async () => {
       try {
         const res = await fetch(`/api/projects/${projectId}`);
-        if (res.ok) setRecord((await res.json()) as ProjectRecord);
+        if (res.ok) {
+          const next = (await res.json()) as ProjectRecord;
+          setRecord(next);
+          setWardrobe(next.project.characterWardrobe ?? {});
+        }
         await loadModels(showAll);
       } catch {
         setError("Failed to reach WanGP. Model lists are unavailable.");
@@ -51,8 +58,24 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
     })();
   }, [projectId, showAll, loadModels]);
 
+  // Only the characters this project pinned are worth showing here.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/characters");
+        if (res.ok) setCast(((await res.json()) as { characters: Character[] }).characters);
+      } catch {
+        // The library is optional; model pins still work without it.
+      }
+    })();
+  }, []);
+
   const save = useCallback(
-    async (patch: { imageModel?: string; videoModel?: string }) => {
+    async (patch: {
+      imageModel?: string;
+      videoModel?: string;
+      characterWardrobe?: Record<string, string>;
+    }) => {
       setBusy(true);
       setError(null);
       setSaved(false);
@@ -186,6 +209,55 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
 
         {saved ? <p className="text-xs text-emerald-400">Saved.</p> : null}
       </section>
+
+      {usesCharacters ? (
+        <section className="space-y-3 rounded-lg border border-white/10 bg-panel/40 p-4">
+          <div>
+            <h2 className="font-semibold">Wardrobe for this project</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Costume belongs to the story, so it is set here rather than on the character. Name
+              specific garments, colours and materials — a scene&apos;s start and end frames are
+              separate renders, so an unstated outfit gets reinvented and the character changes
+              clothes mid-shot. Applies to scenes generated from now on.
+            </p>
+          </div>
+          {cast
+            .filter((character) => project.characterIds?.includes(character.id))
+            .map((character) => (
+              <label key={character.id} className="block space-y-1">
+                <span className="text-sm text-slate-300">{character.name}</span>
+                <input
+                  maxLength={500}
+                  disabled={busy}
+                  value={wardrobe[character.id] ?? ""}
+                  onChange={(e) =>
+                    setWardrobe((current) => ({ ...current, [character.id]: e.target.value }))
+                  }
+                  placeholder={
+                    character.wardrobe
+                      ? `Library default: ${character.wardrobe}`
+                      : `What ${character.name} wears in this story`
+                  }
+                  className="w-full rounded-md border border-white/10 bg-canvas px-3 py-2 text-sm outline-none focus:border-accent"
+                />
+              </label>
+            ))}
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() =>
+              void save({
+                characterWardrobe: Object.fromEntries(
+                  Object.entries(wardrobe).filter(([, value]) => value.trim() !== ""),
+                ),
+              })
+            }
+            className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            Save wardrobe
+          </button>
+        </section>
+      ) : null}
     </div>
   );
 }

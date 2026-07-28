@@ -13,7 +13,18 @@ import type { Character } from "@/lib/schemas/character";
 /** Compact, prompt-ready cast sheet. Empty string when no cast is pinned. */
 export function castSheet(cast: readonly Character[]): string {
   if (cast.length === 0) return "";
-  return cast.map((c) => `${c.name}: ${c.description.trim().replace(/\s+/g, " ")}`).join(" ");
+  return cast
+    .map((c) => {
+      const description = c.description.trim().replace(/\s+/g, " ");
+      // Wardrobe is stated explicitly and last, so it is the most recent
+      // instruction the model reads about this character. Left unstated, the
+      // model invents an outfit per render and clothing changes between frames.
+      const wardrobe = c.wardrobe?.trim().replace(/\s+/g, " ");
+      return wardrobe
+        ? `${c.name}: ${description} Wearing exactly: ${wardrobe}.`
+        : `${c.name}: ${description}`;
+    })
+    .join(" ");
 }
 
 /**
@@ -29,8 +40,9 @@ export function castSystemDirective(cast: readonly Character[]): string {
     `${names}. These descriptions are locked. Reuse each character's exact ` +
     "physical description whenever that character appears, do not invent " +
     "alternative appearances, do not rename them, and do not contradict any " +
-    "detail given. Introduce new characters only when the story needs someone " +
-    "who is not in the cast."
+    "detail given. Where a character has a stated wardrobe, describe that exact " +
+    "clothing in every prompt and never substitute or vary it. Introduce new " +
+    "characters only when the story needs someone who is not in the cast."
   );
 }
 

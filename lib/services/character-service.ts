@@ -42,6 +42,7 @@ export async function createCharacter(raw: unknown): Promise<Character> {
     id: randomUUID(),
     name: input.name.trim(),
     description: input.description.trim(),
+    wardrobe: input.wardrobe?.trim() || undefined,
     negativePrompt: input.negativePrompt?.trim() || undefined,
     createdAt: now,
     updatedAt: now,
@@ -58,6 +59,8 @@ export async function updateCharacter(id: string, raw: unknown): Promise<Charact
     ...existing,
     name: patch.name?.trim() ?? existing.name,
     description: patch.description?.trim() ?? existing.description,
+    wardrobe:
+      patch.wardrobe === undefined ? existing.wardrobe : patch.wardrobe.trim() || undefined,
     negativePrompt:
       patch.negativePrompt === undefined
         ? existing.negativePrompt
@@ -141,11 +144,20 @@ export function referenceImageContentType(filename: string): string {
  * callers can thread the result through unconditionally. Ids that no longer
  * exist are skipped rather than throwing: deleting a character should not break
  * regeneration of an older project.
+ *
+ * The project's own wardrobe wins over the library default, because costume
+ * belongs to the story rather than the person.
  */
 export async function resolveProjectCast(project: {
   useCharacterLibrary?: boolean;
   characterIds?: string[];
+  characterWardrobe?: Record<string, string>;
 }): Promise<Character[]> {
   if (!project.useCharacterLibrary) return [];
-  return characterStore.getMany(project.characterIds ?? []);
+  const cast = await characterStore.getMany(project.characterIds ?? []);
+  const wardrobe = project.characterWardrobe ?? {};
+  return cast.map((character) => {
+    const override = wardrobe[character.id]?.trim();
+    return override ? { ...character, wardrobe: override } : character;
+  });
 }

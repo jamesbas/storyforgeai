@@ -92,4 +92,12 @@ describe("character library cast injection", () => {
       );
     }
   });
+
+  it("states the wardrobe explicitly so it is not reinvented per render", () => {
+    const dressed = { ...ELENA, wardrobe: "a fitted white tank top and black tailored trousers" };
+    const sheet = castPromptSuffix([dressed]);
+    expect(sheet).toContain("Wearing exactly: a fitted white tank top and black tailored trousers.");
+    // Without one, nothing is asserted about clothing rather than something vague.
+    expect(castPromptSuffix([ELENA])).not.toContain("Wearing exactly");
+  });
 });
