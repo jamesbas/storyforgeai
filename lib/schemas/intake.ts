@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { loraSelectionSetSchema, sceneLoraMapSchema } from "@/lib/schemas/lora";
 import {
   ASPECT_RATIOS,
   CREATIVE_MODES,
@@ -65,6 +66,13 @@ export const updateProjectModelsSchema = z.object({
   sceneContinuity: z.enum(SCENE_CONTINUITY_MODES).optional(),
   /** Costume changes between projects, so it stays editable after creation. */
   characterWardrobe: z.record(z.string()).optional(),
+  /**
+   * Storyboard-wide LoRA stack. Like the model pins it only affects future
+   * generations, so it stays editable for the life of the project.
+   */
+  loras: loraSelectionSetSchema.optional(),
+  /** Per-scene LoRA overrides, keyed by scene id. */
+  sceneLoras: sceneLoraMapSchema.optional(),
 });
 
 export type UpdateProjectModelsInput = z.infer<typeof updateProjectModelsSchema>;

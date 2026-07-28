@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { LoraSelector } from "@/components/settings/lora-selector";
+import type { LoraSelectionSet } from "@/lib/schemas/lora";
 import type { WangpModel } from "@/lib/schemas/wangp";
 import type { Character } from "@/lib/schemas/character";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
@@ -26,6 +28,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
   const [saved, setSaved] = useState(false);
   const [cast, setCast] = useState<Character[]>([]);
   const [wardrobe, setWardrobe] = useState<Record<string, string>>({});
+  const [loras, setLoras] = useState<LoraSelectionSet>({ image: [], video: [] });
 
   const loadModels = useCallback(async (all: boolean) => {
     const suffix = all ? "" : "&installed=1";
@@ -50,6 +53,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           const next = (await res.json()) as ProjectRecord;
           setRecord(next);
           setWardrobe(next.project.characterWardrobe ?? {});
+          setLoras(next.project.loras ?? { image: [], video: [] });
         }
         await loadModels(showAll);
       } catch {
@@ -75,6 +79,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
       imageModel?: string;
       videoModel?: string;
       characterWardrobe?: Record<string, string>;
+      loras?: LoraSelectionSet;
     }) => {
       setBusy(true);
       setError(null);
@@ -85,8 +90,13 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           headers: { "content-type": "application/json" },
           body: JSON.stringify(patch),
         });
-        if (!res.ok) throw new Error("Failed to save settings");
-        setRecord((await res.json()) as ProjectRecord);
+        if (!res.ok) {
+          const detail = (await res.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(detail?.error ?? "Failed to save settings");
+        }
+        const next = (await res.json()) as ProjectRecord;
+        setRecord(next);
+        setLoras(next.project.loras ?? { image: [], video: [] });
         setSaved(true);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to save");
@@ -208,6 +218,52 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
         ) : null}
 
         {saved ? <p className="text-xs text-emerald-400">Saved.</p> : null}
+      </section>
+
+      <section className="space-y-4 rounded-lg border border-white/10 bg-panel/40 p-4">
+        <div>
+          <h2 className="font-semibold">LoRAs for this storyboard</h2>
+          <p className="mt-1 text-xs text-slate-500">
+            Applied to every scene unless a scene overrides them. The lists are filtered to the
+            LoRAs installed for the model pinned above, so changing a model can drop selections
+            that do not exist for the new one.
+          </p>
+          <p className="mt-1 text-xs text-slate-500">
+            Some LoRAs do nothing unless a trigger word appears in the prompt. Where one is known
+            it is shown beneath the LoRA — add it to your concept or scene prompts.
+          </p>
+        </div>
+
+        <div className="space-y-1">
+          <span className="text-sm text-slate-300">Image LoRAs (start and end frames)</span>
+          <LoraSelector
+            projectId={projectId}
+            kind="image"
+            value={loras.image}
+            disabled={busy}
+            onChange={(next) => setLoras((current) => ({ ...current, image: next }))}
+          />
+        </div>
+
+        <div className="space-y-1">
+          <span className="text-sm text-slate-300">Video LoRAs (clips)</span>
+          <LoraSelector
+            projectId={projectId}
+            kind="video"
+            value={loras.video}
+            disabled={busy}
+            onChange={(next) => setLoras((current) => ({ ...current, video: next }))}
+          />
+        </div>
+
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void save({ loras })}
+          className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          Save LoRAs
+        </button>
       </section>
 
       {usesCharacters ? (

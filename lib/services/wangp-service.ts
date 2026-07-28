@@ -8,6 +8,8 @@ import {
 } from "@/lib/wangp/model-router";
 import { resolveModel } from "@/lib/wangp/resolve-model";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
+import { catalogForModel, reconcileLoras } from "@/lib/services/lora-service";
+import type { LoraKind, LoraSelection } from "@/lib/schemas/lora";
 import type {
   WangpGenerationSettings,
   WangpJob,
@@ -46,6 +48,28 @@ export async function getWangpModelSchema(modelType: string): Promise<WangpModel
 }
 
 /**
+ * Check a selection against the model that was actually resolved.
+ *
+ * This has to happen here rather than in the caller: the manifest builders pick
+ * the model themselves and may substitute the project's pin (see
+ * `buildImageManifest`), so the caller does not know what the LoRAs will be
+ * applied to.
+ */
+async function lorasFor(
+  model: import("@/lib/schemas/wangp").WangpModel,
+  selected: LoraSelection[] | undefined,
+  sceneId: string,
+  kind: LoraKind,
+): Promise<LoraSelection[]> {
+  if (!selected?.length) return [];
+  return reconcileLoras(selected, await catalogForModel(model), {
+    sceneId,
+    modelType: model.modelType,
+    kind,
+  });
+}
+
+/**
  * Discovery-first manifest build: pick a video model that supports start frames,
  * fetch its schema, then override only validated fields (spec Section 11.3).
  */
@@ -57,6 +81,8 @@ export async function buildVideoManifest(args: {
   imageEnd?: string;
   /** Previous scene's clip to continue from, for `continue_video` continuity. */
   videoSource?: string;
+  /** LoRAs selected for this scene's video generation. */
+  loras?: LoraSelection[];
   modelStrategy: import("@/lib/schemas/project").Project["modelStrategy"];
   /** Per-project pin. Outranks the env pin; falls through to the router. */
   modelType?: string;
@@ -81,6 +107,7 @@ export async function buildVideoManifest(args: {
     imageStart: args.imageStart,
     imageEnd: args.imageEnd,
     videoSource: args.videoSource,
+    loras: await lorasFor(model, args.loras, args.sceneId, "video"),
     fps: args.fps ?? config.defaults.fps,
     durationSeconds: args.durationSeconds,
     resolution: config.defaults.resolution,
@@ -198,6 +225,8 @@ export async function buildImageManifest(args: {
   imageRefs?: string[];
   /** Set when the first reference is a scene frame rather than a person. */
   imageRefsLeadWithScene?: boolean;
+  /** LoRAs selected for this scene's keyframe generation. */
+  loras?: LoraSelection[];
 }): Promise<WangpGenerationSettings> {
   const client = getWangpClient();
   const imageModels = await client.listModels("image");
@@ -245,6 +274,7 @@ export async function buildImageManifest(args: {
     negativePrompt: args.negativePrompt,
     imageRefs: args.imageRefs,
     imageRefsLeadWithScene: args.imageRefsLeadWithScene,
+    loras: await lorasFor(model, args.loras, args.sceneId, "image"),
     resolution: config.defaults.resolution,
   });
 }

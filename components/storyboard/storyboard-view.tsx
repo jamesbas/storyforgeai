@@ -5,6 +5,7 @@ import Link from "next/link";
 import { SceneCard } from "@/components/storyboard/scene-card";
 import { SCENE_CONTINUITY_OPTIONS } from "@/lib/presets";
 import type { SceneContinuityMode } from "@/lib/types";
+import type { SceneLoraOverride } from "@/lib/schemas/lora";
 import type { LlmRuntimeStatus } from "@/lib/services/llm-runtime-service";
 import type { SceneQueueEntry } from "@/lib/services/scene-queue";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
@@ -137,6 +138,42 @@ export function StoryboardView({ projectId }: { projectId: string }) {
       }
     },
     [projectId],
+  );
+
+  /**
+   * Save one scene's LoRA override.
+   *
+   * The whole map is sent because the patch replaces it wholesale. A scene that
+   * goes back to inheriting drops out of the map entirely rather than being
+   * stored as an empty override, so the record does not accumulate entries that
+   * say nothing.
+   */
+  const saveSceneLoras = useCallback(
+    async (sceneId: string, override: SceneLoraOverride) => {
+      setError(null);
+      setSceneBusy(sceneId);
+      try {
+        const current = { ...(record?.project.sceneLoras ?? {}) };
+        if (override.mode === "override") current[sceneId] = override;
+        else delete current[sceneId];
+
+        const res = await fetch(`/api/projects/${projectId}/models`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sceneLoras: current }),
+        });
+        if (!res.ok) {
+          const detail = (await res.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(detail?.error ?? `Failed to save scene LoRAs (HTTP ${res.status})`);
+        }
+        setRecord((await res.json()) as ProjectRecord);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to save scene LoRAs");
+      } finally {
+        setSceneBusy(null);
+      }
+    },
+    [projectId, record],
   );
 
   /**
@@ -502,6 +539,9 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   busy={sceneBusy === scene.id}
                   onGenerate={() => generateSceneMedia(scene.id)}
                   onApprove={latest ? () => approveScene(scene.id, latest.id) : undefined}
+                  projectId={projectId}
+                  loraOverride={record.project.sceneLoras?.[scene.id]}
+                  onLoraSave={(next) => void saveSceneLoras(scene.id, next)}
                 />
               );
             })}

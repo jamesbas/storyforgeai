@@ -1,6 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { createProjectSchema, updateProjectModelsSchema } from "@/lib/schemas/intake";
 import { computeSegmentation } from "@/lib/duration";
+import {
+  pruneSceneLoras,
+  pruneSelectionSet,
+  resolvePinnedModels,
+  validateSelectionSet,
+} from "@/lib/services/lora-service";
 import type { Project } from "@/lib/schemas/project";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type {
@@ -101,14 +107,46 @@ export async function updateProjectModels(id: string, raw: unknown): Promise<Pro
     return next === null || next === "" ? undefined : next;
   };
 
+  const imageModel = resolve(patch.imageModel, record.project.imageModel);
+  const videoModel = resolve(patch.videoModel, record.project.videoModel);
+  const modelsChanged =
+    imageModel !== record.project.imageModel || videoModel !== record.project.videoModel;
+
+  /**
+   * A LoRA is only meaningful for the model it was trained against, so a
+   * selection has to be checked whenever it — or the model under it — changes.
+   *
+   * The two cases are handled differently on purpose. An explicit selection is
+   * validated strictly: the user is choosing right now, so an unknown name is
+   * an actionable error. A selection that merely got stranded by a model change
+   * is pruned instead, because refusing the model change over it would be
+   * backwards.
+   */
+  const currentLoras = record.project.loras;
+  let loras = patch.loras ?? currentLoras;
+  if (patch.loras) {
+    loras = await validateSelectionSet(patch.loras, await resolvePinnedModels({ imageModel, videoModel }));
+  } else if (modelsChanged && (currentLoras?.image.length || currentLoras?.video.length)) {
+    loras = await pruneSelectionSet(
+      currentLoras,
+      await resolvePinnedModels({ imageModel, videoModel }),
+      { projectId: id },
+    );
+  }
+
   const updated: ProjectRecord = {
     ...record,
     project: {
       ...record.project,
-      imageModel: resolve(patch.imageModel, record.project.imageModel),
-      videoModel: resolve(patch.videoModel, record.project.videoModel),
+      imageModel,
+      videoModel,
       sceneContinuity: patch.sceneContinuity ?? record.project.sceneContinuity,
       characterWardrobe: patch.characterWardrobe ?? record.project.characterWardrobe,
+      loras,
+      sceneLoras: pruneSceneLoras(
+        patch.sceneLoras ?? record.project.sceneLoras,
+        (record.storyboard?.scenes ?? []).map((scene) => scene.id),
+      ),
       updatedAt: new Date().toISOString(),
     },
     history: appendHistory(record, "project.models_updated"),

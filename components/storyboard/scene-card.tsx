@@ -1,3 +1,5 @@
+import { SceneLoraPanel } from "@/components/storyboard/scene-lora-panel";
+import type { SceneLoraOverride } from "@/lib/schemas/lora";
 import type { Scene } from "@/lib/schemas/storyboard";
 import type { SceneAttempt } from "@/lib/schemas/generation";
 import type { MediaDescriptor } from "@/lib/media/refs";
@@ -9,6 +11,13 @@ type SceneCardProps = {
   busy?: boolean;
   onGenerate?: () => void;
   onApprove?: () => void;
+  /**
+   * LoRA wiring. Optional so the card stays renderable on its own — the panel
+   * only appears when a parent supplies both the project and a save handler.
+   */
+  projectId?: string;
+  loraOverride?: SceneLoraOverride;
+  onLoraSave?: (next: SceneLoraOverride) => void;
 };
 
 /** Render a player for media that exists on disk; fall back to the path. */
@@ -50,6 +59,9 @@ export function SceneCard({
   busy = false,
   onGenerate,
   onApprove,
+  projectId,
+  loraOverride,
+  onLoraSave,
 }: SceneCardProps) {
   const playable = media.filter((m) => m.available && m.sceneId === scene.id);
 
@@ -92,6 +104,15 @@ export function SceneCard({
           </p>
         </div>
       </details>
+
+      {projectId && onLoraSave ? (
+        <SceneLoraPanel
+          projectId={projectId}
+          value={loraOverride}
+          busy={busy}
+          onSave={onLoraSave}
+        />
+      ) : null}
 
       {(onGenerate || attempt) && (
         <div className="mt-4 border-t border-white/10 pt-3" data-testid="scene-media">

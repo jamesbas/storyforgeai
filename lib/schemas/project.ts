@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { loraSelectionSetSchema, sceneLoraMapSchema } from "@/lib/schemas/lora";
 import {
   ASPECT_RATIOS,
   CREATIVE_MODES,
@@ -64,6 +65,19 @@ export const projectSchema = z.object({
    * before the setting existed still parse; absent means "cut".
    */
   sceneContinuity: z.enum(SCENE_CONTINUITY_MODES).optional(),
+  /**
+   * Storyboard-wide LoRA stack, split by the model kind it applies to.
+   * Optional so projects created before LoRA support still parse.
+   */
+  loras: loraSelectionSetSchema.optional(),
+  /**
+   * Per-scene departures from `loras`, keyed by scene id.
+   *
+   * Kept beside the scenes rather than on `sceneSchema` because scenes are
+   * agent-generated and regenerated wholesale; a user's selection must not be
+   * something the Storyboard Agent has to emit or preserve.
+   */
+  sceneLoras: sceneLoraMapSchema.optional(),
   status: projectStatusSchema,
   createdAt: z.string(),
   updatedAt: z.string(),

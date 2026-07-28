@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { SEGMENT_SECONDS } from "@/lib/types";
+import type { LoraSelection } from "@/lib/schemas/lora";
 import type { WangpModelSchema, WangpGenerationSettings, WangpPurpose } from "@/lib/schemas/wangp";
 
 /**
@@ -40,6 +41,12 @@ export type ManifestOverrides = {
    * file fails the job immediately rather than silently rendering a fresh shot.
    */
   videoSource?: string;
+  /**
+   * LoRAs to activate for this generation, already reconciled against the
+   * resolved model's catalog. Order is significant: `loras_multipliers` is
+   * matched to `activated_loras` by index.
+   */
+  loras?: LoraSelection[];
   fps?: number;
   resolution?: string;
   /** Audio models: clip length in seconds. Video: segment length for frame maths. */
@@ -64,6 +71,48 @@ function resolveFps(
   if (field?.min !== undefined) fps = Math.max(field.min, fps);
   if (field?.max !== undefined) fps = Math.min(field.max, fps);
   return fps;
+}
+
+/**
+ * Write the LoRA stack, unconditionally.
+ *
+ * `defaultSettings` is a copy of WanGP's saved per-model settings, and those
+ * carry whatever LoRAs were last selected in the WanGP UI. Leaving the field
+ * untouched lets a project silently inherit them, so the same storyboard can
+ * render differently depending on what someone last clicked in another
+ * application. Writing it every time — including as an empty list — makes a
+ * project fully determine its own render.
+ *
+ * The two fields always move together: a multiplier string left over from the
+ * defaults would mis-weight a freshly chosen stack.
+ */
+function applyLoras(
+  settings: Record<string, unknown>,
+  schema: WangpModelSchema,
+  fieldNames: Set<string>,
+  loras: LoraSelection[],
+): void {
+  const declared =
+    fieldNames.has("activated_loras") || "activated_loras" in schema.defaultSettings;
+
+  if (!declared) {
+    // Silently dropping a selection would render something plausible with no
+    // LoRA applied and nothing to debug, so refuse instead.
+    if (loras.length) {
+      throw new Error(
+        `Model ${schema.modelType} does not accept LoRAs, but ${loras.length} were selected.`,
+      );
+    }
+    return;
+  }
+
+  settings.activated_loras = loras.map((lora) => lora.name);
+
+  if (fieldNames.has("loras_multipliers") || "loras_multipliers" in schema.defaultSettings) {
+    // A plain number per LoRA. WanGP also accepts phase (`;`) and step (`|`)
+    // syntax, which the UI does not model — see LORA Use.md section 4.6.
+    settings.loras_multipliers = loras.map((lora) => String(lora.strength)).join(" ");
+  }
 }
 
 /**
@@ -164,6 +213,8 @@ export function buildSettingsManifest(
     if (durationField.max !== undefined) seconds = Math.min(durationField.max, seconds);
     settings.duration_seconds = seconds;
   }
+
+  applyLoras(settings, schema, fieldNames, overrides.loras ?? []);
 
   return {
     id: randomUUID(),

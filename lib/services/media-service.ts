@@ -4,6 +4,7 @@ import type { SceneAttempt } from "@/lib/schemas/generation";
 import { repository } from "@/lib/db/store";
 import { getProjectRecord } from "@/lib/services/project-service";
 import { buildImageManifest, buildVideoManifest, runToCompletion } from "@/lib/services/wangp-service";
+import { resolveSceneLoras } from "@/lib/services/lora-service";
 import { resolveProjectCast } from "@/lib/services/character-service";
 import { resolveReferenceImagePath } from "@/lib/db/character-store";
 import { config } from "@/lib/config";
@@ -107,6 +108,12 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
   const continuity = resolveContinuity(record, scene);
   const continuing = Boolean(continuity.videoSource);
 
+  // A scene either inherits the storyboard-wide selection or replaces it. The
+  // manifest builders reconcile these against whichever model they resolve, so
+  // a substitution cannot smuggle an incompatible LoRA into the job.
+  const imageLoras = resolveSceneLoras(record.project, sceneId, "image");
+  const videoLoras = resolveSceneLoras(record.project, sceneId, "video");
+
   const keyframe = async (
     purpose: "start_frame" | "end_frame",
     prompt: string,
@@ -123,6 +130,7 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
       // A leading scene frame is the "main subject / landscape" reference; the
       // cast portraits that follow are the people.
       imageRefsLeadWithScene: extraRefs.length > 0,
+      loras: imageLoras,
     });
     const job = await runToCompletion(manifest.settings);
     return { id: manifest.id, path: job.generatedFiles[0] };
@@ -181,6 +189,7 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
     videoSource: continuity.videoSource,
     modelStrategy,
     modelType: videoModel,
+    loras: videoLoras,
     // The final scene is often shorter than a full segment.
     durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
   });

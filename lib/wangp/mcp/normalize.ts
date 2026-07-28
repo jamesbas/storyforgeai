@@ -278,7 +278,22 @@ export function normalizeModel(
   inputs.add("text"); // every WanGP workflow accepts a prompt
 
   const modelDef = asRecord(read("model_def")) ?? {};
-  const loraFlag = read("supports_lora", "supportsLora", "loras") ?? modelDef.loras;
+
+  // WanGP publishes the LoRA flag as `capabilities.lora`. The `supports_lora` /
+  // `loras` spellings are kept as fallbacks but are absent from every live
+  // payload observed, which meant `supportsLora` was silently always undefined.
+  const capabilities = asRecord(read("capabilities")) ?? {};
+  const loraFlag =
+    capabilities.lora ?? read("supports_lora", "supportsLora", "loras") ?? modelDef.loras;
+
+  // Family and base model route LoRA lookups to an on-disk directory. Both are
+  // published by `wangp_list_models`, so no extra metadata call is needed.
+  const familyRaw = read("family") ?? modelDef.family;
+  const baseModelTypeRaw = read("base_model_type", "baseModelType") ?? modelDef.base_model_type;
+  const family = typeof familyRaw === "string" && familyRaw ? familyRaw : undefined;
+  const baseModelType =
+    typeof baseModelTypeRaw === "string" && baseModelTypeRaw ? baseModelTypeRaw : undefined;
+
   const maxFrames = finite(read("max_frames", "maxFrames", "frames_max") ?? modelDef.max_frames);
   const rawFps = read("recommended_fps", "recommendedFps") ?? modelDef.fps;
   const recommendedFps = Array.isArray(rawFps)
@@ -328,6 +343,8 @@ export function normalizeModel(
           }
         : {}),
       ...(loraFlag === undefined ? {} : { supportsLora: Boolean(loraFlag) }),
+      ...(family ? { family } : {}),
+      ...(baseModelType ? { baseModelType } : {}),
       ...(availability ? { availability } : {}),
       ...(maxFrames === undefined ? {} : { maxFrames }),
       ...(recommendedFps?.length ? { recommendedFps } : {}),

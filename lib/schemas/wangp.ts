@@ -41,6 +41,13 @@ export const wangpModelSchema = z.object({
       .optional(),
     supportsLora: z.boolean().optional(),
     /**
+     * WanGP model family ("flux2", "ltx2", "qwen", …) and the base weights a
+     * variant derives from ("ltx2_22B"). Together they route a model to its
+     * LoRA directory: WanGP stores LoRAs per family under `loras/<dir>`.
+     */
+    family: z.string().optional(),
+    baseModelType: z.string().optional(),
+    /**
      * Whether the weights are present locally. WanGP happily accepts a job for
      * a model it does not have and downloads it first, which can mean tens of
      * gigabytes before anything renders.

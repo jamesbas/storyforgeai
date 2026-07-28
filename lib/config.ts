@@ -66,6 +66,12 @@ export const config = {
     url: str(process.env.WANGP_MCP_URL, "http://127.0.0.1:7866/mcp"),
     outputDir: str(process.env.WANGP_OUTPUT_DIR, ""),
     loraRoot: str(process.env.WANGP_LORA_ROOT, ""),
+    /**
+     * LoRA Manager sidecar records (`<name>.json` with display name and trigger
+     * words). Defaults to the `loras_metadata` folder WanGP keeps beside
+     * `loras`, so configuring `WANGP_LORA_ROOT` alone is enough.
+     */
+    loraMetadataRoot: str(process.env.WANGP_LORA_METADATA_ROOT, ""),
     // Live generation is minutes-long; the mock completes in two polls.
     pollIntervalMs: int(process.env.WANGP_POLL_INTERVAL_MS, 3000),
     maxPollAttempts: int(process.env.WANGP_MAX_POLL_ATTEMPTS, 600),

@@ -20,6 +20,7 @@ export type TelemetryEvent =
   | "wangp.job.polled"
   | "scene.qc"
   | "scene.continuity"
+  | "lora.dropped"
   | "scene_queue.enqueued"
   | "scene_queue.cancelled"
   | "scene_queue.failed"
