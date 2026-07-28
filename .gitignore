@@ -16,3 +16,6 @@ projects/*
 contend.txt
 live-e2e-output.txt
 *.log
+
+# Local drafts, not published
+Discord Intro.md

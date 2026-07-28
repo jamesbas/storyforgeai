@@ -192,7 +192,15 @@ describe("reconciling at generation time", () => {
       catalogOf(["motion.safetensors"]),
       { sceneId: "scene-1", modelType: "ltx2", kind: "video" },
     );
-    expect(result).toEqual([{ name: "motion.safetensors", strength: 1 }]);
+    // Trigger words ride along from the catalog entry; see lora-trigger-words.test.ts.
+    expect(result).toEqual([
+      {
+        name: "motion.safetensors",
+        strength: 1,
+        triggerWords: [],
+        availableTriggerWords: [],
+      },
+    ]);
   });
 
   it("drops everything when the resolved model has no catalog", () => {

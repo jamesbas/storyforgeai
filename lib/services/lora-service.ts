@@ -5,6 +5,7 @@ import { logEvent } from "@/lib/telemetry";
 import { getWangpClient } from "@/lib/wangp/factory";
 import { findPinned } from "@/lib/wangp/model-router";
 import { getLoraCatalog, resetLoraCatalogCache } from "@/lib/wangp/lora-catalog";
+import { effectiveTriggerWords, needsTriggerChoice } from "@/lib/lora/trigger-words";
 import type { LoraModelIdentity } from "@/lib/wangp/lora-catalog";
 import type {
   LoraCatalog,
@@ -58,19 +59,10 @@ export async function catalogForModelType(modelType: string): Promise<LoraCatalo
 /**
  * The LoRAs that apply to a scene.
  *
- * A scene either inherits the storyboard-wide selection or replaces it
- * outright; there is deliberately no merge (see `sceneLoraOverrideSchema`).
+ * Re-exported from a dependency-free module so the browser can apply the same
+ * rule when previewing which trigger words a scene will receive.
  */
-export function resolveSceneLoras(
-  project: Pick<Project, "loras" | "sceneLoras">,
-  sceneId: string,
-  kind: LoraKind,
-): LoraSelection[] {
-  const projectSelection = project.loras?.[kind] ?? [];
-  const override = (project.sceneLoras as SceneLoraMap | undefined)?.[sceneId];
-  if (!override || override.mode !== "override") return projectSelection;
-  return override[kind] ?? [];
-}
+export { resolveSceneLoras } from "@/lib/lora/scene-selection";
 
 /**
  * Strict check used when a selection is saved: every name must exist in the
@@ -95,6 +87,19 @@ export function validateLoras(selected: LoraSelection[], catalog: LoraCatalog): 
 }
 
 /**
+ * A selection paired with the trigger words it will actually contribute.
+ *
+ * `triggerWords` is the *effective* set — what goes into the prompt — which for
+ * a multi-concept LoRA is a chosen subset of what the file offers rather than
+ * all of it. `availableTriggerWords` carries the full list so callers can show
+ * the choice without a second catalog read.
+ */
+export type ResolvedLora = LoraSelection & {
+  triggerWords: string[];
+  availableTriggerWords: string[];
+};
+
+/**
  * Lenient check used at generation time.
  *
  * The model actually used can differ from the one a selection was made against
@@ -108,7 +113,7 @@ export function reconcileLoras(
   selected: LoraSelection[],
   catalog: LoraCatalog,
   context: { sceneId: string; modelType: string; kind: LoraKind },
-): LoraSelection[] {
+): ResolvedLora[] {
   if (!selected.length) return [];
 
   if (!catalog.supported) {
@@ -120,14 +125,26 @@ export function reconcileLoras(
     return [];
   }
 
-  const available = new Map(catalog.loras.map((entry) => [entry.name.toLocaleLowerCase(), entry.name]));
-  const kept: LoraSelection[] = [];
+  const available = new Map(catalog.loras.map((entry) => [entry.name.toLocaleLowerCase(), entry]));
+  const kept: ResolvedLora[] = [];
   const dropped: string[] = [];
+  const undecided: string[] = [];
 
   for (const selection of selected) {
-    const canonical = available.get(selection.name.toLocaleLowerCase());
-    if (canonical) kept.push({ ...selection, name: canonical });
-    else dropped.push(selection.name);
+    const entry = available.get(selection.name.toLocaleLowerCase());
+    if (!entry) {
+      dropped.push(selection.name);
+      continue;
+    }
+
+    if (needsTriggerChoice(selection.triggerWords, entry.triggerWords)) undecided.push(entry.name);
+
+    kept.push({
+      ...selection,
+      name: entry.name,
+      triggerWords: effectiveTriggerWords(selection.triggerWords, entry.triggerWords),
+      availableTriggerWords: entry.triggerWords,
+    });
   }
 
   if (dropped.length) {
@@ -137,7 +154,58 @@ export function reconcileLoras(
       reason: "not_installed_for_resolved_model",
     });
   }
+
+  // A multi-concept LoRA with no trigger chosen still loads, but does nothing
+  // useful. Worth saying so rather than leaving the user to wonder.
+  if (undecided.length) {
+    logEvent("lora.dropped", {
+      ...context,
+      dropped: undecided,
+      reason: "no_trigger_word_chosen",
+    });
+  }
+
   return kept;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Trigger words from a resolved stack that the prompt does not already contain. */
+export function missingTriggerWords(
+  prompt: string,
+  loras: readonly ResolvedLora[],
+): string[] {
+  const words = [
+    ...new Set(
+      loras
+        .flatMap((lora) => lora.triggerWords)
+        .map((word) => word.trim())
+        .filter(Boolean),
+    ),
+  ];
+
+  // Word boundaries rather than substring matching, so a trigger word of "cat"
+  // is not considered present because the prompt says "concatenate". Multi-word
+  // phrases still work; the escape keeps regex characters literal.
+  return words.filter((word) => !new RegExp(`\\b${escapeRegExp(word)}\\b`, "i").test(prompt));
+}
+
+/**
+ * Append any trigger words the prompt is missing.
+ *
+ * Several LoRAs do nothing at all unless a trigger word appears in the prompt,
+ * which makes "selected a LoRA, saw no difference" the most common way to think
+ * a LoRA is broken when it is merely dormant. Appending only what is absent
+ * means a hand-written prompt that already names the trigger is left alone, and
+ * editing a prompt never produces duplicates.
+ */
+export function appendTriggerWords(prompt: string, loras: readonly ResolvedLora[]): string {
+  const missing = missingTriggerWords(prompt, loras);
+  if (!missing.length) return prompt;
+  const separator = /[.,;\s]$/.test(prompt) ? " " : ", ";
+  return `${prompt}${separator}${missing.join(", ")}`;
 }
 
 /** Validate an entire selection set against the models it will be used with. */

@@ -2,9 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { AppShell } from "@/components/shell/app-shell";
 import { NewProjectForm } from "@/components/intake/new-project-form";
+import { ProjectListItem } from "@/components/intake/project-list-item";
 import type { CreateProjectInput } from "@/lib/schemas/intake";
 import type { Project } from "@/lib/schemas/project";
 
@@ -85,17 +85,11 @@ export default function HomePage() {
           <ul className="mt-3 space-y-2">
             {projects.length === 0 && <li className="text-sm text-slate-500">No projects yet.</li>}
             {projects.map((p) => (
-              <li key={p.id}>
-                <Link
-                  href={`/storyboard/${p.id}`}
-                  className="block rounded-md border border-white/10 bg-panel/40 px-3 py-2 text-sm hover:border-accent"
-                >
-                  <span className="block truncate font-medium">{p.title}</span>
-                  <span className="text-xs text-slate-500">
-                    {p.segmentCount} scenes · {p.status}
-                  </span>
-                </Link>
-              </li>
+              <ProjectListItem
+                key={p.id}
+                project={p}
+                onDeleted={() => setProjects((current) => current.filter((x) => x.id !== p.id))}
+              />
             ))}
           </ul>
         </aside>

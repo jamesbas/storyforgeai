@@ -15,10 +15,17 @@ export async function GET(_request: Request, { params }: Params) {
   }
 }
 
-export async function DELETE(_request: Request, { params }: Params) {
+/**
+ * Delete a project.
+ *
+ * Generated media goes with it unless `?keepMedia=1` is passed — an orphaned
+ * media folder is unreachable from the UI, so keeping it has to be deliberate.
+ */
+export async function DELETE(request: Request, { params }: Params) {
   try {
-    await deleteProject(params.projectId);
-    return NextResponse.json({ ok: true });
+    const keepMedia = new URL(request.url).searchParams.get("keepMedia") === "1";
+    await deleteProject(params.projectId, { keepMedia });
+    return NextResponse.json({ ok: true, keptMedia: keepMedia });
   } catch (err) {
     return toErrorResponse(err);
   }

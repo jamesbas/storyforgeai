@@ -142,6 +142,15 @@ export const config = {
      * in framing and action. Needs an image model that accepts references.
      */
     endFrameReferencesStartFrame: bool(process.env.END_FRAME_REFERENCES_START_FRAME, true),
+    /**
+     * Append a selected LoRA's trigger words to the prompt when they are absent.
+     *
+     * Many LoRAs are inert unless a trained word appears in the prompt, which
+     * makes "I selected it and nothing changed" the usual first experience.
+     * Only missing words are added, so a prompt that already names the trigger
+     * is untouched. Turn off to manage trigger words by hand.
+     */
+    appendLoraTriggerWords: bool(process.env.LORA_APPEND_TRIGGER_WORDS, true),
   },
   sceneQueue: {
     /**

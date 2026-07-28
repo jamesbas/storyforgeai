@@ -3,9 +3,12 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { SceneCard } from "@/components/storyboard/scene-card";
+import { CreativePlansPanel } from "@/components/storyboard/creative-plans-panel";
 import { SCENE_CONTINUITY_OPTIONS } from "@/lib/presets";
 import type { SceneContinuityMode } from "@/lib/types";
-import type { SceneLoraOverride } from "@/lib/schemas/lora";
+import { resolveSceneLoras } from "@/lib/lora/scene-selection";
+import { effectiveTriggerWords } from "@/lib/lora/trigger-words";
+import type { LoraCatalog, SceneLoraOverride } from "@/lib/schemas/lora";
 import type { LlmRuntimeStatus } from "@/lib/services/llm-runtime-service";
 import type { SceneQueueEntry } from "@/lib/services/scene-queue";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
@@ -80,6 +83,11 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const [llmBusy, setLlmBusy] = useState<null | "load" | "unload">(null);
   const [queue, setQueue] = useState<{ entries: SceneQueueEntry[]; active: boolean } | null>(null);
   const [queueBusy, setQueueBusy] = useState(false);
+  /**
+   * LoRA catalogs, fetched once per model rather than per scene. They are only
+   * needed to look up trigger words, which every scene shares.
+   */
+  const [loraCatalogs, setLoraCatalogs] = useState<{ image?: LoraCatalog; video?: LoraCatalog }>({});
 
   const loadLlmStatus = useCallback(async () => {
     try {
@@ -95,6 +103,25 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   useEffect(() => {
     void loadLlmStatus();
   }, [loadLlmStatus]);
+
+  // Trigger words come from the LoRA catalog, so it is fetched once per kind and
+  // shared across every scene card.
+  useEffect(() => {
+    void (async () => {
+      const fetchCatalog = async (kind: "image" | "video") => {
+        try {
+          const res = await fetch(`/api/wangp/loras?projectId=${projectId}&kind=${kind}`, {
+            cache: "no-store",
+          });
+          return res.ok ? ((await res.json()) as LoraCatalog) : undefined;
+        } catch {
+          return undefined;
+        }
+      };
+      const [image, video] = await Promise.all([fetchCatalog("image"), fetchCatalog("video")]);
+      setLoraCatalogs({ image, video });
+    })();
+  }, [projectId]);
 
   /**
    * Planning and generation both want the GPU, and on a single card they do not
@@ -351,6 +378,13 @@ export function StoryboardView({ projectId }: { projectId: string }) {
 
       {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
 
+      <CreativePlansPanel
+        record={record}
+        projectId={projectId}
+        busy={busy}
+        onRegenerate={generate}
+      />
+
       {llm?.enabled ? (
         <section className="rounded-lg border border-white/10 bg-panel/40 p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -530,6 +564,25 @@ export function StoryboardView({ projectId }: { projectId: string }) {
             {storyboard.scenes.map((scene) => {
               const attempts = record.attempts?.[scene.id] ?? [];
               const latest = attempts[attempts.length - 1];
+              // Mirrors what generation does: resolve the scene's effective LoRAs,
+              // then collect only the trigger words each one will contribute — a
+              // multi-concept LoRA contributes nothing until a trigger is chosen.
+              const triggerWordsFor = (kind: "image" | "video") => {
+                const catalog = loraCatalogs[kind];
+                if (!catalog?.supported) return [];
+                const selected = resolveSceneLoras(record.project, scene.id, kind);
+                const byName = new Map(catalog.loras.map((l) => [l.name.toLocaleLowerCase(), l]));
+                return [
+                  ...new Set(
+                    selected.flatMap((s) =>
+                      effectiveTriggerWords(
+                        s.triggerWords,
+                        byName.get(s.name.toLocaleLowerCase())?.triggerWords ?? [],
+                      ),
+                    ),
+                  ),
+                ];
+              };
               return (
                 <SceneCard
                   key={scene.id}
@@ -542,6 +595,8 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   projectId={projectId}
                   loraOverride={record.project.sceneLoras?.[scene.id]}
                   onLoraSave={(next) => void saveSceneLoras(scene.id, next)}
+                  triggerWords={{ image: triggerWordsFor("image"), video: triggerWordsFor("video") }}
+                  onPromptsSaved={(next) => setRecord(next)}
                 />
               );
             })}

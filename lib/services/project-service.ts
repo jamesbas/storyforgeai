@@ -8,6 +8,7 @@ import {
   validateSelectionSet,
 } from "@/lib/services/lora-service";
 import type { Project } from "@/lib/schemas/project";
+import { scenePromptsPatchSchema } from "@/lib/schemas/storyboard";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type {
   ArtDirectionPlan,
@@ -234,6 +235,46 @@ export async function selectVariant(id: string, variantId: string): Promise<Proj
   return updated;
 }
 
+/**
+ * Hand-edit a scene's prompts.
+ *
+ * The scene prompts are what is actually sent to WanGP, so being able to correct
+ * them without regenerating the whole storyboard is the difference between
+ * nudging one shot and rewriting the project. Edits are written into the
+ * storyboard snapshot rather than held beside it, which keeps the invariant that
+ * the Prompts panel shows exactly what will be generated.
+ *
+ * Regenerating the storyboard replaces them, which is why the UI says so.
+ */
+export async function updateScenePrompts(
+  id: string,
+  sceneId: string,
+  raw: unknown,
+): Promise<ProjectRecord> {
+  const patch = scenePromptsPatchSchema.parse(raw);
+  const record = await getProjectRecord(id);
+  if (!record.storyboard) throw new ValidationError("Generate a storyboard before editing prompts");
+
+  const scene = record.storyboard.scenes.find((s) => s.id === sceneId);
+  if (!scene) throw new NotFoundError(`Scene ${sceneId} not found`);
+
+  const updated: ProjectRecord = {
+    ...record,
+    storyboard: {
+      ...record.storyboard,
+      scenes: record.storyboard.scenes.map((s) =>
+        s.id === sceneId ? { ...s, prompts: { ...s.prompts, ...patch } } : s,
+      ),
+    },
+    project: { ...record.project, updatedAt: new Date().toISOString() },
+    history: appendHistory(record, "scene.prompts_edited", `Scene ${scene.sceneNumber}`),
+  };
+
+  await repository.update(id, updated);
+  logEvent("project.updated", { id, change: "scene_prompts", sceneId });
+  return updated;
+}
+
 export async function generateWorldBible(id: string): Promise<ProjectRecord> {
   const record = await getProjectRecord(id);
   const worldBible: WorldBible = await worldBuilderAgent(record.project, getPlanningProvider());
@@ -342,7 +383,33 @@ export async function generateAnimatic(id: string): Promise<ProjectRecord> {
   return updated;
 }
 
-export async function deleteProject(id: string): Promise<void> {
-  const ok = await repository.delete(id);
+/**
+ * Delete a project.
+ *
+ * Generated media is removed with it by default: once the record is gone the
+ * folder is unreachable from the UI, so leaving it behind is silent disk use
+ * rather than a safety net. `keepMedia` is there for the case where the clips
+ * are worth more than the project that produced them.
+ *
+ * Any queued scenes are cancelled first. A batch run holds the project id and
+ * would otherwise keep working against a record that no longer exists, failing
+ * scene by scene.
+ */
+export async function deleteProject(
+  id: string,
+  options: { keepMedia?: boolean } = {},
+): Promise<void> {
+  // Prove it exists before tearing anything down, so a bad id cannot cancel a
+  // queue as a side effect of a 404.
+  await getProjectRecord(id);
+
+  // Imported here rather than at module scope: scene-queue already imports this
+  // module for `getProjectRecord`, and a static edge back would close the cycle.
+  const { cancelQueue } = await import("@/lib/services/scene-queue");
+  const cancelled = cancelQueue(id);
+
+  const ok = options.keepMedia ? await repository.delete(id) : await repository.purge(id);
   if (!ok) throw new NotFoundError(`Project ${id} not found`);
+
+  logEvent("project.deleted", { id, keptMedia: Boolean(options.keepMedia), cancelledScenes: cancelled });
 }

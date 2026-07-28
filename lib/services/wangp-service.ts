@@ -8,7 +8,8 @@ import {
 } from "@/lib/wangp/model-router";
 import { resolveModel } from "@/lib/wangp/resolve-model";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
-import { catalogForModel, reconcileLoras } from "@/lib/services/lora-service";
+import { appendTriggerWords, catalogForModel, reconcileLoras } from "@/lib/services/lora-service";
+import type { ResolvedLora } from "@/lib/services/lora-service";
 import type { LoraKind, LoraSelection } from "@/lib/schemas/lora";
 import type {
   WangpGenerationSettings,
@@ -60,13 +61,25 @@ async function lorasFor(
   selected: LoraSelection[] | undefined,
   sceneId: string,
   kind: LoraKind,
-): Promise<LoraSelection[]> {
+): Promise<ResolvedLora[]> {
   if (!selected?.length) return [];
   return reconcileLoras(selected, await catalogForModel(model), {
     sceneId,
     modelType: model.modelType,
     kind,
   });
+}
+
+/**
+ * Fold a LoRA stack's trigger words into the prompt.
+ *
+ * Done here rather than in the stored scene prompt because the stack is only
+ * known once the model is resolved: a substitution can drop LoRAs, and their
+ * trigger words must go with them rather than lingering in the prompt.
+ */
+function withTriggerWords(prompt: string, loras: readonly ResolvedLora[]): string {
+  if (!config.media.appendLoraTriggerWords) return prompt;
+  return appendTriggerWords(prompt, loras);
 }
 
 /**
@@ -99,15 +112,16 @@ export async function buildVideoManifest(args: {
     "video_segment",
   );
   const schema = await client.getModelSchema(model.modelType);
+  const loras = await lorasFor(model, args.loras, args.sceneId, "video");
   return buildSettingsManifest(schema, {
     sceneId: args.sceneId,
     purpose: "video_segment",
-    prompt: args.prompt,
+    prompt: withTriggerWords(args.prompt, loras),
     negativePrompt: args.negativePrompt,
     imageStart: args.imageStart,
     imageEnd: args.imageEnd,
     videoSource: args.videoSource,
-    loras: await lorasFor(model, args.loras, args.sceneId, "video"),
+    loras,
     fps: args.fps ?? config.defaults.fps,
     durationSeconds: args.durationSeconds,
     resolution: config.defaults.resolution,
@@ -267,14 +281,15 @@ export async function buildImageManifest(args: {
   }
 
   const schema = await client.getModelSchema(model.modelType);
+  const loras = await lorasFor(model, args.loras, args.sceneId, "image");
   return buildSettingsManifest(schema, {
     sceneId: args.sceneId,
     purpose: args.purpose,
-    prompt: args.prompt,
+    prompt: withTriggerWords(args.prompt, loras),
     negativePrompt: args.negativePrompt,
     imageRefs: args.imageRefs,
     imageRefsLeadWithScene: args.imageRefsLeadWithScene,
-    loras: await lorasFor(model, args.loras, args.sceneId, "image"),
+    loras,
     resolution: config.defaults.resolution,
   });
 }

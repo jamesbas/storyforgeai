@@ -31,6 +31,27 @@ export const scenePromptsSchema = z.object({
 });
 export type ScenePrompts = z.infer<typeof scenePromptsSchema>;
 
+/**
+ * Hand edits to a scene's prompts.
+ *
+ * Every field is optional so a caller can correct one line without resending the
+ * rest. The quality checklist is deliberately excluded: it is the prompt agent's
+ * own review notes, not an input to generation.
+ */
+export const scenePromptsPatchSchema = z
+  .object({
+    startFramePrompt: z.string().max(8000),
+    endFramePrompt: z.string().max(8000),
+    imageNegativePrompt: z.string().max(4000),
+    videoPromptSegment: z.string().max(8000),
+    videoNegativePrompt: z.string().max(4000),
+  })
+  .partial()
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: "Provide at least one prompt field to update.",
+  });
+export type ScenePromptsPatch = z.infer<typeof scenePromptsPatchSchema>;
+
 export const sceneSchema = z.object({
   id: z.string(),
   projectId: z.string(),

@@ -279,6 +279,45 @@ flowchart TB
    N segments issues up to `4 + 2N` LLM calls for one storyboard run.
 7. **QC forms the only feedback loop.** Its verdict sets scene status, which gates
    whether the creator regenerates or approves; approval gates assembly.
+8. **Plan influence is bound at storyboard-generation time, not at render time.**
+   This is the most important temporal property in the system and the easiest to
+   miss. `generateStoryboard` reads `record.worldBible`, `record.directorialPlan`,
+   `record.cinematographyPlan` and `record.artDirectionPlan` *once*, and their
+   content is baked into `scene.prompts.*`. `media-service` then reads nothing but
+   those prompt strings — it never dereferences a plan. The practical consequence:
+
+   ```
+   canvas plans ──(read once, at generateStoryboard)──▶ scene.prompts.* ──▶ WanGP
+   ```
+
+   A plan generated *after* the storyboard therefore has **zero effect on rendering**
+   until the storyboard is regenerated, even though the Agentic Canvas shows it as
+   `ready`. Because this is a silent no-op, `components/storyboard/creative-plans-panel.tsx`
+   compares the newest `*_plan.generated` / `world_bible.generated` history entry
+   against the newest `storyboard.generated` entry and marks any plan that post-dates
+   the storyboard as *not applied yet*, with a regenerate action. Scene ids are
+   deterministic (`<projectId>-scene-NNN`), so regenerating preserves attempts,
+   media and per-scene LoRA overrides when the scene count is unchanged.
+9. **Not every canvas agent reaches a rendered frame.** Audio Director feeds the
+   audio plan, cues and assembly only. The Animatic builder consumes stills that
+   already exist. Variant Explorer influences rendering only indirectly, via the
+   brief constraints of a storyboard generated after selection. Only World Builder,
+   Director, Cinematographer and Art Director alter image and video prompts.
+10. **Planning calls are serialized against a local provider.** `getPlanningProvider()`
+    wraps every call in a process-wide promise chain when `OPENAI_BASE_URL` is set.
+    A local model serves one request at a time, so overlapping calls are slower at
+    best and exhaust VRAM at worst — and the canvas previously disabled only the
+    button that was clicked, so four agents could be started at once. Wrapping at
+    the composition boundary rather than inside the provider serializes every
+    consumer by construction, including `attachScenePrompts`' `2N` fan-out and a
+    second browser tab. A hosted API has no session limit and would only be slowed,
+    so the chain is skipped there. A predecessor's rejection is swallowed so one
+    failed agent cannot strand everything queued behind it.
+
+    The canvas's **Run core agents** control drives the four plan agents in
+    dependency order and then the storyboard, client-side and sequentially. That is
+    a UX affordance rather than the safety mechanism: the server-side chain is what
+    actually prevents collision.
 
 ### 3.3 Orchestrator sequence
 
@@ -459,6 +498,72 @@ support (video), then project `modelStrategy` (`prefer_wan` / `prefer_ltx` /
 `prefer_hunyuan`), then quality rank. Models that report multiple outputs — LTX-2
 reports `["image","video"]` — are matched against the full output list rather than
 the first entry.
+
+### 4.1 LoRAs and trigger words
+
+The MCP server publishes no LoRA inventory, so discovery is a filesystem read of
+`WANGP_LORA_ROOT`. `lib/wangp/lora-catalog.ts` maps a model to its folder by
+testing `base_model_type`, then `family`, then `model_type` against the directories
+actually present — `family` is the reliable key, `base_model_type` can disagree
+with it, and decoy folders exist (`ltx2_22B` is not a directory while
+`old_ltx2_22B` is). Only immediate `.safetensors` / `.sft` children are listed;
+`.lset` files are WanGP presets, not weights. Sidecars in `loras_metadata/<family>/`
+supply display labels and `trainedWords`.
+
+Selection lives on the project: `loras` for the whole storyboard, `sceneLoras`
+keyed by scene id for overrides. An override *replaces* the storyboard selection
+rather than merging with it.
+
+```
+project.loras + project.sceneLoras[sceneId]
+    → resolveSceneLoras()                     [lib/lora/scene-selection.ts]
+    → buildImage/VideoManifest → resolveModel()
+    → reconcileLoras(selection, catalogForModel(model))   → ResolvedLora[]
+    → appendTriggerWords(prompt, resolved)    → prompt sent to WanGP
+    → activated_loras / loras_multipliers
+```
+
+Four properties this encodes:
+
+1. **Reconciliation happens after model resolution, not before.** The manifest
+   builders pick the model themselves and may substitute the pin (a scene with
+   character references forces a reference-capable image model), so a selection
+   has to be checked against the model actually used. Incompatible entries are
+   dropped and logged rather than thrown, because failing scene 7 of 20 over a
+   stranded LoRA is worse than rendering it without one. Saving a selection uses
+   the strict path instead, where an unknown name is an actionable error.
+2. **Trigger words ride along on reconciliation.** They exist only in the sidecar
+   metadata, and the persisted selection stores nothing but name, strength and any
+   chosen trigger words, so `reconcileLoras` returns `ResolvedLora` (selection +
+   effective `triggerWords` + `availableTriggerWords`) to avoid a second catalog
+   read. `appendTriggerWords` then adds only the words the prompt does not already
+   contain, matched case-insensitively on word boundaries. Governed by
+   `config.media.appendLoraTriggerWords`.
+
+   Which words are *effective* is decided by `lib/lora/trigger-words.ts`, because
+   trigger words are not always additive: a multi-concept LoRA uses them as a
+   selector between mutually exclusive behaviours, and applying all of them asks
+   for contradictory output. One offered word is used automatically; several are
+   used only once the user chooses; an explicit empty choice is distinct from
+   never having chosen (hence `triggerWords?: string[]` rather than a defaulted
+   array). Choices are filtered against what the LoRA currently offers, so a stale
+   word cannot survive the LoRA being replaced.
+3. **`resolveSceneLoras` is a dependency-free module.** Both the server (during
+   generation) and the browser (previewing which trigger words a scene will
+   receive) apply the identical rule; two implementations would drift and the
+   preview would misreport what is about to be generated.
+4. **`activated_loras` is written on every job, empty list included.** WanGP's
+   published defaults are its own saved UI state, so copying them verbatim — which
+   a complete settings payload requires — silently inherits whichever LoRAs were
+   last selected in the WanGP window. Writing the field unconditionally is what
+   makes a render reproducible from the project alone. `loras_multipliers` is
+   written alongside it, index-aligned, or a stale multiplier would mis-weight a
+   fresh stack.
+
+Scene prompts are hand-editable via `PATCH /scenes/:sceneId/prompts`, which writes
+into the storyboard snapshot rather than beside it. That preserves the invariant
+that the Prompts panel shows exactly what will be sent, at the cost of edits being
+replaced when the storyboard is regenerated.
 
 ### Scene status lifecycle
 

@@ -35,4 +35,9 @@ export class InMemoryProjectRepository implements ProjectRepository {
   async delete(id: string): Promise<boolean> {
     return this.records.delete(id);
   }
+
+  /** Nothing is stored outside the record here, so this is just a delete. */
+  async purge(id: string): Promise<boolean> {
+    return this.records.delete(id);
+  }
 }

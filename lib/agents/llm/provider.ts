@@ -278,12 +278,46 @@ export function resetResponseFormat(): void {
 }
 
 /**
+ * Serialize planning calls when the provider is a local server.
+ *
+ * LM Studio and its peers serve with limited parallelism: firing several
+ * structured-output calls at one local model is slower than issuing them in
+ * turn, and on a single GPU can exhaust VRAM outright. Nothing in the app
+ * prevented that — the Agentic Canvas disables only the button you clicked, so
+ * four agents could be started at once and collide inside the model.
+ *
+ * A hosted API has no such limit and would only be slowed by this, so the chain
+ * engages solely when a local base URL is configured. Held on `globalThis` so a
+ * module reload cannot hand out a second chain and defeat the point.
+ */
+const planningQueue = globalThis as unknown as { __storyforgePlanningQueue?: Promise<unknown> };
+
+/** Exported for tests: the serialization is invisible when it regresses. */
+export function enqueuePlanning<T>(task: () => Promise<T>): Promise<T> {
+  if (!config.openai.baseUrl) return task();
+  const previous = planningQueue.__storyforgePlanningQueue ?? Promise.resolve();
+  // Swallow a predecessor's failure so one bad call cannot poison the chain.
+  const run = previous.catch(() => undefined).then(task);
+  planningQueue.__storyforgePlanningQueue = run.catch(() => undefined);
+  return run;
+}
+
+/**
  * Returns the active provider, or null when AI planning is disabled or
  * unconfigured (the default demo path). A base URL alone is enough for a local
  * server, which needs no API key.
+ *
+ * Wrapping here rather than inside the provider means every consumer is
+ * serialized by construction, including callers that fan out per scene.
  */
 export function getPlanningProvider(): PlanningProvider | null {
   if (!config.flags.aiPlanning) return null;
   if (!config.openai.apiKey && !config.openai.baseUrl) return null;
-  return createOpenAiProvider();
+
+  const provider = createOpenAiProvider();
+  return {
+    name: provider.name,
+    generateJson: (system, user, schema) =>
+      enqueuePlanning(() => provider.generateJson(system, user, schema)),
+  };
 }

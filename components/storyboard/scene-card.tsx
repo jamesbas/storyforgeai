@@ -1,6 +1,8 @@
 import { SceneLoraPanel } from "@/components/storyboard/scene-lora-panel";
+import { ScenePromptsPanel } from "@/components/storyboard/scene-prompts-panel";
 import type { SceneLoraOverride } from "@/lib/schemas/lora";
 import type { Scene } from "@/lib/schemas/storyboard";
+import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { SceneAttempt } from "@/lib/schemas/generation";
 import type { MediaDescriptor } from "@/lib/media/refs";
 
@@ -12,12 +14,15 @@ type SceneCardProps = {
   onGenerate?: () => void;
   onApprove?: () => void;
   /**
-   * LoRA wiring. Optional so the card stays renderable on its own — the panel
-   * only appears when a parent supplies both the project and a save handler.
+   * LoRA and prompt-editing wiring. Optional so the card stays renderable on its
+   * own — the panels only appear when a parent supplies the project context.
    */
   projectId?: string;
   loraOverride?: SceneLoraOverride;
   onLoraSave?: (next: SceneLoraOverride) => void;
+  /** Trigger words appended automatically at generation, by prompt kind. */
+  triggerWords?: { image: string[]; video: string[] };
+  onPromptsSaved?: (record: ProjectRecord) => void;
 };
 
 /** Render a player for media that exists on disk; fall back to the path. */
@@ -62,6 +67,8 @@ export function SceneCard({
   projectId,
   loraOverride,
   onLoraSave,
+  triggerWords,
+  onPromptsSaved,
 }: SceneCardProps) {
   const playable = media.filter((m) => m.available && m.sceneId === scene.id);
 
@@ -90,20 +97,30 @@ export function SceneCard({
           <dd className="inline">{scene.cameraMovement}</dd>
         </div>
       </dl>
-      <details className="mt-3 text-sm">
-        <summary className="cursor-pointer text-slate-300">Prompts</summary>
-        <div className="mt-2 space-y-2 text-slate-300">
-          <p>
-            <span className="text-slate-500">Start frame:</span> {scene.prompts.startFramePrompt}
-          </p>
-          <p>
-            <span className="text-slate-500">End frame:</span> {scene.prompts.endFramePrompt}
-          </p>
-          <p>
-            <span className="text-slate-500">Video (20s):</span> {scene.prompts.videoPromptSegment}
-          </p>
-        </div>
-      </details>
+      {projectId ? (
+        <ScenePromptsPanel
+          scene={scene}
+          projectId={projectId}
+          triggerWords={triggerWords}
+          busy={busy}
+          onSaved={onPromptsSaved}
+        />
+      ) : (
+        <details className="mt-3 text-sm">
+          <summary className="cursor-pointer text-slate-300">Prompts</summary>
+          <div className="mt-2 space-y-2 text-slate-300">
+            <p>
+              <span className="text-slate-500">Start frame:</span> {scene.prompts.startFramePrompt}
+            </p>
+            <p>
+              <span className="text-slate-500">End frame:</span> {scene.prompts.endFramePrompt}
+            </p>
+            <p>
+              <span className="text-slate-500">Video:</span> {scene.prompts.videoPromptSegment}
+            </p>
+          </div>
+        </details>
+      )}
 
       {projectId && onLoraSave ? (
         <SceneLoraPanel

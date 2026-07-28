@@ -31,8 +31,14 @@ function projectFile(id: string): string {
   return path.join(projectDir(id), FILENAME);
 }
 
-/** Ids are app-generated UUIDs; refuse anything that could escape the data dir. */
-const SAFE_ID = /^[A-Za-z0-9._-]+$/;
+/**
+ * Ids are app-generated UUIDs; refuse anything that could escape the data dir.
+ *
+ * The leading negative lookahead rejects `.` and `..`, which the character class
+ * would otherwise admit — dots are legitimate inside an id, but an id made only
+ * of them resolves to a parent directory.
+ */
+const SAFE_ID = /^(?!\.+$)[A-Za-z0-9._-]+$/;
 
 export class FileProjectRepository implements ProjectRepository {
   /** Write-through cache. The disk is the source of truth; this avoids re-reading. */
@@ -129,6 +135,30 @@ export class FileProjectRepository implements ProjectRepository {
     // Only the record is removed. Generated media in the same folder is left
     // alone: it is expensive to reproduce and may be referenced elsewhere.
     await fs.rm(projectFile(id), { force: true }).catch(() => undefined);
+    return existed;
+  }
+
+  /**
+   * Remove the record and the whole project folder, generated media included.
+   *
+   * The id is checked against `SAFE_ID` before it reaches a recursive delete:
+   * it arrives from a URL, and this is the one operation where a crafted value
+   * could otherwise remove something outside the data directory.
+   */
+  async purge(id: string): Promise<boolean> {
+    if (!SAFE_ID.test(id)) throw new Error(`Refusing to purge unsafe project id: ${id}`);
+    await this.hydrate();
+    const existed = this.cache.delete(id);
+
+    const target = projectDir(id);
+    const root = path.resolve(process.cwd(), config.dataDir);
+    // Belt and braces: the id passed SAFE_ID, so this cannot fail — but a
+    // recursive delete is worth proving rather than assuming.
+    if (path.dirname(target) !== root) {
+      throw new Error(`Refusing to purge outside the data directory: ${target}`);
+    }
+
+    await fs.rm(target, { recursive: true, force: true }).catch(() => undefined);
     return existed;
   }
 }

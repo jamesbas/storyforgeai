@@ -438,6 +438,15 @@ export default function HelpPage() {
             . Also lists your recent projects. Submitting creates the project and opens its
             storyboard.
           </p>
+          <p className={p}>
+            <strong>Deleting a project.</strong> Hover a project in the recent list and use the{" "}
+            <span aria-hidden>✕</span> to remove it. You are asked to confirm first, and the
+            deletion cannot be undone — the storyboard, prompts, attempts and history all go.
+            Generated images and video are removed with it by default, since once the project is
+            gone that folder is unreachable from the app; tick{" "}
+            <em>Keep generated images and video on disk</em> if the clips are worth more than the
+            project that produced them. Any queued scenes for that project are cancelled first.
+          </p>
 
           <h3 className={h3}>Settings (global)</h3>
           <p className={p}>
@@ -453,6 +462,22 @@ export default function HelpPage() {
             generate media per scene, approve attempts, and export. Header buttons jump to Variant
             Review, Agentic Canvas, and the Generation Console.
           </p>
+          <p className={p}>
+            A <strong>Creative plans</strong> panel sits near the top. It lists the four canvas plans
+            that shape rendering and marks each one <em>in this storyboard</em>, <em>not applied
+            yet</em>, or <em>not generated</em>. &quot;Not applied yet&quot; means the plan was
+            generated <em>after</em> the current storyboard, so none of its direction is reaching
+            your images or video until you regenerate — see{" "}
+            <a href="#agents" className="text-accent hover:underline">The creative team</a> for why.
+          </p>
+
+          <p className={p}>
+            Each scene card also carries two panels of its own. <strong>Prompts</strong> is editable —
+            it holds the exact text sent to WanGP, so you can fix a phrase or add a LoRA trigger word
+            for one shot without regenerating anything. <strong>LoRAs</strong> lets a scene override
+            the storyboard-wide selection. Both are covered in{" "}
+            <a href="#wangp" className="text-accent hover:underline">WanGP &amp; generation</a>.
+          </p>
 
           <h3 className={h3}>Variant Review</h3>
           <p className={p}>
@@ -466,6 +491,27 @@ export default function HelpPage() {
             (pending/ready), a summary of its latest output, and a Generate/Regenerate action. A
             decision history logs what happened and when. This is where you run the World Builder,
             Director, Cinematographer, Art Director, Audio Director, and Animatic.
+          </p>
+          <p className={p}>
+            <strong>Run core agents</strong> does the whole sequence for you: World Builder →
+            Director → Cinematographer → Art Director, one at a time, then the storyboard if you
+            leave that option ticked. Order is the point — the storyboard folds in whichever plans
+            exist <em>at the moment it runs</em>, so running it last is what makes the plans reach
+            your renders. Progress is shown as it goes, and <strong>Stop after this one</strong>
+            halts cleanly at the next boundary. If an agent fails the run stops there rather than
+            continuing, since a later plan built on a missing earlier one is not what you asked for.
+          </p>
+          <p className={p}>
+            Variant Explorer is deliberately not part of that run: choosing a direction is your
+            decision, and generating variants nobody selects changes nothing downstream.
+          </p>
+          <p className={p}>
+            <strong>Agent calls are queued.</strong> A local model serves one request at a time, so
+            overlapping calls are slower at best and can exhaust VRAM at worst. Every planning call
+            is serialised server-side when a local server is configured — including the ones the
+            storyboard makes per scene — so nothing collides even if you start something else from
+            another tab. Buttons also lock while any agent is running. Hosted APIs are left to run
+            in parallel, where there is no such limit.
           </p>
 
           <h3 className={h3}>Animatic Review</h3>
@@ -531,6 +577,64 @@ export default function HelpPage() {
             explicitly pinned character is the strongest statement of intent you can make, so it
             wins. Regenerate the storyboard after changing a plan to pick up the new direction.
           </p>
+
+          <h3 className={h3}>How a plan reaches a rendered frame</h3>
+          <p className={p}>
+            Worth being precise about, because the failure mode is silent. The chain is:
+          </p>
+          <p className="mt-2 rounded-md border border-white/10 bg-canvas/60 p-3 font-mono text-xs text-slate-400">
+            canvas plans → storyboard generation → each scene&apos;s prompts → WanGP
+          </p>
+          <p className={p}>
+            The plans are read <strong>only at the moment the storyboard is generated</strong>. Their
+            content is baked into <code>startFramePrompt</code>, <code>endFramePrompt</code>,{" "}
+            <code>videoPromptSegment</code> and the negative prompts. Media generation later reads
+            nothing but those prompt strings — it never looks at a plan again.
+          </p>
+          <p className={p}>
+            So <strong>order matters more than anything else in this app</strong>. A plan generated
+            after the storyboard has no effect whatsoever until you regenerate. The Agentic canvas
+            will still show it as &quot;ready&quot;, because it exists — it simply was not in scope
+            when the scene prompts were written. The Storyboard screen flags this for you: any plan
+            newer than the current storyboard is marked <em>not applied yet</em>.
+          </p>
+
+          <h3 className={h3}>Recommended order</h3>
+          <ol className="mt-2 list-decimal space-y-1 pl-5">
+            <li className={li}><strong>Variant Explorer</strong> — optional; pick a creative direction first, since it steers everything after it.</li>
+            <li className={li}><strong>World Builder</strong> — premise, locations, motifs, forbidden contradictions.</li>
+            <li className={li}><strong>Director</strong> — per-scene intent.</li>
+            <li className={li}><strong>Cinematographer</strong> — per-scene shot plans and camera rules.</li>
+            <li className={li}><strong>Art Director</strong> — production design, wardrobe, props, set dressing.</li>
+            <li className={li}><strong>Storyboard Artist last</strong> — this is what folds every plan above into the scene prompts.</li>
+            <li className={li}><strong>Then generate media.</strong> Audio Director and Animatic can run any time after the storyboard exists.</li>
+          </ol>
+          <p className={p}>
+            Steps 2 to 6 are exactly what <strong>Run core agents</strong> on the Agentic Canvas does
+            in one click, in that order.
+          </p>
+          <p className={p}>
+            Regenerating is cheap in the sense that matters: scene ids are deterministic, so an
+            existing scene keeps its generated media, attempts and LoRA selections as long as the
+            scene count does not change.
+          </p>
+
+          <h3 className={h3}>What does <em>not</em> affect image and video</h3>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li className={li}><strong>Audio Director</strong> — feeds the audio plan, cues and assembly. It never reaches an image or video prompt.</li>
+            <li className={li}><strong>Animatic</strong> — a previsualisation assembled from stills you have already generated.</li>
+            <li className={li}><strong>Variant Explorer</strong> — influences rendering only indirectly, through the storyboard generated after a variant is selected.</li>
+          </ul>
+          <p className={p}>
+            Two details worth knowing when judging whether a plan &quot;worked&quot;. Only about one
+            clause is taken from each rule list — a twenty-line Art Direction plan contributes a
+            sentence, deliberately, because rules that bury the subject and action cost adherence
+            rather than buying it. And with AI planning enabled the plans are given to the prompt
+            agent as context and the model writes the prompt, so adherence depends on the model; with
+            AI planning off the plan text is concatenated mechanically and always appears. Either
+            way, expanding <strong>Prompts</strong> on a scene card shows the exact text sent to
+            WanGP, which is the only reliable way to confirm what landed.
+          </p>
         </section>
 
         {/* 9. WanGP */}
@@ -548,6 +652,86 @@ export default function HelpPage() {
             In demo mode a built-in mock backend returns a catalog of example models and simulates job
             progress, so you can explore the whole flow. To use a real WanGP server, enable it in the
             configuration (see below).
+          </p>
+
+          <h3 className={h3}>LoRAs</h3>
+          <p className={p}>
+            A LoRA is a small add-on trained onto a base model to push it toward a particular look,
+            subject or motion. You can select them at two scopes:
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li className={li}><strong>Whole storyboard</strong> — in <em>Settings</em> for the project. Applies to every scene.</li>
+            <li className={li}><strong>One scene</strong> — the <em>LoRAs</em> panel on any scene card. Choose &quot;Override for this scene&quot; and the scene uses your selection <em>instead of</em> the storyboard-wide one, not in addition to it.</li>
+          </ul>
+          <p className={p}>
+            Image and video LoRAs are chosen separately, because a project pins an image model and a
+            video model independently and their catalogues have nothing in common — an LTX-2 motion
+            LoRA means nothing to Flux. Each list is filtered to the LoRAs actually installed for the
+            model you have pinned, so changing a model pin can drop selections that do not exist for
+            the new one. Each LoRA has a <strong>strength</strong> (default 1.0); up to eight can be
+            stacked, though VRAM and coherence both suffer long before that.
+          </p>
+          <p className={p}>
+            WanGP&apos;s MCP server publishes no LoRA inventory, so the list is read directly from
+            your WanGP <code>loras</code> folder. Set <code>WANGP_LORA_ROOT</code> to that folder to
+            turn the feature on. If the picker is empty it will tell you why rather than showing a
+            blank list.
+          </p>
+
+          <h3 className={h3}>Trigger words</h3>
+          <p className={p}>
+            Many LoRAs do nothing at all unless a specific word appears in the prompt. That makes
+            &quot;I selected a LoRA and nothing changed&quot; the most common way to conclude a LoRA
+            is broken when it is merely dormant.
+          </p>
+          <p className={p}>
+            Where WanGP&apos;s <code>loras_metadata</code> folder holds a record for a LoRA,
+            StoryForgeAI reads its trained words and <strong>appends any that the prompt does not
+            already contain</strong>, automatically, at generation time. Only missing words are
+            added, so a prompt you wrote yourself that already names the trigger is left alone and
+            editing a prompt never produces duplicates. Matching ignores case and respects word
+            boundaries, so &quot;concatenate&quot; does not count as containing &quot;cat&quot;.
+          </p>
+          <p className={p}>
+            <strong>Multi-concept LoRAs.</strong> Trigger words are not always additive. One file can
+            pack several mutually exclusive behaviours, selected by which word you use — applying
+            them all would ask for contradictory output in a single shot. StoryForgeAI cannot tell
+            those apart from a style LoRA whose words belong together, so it follows a simple rule:
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li className={li}><strong>One trigger word</strong> — used automatically; there is nothing to decide.</li>
+            <li className={li}><strong>Several</strong> — <em>none</em> are used until you pick. The LoRA panel lists them as toggles; click the ones you want. Choosing several deliberately is allowed.</li>
+            <li className={li}><strong>Explicitly none</strong> — deselecting everything is remembered as a decision, not treated as &quot;not chosen yet&quot;.</li>
+          </ul>
+          <p className={p}>
+            A LoRA awaiting a choice is flagged in the panel, and a choice that a LoRA no longer
+            offers is dropped rather than sent, so replacing a LoRA cannot leave a stale word behind.
+          </p>
+          <p className={p}>
+            Trigger words are shown in the picker before you select a LoRA and beneath it afterwards,
+            and each prompt field on a scene card lists the words that will be appended to it. They
+            are never added to negative prompts. Set{" "}
+            <code>LORA_APPEND_TRIGGER_WORDS=false</code> to manage them by hand instead.
+          </p>
+          <p className={p}>
+            Not every LoRA has a record — sidecars come from the tool you downloaded the LoRA with.
+            Where one is missing, the LoRA still works and still appears in the picker; it simply
+            shows its filename and contributes no trigger words, so check the LoRA&apos;s own
+            documentation and add the word to the prompt yourself.
+          </p>
+
+          <h3 className={h3}>Editing prompts by hand</h3>
+          <p className={p}>
+            The prompts on a scene card are editable. Expand <strong>Prompts</strong> on any scene to
+            change the start-frame, end-frame or motion prompt, or either negative prompt, then save.
+            The change affects that scene only and takes effect on its next generation — useful for
+            adding a trigger word yourself, fixing a clumsy phrase, or steering one shot without
+            touching the other twenty.
+          </p>
+          <p className={p}>
+            Edits live in the storyboard, which keeps a useful guarantee: what the Prompts panel shows
+            is what gets sent. The trade-off is that <strong>regenerating the storyboard rewrites
+            them</strong>, so make hand edits after you are happy with the plans rather than before.
           </p>
         </section>
 

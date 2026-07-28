@@ -6,6 +6,7 @@
 export type TelemetryEvent =
   | "project.created"
   | "project.updated"
+  | "project.deleted"
   | "project.restored"
   | "project.load_failed"
   | "storyboard.generated"

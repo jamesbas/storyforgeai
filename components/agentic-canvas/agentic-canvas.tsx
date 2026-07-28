@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 
@@ -84,10 +84,25 @@ const AGENTS: CanvasAgent[] = [
   },
 ];
 
+/**
+ * The plans that feed the storyboard, in the order they build on one another.
+ *
+ * Variant Explorer is not here: choosing a direction is a human decision, and
+ * running it would leave an unselected set of variants that changes nothing.
+ * Storyboard Artist is not here either — it is what these plans feed, so it is
+ * offered as a separate follow-on step.
+ */
+const CORE_AGENT_KEYS = ["world", "director", "cinematographer", "art"] as const;
+
 export function AgenticCanvas({ projectId }: { projectId: string }) {
   const [record, setRecord] = useState<ProjectRecord | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Set while the sequential runner is working, so single buttons stay locked. */
+  const [runningAll, setRunningAll] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [alsoStoryboard, setAlsoStoryboard] = useState(true);
+  const stopRequested = useRef(false);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/projects/${projectId}`);
@@ -99,17 +114,23 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
     void load();
   }, [load]);
 
-  const run = useCallback(
-    async (agent: CanvasAgent) => {
-      if (!agent.endpoint) return;
+  /** Run one agent. Returns the updated record, or null when it failed. */
+  const runAgent = useCallback(
+    async (agent: CanvasAgent): Promise<ProjectRecord | null> => {
+      if (!agent.endpoint) return null;
       setBusyKey(agent.key);
-      setError(null);
       try {
         const res = await fetch(`/api/projects/${projectId}/${agent.endpoint}`, { method: "POST" });
-        if (!res.ok) throw new Error(`Failed to run ${agent.name}`);
-        setRecord((await res.json()) as ProjectRecord);
+        if (!res.ok) {
+          const detail = (await res.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(detail?.error ?? `Failed to run ${agent.name}`);
+        }
+        const next = (await res.json()) as ProjectRecord;
+        setRecord(next);
+        return next;
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Failed");
+        setError(e instanceof Error ? e.message : `Failed to run ${agent.name}`);
+        return null;
       } finally {
         setBusyKey(null);
       }
@@ -117,7 +138,64 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
     [projectId],
   );
 
+  const run = useCallback(
+    async (agent: CanvasAgent) => {
+      setError(null);
+      await runAgent(agent);
+    },
+    [runAgent],
+  );
+
+  /**
+   * Run the plan agents in order, then optionally the storyboard.
+   *
+   * Strictly sequential. Each call occupies the planning model for as long as it
+   * takes, and on a single GPU overlapping them is slower at best. Running in
+   * dependency order also matters: the storyboard folds in whichever plans exist
+   * *at the moment it runs*, so it has to come last to see them all.
+   */
+  const runCore = useCallback(async () => {
+    setError(null);
+    setRunningAll(true);
+    stopRequested.current = false;
+
+    const queue = AGENTS.filter((a) => (CORE_AGENT_KEYS as readonly string[]).includes(a.key));
+    const storyboard = AGENTS.find((a) => a.key === "storyboard");
+    const total = queue.length + (alsoStoryboard && storyboard ? 1 : 0);
+
+    try {
+      let done = 0;
+      setProgress({ done, total });
+
+      for (const agent of queue) {
+        if (stopRequested.current) return;
+        // Stop on the first failure rather than pressing on: a later plan built
+        // against a missing earlier one is not what the user asked for.
+        if (!(await runAgent(agent))) return;
+        done += 1;
+        setProgress({ done, total });
+      }
+
+      if (alsoStoryboard && storyboard && !stopRequested.current) {
+        if (!(await runAgent(storyboard))) return;
+        setProgress({ done: done + 1, total });
+      }
+    } finally {
+      setRunningAll(false);
+      setProgress(null);
+      stopRequested.current = false;
+    }
+  }, [alsoStoryboard, runAgent]);
+
   const history = useMemo(() => record?.history ?? [], [record]);
+
+  /**
+   * Any in-flight agent locks every button.
+   *
+   * Previously only the clicked agent's button disabled, so four agents could be
+   * started at once and collide inside a local model that serves one at a time.
+   */
+  const busy = runningAll || busyKey !== null;
 
   if (!record) {
     return <p className="text-sm text-slate-400">{error ?? "Loading…"}</p>;
@@ -133,6 +211,27 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
           </p>
         </div>
         <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={() => void runCore()}
+            disabled={busy}
+            className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {runningAll && progress
+              ? `Running ${progress.done + 1} of ${progress.total}…`
+              : "Run core agents"}
+          </button>
+          {runningAll ? (
+            <button
+              type="button"
+              onClick={() => {
+                stopRequested.current = true;
+              }}
+              className="rounded-md border border-white/15 px-3 py-2 text-sm text-slate-300 hover:border-accent"
+            >
+              Stop after this one
+            </button>
+          ) : null}
           <Link
             href={`/variant-review/${projectId}`}
             className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent"
@@ -155,6 +254,34 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
       </div>
 
       {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+
+      <section className="rounded-lg border border-white/10 bg-panel/40 p-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+              Run the crew in order
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
+              World Builder → Director → Cinematographer → Art Director, one at a time. The
+              storyboard folds in whichever plans exist when it runs, so it goes last — running it
+              first is why a plan can appear &ldquo;ready&rdquo; yet change nothing in the render.
+            </p>
+          </div>
+          <label className="flex items-center gap-2 text-xs text-slate-300">
+            <input
+              type="checkbox"
+              checked={alsoStoryboard}
+              disabled={busy}
+              onChange={(e) => setAlsoStoryboard(e.target.checked)}
+            />
+            Generate the storyboard afterwards
+          </label>
+        </div>
+        <p className="mt-2 text-[11px] text-slate-600">
+          Agent calls are queued server-side too, so nothing collides inside the planning model even
+          if you start something else while this runs.
+        </p>
+      </section>
 
       <div className="grid gap-4 md:grid-cols-2">
         {AGENTS.map((agent) => {
@@ -181,7 +308,7 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
               <p className="mt-2 line-clamp-2 text-sm text-slate-300">{agent.summary(record)}</p>
               <button
                 onClick={() => run(agent)}
-                disabled={busyKey === agent.key}
+                disabled={busy}
                 className="mt-3 rounded-md border border-white/10 px-3 py-1.5 text-sm hover:border-accent disabled:opacity-50"
               >
                 {busyKey === agent.key ? "Running…" : status === "ready" ? "Regenerate" : "Generate"}

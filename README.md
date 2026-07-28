@@ -24,6 +24,8 @@ so nothing cloud is required to run, test, or demo the app.
 - **Agentic Canvas** — a visible creative crew: Intake Producer, Story Architect,
   World Builder, Director, Cinematographer, Art Director, Storyboard Artist,
   Image/Video Prompt Engineers, WanGP Producer, Audio Director, and Creative Critic.
+  **Run core agents** executes the plan agents in dependency order and then the
+  storyboard, which is what makes those plans reach the render.
 - **Variant exploration** — generate 3 creative directions and pick one before
   committing to a storyboard.
 - **Animatic** — previsualize pacing and captions before expensive video generation.
@@ -31,6 +33,14 @@ so nothing cloud is required to run, test, or demo the app.
   settings-manifest generation, and job submit/poll/cancel.
 - **Media generation** — per-scene start/end keyframes + a 20s video, scene attempts
   with retry/regeneration, QC results, and human approval.
+- **LoRA selection** — pick LoRAs for the whole storyboard or override them per
+  scene, filtered to those installed for the pinned image/video model, with
+  per-LoRA strengths. Trigger words are read from WanGP's sidecar metadata and
+  appended to prompts automatically when missing.
+- **Editable prompts** — every scene's start-frame, end-frame, motion and negative
+  prompts can be hand-corrected without regenerating the storyboard.
+- **Project deletion** — remove a project and, optionally, its generated media,
+  behind an explicit confirmation.
 - **Assembly** — final-cut plan from approved clips, ffmpeg rough-cut, and an export
   package (`storyboard.json`, `storyboard.md`, `generation-manifest.json`,
   `animatic-plan.json`, `final-cut-plan.json`).
@@ -207,7 +217,6 @@ Deterministic builders always produce a complete prompt. When `AI_PLANNING_ENABL
 is set, an LLM refines each artifact and falls back to the builder on any failure.
 
 ### Local LLM (LM Studio, Ollama, llama.cpp)
-
 ```
 AI_PLANNING_ENABLED=true
 OPENAI_BASE_URL=http://127.0.0.1:1234/v1
@@ -229,6 +238,13 @@ models ship with it on (LTX-2 22B defaults to `"T"`), and it would rewrite the
 crafted prompt with a local model that knows nothing about the visual bible or
 scene continuity.
 
+**Planning calls are serialized against a local server.** LM Studio and its peers
+serve one request at a time, so overlapping structured-output calls are slower at
+best and exhaust VRAM at worst — and a storyboard issues `4 + 2N` of them. Every
+call goes through one chain whenever `OPENAI_BASE_URL` is set, which also covers
+the Agentic Canvas firing several agents and a second browser tab. Hosted APIs
+have no such limit and are left to run in parallel.
+
 ## Model selection
 
 WanGP exposes ~200 models and publishes **no quality ranking**, so automatic
@@ -243,6 +259,69 @@ WANGP_AUDIO_MODEL=stable_audio3_small
 ```
 
 The resolved model is logged as `wangp.model.selected` with a `pinned` flag.
+
+## LoRAs & trigger words
+
+The WanGP MCP server exposes **no LoRA inventory tool**, so LoRAs are discovered by
+reading WanGP's own folder. Point at it to enable the feature:
+
+```
+WANGP_LORA_ROOT=C:\path\to\wan.git\app\loras
+# Optional. Defaults to the `loras_metadata` folder beside WANGP_LORA_ROOT.
+WANGP_LORA_METADATA_ROOT=
+```
+
+A model is mapped to its folder by testing `base_model_type`, then `family`, then
+`model_type` against the directories that actually exist. `family` is the reliable
+key — `base_model_type` can disagree with it, and decoy folders exist (a model
+reporting `ltx2_22B` belongs in `loras/ltx2`, not `loras/old_ltx2_22B`). Only
+immediate `.safetensors` and `.sft` files are offered; `.lset` files are WanGP
+presets rather than weights.
+
+Select LoRAs for the whole storyboard in project **Settings**, or override them for
+a single scene from its card on the Storyboard screen. An override *replaces* the
+storyboard-wide selection rather than adding to it. Image and video LoRAs are
+chosen separately, because the pinned image and video models have disjoint
+catalogues.
+
+**Trigger words.** Many LoRAs are inert unless a trained word appears in the
+prompt. Where `loras_metadata/<family>/<name>.json` carries `trainedWords`, those
+words are appended to the prompt at generation time — but only the ones the prompt
+does not already contain, matched case-insensitively on word boundaries, and never
+added to negative prompts. That keeps hand-written prompts free of duplicates. Set
+`LORA_APPEND_TRIGGER_WORDS=false` to manage them yourself.
+
+**Multi-concept LoRAs.** Trigger words are not always additive — one file can pack
+several mutually exclusive behaviours selected by which word you use, so applying
+them all would ask for contradictory output. The rule:
+
+| Trigger words offered | Behaviour |
+|---|---|
+| One | Used automatically |
+| Several | **None** used until you pick, via toggles in the LoRA panel |
+| Deselected entirely | Remembered as a deliberate "none" |
+
+Choosing several at once is allowed where a LoRA genuinely wants them together. A
+choice the LoRA no longer offers is discarded rather than sent.
+
+Sidecars come from whichever tool downloaded the LoRA, so some have none. Those
+LoRAs still work; they simply show their filename and contribute no trigger words.
+
+**Reproducibility note.** `activated_loras` is written on every job, including as
+an empty list. WanGP's published default settings are its own saved UI state, so a
+client that copies them — which a complete settings payload requires — otherwise
+inherits whichever LoRAs were last selected in the WanGP window, and the same
+project renders differently for no visible reason.
+
+## Editing prompts
+
+The prompts on each scene card are editable: start frame, end frame, motion, and
+both negative prompts. Edits apply to that scene only and take effect on its next
+generation — useful for adding a trigger word by hand or fixing one clumsy shot.
+
+Edits are stored in the storyboard, so what the Prompts panel shows is exactly what
+is sent to WanGP. Regenerating the storyboard rewrites them, so make hand edits
+once the canvas plans are settled.
 
 ## Repointing mocks at real systems
 

@@ -31,6 +31,18 @@ export const loraSelectionSchema = z.object({
    * LoRA's effect and are occasionally useful, hence the signed range.
    */
   strength: z.number().min(-10).max(10).default(1),
+  /**
+   * Which of the LoRA's trigger words to put in the prompt.
+   *
+   * Absent means "not chosen": a LoRA with a single trigger word uses it
+   * automatically, one with several uses none until the user picks. An empty
+   * array is a deliberate "none", which is why the two are not collapsed.
+   *
+   * This exists because a multi-concept LoRA uses trigger words as a selector
+   * between mutually exclusive behaviours — appending all of them at once asks
+   * for contradictory output.
+   */
+  triggerWords: z.array(z.string().min(1).max(200)).max(32).optional(),
 });
 export type LoraSelection = z.infer<typeof loraSelectionSchema>;
 
