@@ -114,6 +114,8 @@ export type MediaDescriptor = {
   attemptId?: string;
   cueId?: string;
   role: string;
+  /** A keyframe preview rather than an attempt's media. */
+  preview: boolean;
 };
 
 export function mediaUrl(projectId: string, assetId: string): string {
@@ -153,6 +155,7 @@ function describe(
     ...(sizeBytes === undefined ? {} : { sizeBytes }),
     ...extra,
     role,
+    preview: ref.kind === "preview",
   };
 }
 

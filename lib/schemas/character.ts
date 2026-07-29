@@ -6,7 +6,7 @@ import { z } from "zod";
  * Two is the ceiling of the reference-capable models in use, and matches what
  * testing showed: a second angle improved identity, a third had nowhere to go.
  */
-export const MAX_REFERENCE_IMAGES = 2;
+export const MAX_REFERENCE_IMAGES = 4;
 
 /**
  * Reusable character definitions ("the cast library").

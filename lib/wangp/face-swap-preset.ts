@@ -20,12 +20,18 @@ export const FACE_SWAP_PROMPT =
 /**
  * The accelerator and the head LoRA, in the order their multipliers assume.
  *
- * Referenced by bare filename rather than the HuggingFace URL the source app
- * used: both files are already present in WanGP's `loras/qwen` folder, and a URL
- * would make WanGP re-resolve a download on a job that is otherwise seconds.
+ * The accelerator is named by its full URL and the head LoRA by bare filename,
+ * because that is verbatim how a working job from WanGP's own UI names them.
+ * Shortening the URL to a filename looks equivalent and is not: accelerators
+ * live in a separate `loras_accelerators` folder, so the bare name does not
+ * resolve and the Lightning LoRA silently drops — leaving a 4-step, CFG-1 job
+ * running without the schedule those numbers assume.
  */
 export const FACE_SWAP_LORAS = [
-  { name: "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors", strength: 0.8 },
+  {
+    name: "https://huggingface.co/DeepBeepMeep/Qwen_image/resolve/main/loras_accelerators/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+    strength: 0.8,
+  },
   { name: "bfs_head_v5_2511_merged_version_rank_16_fp16.safetensors", strength: 0.5 },
 ] as const;
 

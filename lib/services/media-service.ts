@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import type { ProjectRecord, Scene } from "@/lib/schemas/storyboard";
 import type { SceneAttempt } from "@/lib/schemas/generation";
 import { repository } from "@/lib/db/store";
@@ -51,8 +51,55 @@ async function resolveCastReferenceImages(record: ProjectRecord): Promise<string
     .filter((filePath): filePath is string => filePath !== null);
 }
 
-/** The attempt a scene is currently represented by: approved first, else latest. */
-function chosenAttempt(record: ProjectRecord, sceneId: string): SceneAttempt | undefined {
+/**
+ * Pin an image seed per scene, minting one on first use.
+ *
+ * Without this a preview and the keyframe it is meant to predict are two
+ * independent samples, so liking a preview told you nothing about what the
+ * scene would render. Re-rolling is deliberate rather than incidental — see
+ * `clearSceneSeed`.
+ */
+async function ensureSceneSeeds(
+  projectId: string,
+  record: ProjectRecord,
+  sceneIds: readonly string[],
+): Promise<ProjectRecord> {
+  const seeds = { ...(record.project.sceneSeeds ?? {}) };
+  let minted = false;
+  for (const sceneId of sceneIds) {
+    if (seeds[sceneId] === undefined) {
+      seeds[sceneId] = randomInt(0, 2 ** 31 - 1);
+      minted = true;
+    }
+  }
+  if (!minted) return record;
+
+  const updated: ProjectRecord = {
+    ...record,
+    project: { ...record.project, sceneSeeds: seeds, updatedAt: new Date().toISOString() },
+  };
+  await repository.update(projectId, updated);
+  return updated;
+}
+
+/** Drop a scene's pinned seed so the next render samples afresh. */
+export async function clearSceneSeed(projectId: string, sceneId: string): Promise<ProjectRecord> {
+  const record = await getProjectRecord(projectId);
+  if (record.project.sceneSeeds?.[sceneId] === undefined) return record;
+
+  const seeds = { ...record.project.sceneSeeds };
+  delete seeds[sceneId];
+
+  const updated: ProjectRecord = {
+    ...record,
+    project: { ...record.project, sceneSeeds: seeds, updatedAt: new Date().toISOString() },
+  };
+  await repository.update(projectId, updated);
+  logEvent("scene.seed_cleared", { projectId, sceneId });
+  return updated;
+}
+
+/** The attempt a scene is currently represented by: approved first, else latest. */function chosenAttempt(record: ProjectRecord, sceneId: string): SceneAttempt | undefined {
   const attempts = record.attempts?.[sceneId] ?? [];
   return attempts.find((a) => a.approved) ?? attempts[attempts.length - 1];
 }
@@ -119,6 +166,7 @@ async function renderKeyframe(
     negativePrompt: scene.prompts.imageNegativePrompt,
     modelStrategy: record.project.modelStrategy,
     modelType: record.project.imageModel,
+    seed: record.project.sceneSeeds?.[scene.id],
     imageRefs: [...extraRefs, ...castRefs],
     // A leading scene frame is the "main subject / landscape" reference; the
     // cast portraits that follow are the people.
@@ -157,8 +205,9 @@ export async function generateSceneKeyframe(
   if (!record.storyboard) throw new ValidationError("Generate a storyboard before media");
   const scene = findScene(record, sceneId);
 
-  const castRefs = await resolveCastReferenceImages(record);
-  const swapSubject = faceSwapSubject(await resolveProjectCast(record.project));
+  const seeded = await ensureSceneSeeds(projectId, record, [sceneId]);
+  const castRefs = await resolveCastReferenceImages(seeded);
+  const swapSubject = faceSwapSubject(await resolveProjectCast(seeded.project));
 
   // The end frame is normally shown the start frame to match. Reuse whichever
   // start frame already exists so the preview is conditioned the same way the
@@ -169,21 +218,21 @@ export async function generateSceneKeyframe(
 
   if (purpose === "end_frame" && config.media.endFrameReferencesStartFrame) {
     const existingStart =
-      record.previews?.[sceneId]?.startFramePath ?? chosenAttempt(record, sceneId)?.startImagePath;
+      seeded.previews?.[sceneId]?.startFramePath ?? chosenAttempt(seeded, sceneId)?.startImagePath;
     if (existingStart) {
       extraRefs = [existingStart];
       prompt = `${prompt} Wardrobe, hair, styling, location and lighting exactly as in the supplied reference frame; identical clothing.`;
     }
   }
 
-  const result = await renderKeyframe(record, scene, purpose, prompt, castRefs, extraRefs, swapSubject);
+  const result = await renderKeyframe(seeded, scene, purpose, prompt, castRefs, extraRefs, swapSubject);
   if (!result.path) throw new ValidationError(`WanGP returned no image for the ${purpose}.`);
 
-  const previous = record.previews?.[sceneId];
+  const previous = seeded.previews?.[sceneId];
   const updated: ProjectRecord = {
-    ...record,
+    ...seeded,
     previews: {
-      ...(record.previews ?? {}),
+      ...(seeded.previews ?? {}),
       [sceneId]: {
         ...previous,
         ...(purpose === "start_frame"
@@ -192,7 +241,7 @@ export async function generateSceneKeyframe(
         updatedAt: new Date().toISOString(),
       },
     },
-    project: { ...record.project, updatedAt: new Date().toISOString() },
+    project: { ...seeded.project, updatedAt: new Date().toISOString() },
     history: [
       ...(record.history ?? []),
       {
@@ -205,6 +254,33 @@ export async function generateSceneKeyframe(
 
   await repository.update(projectId, updated);
   logEvent("scene.keyframe_preview", { projectId, sceneId, purpose });
+  return updated;
+}
+
+/**
+ * Drop a scene's keyframe previews.
+ *
+ * Only the record entry is cleared. The rendered files stay in WanGP's output
+ * directory, which StoryForge does not own and shares with the WanGP UI.
+ */
+export async function clearSceneKeyframePreview(
+  projectId: string,
+  sceneId: string,
+): Promise<ProjectRecord> {
+  const record = await getProjectRecord(projectId);
+  if (!record.previews?.[sceneId]) return record;
+
+  const previews = { ...record.previews };
+  delete previews[sceneId];
+
+  const updated: ProjectRecord = {
+    ...record,
+    previews,
+    project: { ...record.project, updatedAt: new Date().toISOString() },
+  };
+
+  await repository.update(projectId, updated);
+  logEvent("scene.keyframe_preview_cleared", { projectId, sceneId });
   return updated;
 }
 
@@ -274,6 +350,7 @@ export async function generateProjectMediaPhased(
   if (!scenes.length) return;
 
   const mode = record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY;
+  record = await ensureSceneSeeds(projectId, record, scenes.map((scene) => scene.id));
   const castRefs = await resolveCastReferenceImages(record);
   const swapSubject = faceSwapSubject(await resolveProjectCast(record.project));
 
@@ -403,35 +480,69 @@ export async function generateProjectMediaPhased(
       approved: false,
       createdAt: new Date().toISOString(),
     };
-    attempt.qcResult = await qcAgent(scene, attempt, getPlanningProvider());
 
-    const nextStatus: Scene["status"] = attempt.qcResult.passed ? "generated" : "needs_review";
-    let updated = withSceneStatus(record, scene.id, nextStatus);
-    updated = {
-      ...updated,
-      attempts: { ...(updated.attempts ?? {}), [scene.id]: [...existing, attempt] },
-      project: { ...updated.project, status: "generating", updatedAt: new Date().toISOString() },
-      history: [
-        ...(updated.history ?? []),
-        {
-          at: new Date().toISOString(),
-          action: "scene.generated",
-          detail: `${scene.id} #${attempt.attemptNumber}`,
-        },
-      ],
-    };
-    await repository.update(projectId, updated);
-    record = updated;
-
-    logEvent("scene.qc", { projectId, sceneId: scene.id, passed: attempt.qcResult.passed });
+    record = await persistThenScore(projectId, scene, attempt, existing, record);
     hooks.onSceneComplete?.(scene.id);
   }
 }
 
+/**
+ * Store the finished attempt, then score it.
+ *
+ * QC is an LLM round-trip against the planning provider, and on a local model
+ * that is minutes. Scoring first held a scene out of the storyboard for the
+ * whole of it, long after WanGP had written the clip to disk. The attempt is
+ * therefore persisted the moment the media exists, and the QC verdict lands as
+ * a second write — the scene's status stays put until it does.
+ */
+async function persistThenScore(
+  projectId: string,
+  scene: Scene,
+  attempt: SceneAttempt,
+  existing: SceneAttempt[],
+  record: ProjectRecord,
+): Promise<ProjectRecord> {
+  const staged: ProjectRecord = {
+    ...record,
+    attempts: { ...(record.attempts ?? {}), [scene.id]: [...existing, attempt] },
+    project: { ...record.project, status: "generating", updatedAt: new Date().toISOString() },
+    history: [
+      ...(record.history ?? []),
+      {
+        at: new Date().toISOString(),
+        action: "scene.generated",
+        detail: `${scene.id} #${attempt.attemptNumber}`,
+      },
+    ],
+  };
+  await repository.update(projectId, staged);
+
+  const qcResult = await qcAgent(scene, attempt, getPlanningProvider());
+
+  // Re-read: the QC call is long enough for the record to have moved on.
+  const latest = await getProjectRecord(projectId);
+  let updated = withSceneStatus(latest, scene.id, qcResult.passed ? "generated" : "needs_review");
+  updated = {
+    ...updated,
+    attempts: {
+      ...(updated.attempts ?? {}),
+      [scene.id]: (updated.attempts?.[scene.id] ?? []).map((a) =>
+        a.id === attempt.id ? { ...a, qcResult } : a,
+      ),
+    },
+    project: { ...updated.project, updatedAt: new Date().toISOString() },
+  };
+  await repository.update(projectId, updated);
+
+  logEvent("scene.qc", { projectId, sceneId: scene.id, passed: qcResult.passed });
+  return updated;
+}
+
 export async function generateSceneMedia(projectId: string, sceneId: string): Promise<ProjectRecord> {
-  const record = await getProjectRecord(projectId);
-  if (!record.storyboard) throw new ValidationError("Generate a storyboard before media");
-  const scene = findScene(record, sceneId);
+  const loaded = await getProjectRecord(projectId);
+  if (!loaded.storyboard) throw new ValidationError("Generate a storyboard before media");
+  const scene = findScene(loaded, sceneId);
+  const record = await ensureSceneSeeds(projectId, loaded, [sceneId]);
   const modelStrategy = record.project.modelStrategy;
   const { imageModel, videoModel } = record.project;
 
@@ -541,23 +652,8 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
     approved: false,
     createdAt: new Date().toISOString(),
   };
-  attempt.qcResult = await qcAgent(scene, attempt, getPlanningProvider());
 
-  const nextStatus: Scene["status"] = attempt.qcResult.passed ? "generated" : "needs_review";
-  let updated = withSceneStatus(record, sceneId, nextStatus);
-  updated = {
-    ...updated,
-    attempts: { ...(updated.attempts ?? {}), [sceneId]: [...existing, attempt] },
-    project: { ...updated.project, status: "generating", updatedAt: new Date().toISOString() },
-    history: [
-      ...(updated.history ?? []),
-      { at: new Date().toISOString(), action: "scene.generated", detail: `${sceneId} #${attempt.attemptNumber}` },
-    ],
-  };
-
-  await repository.update(projectId, updated);
-  logEvent("scene.qc", { projectId, sceneId, passed: attempt.qcResult.passed });
-  return updated;
+  return persistThenScore(projectId, scene, attempt, existing, record);
 }
 
 export async function approveAttempt(

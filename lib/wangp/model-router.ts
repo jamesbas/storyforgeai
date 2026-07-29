@@ -41,9 +41,19 @@ export function toCapability(model: WangpModel): ModelCapability {
   };
 }
 
+/**
+ * How many reference images a model is worth sending.
+ *
+ * Flux 2 takes up to four and identity improves with each one. Everything else
+ * is held at two: more references on a model that only conditions on the first
+ * few dilutes the prompt rather than sharpening the likeness.
+ */
+export function referenceImageCapacity(model: { modelType: string }): number {
+  return model.modelType.startsWith("flux2") ? 4 : 2;
+}
+
 function strategyBonus(modelType: string, strategy: Project["modelStrategy"]): number {
-  switch (strategy) {
-    case "prefer_wan":
+  switch (strategy) {    case "prefer_wan":
       return modelType.includes("wan") ? 100 : 0;
     case "prefer_ltx":
       return modelType.includes("ltx") ? 100 : 0;

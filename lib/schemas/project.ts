@@ -78,6 +78,14 @@ export const projectSchema = z.object({
    * something the Storyboard Agent has to emit or preserve.
    */
   sceneLoras: sceneLoraMapSchema.optional(),
+  /**
+   * Per-scene image seed, keyed by scene id.
+   *
+   * Pinned so a keyframe preview predicts the keyframe the scene will actually
+   * render: without it the two are independent samples and the preview only
+   * ever showed what the prompt *could* produce. Cleared to re-roll.
+   */
+  sceneSeeds: z.record(z.number().int().nonnegative()).optional(),
   status: projectStatusSchema,
   createdAt: z.string(),
   updatedAt: z.string(),

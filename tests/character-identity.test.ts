@@ -72,7 +72,7 @@ describe("reference images", () => {
   });
 
   it("caps at the supported maximum", () => {
-    expect(referenceImagesOf({ referenceImages: ["a", "b", "c"] })).toHaveLength(2);
+    expect(referenceImagesOf({ referenceImages: ["a", "b", "c", "d", "e"] })).toHaveLength(4);
   });
 
   it("returns nothing when neither field is set", () => {
@@ -121,8 +121,10 @@ describe("the face-swap preset", () => {
    * the multipliers are positional. Drift here is silent, so it is pinned.
    */
   it("keeps the LoRA order and multipliers aligned", () => {
+    // The accelerator must stay a full URL: it lives in `loras_accelerators`,
+    // not the model's lora folder, so a bare filename does not resolve.
     expect(FACE_SWAP_SETTINGS.activated_loras).toEqual([
-      "Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
+      "https://huggingface.co/DeepBeepMeep/Qwen_image/resolve/main/loras_accelerators/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
       "bfs_head_v5_2511_merged_version_rank_16_fp16.safetensors",
     ]);
     expect(FACE_SWAP_SETTINGS.loras_multipliers).toBe("0.8 0.5");

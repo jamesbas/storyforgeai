@@ -67,6 +67,31 @@ describe("reference images in the image manifest", () => {
     }
   });
 
+  /**
+   * Regression: the model's own default has to be overwritten, not just left
+   * empty. Flux 2 Klein ships "MV" (mask + video guide), and a job carrying it
+   * without a guide image is rejected with "You must provide a Control Image".
+   * The case above passes on any model whose default is already blank.
+   */
+  it("clears a model default that would demand a guide image", () => {
+    const schema = {
+      modelType: "flux2_klein_9b",
+      defaultSettings: { video_prompt_type: "MV" },
+      fields: [
+        { name: "prompt", type: "string" },
+        { name: "video_prompt_type", type: "string" },
+      ],
+    };
+
+    const manifest = buildSettingsManifest(schema, {
+      sceneId: "scene-1",
+      purpose: "start_frame",
+      prompt: "a lighthouse",
+    });
+
+    expect(manifest.settings.video_prompt_type).toBe("");
+  });
+
   it("never writes image_refs for a model that cannot accept them", async () => {
     const client = new MockWangpClient();
     const schema = await client.getModelSchema("flux_dev_image");

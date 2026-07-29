@@ -50,6 +50,8 @@ export type ManifestOverrides = {
   loras?: LoraSelection[];
   fps?: number;
   resolution?: string;
+  /** Pinned image seed. Left unset, WanGP picks a fresh one per job. */
+  seed?: number;
   /** Audio models: clip length in seconds. Video: segment length for frame maths. */
   durationSeconds?: number;
 };
@@ -135,6 +137,7 @@ export function buildSettingsManifest(
   setIf("prompt", overrides.prompt);
   setIf("negative_prompt", overrides.negativePrompt ?? "");
   setIf("resolution", overrides.resolution);
+  setIf("seed", overrides.seed);
 
   // WanGP can rewrite the prompt with its own local LLM before generating.
   // Several models ship with it enabled (LTX-2 22B defaults to "T"), which
@@ -210,6 +213,10 @@ export function buildSettingsManifest(
     // inputs this pathway never sends. Flux 2 Klein ships "MV" (mask + video
     // guide); keeping that would make WanGP demand images we do not provide.
     setIf("video_prompt_type", overrides.imageRefsLeadWithScene ? "KI" : "I");
+  } else {
+    // Same reason in reverse: left alone, Flux 2 Klein's "MV" default demands a
+    // control image this pathway never sends.
+    setIf("video_prompt_type", "");
   }
 
   // Audio models express length in seconds, clamped to any published bounds.

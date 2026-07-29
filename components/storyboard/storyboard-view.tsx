@@ -311,6 +311,47 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     [projectId, loadMedia, failureMessage],
   );
 
+  /** Previews are a scratch pad; this is how they get cleared away. */
+  const clearScenePreviews = useCallback(
+    async (sceneId: string) => {
+      setSceneBusy(sceneId);
+      setError(null);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/scenes/${sceneId}/keyframe`, {
+          method: "DELETE",
+        });
+        if (!res.ok) throw new Error(await failureMessage(res, "Failed to remove the previews"));
+        setRecord((await res.json()) as ProjectRecord);
+        await loadMedia();
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to remove the previews");
+      } finally {
+        setSceneBusy(null);
+      }
+    },
+    [projectId, loadMedia, failureMessage],
+  );
+
+  /** A pinned seed makes regeneration reproduce; this is the way out of that. */
+  const newSceneSeed = useCallback(
+    async (sceneId: string) => {
+      setSceneBusy(sceneId);
+      setError(null);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/scenes/${sceneId}/seed`, {
+          method: "DELETE",
+        });
+        if (!res.ok) throw new Error(await failureMessage(res, "Failed to take a new seed"));
+        setRecord((await res.json()) as ProjectRecord);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to take a new seed");
+      } finally {
+        setSceneBusy(null);
+      }
+    },
+    [projectId, failureMessage],
+  );
+
   const approveScene = useCallback(
     async (sceneId: string, attemptId: string) => {
       setSceneBusy(sceneId);
@@ -626,6 +667,9 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   triggerWords={{ image: triggerWordsFor("image"), video: triggerWordsFor("video") }}
                   onPromptsSaved={(next) => setRecord(next)}
                   onGenerateKeyframe={(purpose) => void generateSceneKeyframe(scene.id, purpose)}
+                  onClearPreviews={() => void clearScenePreviews(scene.id)}
+                  seed={record.project.sceneSeeds?.[scene.id]}
+                  onNewSeed={() => void newSceneSeed(scene.id)}
                 />
               );
             })}

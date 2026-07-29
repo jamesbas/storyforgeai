@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { generateSceneKeyframe } from "@/lib/services/media-service";
+import {
+  clearSceneKeyframePreview,
+  generateSceneKeyframe,
+} from "@/lib/services/media-service";
 import { toErrorResponse } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +26,19 @@ export async function POST(
   try {
     const { purpose } = bodySchema.parse(await request.json());
     const record = await generateSceneKeyframe(params.projectId, params.sceneId, purpose);
+    return NextResponse.json(record, { headers: { "Cache-Control": "no-store" } });
+  } catch (err) {
+    return toErrorResponse(err);
+  }
+}
+
+/** Discard a scene's previews once they have served their purpose. */
+export async function DELETE(
+  _request: Request,
+  { params }: { params: { projectId: string; sceneId: string } },
+) {
+  try {
+    const record = await clearSceneKeyframePreview(params.projectId, params.sceneId);
     return NextResponse.json(record, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     return toErrorResponse(err);

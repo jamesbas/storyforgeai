@@ -25,6 +25,12 @@ type SceneCardProps = {
   onPromptsSaved?: (record: ProjectRecord) => void;
   /** Render a single keyframe without the other frame or the clip. */
   onGenerateKeyframe?: (purpose: "start_frame" | "end_frame") => void;
+  /** Discard this scene's previews once they have been looked at. */
+  onClearPreviews?: () => void;
+  /** The scene's pinned image seed, once one has been minted. */
+  seed?: number;
+  /** Re-roll the pinned seed so the next render samples afresh. */
+  onNewSeed?: () => void;
 };
 
 /** Render a player for media that exists on disk; fall back to the path. */
@@ -72,8 +78,12 @@ export function SceneCard({
   triggerWords,
   onPromptsSaved,
   onGenerateKeyframe,
+  onClearPreviews,
+  seed,
+  onNewSeed,
 }: SceneCardProps) {
   const playable = media.filter((m) => m.available && m.sceneId === scene.id);
+  const hasPreviews = playable.some((m) => m.preview);
 
   return (
     <article className="rounded-lg border border-white/10 bg-panel/40 p-4" data-testid="scene-card">
@@ -207,9 +217,39 @@ export function SceneCard({
               >
                 End frame only
               </button>
+              {hasPreviews && onClearPreviews && (
+                <button
+                  onClick={onClearPreviews}
+                  disabled={busy}
+                  className="rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-slate-300 hover:border-accent disabled:opacity-50"
+                  data-testid="clear-previews"
+                >
+                  Remove previews
+                </button>
+              )}
               <span className="text-[10px] text-slate-600">
                 One image, no clip — for checking a prompt, model or LoRA change cheaply. Previews
                 are not part of an attempt and are never assembled.
+              </span>
+            </div>
+          )}
+
+          {onNewSeed && (
+            <div className="mt-2 flex flex-wrap items-center gap-2">
+              <span className="text-[11px] text-slate-500">
+                Seed: {seed === undefined ? "not set — minted on first render" : seed}
+              </span>
+              <button
+                onClick={onNewSeed}
+                disabled={busy || seed === undefined}
+                className="rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-slate-300 hover:border-accent disabled:opacity-50"
+                data-testid="new-seed"
+              >
+                New seed
+              </button>
+              <span className="text-[10px] text-slate-600">
+                Pinned so a preview predicts the keyframe. Regenerating reproduces the same image —
+                take a new seed to get a different one.
               </span>
             </div>
           )}

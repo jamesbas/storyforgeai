@@ -1,6 +1,7 @@
 import { getWangpClient, wangpEnabled } from "@/lib/wangp/factory";
 import {
   findPinned,
+  referenceImageCapacity,
   selectAudioModel,
   selectImageModel,
   selectVideoModel,
@@ -241,6 +242,8 @@ export async function buildImageManifest(args: {
   imageRefsLeadWithScene?: boolean;
   /** LoRAs selected for this scene's keyframe generation. */
   loras?: LoraSelection[];
+  /** Pinned seed, so a preview and the real render sample identically. */
+  seed?: number;
 }): Promise<WangpGenerationSettings> {
   const client = getWangpClient();
   const imageModels = await client.listModels("image");
@@ -282,15 +285,30 @@ export async function buildImageManifest(args: {
 
   const schema = await client.getModelSchema(model.modelType);
   const loras = await lorasFor(model, args.loras, args.sceneId, "image");
+
+  // Trimmed against the resolved model, not the pin, because the model may have
+  // been substituted above. A leading scene frame outranks the cast portraits.
+  const capacity = referenceImageCapacity(model);
+  const imageRefs = args.imageRefs?.slice(0, capacity);
+  if (args.imageRefs && imageRefs && imageRefs.length < args.imageRefs.length) {
+    logEvent("wangp.reference_images.trimmed", {
+      purpose: args.purpose,
+      modelType: model.modelType,
+      supplied: args.imageRefs.length,
+      sent: imageRefs.length,
+    });
+  }
+
   return buildSettingsManifest(schema, {
     sceneId: args.sceneId,
     purpose: args.purpose,
     prompt: withTriggerWords(args.prompt, loras),
     negativePrompt: args.negativePrompt,
-    imageRefs: args.imageRefs,
+    imageRefs,
     imageRefsLeadWithScene: args.imageRefsLeadWithScene,
     loras,
     resolution: config.defaults.resolution,
+    seed: args.seed,
   });
 }
 

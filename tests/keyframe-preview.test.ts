@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import path from "node:path";
 import {
   approveAttempt,
+  clearSceneSeed,
   generateSceneKeyframe,
   generateSceneMedia,
 } from "@/lib/services/media-service";
@@ -30,6 +31,35 @@ async function seeded() {
 function sceneOf(record: ProjectRecord) {
   return record.storyboard!.scenes[0]!;
 }
+
+describe("pinned scene seeds", () => {
+  it("reuses one seed across previews so a preview predicts the keyframe", async () => {
+    const project = await seeded();
+    const scene = sceneOf(project);
+
+    const first = await generateSceneKeyframe(project.project.id, scene.id, "start_frame");
+    const pinned = first.project.sceneSeeds?.[scene.id];
+    expect(pinned).toBeTypeOf("number");
+
+    const second = await generateSceneKeyframe(project.project.id, scene.id, "end_frame");
+    expect(second.project.sceneSeeds?.[scene.id]).toBe(pinned);
+  });
+
+  it("mints a different seed after a re-roll", async () => {
+    const project = await seeded();
+    const scene = sceneOf(project);
+
+    const first = await generateSceneKeyframe(project.project.id, scene.id, "start_frame");
+    const pinned = first.project.sceneSeeds?.[scene.id];
+
+    const cleared = await clearSceneSeed(project.project.id, scene.id);
+    expect(cleared.project.sceneSeeds?.[scene.id]).toBeUndefined();
+
+    const next = await generateSceneKeyframe(project.project.id, scene.id, "start_frame");
+    expect(next.project.sceneSeeds?.[scene.id]).toBeTypeOf("number");
+    expect(next.project.sceneSeeds?.[scene.id]).not.toBe(pinned);
+  });
+});
 
 describe("rendering a single keyframe", () => {
   it("stores a start frame as a preview", async () => {
