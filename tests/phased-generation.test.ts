@@ -222,4 +222,70 @@ describe("running a phased batch", () => {
     expect(failed).toEqual([sceneIds[0]]);
     expect(completed).toEqual(sceneIds.slice(1));
   });
+
+  /**
+   * Phase 1 had no such isolation, so a dropped connection eleven keyframes into
+   * a fifteen-scene run failed every scene at once.
+   */
+  it("carries on after a keyframe fails", async () => {
+    const seeded = await project({ faceSwap: true });
+    const sceneIds = sceneIdsOf(seeded);
+    const completed: string[] = [];
+    const failed: string[] = [];
+
+    let keyframes = false;
+    let job = 0;
+
+    await generateProjectMediaPhased(seeded.project.id, sceneIds, {
+      onPhase: (phase) => {
+        keyframes = phase === "keyframes";
+      },
+      runStep: async (step) => {
+        if (keyframes) {
+          job += 1;
+          if (job === 1) throw new Error("fetch failed");
+        }
+        return step();
+      },
+      onSceneComplete: (sceneId) => completed.push(sceneId),
+      onSceneFailed: (sceneId) => failed.push(sceneId),
+    });
+
+    expect(failed).toContain(sceneIds[0]);
+    expect(completed).toEqual(sceneIds.slice(1));
+  });
+
+  /**
+   * Phase 1 is hours of GPU time. Held only in memory, a failure anywhere later
+   * threw every rendered keyframe away.
+   */
+  it("banks keyframes as attempts before any clip is rendered", async () => {
+    const seeded = await project({ faceSwap: true });
+    let bankedAtVideo: (string | undefined)[] = [];
+
+    await generateProjectMediaPhased(seeded.project.id, sceneIdsOf(seeded), {
+      onPhase: async (phase) => {
+        if (phase !== "video") return;
+        const record = await getProjectRecord(seeded.project.id);
+        bankedAtVideo = Object.values(record.attempts ?? {})
+          .flat()
+          .map((attempt) => attempt.startImagePath);
+      },
+    });
+
+    expect(bankedAtVideo).toHaveLength(sceneIdsOf(seeded).length);
+    expect(bankedAtVideo.every(Boolean)).toBe(true);
+  });
+
+  /** The clip completes the banked attempt rather than opening a second one. */
+  it("leaves one attempt per scene once the clips land", async () => {
+    const seeded = await project({ faceSwap: true });
+    await generateProjectMediaPhased(seeded.project.id, sceneIdsOf(seeded));
+
+    const record = await getProjectRecord(seeded.project.id);
+    for (const sceneId of sceneIdsOf(seeded)) {
+      expect(record.attempts?.[sceneId]).toHaveLength(1);
+      expect(record.attempts?.[sceneId]?.[0]?.videoPath).toBeTruthy();
+    }
+  });
 });

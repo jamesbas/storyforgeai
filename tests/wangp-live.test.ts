@@ -302,6 +302,42 @@ describe("live-discovered regressions", () => {
     expect(manifest.settings.prompt_enhancer).toBe("");
     expect(manifest.settings.prompt).toBe("crafted prompt");
   });
+
+  /**
+   * Real payload: flux2_klein_base_9b came back with `batch_size: 2` left over
+   * from the WanGP UI, so every keyframe job rendered two images and took twice
+   * as long. Only the first is ever used.
+   */
+  it("pins one render per job over inherited batch settings", () => {
+    const manifest = buildSettingsManifest(
+      {
+        modelType: "flux2_klein_base_9b",
+        defaultSettings: {
+          model_type: "flux2_klein_base_9b",
+          prompt: "",
+          batch_size: 2,
+          repeat_generation: 3,
+        },
+        fields: [{ name: "prompt", type: "string" }],
+      },
+      { sceneId: "s1", purpose: "start_frame", prompt: "a frame" },
+    );
+    expect(manifest.settings.batch_size).toBe(1);
+    expect(manifest.settings.repeat_generation).toBe(1);
+  });
+
+  /** Absent from the defaults means the model has no such control to pin. */
+  it("does not invent a batch field the model never declared", () => {
+    const manifest = buildSettingsManifest(
+      {
+        modelType: "ltx2_19B",
+        defaultSettings: { model_type: "ltx2_19B", prompt: "" },
+        fields: [{ name: "prompt", type: "string" }],
+      },
+      { sceneId: "s1", purpose: "video_segment", prompt: "a clip" },
+    );
+    expect("batch_size" in manifest.settings).toBe(false);
+  });
 });
 
 describe("knownKeys", () => {

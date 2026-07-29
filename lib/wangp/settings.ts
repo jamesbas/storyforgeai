@@ -144,6 +144,17 @@ export function buildSettingsManifest(
   // would silently discard the prompts our agents crafted. Always disable it.
   if (fieldNames.has("prompt_enhancer")) settings.prompt_enhancer = "";
 
+  // One render per job.
+  //
+  // `batch_size` is saved WanGP UI state rather than a declared field, so it
+  // arrives in the defaults and travels into every job unexamined. A stack left
+  // at 2 rendered two images per keyframe and roughly doubled the time, while
+  // the pipeline only ever consumes the first. `repeat_generation` is the same
+  // control by another name on some models.
+  for (const field of ["batch_size", "repeat_generation"]) {
+    if (field in schema.defaultSettings) settings[field] = 1;
+  }
+
   // Frame count and frame rate are independent controls. Some models expose
   // `force_fps` (often as an empty string meaning "model native"), some expose
   // none at all — LTX-2 19B has `video_length` but no fps field whatsoever.

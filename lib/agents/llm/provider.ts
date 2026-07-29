@@ -1,4 +1,4 @@
-import type { ZodType } from "zod";
+import type { ZodType, ZodTypeDef } from "zod";
 import { config } from "@/lib/config";
 import { logEvent } from "@/lib/telemetry";
 import { withSchemaHint } from "@/lib/agents/llm/schema-hint";
@@ -12,7 +12,10 @@ import { withSchemaHint } from "@/lib/agents/llm/schema-hint";
  */
 export interface PlanningProvider {
   readonly name: string;
-  generateJson<T>(system: string, user: string, schema: ZodType<T>): Promise<T | null>;
+  // Input is left `unknown` so `T` binds to the schema's parsed output. A schema
+  // with a defaulted field has a wider input than output, and binding to both
+  // hands the caller a type where that field is still optional.
+  generateJson<T>(system: string, user: string, schema: ZodType<T, ZodTypeDef, unknown>): Promise<T | null>;
 }
 
 /**
@@ -132,7 +135,11 @@ function createOpenAiProvider(): PlanningProvider {
 
   return {
     name: label,
-    async generateJson<T>(system: string, user: string, schema: ZodType<T>): Promise<T | null> {
+    async generateJson<T>(
+      system: string,
+      user: string,
+      schema: ZodType<T, ZodTypeDef, unknown>,
+    ): Promise<T | null> {
       const fail = (reason: string, extra: Record<string, unknown> = {}) => {
         logEvent("agent.llm.failed", { provider: label, reason, ...extra });
         return null;

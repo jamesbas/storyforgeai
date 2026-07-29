@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import type { ZodType } from "zod";
+import type { ZodType, ZodTypeDef } from "zod";
 import { computeSegmentation } from "@/lib/duration";
 import type { Project } from "@/lib/schemas/project";
 import { creativeBriefSchema, storyPlanSchema, visualBibleSchema } from "@/lib/schemas/agents";
@@ -46,7 +46,11 @@ function makeProject(requestedDurationSeconds = 60): Project {
 function cannedProvider(map: Record<string, unknown>): PlanningProvider {
   return {
     name: "canned",
-    async generateJson<T>(system: string, _user: string, _schema: ZodType<T>): Promise<T | null> {
+    async generateJson<T>(
+      system: string,
+      _user: string,
+      _schema: ZodType<T, ZodTypeDef, unknown>,
+    ): Promise<T | null> {
       return (system in map ? (map[system] as T) : null);
     },
   };

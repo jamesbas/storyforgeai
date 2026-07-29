@@ -101,10 +101,15 @@ export async function enqueueProjectScenes(
   );
 
   const queued: SceneQueueEntry[] = [];
+  const stages = generationStages(record.project.generationMode);
   for (const scene of record.storyboard.scenes) {
     if (alreadyQueued.has(scene.id)) continue;
-    const hasMedia = (record.attempts?.[scene.id] ?? []).length > 0;
-    if (hasMedia && !options.includeGenerated) continue;
+    // A batch that died after banking keyframes leaves attempts with no clip.
+    // Counting those as done would strand the scene one step short of finished.
+    const done = (record.attempts?.[scene.id] ?? []).some(
+      (attempt) => !stages.video || Boolean(attempt.videoPath),
+    );
+    if (done && !options.includeGenerated) continue;
 
     const entry: SceneQueueEntry = {
       projectId,
@@ -175,13 +180,15 @@ export function clearFinished(projectId: string): void {
 /**
  * Faults that are worth another attempt.
  *
- * These are all symptoms of the GPU being contended or fragmented rather than
- * of a bad request: the identical settings usually succeed once memory frees
- * up. A malformed prompt or a missing reference file will not match, and fails
+ * Two families, both symptoms of the environment rather than of a bad request.
+ * GPU pressure — CUDA faults, out-of-memory — usually succeeds on a second pass
+ * once memory frees up. Transport failures are the MCP session dropping under a
+ * long batch; the client reconnects, so the same settings go straight through.
+ * A malformed prompt or a missing reference file matches neither and fails
  * immediately as it should.
  */
 const TRANSIENT_FAULT =
-  /cuda|out of memory|resource already mapped|insufficient|unsufficient|generation in progress|allocat/i;
+  /cuda|out of memory|resource already mapped|insufficient|unsufficient|generation in progress|allocat|fetch failed|econnreset|econnrefused|etimedout|epipe|socket hang up|network|terminated/i;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 

@@ -62,6 +62,39 @@ type McpClient = {
   close(): Promise<void>;
 };
 
+/**
+ * Tools that can safely be called twice.
+ *
+ * A reconnect retry replays the request, so anything that starts work must not
+ * be on this list: a `wangp_generate` whose response was lost has still queued
+ * a generation, and replaying it would submit a second one.
+ */
+const IDEMPOTENT_TOOLS = new Set([
+  "wangp_list_models",
+  "wangp_get_model_metadata",
+  "wangp_get_model_availability",
+  "wangp_get_default_settings",
+  "wangp_get_model_schema",
+  "wangp_get_job",
+  "wangp_list_lora_presets",
+  "wangp_list_loras",
+  "wangp_get_loras",
+]);
+
+/**
+ * A failure of the connection itself rather than of the tool.
+ *
+ * `fetch failed` is what undici reports for a dropped socket, and it is the
+ * shape a long batch actually hits: the MCP session outlives an hour of
+ * generation and then goes away underneath us.
+ */
+function isTransportFailure(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return /fetch failed|econnreset|econnrefused|etimedout|epipe|socket hang up|network|terminated|not connected|closed/i.test(
+    message,
+  );
+}
+
 export class WangpMcpTransport {
   private client?: McpClient;
   private connecting?: Promise<McpClient>;
@@ -90,13 +123,45 @@ export class WangpMcpTransport {
     return this.connecting;
   }
 
+  /**
+   * Throw away the cached client so the next call dials again.
+   *
+   * Without this a single dropped socket is permanent: every later call reuses
+   * the dead client and fails with the same `fetch failed`, which is how one
+   * network blip ended a batch that still had four hours of work queued.
+   */
+  private discard(): void {
+    const dead = this.client;
+    this.client = undefined;
+    this.toolNames = undefined;
+    void dead?.close().catch(() => undefined);
+  }
+
   async ping(): Promise<{ connected: boolean; version?: string }> {
-    const client = await this.connect();
-    return { connected: true, version: client.getServerVersion()?.version };
+    try {
+      const client = await this.connect();
+      return { connected: true, version: client.getServerVersion()?.version };
+    } catch (err) {
+      if (isTransportFailure(err)) this.discard();
+      throw err;
+    }
   }
 
   async call(toolName: string, args: Record<string, unknown> = {}): Promise<unknown> {
     if (!ALLOWED_TOOLS.has(toolName)) throw new Error(`WanGP tool ${toolName} is not allowed.`);
+    try {
+      return await this.invoke(toolName, args);
+    } catch (err) {
+      if (!isTransportFailure(err)) throw err;
+      this.discard();
+      // Reconnecting costs one round trip and rescues the common case, but only
+      // where replaying the request cannot start a second generation.
+      if (!IDEMPOTENT_TOOLS.has(toolName)) throw err;
+      return this.invoke(toolName, args);
+    }
+  }
+
+  private async invoke(toolName: string, args: Record<string, unknown>): Promise<unknown> {
     const client = await this.connect();
     const result = toolResultSchema.parse(await client.callTool({ name: toolName, arguments: args }));
 

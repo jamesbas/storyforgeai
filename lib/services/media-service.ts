@@ -399,7 +399,10 @@ export async function generateProjectMediaPhased(
   const swapSubject = faceSwapSubject(await resolveProjectCast(record.project));
 
   /** Rendered frame paths per scene, rewritten in place as phases progress. */
-  const frames = new Map<string, { start?: string; end?: string; startId?: string; endId?: string }>();
+  const frames = new Map<
+    string,
+    { start?: string; end?: string; startId?: string; endId?: string; attemptId?: string }
+  >();
 
   // ---- Phase 1: every keyframe, on the image model -------------------------
   hooks.onPhase?.("keyframes");
@@ -408,39 +411,50 @@ export async function generateProjectMediaPhased(
   for (const scene of scenes) {
     if (hooks.shouldCancel?.()) return;
 
-    // Reusing the previous end frame is what makes a seam match exactly; it also
-    // means most scenes render one keyframe rather than two.
-    const inherited = mode === "reuse_end_frame" ? previousEnd : undefined;
-    let startPath = inherited;
-    let startId: string | undefined;
+    try {
+      // Reusing the previous end frame is what makes a seam match exactly; it also
+      // means most scenes render one keyframe rather than two.
+      const inherited = mode === "reuse_end_frame" ? previousEnd : undefined;
+      let startPath = inherited;
+      let startId: string | undefined;
 
-    if (!startPath) {
-      const rendered = await run(() =>
-        renderKeyframe(record, scene, "start_frame", scene.prompts.startFramePrompt, castRefs, [], null),
+      if (!startPath) {
+        const rendered = await run(() =>
+          renderKeyframe(record, scene, "start_frame", scene.prompts.startFramePrompt, castRefs, [], null),
+        );
+        startPath = rendered.path;
+        startId = rendered.id;
+      }
+
+      const conditionOnStart = config.media.endFrameReferencesStartFrame && Boolean(startPath);
+      const matchInstruction = inherited
+        ? " The character's wardrobe, hair and styling are exactly as in the supplied reference frame; identical clothing. Follow this scene's own description for location, framing and action."
+        : " Wardrobe, hair, styling, location and lighting exactly as in the supplied reference frame; identical clothing.";
+
+      const endRender = await run(() =>
+        renderKeyframe(
+          record,
+          scene,
+          "end_frame",
+          conditionOnStart ? `${scene.prompts.endFramePrompt}${matchInstruction}` : scene.prompts.endFramePrompt,
+          castRefs,
+          conditionOnStart ? [startPath!] : [],
+          null,
+        ),
       );
-      startPath = rendered.path;
-      startId = rendered.id;
+
+      frames.set(scene.id, { start: startPath, end: endRender.path, startId, endId: endRender.id });
+      previousEnd = endRender.path;
+    } catch (err) {
+      // Same reasoning as the clip phase: one scene must not cost the rest. The
+      // chain resets so the next scene renders its own start frame rather than
+      // inheriting a frame that was never produced.
+      previousEnd = undefined;
+      hooks.onSceneFailed?.(
+        scene.id,
+        err instanceof Error ? err.message : "Keyframe generation failed",
+      );
     }
-
-    const conditionOnStart = config.media.endFrameReferencesStartFrame && Boolean(startPath);
-    const matchInstruction = inherited
-      ? " The character's wardrobe, hair and styling are exactly as in the supplied reference frame; identical clothing. Follow this scene's own description for location, framing and action."
-      : " Wardrobe, hair, styling, location and lighting exactly as in the supplied reference frame; identical clothing.";
-
-    const endRender = await run(() =>
-      renderKeyframe(
-        record,
-        scene,
-        "end_frame",
-        conditionOnStart ? `${scene.prompts.endFramePrompt}${matchInstruction}` : scene.prompts.endFramePrompt,
-        castRefs,
-        conditionOnStart ? [startPath!] : [],
-        null,
-      ),
-    );
-
-    frames.set(scene.id, { start: startPath, end: endRender.path, startId, endId: endRender.id });
-    previousEnd = endRender.path;
   }
 
   // ---- Phase 2: swap every distinct frame, on the edit model ---------------
@@ -468,6 +482,35 @@ export async function generateProjectMediaPhased(
       const end = entry.end ? swapped.get(entry.end) : undefined;
       frames.set(sceneId, { ...entry, start, end });
     }
+  }
+
+  // Bank the frames before any video work starts.
+  //
+  // Phase 1 is hours of GPU time on a full storyboard, and until this point it
+  // lived only in the `frames` map — a dropped connection during phase 3 threw
+  // every rendered keyframe away. Writing them as attempts now means a batch
+  // that dies later leaves its images attached to their scenes, and phase 3
+  // completes those attempts in place rather than opening new ones.
+  for (const [sceneId, entry] of frames) {
+    if (hooks.shouldCancel?.()) return;
+    if (!entry.start && !entry.end) continue;
+    const scene = scenes.find((s) => s.id === sceneId);
+    if (!scene) continue;
+
+    record = await getProjectRecord(projectId);
+    const existing = record.attempts?.[sceneId] ?? [];
+    const attempt: SceneAttempt = {
+      id: randomUUID(),
+      sceneId,
+      attemptNumber: existing.length + 1,
+      startImagePath: entry.start,
+      endImagePath: entry.end,
+      settingsIds: [entry.startId, entry.endId].filter((id): id is string => id !== undefined),
+      approved: false,
+      createdAt: new Date().toISOString(),
+    };
+    record = await persistAttempt(projectId, scene, attempt, existing, record);
+    frames.set(sceneId, { ...entry, attemptId: attempt.id });
   }
 
   // ---- Phase 3: every clip, on the video model -----------------------------
@@ -500,22 +543,13 @@ export async function generateProjectMediaPhased(
         : undefined;
 
       record = await getProjectRecord(projectId);
-      const existing = record.attempts?.[scene.id] ?? [];
-      const attempt: SceneAttempt = {
-        id: randomUUID(),
-        sceneId: scene.id,
-        attemptNumber: existing.length + 1,
-        startImagePath: entry.start,
-        endImagePath: entry.end,
+      const attempt = await completeAttempt(projectId, scene, record, {
+        attemptId: entry.attemptId,
         videoPath: videoJob?.generatedFiles[0],
-        settingsIds: [entry.startId, entry.endId, videoManifest?.id].filter(
-          (id): id is string => id !== undefined,
-        ),
-        approved: false,
-        createdAt: new Date().toISOString(),
-      };
-
-      record = await persistAttempt(projectId, scene, attempt, existing, record);
+        videoSettingsId: videoManifest?.id,
+        frames: entry,
+      });
+      record = await getProjectRecord(projectId);
       scored.push({ scene, attempt });
       hooks.onSceneComplete?.(scene.id);
     } catch (err) {
@@ -534,6 +568,65 @@ export async function generateProjectMediaPhased(
       await scoreAttempt(projectId, scene, attempt, stages.video);
     }
   }
+}
+
+/**
+ * Attach a clip to the keyframe-only attempt phase 1 banked, or open a new one.
+ *
+ * Updating in place matters for more than tidiness: the banked attempt is what
+ * the storyboard already shows for that scene, and appending a second one would
+ * leave the frames-only entry sitting in the history as if it were a discarded
+ * take.
+ */
+async function completeAttempt(
+  projectId: string,
+  scene: Scene,
+  record: ProjectRecord,
+  args: {
+    attemptId?: string;
+    videoPath?: string;
+    videoSettingsId?: string;
+    frames: { start?: string; end?: string; startId?: string; endId?: string };
+  },
+): Promise<SceneAttempt> {
+  const existing = record.attempts?.[scene.id] ?? [];
+  const banked = args.attemptId ? existing.find((a) => a.id === args.attemptId) : undefined;
+
+  if (banked) {
+    const completed: SceneAttempt = {
+      ...banked,
+      videoPath: args.videoPath,
+      settingsIds: [...banked.settingsIds, args.videoSettingsId].filter(
+        (id): id is string => id !== undefined,
+      ),
+    };
+    const updated: ProjectRecord = {
+      ...record,
+      attempts: {
+        ...(record.attempts ?? {}),
+        [scene.id]: existing.map((a) => (a.id === banked.id ? completed : a)),
+      },
+      project: { ...record.project, status: "generating", updatedAt: new Date().toISOString() },
+    };
+    await repository.update(projectId, updated);
+    return completed;
+  }
+
+  const attempt: SceneAttempt = {
+    id: randomUUID(),
+    sceneId: scene.id,
+    attemptNumber: existing.length + 1,
+    startImagePath: args.frames.start,
+    endImagePath: args.frames.end,
+    videoPath: args.videoPath,
+    settingsIds: [args.frames.startId, args.frames.endId, args.videoSettingsId].filter(
+      (id): id is string => id !== undefined,
+    ),
+    approved: false,
+    createdAt: new Date().toISOString(),
+  };
+  await persistAttempt(projectId, scene, attempt, existing, record);
+  return attempt;
 }
 
 /**

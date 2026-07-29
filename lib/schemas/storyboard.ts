@@ -27,7 +27,8 @@ export const scenePromptsSchema = z.object({
    */
   videoPromptSegment: z.string(),
   videoNegativePrompt: z.string(),
-  promptQualityChecklist: z.array(z.string()),
+  /** Advisory review notes; defaulted for the same reason as continuityNotes. */
+  promptQualityChecklist: z.array(z.string()).default([]),
 });
 export type ScenePrompts = z.infer<typeof scenePromptsSchema>;
 
@@ -68,7 +69,13 @@ export const sceneSchema = z.object({
   cameraMovement: z.string(),
   transitionIn: z.string(),
   transitionOut: z.string(),
-  continuityNotes: z.array(z.string()),
+  /**
+   * Defaulted rather than required: a model that wrote fifteen good scenes but
+   * omitted this on three of them had the whole storyboard rejected, costing a
+   * full replanning pass. The notes are advisory, so an empty list is a fair
+   * reading of "nothing to carry".
+   */
+  continuityNotes: z.array(z.string()).default([]),
   narrationText: z.string().optional(),
   dialogue: z.array(dialogueLineSchema).optional(),
   musicNotes: z.string().optional(),
