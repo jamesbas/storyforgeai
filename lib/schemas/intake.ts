@@ -37,7 +37,7 @@ export const createProjectSchema = z.object({
   dialogueRequired: z.boolean().default(false),
   musicRequired: z.boolean().default(false),
   sfxRequired: z.boolean().default(false),
-  generationMode: z.enum(GENERATION_MODES).default("storyboard_only"),
+  generationMode: z.enum(GENERATION_MODES).default("video_segments"),
   modelStrategy: z.enum(MODEL_STRATEGIES).default("auto"),
   imageModel: z.string().optional(),
   videoModel: z.string().optional(),
@@ -60,6 +60,11 @@ export const createProjectSchema = z.object({
 export const updateProjectModelsSchema = z.object({
   imageModel: z.string().nullable().optional(),
   videoModel: z.string().nullable().optional(),
+  /**
+   * How far the pipeline is allowed to run. Editable because the answer changes
+   * as a project matures — you plan first, then decide to render.
+   */
+  generationMode: z.enum(GENERATION_MODES).optional(),
   /**
    * Continuity affects only scenes generated from here on, so like the model
    * pins it stays editable for the life of the project.

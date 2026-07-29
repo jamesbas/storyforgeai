@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 test("create a project, generate a storyboard, and export", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/projects/new");
 
   await page.getByLabel(/concept/i).fill("A lighthouse keeper befriends a passing storm.");
   await page.getByLabel(/duration/i).fill("60");

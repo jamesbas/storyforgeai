@@ -18,6 +18,35 @@ export const GENERATION_MODES = [
 ] as const;
 export type GenerationMode = (typeof GENERATION_MODES)[number];
 
+/**
+ * What each generation mode permits.
+ *
+ * The modes are cumulative stages of one pipeline, so this is the single place
+ * that decides how far a project is allowed to run. Enforced in the services
+ * rather than only hidden in the UI: a mode that merely greys out a button is
+ * a suggestion, and the API is reachable without it.
+ *
+ * Assembly rides with video rather than being reserved for `full_auto`. It is a
+ * manual step over clips that already exist, so forbidding it would only strand
+ * a project that had finished rendering. What `full_auto` adds is that nobody
+ * has to press start.
+ */
+export function generationStages(mode: GenerationMode): {
+  keyframes: boolean;
+  video: boolean;
+  assembly: boolean;
+  /** Whether generating the storyboard should start the media queue by itself. */
+  autoStart: boolean;
+} {
+  const video = mode === "video_segments" || mode === "full_auto";
+  return {
+    keyframes: mode !== "storyboard_only",
+    video,
+    assembly: video,
+    autoStart: mode === "full_auto",
+  };
+}
+
 export const MODEL_STRATEGIES = [
   "auto",
   "prefer_wan",

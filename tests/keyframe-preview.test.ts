@@ -8,6 +8,8 @@ import {
 } from "@/lib/services/media-service";
 import { createProject, generateStoryboard } from "@/lib/services/project-service";
 import { encodeMediaRef, parseMediaRef, resolveMediaPath } from "@/lib/media/refs";
+import { MockWangpClient } from "@/lib/wangp/mock-client";
+import { setWangpClient } from "@/lib/wangp/factory";
 import { config } from "@/lib/config";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 
@@ -58,6 +60,34 @@ describe("pinned scene seeds", () => {
     const next = await generateSceneKeyframe(project.project.id, scene.id, "start_frame");
     expect(next.project.sceneSeeds?.[scene.id]).toBeTypeOf("number");
     expect(next.project.sceneSeeds?.[scene.id]).not.toBe(pinned);
+  });
+
+  /**
+   * The regression this guards: both keyframes sampled the scene's one pinned
+   * seed, and since they share a prompt skeleton — and the end frame is rendered
+   * with the start frame as a reference — the pair came back as the same picture.
+   */
+  it("samples the two keyframes at different seeds", async () => {
+    class SeedRecordingClient extends MockWangpClient {
+      readonly seeds: unknown[] = [];
+      async generate(settings: Record<string, unknown>) {
+        this.seeds.push(settings.seed);
+        return super.generate(settings);
+      }
+    }
+    const client = new SeedRecordingClient();
+    setWangpClient(client);
+
+    const project = await seeded();
+    const scene = sceneOf(project);
+    await generateSceneKeyframe(project.project.id, scene.id, "start_frame");
+    await generateSceneKeyframe(project.project.id, scene.id, "end_frame");
+
+    expect(client.seeds).toHaveLength(2);
+    expect(client.seeds[0]).toBeTypeOf("number");
+    expect(client.seeds[1]).not.toBe(client.seeds[0]);
+
+    setWangpClient(new MockWangpClient());
   });
 });
 

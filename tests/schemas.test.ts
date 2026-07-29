@@ -9,7 +9,7 @@ describe("createProjectSchema", () => {
       requestedDurationSeconds: 60,
     });
     expect(parsed.aspectRatio).toBe("16:9");
-    expect(parsed.generationMode).toBe("storyboard_only");
+    expect(parsed.generationMode).toBe("video_segments");
     expect(parsed.creativeMode).toBe("film_short");
     expect(parsed.narrationRequired).toBe(false);
   });

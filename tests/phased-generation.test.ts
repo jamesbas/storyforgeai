@@ -122,23 +122,43 @@ describe("running a phased batch", () => {
       onPhase: (phase) => phases.push(phase),
     });
 
-    expect(phases).toEqual(["keyframes", "face_swap", "video"]);
+    expect(phases).toEqual(["keyframes", "face_swap", "video", "qc"]);
   });
 
-  /** Keyframes are persisted as previews so the storyboard fills in early. */
-  it("shows keyframes before any clip exists", async () => {
+  /**
+   * A preview is something the user asks for. Writing the batch's intermediate
+   * keyframes into the preview map filled every scene card with stills nobody
+   * requested, and left them there long after the clips landed.
+   */
+  it("leaves no keyframe previews behind", async () => {
     const seeded = await project({ faceSwap: true });
-    let previewsAtSwap = 0;
+
+    await generateProjectMediaPhased(seeded.project.id, sceneIdsOf(seeded));
+
+    const record = await getProjectRecord(seeded.project.id);
+    expect(Object.keys(record.previews ?? {})).toEqual([]);
+  });
+
+  /**
+   * QC is an LLM round-trip, and answering it pulls the planning model back onto
+   * the GPU the batch deliberately cleared. Scoring between clips is what
+   * starved the next video render of VRAM mid-run.
+   */
+  it("scores nothing until every clip is rendered", async () => {
+    const seeded = await project({ faceSwap: true });
+    let scoredAtQc = 0;
 
     await generateProjectMediaPhased(seeded.project.id, sceneIdsOf(seeded), {
       onPhase: async (phase) => {
-        if (phase !== "video") return;
+        if (phase !== "qc") return;
         const record = await getProjectRecord(seeded.project.id);
-        previewsAtSwap = Object.keys(record.previews ?? {}).length;
+        scoredAtQc = Object.values(record.attempts ?? {})
+          .flat()
+          .filter((attempt) => attempt.qcResult).length;
       },
     });
 
-    expect(previewsAtSwap).toBe(sceneIdsOf(seeded).length);
+    expect(scoredAtQc).toBe(0);
   });
 
   it("stops at the next boundary when cancelled", async () => {
@@ -169,5 +189,37 @@ describe("running a phased batch", () => {
 
     // One start frame, an end frame per scene, and a clip per scene.
     expect(calls).toBeGreaterThanOrEqual(sceneIdsOf(seeded).length * 2);
+  });
+
+  /**
+   * The regression this guards: a clip that failed on scene 3 abandoned scenes 4
+   * onward, throwing away keyframes already rendered and models already loaded.
+   */
+  it("carries on after a clip fails", async () => {
+    const seeded = await project({ faceSwap: true });
+    const sceneIds = sceneIdsOf(seeded);
+    const completed: string[] = [];
+    const failed: string[] = [];
+
+    let renderingClips = false;
+    let clip = 0;
+
+    await generateProjectMediaPhased(seeded.project.id, sceneIds, {
+      onPhase: (phase) => {
+        renderingClips = phase === "video";
+      },
+      runStep: async (step) => {
+        if (renderingClips) {
+          clip += 1;
+          if (clip === 1) throw new Error("CUDA out of memory");
+        }
+        return step();
+      },
+      onSceneComplete: (sceneId) => completed.push(sceneId),
+      onSceneFailed: (sceneId) => failed.push(sceneId),
+    });
+
+    expect(failed).toEqual([sceneIds[0]]);
+    expect(completed).toEqual(sceneIds.slice(1));
   });
 });

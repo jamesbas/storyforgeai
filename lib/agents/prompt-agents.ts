@@ -2,6 +2,7 @@ import { z } from "zod";
 import { scenePromptsSchema, type Scene, type SceneDraft } from "@/lib/schemas/storyboard";
 import { buildImagePrompts, buildVideoPrompts } from "@/lib/agents/mock-agents";
 import { castNegativeSuffix, castPromptSuffix, castSystemDirective } from "@/lib/agents/cast";
+import { lookPromptSuffix } from "@/lib/agents/look";
 import {
   continuityNegativeSuffix,
   precedenceDirective,
@@ -30,10 +31,13 @@ export const IMAGE_PROMPT_SYSTEM =
   // produced black trousers in one frame and blue jeans in the next.
   " The start and end frame are the same moment seconds apart: every character must wear " +
   "identical clothing in both, and the location, lighting and time of day must match. " +
-  "State the wardrobe as specific named garments with colours and materials — never a vague " +
-  "placeholder such as 'casual attire', 'contemporary clothing' or 'appropriate outfit' — and " +
-  "repeat that same wardrobe wording verbatim in both prompts. Only framing, pose and action " +
-  "may differ between them.";
+  "For any character who is not in the supplied cast, state the wardrobe as specific named " +
+  "garments with colours and materials — never a vague placeholder such as 'casual attire', " +
+  "'contemporary clothing' or 'appropriate outfit' — and repeat that same wardrobe wording " +
+  "verbatim in both prompts. Only framing, pose and action may differ between them. " +
+  // Same reasoning as the cast sheet: the look is appended verbatim, so a
+  // second mention only doubles the term's weight in the render.
+  "Do not restate the project's style or tone; both are appended to every prompt automatically.";
 
 export const videoPromptSystem = (segmentSeconds: number) =>
   "You are the Video Prompt Agent. For each scene, create a WanGP-ready prompt for a " +
@@ -101,19 +105,19 @@ export async function attachScenePrompts(
         forbiddenContradictions: plans?.worldBible?.forbiddenContradictions,
       });
       const image = await provider.generateJson(
-        IMAGE_PROMPT_SYSTEM + castSystemDirective(cast) + precedenceDirective(cast, plans),
+        IMAGE_PROMPT_SYSTEM + castSystemDirective(cast, true) + precedenceDirective(cast, plans),
         user,
         imagePartSchema,
       );
-      if (image) imagePart = withCastEnforced(image, cast, plans);
+      if (image) imagePart = withCastEnforced(image, cast, plans, project);
       const video = await provider.generateJson(
         videoPromptSystem(project.segmentSeconds) +
-          castSystemDirective(cast) +
+          castSystemDirective(cast, true) +
           precedenceDirective(cast, plans),
         user,
         videoPartSchema,
       );
-      if (video) videoPart = withCastEnforcedVideo(video, cast, plans);
+      if (video) videoPart = withCastEnforcedVideo(video, cast, plans, project);
     }
 
     scenes.push({ ...draft, prompts: { ...imagePart, ...videoPart } });
@@ -125,24 +129,26 @@ type ImagePart = z.infer<typeof imagePartSchema>;
 type VideoPart = z.infer<typeof videoPartSchema>;
 
 /**
- * Re-append the cast sheet and world-continuity constraints to model-authored
- * prompts.
+ * Re-append the look, the cast sheet and world-continuity constraints to
+ * model-authored prompts.
  *
  * Each scene is rendered as an independent job, so a description the model
- * summarised away in scene 3 is a face that changes on screen. Appending the
- * canonical text costs a few tokens and removes that failure mode.
+ * summarised away in scene 3 is a face that changes on screen. The same holds
+ * for the project's style and tone: left to the model, they landed in some
+ * scenes' prompts and not others, and the look drifted across the cut.
+ * Appending the canonical text costs a few tokens and removes both failures.
  */
 function withCastEnforced(
   part: ImagePart,
   cast: readonly Character[],
   plans: CreativePlans | undefined,
+  project: Project,
 ): ImagePart {
   const suffix = castPromptSuffix(cast);
-  const negative = `${castNegativeSuffix(cast)}${continuityNegativeSuffix(plans)}`;
-  if (!suffix && !negative) return part;
+  const negative = `${castNegativeSuffix(cast, part.imageNegativePrompt)}${continuityNegativeSuffix(plans)}`;
   return {
-    startFramePrompt: `${part.startFramePrompt}${suffix}`,
-    endFramePrompt: `${part.endFramePrompt}${suffix}`,
+    startFramePrompt: `${part.startFramePrompt}${lookPromptSuffix(project, part.startFramePrompt)}${suffix}`,
+    endFramePrompt: `${part.endFramePrompt}${lookPromptSuffix(project, part.endFramePrompt)}${suffix}`,
     imageNegativePrompt: `${part.imageNegativePrompt}${negative}`,
   };
 }
@@ -151,13 +157,13 @@ function withCastEnforcedVideo(
   part: VideoPart,
   cast: readonly Character[],
   plans: CreativePlans | undefined,
+  project: Project,
 ): VideoPart {
   const suffix = castPromptSuffix(cast);
-  const negative = `${castNegativeSuffix(cast)}${continuityNegativeSuffix(plans)}`;
-  if (!suffix && !negative) return part;
+  const negative = `${castNegativeSuffix(cast, part.videoNegativePrompt)}${continuityNegativeSuffix(plans)}`;
   return {
     ...part,
-    videoPromptSegment: `${part.videoPromptSegment}${suffix}`,
+    videoPromptSegment: `${part.videoPromptSegment}${lookPromptSuffix(project, part.videoPromptSegment)}${suffix}`,
     videoNegativePrompt: `${part.videoNegativePrompt}${negative}`,
   };
 }

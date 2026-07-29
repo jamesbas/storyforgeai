@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 test("generation console lists WanGP models and runs a job", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/projects/new");
   await page.getByLabel(/concept/i).fill("A drone races through a canyon.");
   await page.getByLabel(/duration/i).fill("40");
   await page.getByRole("button", { name: /create storyboard/i }).click();

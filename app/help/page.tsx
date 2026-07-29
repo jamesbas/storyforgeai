@@ -180,24 +180,35 @@ export default function HelpPage() {
 
           <h3 className={h3}>Style</h3>
           <p className={p}>
-            The visual look. This one reaches generation directly: it is appended to every start and
-            end frame prompt and to every video prompt as{" "}
-            <code>&quot;&lt;style&gt; style, &lt;tone&gt; mood&quot;</code>. Pick <em>Custom…</em> to
-            type your own wording — it is used verbatim.
+            The visual look. It reaches generation directly: <code>&quot;&lt;style&gt; style&quot;</code>{" "}
+            is appended to every start-frame, end-frame and video prompt after the prompt agent has
+            written it, so it lands whether or not the agent thought to mention it. A term the
+            prompt already contains is not repeated — a duplicated word in a diffusion prompt
+            carries double the weight. Pick <em>Custom…</em> to type your own wording; it is used
+            verbatim.
           </p>
           <OptionList options={STYLE_PRESETS} />
 
           <h3 className={h3}>Tone</h3>
           <p className={p}>
-            The emotional register. Also appended to every image and video prompt, and additionally
-            used to write the music cue prompts and the narrator voice profile.
+            The emotional register, appended alongside the style as{" "}
+            <code>&quot;&lt;tone&gt; mood&quot;</code>. Also used to write the music cue prompts and
+            the narrator voice profile.
           </p>
           <OptionList options={TONE_PRESETS} />
 
           <h3 className={h3}>Audience</h3>
           <p className={p}>
             Who the piece is for. Shapes vocabulary, pacing and content limits in the creative brief
-            and the story arc, and is carried into the frame prompts so the framing suits the viewer.
+            and the story arc, and is appended to each render prompt as{" "}
+            <code>&quot;Intended audience: …&quot;</code>.
+          </p>
+          <p className={p}>
+            StoryForgeAI applies no content filtering of its own — there is no moderation step, no
+            blocklist and no age gate anywhere in the pipeline. What you can actually produce is
+            decided by the planning model you have configured and by the licence of each WanGP model
+            you generate with; several carry their own restrictions. Setting an adult audience tells
+            the planning agents not to soften the material, nothing more.
           </p>
           <OptionList options={AUDIENCE_PRESETS} />
 
@@ -205,9 +216,21 @@ export default function HelpPage() {
           <DocList docs={RESOLUTION_DOCS} />
 
           <h3 className={h3}>Creative mode</h3>
+          <p className={p}>
+            The format you are making. Its definition below is handed to the Story Architect and
+            Storyboard agents as a hard instruction, so it shapes act structure, pacing and shot
+            selection — a microdrama gets a cliffhanger per scene where a film short gets a
+            three-act shape.
+          </p>
           <DocList docs={CREATIVE_MODE_DOCS} />
 
           <h3 className={h3}>Generation mode</h3>
+          <p className={p}>
+            How far the pipeline is allowed to run. It is a ceiling, enforced in the services rather
+            than only in the buttons: a mode that renders no video never loads the video model.
+            Editable at any time from the <strong>Storyboard</strong> screen, so you can plan first
+            and decide to render later.
+          </p>
           <DocList docs={GENERATION_MODE_DOCS} />
 
           <h3 className={h3}>Narration, dialogue, music &amp; SFX</h3>
@@ -418,7 +441,7 @@ export default function HelpPage() {
           <h2 className={h2}>5. Quick start</h2>
           <ol className="mt-2 list-decimal space-y-2 pl-5">
             <li className={li}>
-              Open <strong>New Project</strong> (the home page). Enter a concept and a duration, then
+              Open <strong>New project</strong> from the header. Enter a concept and a duration, then
               click <em>Create Storyboard</em>.
             </li>
             <li className={li}>
@@ -445,7 +468,7 @@ export default function HelpPage() {
           <Anchor id="workflow" />
           <h2 className={h2}>6. The end-to-end workflow</h2>
           <ol className="mt-2 list-decimal space-y-2 pl-5">
-            <li className={li}><strong>New Project</strong> — describe the idea and settings.</li>
+            <li className={li}><strong>New project</strong> — describe the idea and settings.</li>
             <li className={li}><strong>Variant Review</strong> (optional) — generate 3 creative directions and select one.</li>
             <li className={li}><strong>Storyboard</strong> — generate the brief, visual bible, and 20s scene cards; edit and approve.</li>
             <li className={li}><strong>Agentic Canvas</strong> — run the World Builder, Director, Cinematographer, Art Director, and Audio Director; review each artifact.</li>
@@ -466,7 +489,14 @@ export default function HelpPage() {
           <Anchor id="pages" />
           <h2 className={h2}>7. Every screen explained</h2>
 
-          <h3 className={h3}>New Project (home)</h3>
+          <h3 className={h3}>Home</h3>
+          <p className={p}>
+            What StoryForgeAI is, the four stages of the pipeline, and the projects you touched most
+            recently. Use <strong>Projects</strong> in the header to see every project; the tab stays
+            highlighted while you are inside one, so it is always the way back.
+          </p>
+
+          <h3 className={h3}>New project</h3>
           <p className={p}>
             Collects your concept, duration, clip length, aspect ratio, resolution, style, tone,
             audience, creative mode, generation mode, the narration/dialogue/music/SFX toggles, and
@@ -478,11 +508,10 @@ export default function HelpPage() {
             <a href="#fields" className="text-accent hover:underline">
               field reference
             </a>
-            . Also lists your recent projects. Submitting creates the project and opens its
-            storyboard.
+            . Submitting creates the project and opens its storyboard.
           </p>
           <p className={p}>
-            <strong>Deleting a project.</strong> Hover a project in the recent list and use the{" "}
+            <strong>Deleting a project.</strong> Hover a project on the Projects screen and use the{" "}
             <span aria-hidden>✕</span> to remove it. You are asked to confirm first, and the
             deletion cannot be undone — the storyboard, prompts, attempts and history all go.
             Generated images and video are removed with it by default, since once the project is

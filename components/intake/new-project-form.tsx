@@ -38,7 +38,7 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
   const [audience, setAudience] = useState("general audience");
   const [creativeMode, setCreativeMode] = useState<(typeof CREATIVE_MODES)[number]>("film_short");
   const [generationMode, setGenerationMode] =
-    useState<(typeof GENERATION_MODES)[number]>("storyboard_only");
+    useState<(typeof GENERATION_MODES)[number]>("video_segments");
   const [narrationRequired, setNarration] = useState(false);
   const [dialogueRequired, setDialogue] = useState(false);
   const [musicRequired, setMusic] = useState(false);

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { sceneDraftSchema, type SceneDraft } from "@/lib/schemas/storyboard";
 import { buildSceneDrafts } from "@/lib/agents/mock-agents";
 import { castSystemDirective } from "@/lib/agents/cast";
+import { creativeModeDirective } from "@/lib/agents/look";
 import { planningPayload, precedenceDirective } from "@/lib/agents/creative-context";
 import { SEGMENT_SECONDS } from "@/lib/types";
 import type { AgentContext } from "@/lib/agents/types";
@@ -43,6 +44,7 @@ export async function storyboardAgent(
     });
     const result = await provider.generateJson(
       storyboardSystem(ctx.project.segmentSeconds) +
+        creativeModeDirective(ctx.project) +
         castSystemDirective(cast) +
         precedenceDirective(cast, ctx.plans),
       user,

@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 test("approve scene media then assemble a rough cut with Deepy inspection", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/projects/new");
   await page.getByLabel(/concept/i).fill("A comet streaks over a village.");
   await page.getByLabel(/duration/i).fill("20");
   await page.getByRole("button", { name: /create storyboard/i }).click();

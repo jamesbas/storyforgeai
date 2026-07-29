@@ -2,6 +2,7 @@ import { generateSceneMedia, canRunPhased, generateProjectMediaPhased } from "@/
 import type { PhaseName } from "@/lib/services/media-service";
 import { getProjectRecord } from "@/lib/services/project-service";
 import { getLlmRuntimeStatus, unloadPlanningModel } from "@/lib/services/llm-runtime-service";
+import { generationStages } from "@/lib/types";
 import { config } from "@/lib/config";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
@@ -83,6 +84,12 @@ export async function enqueueProjectScenes(
 ): Promise<SceneQueueEntry[]> {
   const record = await getProjectRecord(projectId);
   if (!record.storyboard) throw new ValidationError("Generate a storyboard before media");
+  if (!generationStages(record.project.generationMode).keyframes) {
+    throw new ValidationError(
+      "This project's generation mode is Storyboard only, so no media is rendered. " +
+        "Change it on the Storyboard screen to render keyframes or clips.",
+    );
+  }
 
   const state = store();
   const alreadyQueued = new Set(
@@ -245,6 +252,14 @@ async function drainPhased(projectId: string, pending: SceneQueueEntry[]): Promi
         entry.phase = undefined;
         entry.finishedAt = new Date().toISOString();
       },
+      onSceneFailed: (sceneId, error) => {
+        const entry = pending.find((e) => e.sceneId === sceneId);
+        if (!entry) return;
+        entry.state = "failed";
+        entry.error = error;
+        entry.phase = undefined;
+        entry.finishedAt = new Date().toISOString();
+      },
     });
 
     // A cancelled or short-circuited run leaves scenes still marked running.
@@ -309,6 +324,10 @@ async function drain(): Promise<void> {
       if (!firstScene && config.sceneQueue.settleDelayMs > 0) {
         await sleep(config.sceneQueue.settleDelayMs);
       }
+      // Not only on the first scene: QC at the end of every scene is an LLM
+      // round-trip, so the planning model is back on the card by the time the
+      // next scene wants it. Clearing once at enqueue only helped scene one.
+      if (!firstScene) await freeGpuForGeneration();
       firstScene = false;
 
       next.state = "running";

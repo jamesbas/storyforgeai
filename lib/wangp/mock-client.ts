@@ -134,6 +134,9 @@ function defaultSettingsFor(model: WangpModel): WangpModelSchema {
         negative_prompt: "",
         resolution: "1280x720",
         num_inference_steps: 20,
+        // -1 is WanGP's "pick one for me". Present so demo mode exercises the
+        // seed-pinning branch that keeps a preview predicting its keyframe.
+        seed: -1,
         ...(acceptsRefs ? { video_prompt_type: "" } : {}),
       },
       fields: [
@@ -141,6 +144,7 @@ function defaultSettingsFor(model: WangpModel): WangpModelSchema {
         { name: "negative_prompt", type: "string" },
         { name: "resolution", type: "string", allowed: ["1280x720", "1024x1024", "720x1280"] },
         { name: "num_inference_steps", type: "number" },
+        { name: "seed", type: "number" },
         ...(acceptsRefs
           ? [
               { name: "image_refs", type: "array" },

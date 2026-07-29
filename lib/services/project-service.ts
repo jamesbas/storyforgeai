@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createProjectSchema, updateProjectModelsSchema } from "@/lib/schemas/intake";
 import { computeSegmentation } from "@/lib/duration";
-import { DEFAULT_SCENE_CONTINUITY } from "@/lib/types";
+import { DEFAULT_SCENE_CONTINUITY, generationStages } from "@/lib/types";
 import {
   pruneSceneLoras,
   pruneSelectionSet,
@@ -142,6 +142,7 @@ export async function updateProjectModels(id: string, raw: unknown): Promise<Pro
       ...record.project,
       imageModel,
       videoModel,
+      generationMode: patch.generationMode ?? record.project.generationMode,
       sceneContinuity: patch.sceneContinuity ?? record.project.sceneContinuity,
       characterWardrobe: patch.characterWardrobe ?? record.project.characterWardrobe,
       loras,
@@ -203,7 +204,34 @@ export async function generateStoryboard(id: string): Promise<ProjectRecord> {
     history: appendHistory(record, "storyboard.generated", selectedVariant?.name),
   };
   await repository.update(id, updated);
+  await autoStartMedia(updated);
   return updated;
+}
+
+/**
+ * Queue the whole storyboard when the project asked for `full_auto`.
+ *
+ * This is the only thing that distinguishes full auto from video segments at
+ * plan time, and it is what the mode has always claimed to do. Failures are
+ * swallowed: the storyboard is generated either way, and the user can still
+ * press the button.
+ *
+ * Imported lazily because the scene queue reads projects back through this
+ * module, and a static import would close the cycle.
+ */
+async function autoStartMedia(record: ProjectRecord): Promise<void> {
+  if (!generationStages(record.project.generationMode).autoStart) return;
+  try {
+    const { enqueueProjectScenes } = await import("@/lib/services/scene-queue");
+    const queued = await enqueueProjectScenes(record.project.id);
+    logEvent("scene_queue.enqueued", {
+      projectId: record.project.id,
+      scenes: queued.length,
+      trigger: "full_auto",
+    });
+  } catch {
+    // Best effort. The storyboard is already saved and the button still works.
+  }
 }
 
 export async function generateVariants(id: string): Promise<ProjectRecord> {

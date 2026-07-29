@@ -1,5 +1,6 @@
 import { storyPlanSchema, type StoryPlan } from "@/lib/schemas/agents";
 import { buildStoryPlan } from "@/lib/agents/mock-agents";
+import { creativeModeDirective } from "@/lib/agents/look";
 import { SEGMENT_SECONDS } from "@/lib/types";
 import type { AgentContext } from "@/lib/agents/types";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
@@ -26,7 +27,7 @@ export async function storyArchitectAgent(
   if (provider) {
     const user = JSON.stringify({ project: ctx.project, brief: ctx.brief });
     const result = await provider.generateJson(
-      storyArchitectSystem(ctx.project.segmentSeconds),
+      storyArchitectSystem(ctx.project.segmentSeconds) + creativeModeDirective(ctx.project),
       user,
       storyPlanSchema,
     );

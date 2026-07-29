@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 
 test("generate scene media, display it, and approve the attempt", async ({ page }) => {
-  await page.goto("/");
+  await page.goto("/projects/new");
   await page.getByLabel(/concept/i).fill("A firefly lights a forest path.");
   await page.getByLabel(/duration/i).fill("20");
   await page.getByRole("button", { name: /create storyboard/i }).click();

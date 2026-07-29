@@ -116,6 +116,24 @@ export const STYLE_PRESETS: readonly PresetOption[] = [
     description:
       "Sparse frames, restrained palette and a single clear subject. Keeps attention on the idea, not the decor.",
   },
+  {
+    value: "boudoir photography",
+    label: "Boudoir photography",
+    description:
+      "Low-key intimate lighting, warm skin tones and shallow depth of field in a bedroom or private interior. A look, not a subject — pair with an adult tone and audience.",
+  },
+  {
+    value: "erotic art film",
+    label: "Erotic art film",
+    description:
+      "Arthouse eroticism: natural light, long takes, restrained grade and composed framing. Reads as cinema rather than as a shoot.",
+  },
+  {
+    value: "glamour photography",
+    label: "Glamour photography",
+    description:
+      "High-gloss beauty lighting with sculpted highlights and a polished finish. Flattering and deliberately posed.",
+  },
 ] as const;
 
 /**
@@ -197,6 +215,30 @@ export const TONE_PRESETS: readonly PresetOption[] = [
     description: "Warm remembrance. Golden light, softened detail, an implied past tense.",
   },
   {
+    value: "sensual",
+    label: "Sensual",
+    description:
+      "Slow and tactile. Lingering holds on texture, skin and breath; touch carries the scene rather than dialogue.",
+  },
+  {
+    value: "intimate",
+    label: "Intimate",
+    description:
+      "Close and unguarded. Tight framing, quiet sound, the sense of a private moment observed rather than staged.",
+  },
+  {
+    value: "erotic",
+    label: "Erotic",
+    description:
+      "Explicitly charged. Desire is the driving force of the scene and is stated rather than implied. Adult audiences only.",
+  },
+  {
+    value: "raw and carnal",
+    label: "Raw / carnal",
+    description:
+      "Urgent and unpolished. Physical, heavy-breathing intensity with handheld energy and no romantic softening. Adult audiences only.",
+  },
+  {
     value: "neutral",
     label: "Neutral",
     description:
@@ -238,6 +280,12 @@ export const AUDIENCE_PRESETS: readonly PresetOption[] = [
     label: "Adults",
     description:
       "Full emotional and thematic range with no simplification of language or subject matter.",
+  },
+  {
+    value: "adults only, explicit content",
+    label: "Adults only (explicit)",
+    description:
+      "Explicit sexual content is intended. Nothing is softened, implied or cut away from. StoryForgeAI applies no content filtering of its own — what you can actually produce depends on your planning model and the licence of each WanGP model you generate with.",
   },
   {
     value: "families",
@@ -316,10 +364,14 @@ export const CREATIVE_MODE_DOCS: Readonly<Record<string, string>> = {
 };
 
 export const GENERATION_MODE_DOCS: Readonly<Record<string, string>> = {
-  storyboard_only: "Plan only. Produces the brief, story arc, visual bible, scene cards and prompts — no media is rendered.",
-  keyframes_only: "Plan plus start and end frame images per scene. No video is rendered.",
-  video_segments: "Plan plus a rendered video clip per scene. No final assembly is performed.",
-  full_auto: "Plan, keyframes, video clips and assembly in one pass, pausing only at review gates.",
+  storyboard_only:
+    "Plan only. Produces the brief, story arc, visual bible, scene cards and prompts; the generate-media buttons stay disabled so no GPU time can be spent by accident.",
+  keyframes_only:
+    "Plan plus a start and end frame per scene. The video model is never loaded and no clips are rendered — the cheap way to judge look and casting before committing to motion.",
+  video_segments:
+    "Plan, keyframes and a clip per scene. You decide when to start generation and when to assemble. The usual choice.",
+  full_auto:
+    "As video segments, but generating the storyboard immediately queues every scene. Assembly still waits for you to approve attempts.",
 };
 
 export const AUDIO_TOGGLE_DOCS: Readonly<Record<string, string>> = {

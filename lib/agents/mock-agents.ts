@@ -3,6 +3,7 @@ import type { CreativeBrief, StoryPlan, VisualBible } from "@/lib/schemas/agents
 import type { ScenePrompts, SceneDraft } from "@/lib/schemas/storyboard";
 import type { Character } from "@/lib/schemas/character";
 import { castNegativeSuffix, castPromptSuffix } from "@/lib/agents/cast";
+import { lookPromptSuffix } from "@/lib/agents/look";
 import {
   continuityNegativeSuffix,
   globalStyleSuffix,
@@ -253,34 +254,28 @@ export function buildImagePrompts(
   plans?: CreativePlans,
 ): Pick<ScenePrompts, "startFramePrompt" | "endFramePrompt" | "imageNegativePrompt"> {
   const isLast = scene.sceneNumber === project.segmentCount;
-  const look = `${project.style} style, ${project.tone} mood, cinematic lighting.`;
-  const audience = project.audience ? ` Framed for a ${project.audience} audience.` : "";
   const castText = castPromptSuffix(cast);
   const direction = sceneDirectionSuffix(sceneCreativeSlice(plans, scene));
   const art = globalStyleSuffix(plans);
 
+  const startBody =
+    `Cinematic still. ` +
+    sentence(scene.visualDescription) +
+    sentence(scene.storyBeat) +
+    `Opening framing of the shot; ${scene.cameraMovement.toLowerCase()} begins from here. ` +
+    `Consistent characters, wardrobe, and location per the visual bible.`;
+  const endBody =
+    `Cinematic still. ` +
+    sentence(scene.visualDescription) +
+    sentence(scene.actionDescription) +
+    `Closing framing after ${scene.cameraMovement.toLowerCase()}, showing the result of the action` +
+    `${isLast ? " on a resolving beat" : `, setting up scene ${scene.sceneNumber + 1}`}. ` +
+    `Same characters, wardrobe, and location as the start frame.`;
+
   return {
     startFramePrompt:
-      `Cinematic still. ` +
-      sentence(scene.visualDescription) +
-      sentence(scene.storyBeat) +
-      `Opening framing of the shot; ${scene.cameraMovement.toLowerCase()} begins from here. ` +
-      `${look} Consistent characters, wardrobe, and location per the visual bible.` +
-      audience +
-      direction +
-      art +
-      castText,
-    endFramePrompt:
-      `Cinematic still. ` +
-      sentence(scene.visualDescription) +
-      sentence(scene.actionDescription) +
-      `Closing framing after ${scene.cameraMovement.toLowerCase()}, showing the result of the action` +
-      `${isLast ? " on a resolving beat" : `, setting up scene ${scene.sceneNumber + 1}`}. ` +
-      `${look} Same characters, wardrobe, and location as the start frame.` +
-      audience +
-      direction +
-      art +
-      castText,
+      startBody + lookPromptSuffix(project, startBody) + direction + art + castText,
+    endFramePrompt: endBody + lookPromptSuffix(project, endBody) + direction + art + castText,
     imageNegativePrompt:
       "no watermarks, no distorted anatomy, no text artifacts, low quality" +
       castNegativeSuffix(cast) +
@@ -298,17 +293,20 @@ export function buildVideoPrompts(
   const narration = scene.narrationText ? ` Voice-over: "${scene.narrationText}"` : "";
   const slice = sceneCreativeSlice(plans, scene);
 
+  const body =
+    sentence(scene.visualDescription) +
+    sentence(scene.actionDescription) +
+    sentence(scene.storyBeat) +
+    `Camera: ${scene.cameraMovement.toLowerCase()}, evolving from the start frame to the end frame ` +
+    `over ${scene.trimAtEndSeconds ?? scene.targetDurationSeconds} seconds.` +
+    spoken +
+    narration +
+    ` Preserve subject identity, wardrobe, location, and lighting throughout.`;
+
   return {
     videoPromptSegment:
-      sentence(scene.visualDescription) +
-      sentence(scene.actionDescription) +
-      sentence(scene.storyBeat) +
-      `Camera: ${scene.cameraMovement.toLowerCase()}, evolving from the start frame to the end frame ` +
-      `over ${scene.trimAtEndSeconds ?? scene.targetDurationSeconds} seconds.` +
-      spoken +
-      narration +
-      ` ${project.style} style, ${project.tone} tone. Preserve subject identity, wardrobe, ` +
-      `location, and lighting throughout.` +
+      body +
+      lookPromptSuffix(project, body) +
       sceneDirectionSuffix(slice) +
       globalStyleSuffix(plans) +
       castPromptSuffix(cast),

@@ -4,6 +4,24 @@ import { useState } from "react";
 import Link from "next/link";
 import type { Project } from "@/lib/schemas/project";
 
+const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["year", 365 * 24 * 3600_000],
+  ["month", 30 * 24 * 3600_000],
+  ["day", 24 * 3600_000],
+  ["hour", 3600_000],
+  ["minute", 60_000],
+];
+
+/** "3 hours ago" tells you which project you were on; an ISO timestamp does not. */
+function relativeTime(iso: string): string {
+  const elapsed = Date.now() - new Date(iso).getTime();
+  const format = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  for (const [unit, ms] of UNITS) {
+    if (Math.abs(elapsed) >= ms) return format.format(-Math.round(elapsed / ms), unit);
+  }
+  return "just now";
+}
+
 /**
  * A project in the sidebar list, with delete behind a two-step confirmation.
  *
@@ -93,14 +111,17 @@ export function ProjectListItem({
   }
 
   return (
-    <li className="group relative">
+    <li className="group relative h-full">
       <Link
         href={`/storyboard/${project.id}`}
-        className="block rounded-md border border-white/10 bg-panel/40 px-3 py-2 pr-9 text-sm hover:border-accent"
+        className="block h-full rounded-md border border-white/10 bg-panel/40 px-3 py-2 pr-9 text-sm hover:border-accent"
       >
         <span className="block truncate font-medium">{project.title}</span>
         <span className="text-xs text-slate-500">
           {project.segmentCount} scenes · {project.status}
+        </span>
+        <span className="mt-0.5 block text-xs text-slate-600">
+          Updated {relativeTime(project.updatedAt)}
         </span>
       </Link>
       <button

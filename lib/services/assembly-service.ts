@@ -7,6 +7,8 @@ import { buildFinalCutPlan } from "@/lib/media/assembly";
 import { getFfmpegRunner, probeMedia } from "@/lib/media/ffmpeg";
 import { resolveCueTimeline } from "@/lib/media/audio-mix";
 import { listProjectMedia, type MediaDescriptor } from "@/lib/media/refs";
+import { generationStages } from "@/lib/types";
+import { ValidationError } from "@/lib/errors";
 import { config } from "@/lib/config";
 import { logEvent } from "@/lib/telemetry";
 
@@ -24,6 +26,12 @@ export type ExportDescriptor = { name: string; url: string; available: boolean }
  */
 export async function assembleRoughCut(projectId: string): Promise<ProjectRecord> {
   const record = await getProjectRecord(projectId);
+  if (!generationStages(record.project.generationMode).assembly) {
+    throw new ValidationError(
+      "This project's generation mode does not include assembly. Switch it to Full auto on " +
+        "the Storyboard screen to assemble a cut.",
+    );
+  }
   const plan = buildFinalCutPlan(record);
 
   const runner = getFfmpegRunner();

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { MediaDescriptor } from "@/lib/media/refs";
+import { generationStages } from "@/lib/types";
 import { AudioCuePanel } from "@/components/assembly/audio-cue-panel";
 
 type ExportDescriptor = { name: string; url: string; available: boolean };
@@ -69,6 +70,7 @@ export function AssemblyView({ projectId }: { projectId: string }) {
   );
 
   const assembly = record?.assembly;
+  const canAssemble = record ? generationStages(record.project.generationMode).assembly : false;
   const cut = media.find((m) => m.role === "final_cut" && m.available)
     ?? media.find((m) => m.role === "rough_cut" && m.available);
 
@@ -78,13 +80,15 @@ export function AssemblyView({ projectId }: { projectId: string }) {
         <div>
           <h1 className="text-2xl font-semibold">Assembly</h1>
           <p className="mt-1 text-sm text-slate-400">
-            Combine approved clips into a rough cut and export the package.
+            {canAssemble
+              ? "Combine approved clips into a rough cut and export the package."
+              : "This project's generation mode does not include assembly. Switch it to Full auto on the Storyboard screen."}
           </p>
         </div>
         <div className="flex gap-2">
           <button
             onClick={assemble}
-            disabled={busy}
+            disabled={busy || !canAssemble}
             className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
             {busy ? "Assembling…" : "Assemble rough cut"}

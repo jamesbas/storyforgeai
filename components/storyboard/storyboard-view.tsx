@@ -4,9 +4,9 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { SceneCard } from "@/components/storyboard/scene-card";
 import { CreativePlansPanel } from "@/components/storyboard/creative-plans-panel";
-import { SCENE_CONTINUITY_OPTIONS } from "@/lib/presets";
-import type { SceneContinuityMode } from "@/lib/types";
-import { DEFAULT_SCENE_CONTINUITY } from "@/lib/types";
+import { GENERATION_MODE_DOCS, SCENE_CONTINUITY_OPTIONS } from "@/lib/presets";
+import type { GenerationMode, SceneContinuityMode } from "@/lib/types";
+import { DEFAULT_SCENE_CONTINUITY, GENERATION_MODES, generationStages } from "@/lib/types";
 import { resolveSceneLoras } from "@/lib/lora/scene-selection";
 import { effectiveTriggerWords } from "@/lib/lora/trigger-words";
 import type { LoraCatalog, SceneLoraOverride } from "@/lib/schemas/lora";
@@ -163,6 +163,28 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         setRecord((await res.json()) as ProjectRecord);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to save continuity");
+      }
+    },
+    [projectId],
+  );
+
+  /**
+   * How far the pipeline may run. Editable because the answer changes as a
+   * project matures — you plan first, then decide to render.
+   */
+  const setGenerationMode = useCallback(
+    async (mode: GenerationMode) => {
+      setError(null);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/models`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ generationMode: mode }),
+        });
+        if (!res.ok) throw new Error(`Failed to save generation mode (HTTP ${res.status})`);
+        setRecord((await res.json()) as ProjectRecord);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to save generation mode");
       }
     },
     [projectId],
@@ -377,6 +399,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   if (!record) return null;
 
   const { project, storyboard } = record;
+  const stages = generationStages(project.generationMode);
 
   return (
     <div className="space-y-6">
@@ -520,6 +543,28 @@ export function StoryboardView({ projectId }: { projectId: string }) {
 
           <section className="rounded-lg border border-white/10 bg-panel/40 p-4">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+              Generation mode
+            </h2>
+            <label className="mt-2 block">
+              <select
+                value={record.project.generationMode}
+                onChange={(e) => void setGenerationMode(e.target.value as GenerationMode)}
+                className="w-full rounded-md border border-white/10 bg-canvas px-3 py-2 text-sm outline-none focus:border-accent sm:max-w-md"
+              >
+                {GENERATION_MODES.map((mode) => (
+                  <option key={mode} value={mode}>
+                    {mode.replace(/_/g, " ")}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <p className="mt-2 text-xs text-slate-500">
+              {GENERATION_MODE_DOCS[record.project.generationMode]}
+            </p>
+          </section>
+
+          <section className="rounded-lg border border-white/10 bg-panel/40 p-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
               Scene continuity
             </h2>
             <label className="mt-2 block">
@@ -555,24 +600,28 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   Batch generation
                 </h2>
                 <p className="mt-1 text-sm text-slate-300">
-                  {queue?.active
-                    ? `Running — ${queue.entries.filter((e) => e.state === "completed").length} of ${queue.entries.length} done`
-                    : queue?.entries.length
-                      ? `Last run: ${queue.entries.filter((e) => e.state === "completed").length} completed, ${queue.entries.filter((e) => e.state === "failed").length} failed`
-                      : "Generates every scene in order, one at a time."}
+                  {!stages.keyframes
+                    ? "This project is set to plan only. Change the generation mode above to render media."
+                    : queue?.active
+                      ? `Running — ${queue.entries.filter((e) => e.state === "completed").length} of ${queue.entries.length} done`
+                      : queue?.entries.length
+                        ? `Last run: ${queue.entries.filter((e) => e.state === "completed").length} completed, ${queue.entries.filter((e) => e.state === "failed").length} failed`
+                        : stages.video
+                          ? "Generates every scene in order, one at a time."
+                          : "Generates start and end frames for every scene. No clips — the mode is keyframes only."}
                 </p>
               </div>
               <div className="flex gap-2">
                 <button
                   onClick={() => void generateAll(false)}
-                  disabled={queueBusy || queue?.active}
+                  disabled={queueBusy || queue?.active || !stages.keyframes}
                   className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >
                   {queue?.active ? "Generating…" : "Generate all media"}
                 </button>
                 <button
                   onClick={() => void generateAll(true)}
-                  disabled={queueBusy || queue?.active}
+                  disabled={queueBusy || queue?.active || !stages.keyframes}
                   className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
                 >
                   Regenerate all
@@ -659,14 +708,18 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   attempt={latest}
                   media={media}
                   busy={sceneBusy === scene.id}
-                  onGenerate={() => generateSceneMedia(scene.id)}
+                  onGenerate={stages.keyframes ? () => generateSceneMedia(scene.id) : undefined}
                   onApprove={latest ? () => approveScene(scene.id, latest.id) : undefined}
                   projectId={projectId}
                   loraOverride={record.project.sceneLoras?.[scene.id]}
                   onLoraSave={(next) => void saveSceneLoras(scene.id, next)}
                   triggerWords={{ image: triggerWordsFor("image"), video: triggerWordsFor("video") }}
                   onPromptsSaved={(next) => setRecord(next)}
-                  onGenerateKeyframe={(purpose) => void generateSceneKeyframe(scene.id, purpose)}
+                  onGenerateKeyframe={
+                    stages.keyframes
+                      ? (purpose) => void generateSceneKeyframe(scene.id, purpose)
+                      : undefined
+                  }
                   onClearPreviews={() => void clearScenePreviews(scene.id)}
                   seed={record.project.sceneSeeds?.[scene.id]}
                   onNewSeed={() => void newSceneSeed(scene.id)}
