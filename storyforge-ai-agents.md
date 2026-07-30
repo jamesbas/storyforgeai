@@ -115,25 +115,41 @@ intake step, and both are present. Nothing here is wrong. Equally, nothing here 
 does not ask *what is this film actually about*, name an audience-first or premise-first framing, or
 require the brief to be falsifiable.
 
-### 3.2 Story Architect — **A−**
+### 3.2 Story Architect — **A** *(rewritten 2026-07-30)*
+
+The original was **A−**: it interpolated segment length (a real improvement over the spec's
+hard-coded 20 seconds) but gave the arc only an arithmetic constraint — "divide cleanly into the
+required number of segments" — with nothing about what makes an arc. Beats read as lists of
+tableaux, and `emotionalProgression` could legitimately come back as fifteen entries of "rising
+tension" (which is exactly what the deterministic builder emits).
+
+Three things were added.
+
+**The constraint the medium imposes.** Each beat is rendered as one continuous clip from exactly
+two keyframes, so it must be *one action, in one place, in one unbroken span of time*. A beat like
+"over the following weeks she trains" has no pair of frames that can represent it. The agent had no
+way to know this — the only thing it was told about the medium was the segment length.
+
+**Structure scaled to the count.** ≤ 2 segments gets one movement; ≤ 5 gets hook / turn / payoff;
+6+ gets a three-act shape with an explicit midpoint turn.
+
+**Beats must change something visible**, and the emotional progression must move.
+
+Verified live on a 6-segment concept:
 
 ```
-You are the Story Architect Agent. Create a complete narrative plan sized to the requested
-duration. The video will be generated in {segmentSeconds}-second segments. Create a story arc
-that can be divided cleanly into the required number of segments. Return JSON with title,
-logline, emotional progression, and per-segment story beat summaries.
+Anticipation -> Intrigue -> Suspense -> Intensity -> Triumph -> Satisfaction   (6 distinct of 6)
+
+1. Elara rises from her dark corner and walks toward the pool table.
+2. Elara takes an intentionally clumsy shot at the center of the table.
+3. Elara hits a sharp bank shot that makes the men freeze in surprise.   <- midpoint turn
+4. Elara chalks her cue while the two men watch with intense focus.
+5. Elara strikes the final ball, sending it into the corner pocket.
+6. Elara sweeps the cash toward herself and walks back into the shadows.
 ```
 
-**Source:** spec §9.2, with the segment length **interpolated rather than hard-coded** — a real
-improvement, documented in the code: telling the model "20-second segments" for an 8-second project
-produces beats with far too much action for the clip that renders. `creativeModeDirective(project)`
-is appended, so `creativeMode` reaches planning.
-
-**Weakness:** the spec asked for *synopsis* and *narrative arc*; both were dropped. More
-importantly, **no story structure is named.** The agent is told to produce an arc that divides
-evenly — a *mathematical* constraint — with nothing about what makes an arc. A 15-segment piece has
-no act breaks, no midpoint, no escalation rule. That is why beats tend to read as a list of
-tableaux rather than a story.
+Every beat is one subject, one action, one place, one continuous span — all six are renderable as
+written.
 
 ### 3.3 Visual Bible — **B+**
 
@@ -588,14 +604,14 @@ material in this system sourced from outside it.
 
 ## 7. Suggested sequence
 
-§4.1, §4.2/§5 and §4.3 are **shipped**. §4.4 turned out to be **already built**. What remains:
+§4.1, §4.2/§5 and §4.3 are **shipped**, as is the Story Architect rewrite (§3.2). §4.4 turned out to
+be **already built**. What remains:
 
-1. **§4.5** — give the Variant Explorer a named axis to vary on.
+1. **§4.5** — give the Variant Explorer a named axis to vary on. It is the last **C** grade.
 2. **§4.6** — surface `agent.fallback` in the UI, so a mechanical storyboard is not mistaken for a
    considered one.
-3. The Story Architect and Intake agents (§3.1, §3.2) are still field checklists. The Story
-   Architect is the higher value of the two: it decides the beats everything downstream works from,
-   and currently has only an arithmetic constraint.
+3. **Intake** (§3.1) is still a field checklist. Lowest value of the three: its output feeds the
+   Story Architect, which now has enough structure of its own to compensate for a thin brief.
 
 A note on measuring this: the prompt-agent output is stored, so the effect of §5 is directly
 inspectable. Generate a storyboard before and after on the same concept and seed, and compare the

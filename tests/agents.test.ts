@@ -5,7 +5,7 @@ import type { Project } from "@/lib/schemas/project";
 import { creativeBriefSchema, storyPlanSchema, visualBibleSchema } from "@/lib/schemas/agents";
 import { sceneDraftSchema, sceneSchema } from "@/lib/schemas/storyboard";
 import { intakeAgent, INTAKE_SYSTEM } from "@/lib/agents/intake-agent";
-import { storyArchitectAgent, STORY_ARCHITECT_SYSTEM } from "@/lib/agents/story-architect-agent";
+import { storyArchitectAgent, storyArchitectSystem } from "@/lib/agents/story-architect-agent";
 import { visualBibleAgent } from "@/lib/agents/visual-bible-agent";
 import { storyboardAgent } from "@/lib/agents/storyboard-agent";
 import { attachScenePrompts } from "@/lib/agents/prompt-agents";
@@ -70,6 +70,43 @@ describe("planning agents — deterministic fallback (no provider)", () => {
     const plan = await storyArchitectAgent(baseCtx, null);
     expect(() => storyPlanSchema.parse(plan)).not.toThrow();
     expect(plan.segmentBeats).toHaveLength(project.segmentCount);
+  });
+
+  /**
+   * The beats are the spine: each becomes a scene card, then prompts, then the
+   * frames. The agent used to be given one constraint — divide evenly — which
+   * is arithmetic, not story, and produced lists of tableaux.
+   */
+  describe("what the Story Architect is told", () => {
+    it("states the constraint the medium imposes on a beat", () => {
+      const system = storyArchitectSystem(20, 3);
+      // One clip from two keyframes: a beat that spans time cannot be rendered.
+      expect(system).toMatch(/one action, in one place, in one unbroken span of time/);
+      expect(system).toMatch(/skips time, summarises a period, moves between locations/);
+      expect(system).toMatch(/one start frame and one end frame/);
+    });
+
+    it("requires a beat to change something visible", () => {
+      expect(storyArchitectSystem(20, 3)).toMatch(/marks a change rather than a description/);
+      expect(storyArchitectSystem(20, 3)).toMatch(/an audience could see/);
+    });
+
+    it("requires the emotional progression to move", () => {
+      expect(storyArchitectSystem(20, 3)).toMatch(/the same value repeated across every segment/);
+    });
+
+    /** A three-beat piece and a fifteen-beat piece need different shapes. */
+    it("scales the structure to the number of segments", () => {
+      expect(storyArchitectSystem(20, 2)).toMatch(/one movement only/);
+      expect(storyArchitectSystem(20, 4)).toMatch(/hook, turn and payoff/);
+      expect(storyArchitectSystem(20, 15)).toMatch(/three acts/);
+      expect(storyArchitectSystem(20, 15)).toMatch(/midpoint turn/);
+    });
+
+    it("says nothing about structure when the count is unknown", () => {
+      const system = storyArchitectSystem(20);
+      expect(system).not.toMatch(/three acts|hook, turn and payoff|one movement only/);
+    });
   });
 
   it("visualBibleAgent produces a schema-valid bible", async () => {
@@ -167,10 +204,26 @@ describe("planning agents — provider path", () => {
     expect(brief.projectId).toBe(project.id);
   });
 
+  /**
+   * Matched on a substring rather than the exact system prompt: the real call
+   * appends the creative-mode directive and interpolates segment length and
+   * count, so an exact-match fixture silently stops matching and the test then
+   * passes because the fallback ran, not because the rejection worked.
+   */
   it("falls back to mock when provider returns a wrong-length story plan", async () => {
     const badPlan = { ...buildStoryPlan(project), segmentBeats: ["only one"] };
-    const provider = cannedProvider({ [STORY_ARCHITECT_SYSTEM]: badPlan });
+    let asked = false;
+    const provider: PlanningProvider = {
+      name: "canned",
+      async generateJson<T>(system: string): Promise<T | null> {
+        if (!system.includes("Story Architect")) return null;
+        asked = true;
+        return badPlan as T;
+      },
+    };
+
     const plan = await storyArchitectAgent({ project }, provider);
+    expect(asked).toBe(true);
     expect(plan.segmentBeats).toHaveLength(project.segmentCount);
   });
 

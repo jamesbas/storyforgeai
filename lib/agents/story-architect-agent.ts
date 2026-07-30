@@ -9,13 +9,53 @@ import type { PlanningProvider } from "@/lib/agents/llm/provider";
  * Segment length is configurable, so it is interpolated rather than baked in:
  * telling the model "20-second segments" for an 8s project produces beats with
  * far too much action for the clip that actually gets rendered.
+ *
+ * The count matters as much as the length. A three-beat piece and a fifteen-beat
+ * piece need different shapes, and the agent previously got no shape at all —
+ * only the arithmetic instruction to divide evenly, which is why beats tended to
+ * read as a list of tableaux rather than a story.
  */
-export const storyArchitectSystem = (segmentSeconds: number) =>
+function structureFor(segmentCount: number | undefined): string {
+  if (segmentCount === undefined) return "";
+  if (segmentCount <= 2) {
+    return (
+      " With this few segments there is room for one movement only: establish the situation and " +
+      "land a single turn. Do not attempt a full arc."
+    );
+  }
+  if (segmentCount <= 5) {
+    return (
+      " Shape it as hook, turn and payoff: earn attention in the first beat, change the situation " +
+      "in the middle, and pay it off in the last."
+    );
+  }
+  return (
+    " Shape it in three acts. The opening beats establish the situation and what the subject " +
+    "wants; the middle escalates through complications that each cost something; the closing " +
+    "beats resolve. Place a midpoint turn near the centre where the situation reverses or the " +
+    "stakes change, and make that turn visible in the emotional progression."
+  );
+}
+
+export const storyArchitectSystem = (segmentSeconds: number, segmentCount?: number) =>
   "You are the Story Architect Agent. Create a complete narrative plan sized to the " +
   `requested duration. The video will be generated in ${segmentSeconds}-second segments. ` +
   "Create a story arc that can be divided cleanly into the required number of segments. " +
   "Return JSON with title, logline, emotional progression, and per-segment story beat " +
-  "summaries.";
+  "summaries." +
+  structureFor(segmentCount) +
+  // The constraint the agent has no other way to know. Each beat becomes one
+  // clip rendered from exactly two keyframes, so a beat that spans time or
+  // places has no pair of frames that can represent it.
+  ` Each beat is rendered as a single continuous ${segmentSeconds}-second shot, generated from ` +
+  "one start frame and one end frame. A beat must therefore be one action, in one place, in one " +
+  "unbroken span of time. Never write a beat that skips time, summarises a period, moves between " +
+  "locations, or covers several events — \"over the following weeks she trains\" and \"they argue, " +
+  "then later make up\" cannot be rendered. Name the subject, what they are doing, and where. " +
+  "A beat marks a change rather than a description of a state: each one must leave the situation " +
+  "different from how it started, and the difference must be something an audience could see. " +
+  "Give one emotional value per segment and make them move — the same value repeated across " +
+  "every segment means the piece has no arc.";
 
 /** Default-length wording, retained for callers that have no project in hand. */
 export const STORY_ARCHITECT_SYSTEM = storyArchitectSystem(SEGMENT_SECONDS);
@@ -27,7 +67,8 @@ export async function storyArchitectAgent(
   if (provider) {
     const user = JSON.stringify({ project: ctx.project, brief: ctx.brief });
     const result = await provider.generateJson(
-      storyArchitectSystem(ctx.project.segmentSeconds) + creativeModeDirective(ctx.project),
+      storyArchitectSystem(ctx.project.segmentSeconds, ctx.project.segmentCount) +
+        creativeModeDirective(ctx.project),
       user,
       storyPlanSchema,
     );
