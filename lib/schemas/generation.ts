@@ -7,7 +7,9 @@ export const qcResultSchema = z.object({
   severity: z.enum(["none", "minor", "major", "critical"]),
   issues: z.array(z.string()),
   matchedRequirements: z.array(z.string()),
-  regenerationInstructions: z.string().optional(),
+  // Nullish, not optional: OpenAI's strict JSON Schema mode refuses a bare
+  // `.optional()`, which would cost this schema its structured-output guarantee.
+  regenerationInstructions: z.string().nullish(),
 });
 export type QCResult = z.infer<typeof qcResultSchema>;
 

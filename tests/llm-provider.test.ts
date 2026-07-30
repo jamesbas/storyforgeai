@@ -1,8 +1,10 @@
 import { describe, it, expect } from "vitest";
 import { z } from "zod";
+import { zodResponseFormat } from "openai/helpers/zod";
 import { describeSchema, withSchemaHint } from "@/lib/agents/llm/schema-hint";
 import { extractJsonObject, isResponseFormatRejection } from "@/lib/agents/llm/provider";
 import { scenePromptsSchema } from "@/lib/schemas/storyboard";
+import { qcResultSchema } from "@/lib/schemas/generation";
 
 describe("describeSchema", () => {
   it("lists required and optional keys with their types", () => {
@@ -125,5 +127,37 @@ describe("isResponseFormatRejection", () => {
 
   it("does not treat unrelated failures as format problems", () => {
     expect(isResponseFormatRejection("connect ECONNREFUSED 127.0.0.1:1234")).toBe(false);
+  });
+});
+
+/**
+ * Structured output is the only thing keeping a small local model on-shape, and
+ * losing it is silent — the call still returns JSON, just with the wrong keys.
+ *
+ * A schema OpenAI's strict mode refuses never reaches the server as
+ * `json_schema` at all. Bare `.optional()` is the usual cause; `.nullish()`
+ * expresses the same intent and converts.
+ */
+describe("schemas that must survive strict JSON Schema conversion", () => {
+  const converts = (schema: unknown) => {
+    try {
+      zodResponseFormat(schema as never, "probe");
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  it("accepts nullish where strict mode refuses optional", () => {
+    expect(converts(z.object({ a: z.string().optional() }))).toBe(false);
+    expect(converts(z.object({ a: z.string().nullish() }))).toBe(true);
+  });
+
+  it("converts the QC result schema", () => {
+    expect(converts(qcResultSchema)).toBe(true);
+  });
+
+  it("converts the scene prompts schema", () => {
+    expect(converts(scenePromptsSchema)).toBe(true);
   });
 });

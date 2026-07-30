@@ -113,20 +113,38 @@ export function isResponseFormatRejection(message: string): boolean {
  *
  * `json_schema` constrains generation to the artifact's exact shape, which is
  * the only reliable way to get a small local model to produce a conforming
- * object — without it they return plausible JSON with the wrong keys. A server
- * that rejects a format steps down one rung, once per process.
+ * object — without it they return plausible JSON with the wrong keys. Each call
+ * walks the ladder from the top, skipping formats the server has already
+ * refused.
  */
 const FORMAT_LADDER = ["json_schema", "json_object", "text"] as const;
 type FormatKind = (typeof FORMAT_LADDER)[number];
 
-function initialFormat(): FormatKind {
-  const configured = config.openai.responseFormat;
-  return (FORMAT_LADDER as readonly string[]).includes(configured)
-    ? (configured as FormatKind)
-    : FORMAT_LADDER[0];
+/**
+ * Formats this server has proven it cannot use.
+ *
+ * Only server rejections land here. A schema that cannot be expressed as JSON
+ * Schema is a fact about that one schema, and used to be recorded here too —
+ * so the first agent with an `.optional()` field (which OpenAI's strict mode
+ * refuses) permanently demoted *every* later agent to `json_object`, and from
+ * there to `text` once LM Studio rejected that. The result was a process where
+ * almost nothing ran under structured output, which is exactly the condition
+ * that makes a small local model return plausible JSON with the wrong keys.
+ */
+const unsupported = new Set<FormatKind>();
+
+function seedUnsupported(): void {
+  unsupported.clear();
+  const pinned = config.openai.responseFormat;
+  if (!(FORMAT_LADDER as readonly string[]).includes(pinned)) return;
+  // A pinned format means "start here", so rule out everything above it.
+  for (const kind of FORMAT_LADDER) {
+    if (kind === pinned) break;
+    unsupported.add(kind);
+  }
 }
 
-let formatKind: FormatKind = initialFormat();
+seedUnsupported();
 
 /** Build a `json_schema` response format from a Zod schema, or null if unsupported. */
 async function jsonSchemaFormat<T>(schema: ZodType<T>, name: string): Promise<ResponseFormat | null> {
@@ -211,33 +229,37 @@ function createOpenAiProvider(): PlanningProvider {
           );
 
         let res: ChatResponse | null = null;
-        for (let attempt = 0; attempt < FORMAT_LADDER.length && res === null; attempt += 1) {
-          const format =
-            formatKind === "json_schema"
-              ? await jsonSchemaFormat(schema, schemaName)
-              : ({ type: formatKind } as ResponseFormat);
+        let used: FormatKind | null = null;
+        for (const kind of FORMAT_LADDER) {
+          if (res !== null) break;
+          if (unsupported.has(kind)) continue;
 
-          if (formatKind === "json_schema" && !format) {
-            // This schema cannot be expressed as JSON Schema; drop a rung.
-            formatKind = "json_object";
-            continue;
+          let format: ResponseFormat | null;
+          if (kind === "json_schema") {
+            format = await jsonSchemaFormat(schema, schemaName);
+            // Only this schema is inexpressible. Others still get json_schema.
+            if (!format) continue;
+          } else {
+            format = { type: kind } as ResponseFormat;
           }
 
           try {
             res = await call(format);
+            used = kind;
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
-            const index = FORMAT_LADDER.indexOf(formatKind);
-            if (!isResponseFormatRejection(message) || index >= FORMAT_LADDER.length - 1) {
-              return fail("request_failed", { message, format: formatKind });
+            if (!isResponseFormatRejection(message)) {
+              return fail("request_failed", { message, format: kind });
             }
+            // The server does not support this format at all — a fact about the
+            // server, so it holds for every later call.
+            unsupported.add(kind);
             logEvent("agent.llm.failed", {
               provider: label,
               reason: "format_unsupported",
-              format: formatKind,
+              format: kind,
               message,
             });
-            formatKind = FORMAT_LADDER[index + 1]!;
           }
         }
         if (res === null) return fail("request_failed", { message: "no usable response format" });
@@ -245,18 +267,17 @@ function createOpenAiProvider(): PlanningProvider {
         const choice = res.choices?.[0];
         const content = choice?.message?.content ?? undefined;
         if (!content) {
-          // Some servers accept json_schema but return nothing under it with a
-          // reasoning model — the format is "supported" yet unusable, so step
-          // down rather than failing every call for the rest of the process.
-          const index = FORMAT_LADDER.indexOf(formatKind);
-          if (choice?.finish_reason === "stop" && index < FORMAT_LADDER.length - 1) {
+          // Some servers accept a format but return nothing under it with a
+          // reasoning model — "supported" yet unusable, so record it as such
+          // rather than failing every later call the same way.
+          if (choice?.finish_reason === "stop" && used && used !== "text") {
             logEvent("agent.llm.failed", {
               provider: label,
               reason: "format_produced_no_content",
-              format: formatKind,
+              format: used,
               reasoningChars: choice?.message?.reasoning_content?.length ?? 0,
             });
-            formatKind = FORMAT_LADDER[index + 1]!;
+            unsupported.add(used);
           }
           // A reasoning model spends max_tokens on thinking before it emits any
           // content, so an exhausted budget looks like an empty reply. Surface
@@ -292,7 +313,7 @@ function createOpenAiProvider(): PlanningProvider {
           // the shape the artifact requires. Silently falling back here is how
           // a local model can look like it is working when it is not.
           return fail("schema_mismatch", {
-            format: formatKind,
+            format: used ?? "none",
             issues: parsed.error.issues.slice(0, 5).map((i) => `${i.path.join(".")}: ${i.message}`),
           });
         }
@@ -308,7 +329,7 @@ function createOpenAiProvider(): PlanningProvider {
 
 /** Reset negotiated JSON mode (tests, or after changing servers). */
 export function resetResponseFormat(): void {
-  formatKind = initialFormat();
+  seedUnsupported();
 }
 
 /**
