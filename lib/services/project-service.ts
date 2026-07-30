@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { createProjectSchema, updateProjectModelsSchema } from "@/lib/schemas/intake";
+import { createProjectSchema, renameProjectSchema, updateProjectModelsSchema } from "@/lib/schemas/intake";
 import { computeSegmentation } from "@/lib/duration";
 import { DEFAULT_SCENE_CONTINUITY, generationStages } from "@/lib/types";
 import {
@@ -164,6 +164,112 @@ export async function updateProjectModels(id: string, raw: unknown): Promise<Pro
     sceneContinuity: updated.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY,
   });
   return updated;
+}
+
+/**
+ * Rename a project.
+ *
+ * The title is only ever a label — it is derived from the concept at creation
+ * and read by nothing downstream — so this is a pure metadata edit with no
+ * regeneration consequences.
+ */
+export async function renameProject(id: string, raw: unknown): Promise<ProjectRecord> {
+  const { title } = renameProjectSchema.parse(raw);
+  const record = await getProjectRecord(id);
+
+  const updated: ProjectRecord = {
+    ...record,
+    project: { ...record.project, title, updatedAt: new Date().toISOString() },
+    history: appendHistory(record, "project.renamed", title),
+  };
+  await repository.update(id, updated);
+  logEvent("project.updated", { id, change: "title" });
+  return updated;
+}
+
+/**
+ * Copy a project's plan, without its renders.
+ *
+ * The point of a copy is to re-run the same story against different models,
+ * LoRAs or continuity settings, so everything that describes *intent* comes
+ * across — settings, variants, the canvas plans, the storyboard and its prompts
+ * — while everything that is the *result* of a render does not. Carrying
+ * attempts over would attach one project's media to another and make the
+ * assembled cut of the copy indistinguishable from the original's.
+ *
+ * Scene ids embed the project id, so they are remapped, and every map keyed by
+ * scene id is rewritten to match. A stale key here would silently strand a
+ * scene's pinned seed or LoRA override.
+ */
+export async function duplicateProject(id: string): Promise<Project> {
+  const source = await getProjectRecord(id);
+  const now = new Date().toISOString();
+  const newId = randomUUID();
+
+  const sceneIdMap = new Map<string, string>();
+  for (const scene of source.storyboard?.scenes ?? []) {
+    sceneIdMap.set(scene.id, `${newId}-scene-${String(scene.sceneNumber).padStart(3, "0")}`);
+  }
+  const remap = <T>(map: Record<string, T> | undefined): Record<string, T> | undefined => {
+    if (!map) return undefined;
+    const next: Record<string, T> = {};
+    for (const [sceneId, value] of Object.entries(map)) {
+      const mapped = sceneIdMap.get(sceneId);
+      if (mapped) next[mapped] = value;
+    }
+    return Object.keys(next).length ? next : undefined;
+  };
+
+  const project: Project = {
+    ...source.project,
+    id: newId,
+    title: copyTitle(source.project.title),
+    // Seeds carry over so the copy renders the same images unless something is
+    // deliberately changed — which is the whole point of comparing two runs.
+    sceneSeeds: remap(source.project.sceneSeeds),
+    sceneLoras: remap(source.project.sceneLoras),
+    status: source.storyboard ? "storyboard_ready" : "draft",
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const record: ProjectRecord = {
+    project,
+    variants: source.variants,
+    selectedVariantId: source.selectedVariantId,
+    worldBible: source.worldBible,
+    directorialPlan: source.directorialPlan,
+    cinematographyPlan: source.cinematographyPlan,
+    artDirectionPlan: source.artDirectionPlan,
+    storyboard: source.storyboard
+      ? {
+          ...source.storyboard,
+          scenes: source.storyboard.scenes.map((scene) => ({
+            ...scene,
+            id: sceneIdMap.get(scene.id) ?? scene.id,
+            projectId: newId,
+            status: "planned",
+          })),
+        }
+      : undefined,
+    history: [{ at: now, action: "project.copied", detail: source.project.title }],
+  };
+
+  await repository.create(record);
+  logEvent("project.created", {
+    id: newId,
+    copiedFrom: id,
+    segmentCount: project.segmentCount,
+    segmentSeconds: project.segmentSeconds,
+  });
+  return project;
+}
+
+/** "Name" → "Name (copy)", "Name (copy)" → "Name (copy 2)". */
+function copyTitle(title: string): string {
+  const match = /^(.*) \(copy(?: (\d+))?\)$/.exec(title);
+  if (!match) return `${title} (copy)`;
+  return `${match[1]} (copy ${Number(match[2] ?? 1) + 1})`;
 }
 
 export async function listProjects(): Promise<Project[]> {

@@ -126,6 +126,37 @@ describe("running a phased batch", () => {
   });
 
   /**
+   * A phase can run for an hour without a scene chip changing, which reads as a
+   * stalled job. Progress within the phase is the only signal that it is not.
+   */
+  it("reports a total and a running count for every phase", async () => {
+    const seeded = await project({ faceSwap: true });
+    const sceneCount = sceneIdsOf(seeded).length;
+    const totals: Record<string, number> = {};
+    const counts: Record<string, number[]> = {};
+    let current = "";
+
+    await generateProjectMediaPhased(seeded.project.id, sceneIdsOf(seeded), {
+      onPhase: (phase, total) => {
+        current = phase;
+        totals[phase] = total;
+        counts[phase] = [];
+      },
+      onPhaseProgress: (completed) => counts[current]!.push(completed),
+    });
+
+    expect(totals.keyframes).toBe(sceneCount);
+    expect(totals.video).toBe(sceneCount);
+    // One start frame plus an end frame per scene, all distinct.
+    expect(totals.face_swap).toBe(sceneCount + 1);
+
+    // Counts climb one at a time and finish on the total.
+    for (const [phase, seen] of Object.entries(counts)) {
+      expect(seen).toEqual(Array.from({ length: totals[phase]! }, (_, i) => i + 1));
+    }
+  });
+
+  /**
    * A preview is something the user asks for. Writing the batch's intermediate
    * keyframes into the preview map filled every scene card with stills nobody
    * requested, and left them there long after the clips landed.

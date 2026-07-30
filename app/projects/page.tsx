@@ -6,7 +6,7 @@ import { AppShell } from "@/components/shell/app-shell";
 import { ProjectList, useProjects } from "@/components/intake/project-list";
 
 export default function ProjectsPage() {
-  const { projects, loading, forget } = useProjects();
+  const { projects, loading, forget, reload } = useProjects();
   const [query, setQuery] = useState("");
 
   const filtered = useMemo(() => {
@@ -78,6 +78,7 @@ export default function ProjectsPage() {
           <ProjectList
             projects={filtered}
             onDeleted={forget}
+            onChanged={() => void reload()}
             className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
           />
         )}

@@ -11,9 +11,19 @@ import { resolveSceneLoras } from "@/lib/lora/scene-selection";
 import { effectiveTriggerWords } from "@/lib/lora/trigger-words";
 import type { LoraCatalog, SceneLoraOverride } from "@/lib/schemas/lora";
 import type { LlmRuntimeStatus } from "@/lib/services/llm-runtime-service";
-import type { SceneQueueEntry } from "@/lib/services/scene-queue";
+import type { PhaseProgress, SceneQueueEntry } from "@/lib/services/scene-queue";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { MediaDescriptor } from "@/lib/media/refs";
+
+type QueueSnapshot = { entries: SceneQueueEntry[]; active: boolean; phase?: PhaseProgress };
+
+/** What each phase is actually doing, in the user's terms rather than the code's. */
+const PHASE_LABELS: Record<PhaseProgress["phase"], string> = {
+  keyframes: "Rendering keyframes",
+  face_swap: "Applying face swap",
+  video: "Rendering clips",
+  qc: "Scoring results",
+};
 
 export function StoryboardView({ projectId }: { projectId: string }) {
   const [record, setRecord] = useState<ProjectRecord | null>(null);
@@ -82,7 +92,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const [sceneBusy, setSceneBusy] = useState<string | null>(null);
   const [llm, setLlm] = useState<LlmRuntimeStatus | null>(null);
   const [llmBusy, setLlmBusy] = useState<null | "load" | "unload">(null);
-  const [queue, setQueue] = useState<{ entries: SceneQueueEntry[]; active: boolean } | null>(null);
+  const [queue, setQueue] = useState<QueueSnapshot | null>(null);
   const [queueBusy, setQueueBusy] = useState(false);
   /**
    * LoRA catalogs, fetched once per model rather than per scene. They are only
@@ -234,7 +244,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const loadQueue = useCallback(async () => {
     try {
       const res = await fetch(`/api/projects/${projectId}/queue`, { cache: "no-store" });
-      if (res.ok) setQueue((await res.json()) as { entries: SceneQueueEntry[]; active: boolean });
+      if (res.ok) setQueue((await res.json()) as QueueSnapshot);
     } catch {
       // Progress polling is best-effort.
     }
@@ -264,7 +274,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
           { method: "POST" },
         );
         if (!res.ok) throw new Error(await failureMessage(res, "Failed to queue scenes"));
-        setQueue((await res.json()) as { entries: SceneQueueEntry[]; active: boolean });
+        setQueue((await res.json()) as QueueSnapshot);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to queue scenes");
       } finally {
@@ -278,7 +288,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     setQueueBusy(true);
     try {
       const res = await fetch(`/api/projects/${projectId}/queue`, { method: "DELETE" });
-      if (res.ok) setQueue((await res.json()) as { entries: SceneQueueEntry[]; active: boolean });
+      if (res.ok) setQueue((await res.json()) as QueueSnapshot);
     } catch {
       // Cancelling is best-effort; the running scene finishes either way.
     } finally {
@@ -610,6 +620,20 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                           ? "Generates every scene in order, one at a time."
                           : "Generates start and end frames for every scene. No clips — the mode is keyframes only."}
                 </p>
+                {/*
+                  A phase can run for an hour without a single scene chip
+                  changing, which reads as a stalled job. This is the only signal
+                  that work is happening.
+                */}
+                {queue?.phase ? (
+                  <p className="mt-1 text-xs text-accent" data-testid="queue-phase">
+                    {PHASE_LABELS[queue.phase.phase]} · {queue.phase.completed} of{" "}
+                    {queue.phase.total}
+                    {queue.phase.phase === "keyframes" && stages.video
+                      ? " — clips start once every keyframe is done"
+                      : ""}
+                  </p>
+                ) : null}
               </div>
               <div className="flex gap-2">
                 <button

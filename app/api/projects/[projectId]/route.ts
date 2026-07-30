@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { deleteProject, getProjectRecord } from "@/lib/services/project-service";
+import { deleteProject, getProjectRecord, renameProject } from "@/lib/services/project-service";
 import { toErrorResponse } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +9,16 @@ type Params = { params: { projectId: string } };
 export async function GET(_request: Request, { params }: Params) {
   try {
     const record = await getProjectRecord(params.projectId);
+    return NextResponse.json(record);
+  } catch (err) {
+    return toErrorResponse(err);
+  }
+}
+
+/** Rename a project. Metadata only — nothing downstream reads the title. */
+export async function PATCH(request: Request, { params }: Params) {
+  try {
+    const record = await renameProject(params.projectId, await request.json());
     return NextResponse.json(record);
   } catch (err) {
     return toErrorResponse(err);

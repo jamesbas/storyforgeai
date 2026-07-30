@@ -27,7 +27,7 @@ const STAGES = [
 const RECENT_LIMIT = 4;
 
 export default function HomePage() {
-  const { projects, loading, forget } = useProjects();
+  const { projects, loading, forget, reload } = useProjects();
   const recent = projects.slice(0, RECENT_LIMIT);
 
   return (
@@ -111,6 +111,7 @@ export default function HomePage() {
             <ProjectList
               projects={recent}
               onDeleted={forget}
+              onChanged={() => void reload()}
               className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4"
             />
           )}

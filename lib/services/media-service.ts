@@ -367,7 +367,14 @@ export async function generateProjectMediaPhased(
   projectId: string,
   sceneIds: string[],
   hooks: {
-    onPhase?: (phase: PhaseName) => void;
+    /**
+     * A phase is starting. `total` is the number of units it will work through
+     * — scenes for the render phases, distinct frames for the swap — so a batch
+     * that spends an hour inside one phase can still show movement.
+     */
+    onPhase?: (phase: PhaseName, total: number) => void;
+    /** One unit of the current phase finished. */
+    onPhaseProgress?: (completed: number) => void;
     onSceneComplete?: (sceneId: string) => void;
     /** A scene whose clip failed. The batch carries on with the rest. */
     onSceneFailed?: (sceneId: string, error: string) => void;
@@ -405,8 +412,9 @@ export async function generateProjectMediaPhased(
   >();
 
   // ---- Phase 1: every keyframe, on the image model -------------------------
-  hooks.onPhase?.("keyframes");
+  hooks.onPhase?.("keyframes", scenes.length);
   let previousEnd: string | undefined;
+  let done = 0;
 
   for (const scene of scenes) {
     if (hooks.shouldCancel?.()) return;
@@ -455,12 +463,11 @@ export async function generateProjectMediaPhased(
         err instanceof Error ? err.message : "Keyframe generation failed",
       );
     }
+    hooks.onPhaseProgress?.((done += 1));
   }
 
   // ---- Phase 2: swap every distinct frame, on the edit model ---------------
   if (swapSubject) {
-    hooks.onPhase?.("face_swap");
-
     // Under reuse_end_frame one file is both a scene's end frame and the next
     // scene's start frame. Swapping per scene would run it twice, wasting a
     // render and producing two subtly different images for the same moment.
@@ -470,11 +477,14 @@ export async function generateProjectMediaPhased(
       if (entry.end) distinct.add(entry.end);
     }
 
+    hooks.onPhase?.("face_swap", distinct.size);
     const swapped = new Map<string, string>();
+    let swappedCount = 0;
     for (const original of distinct) {
       if (hooks.shouldCancel?.()) return;
       const result = await swapFace(original, swapSubject, { sceneId: "batch", purpose: "keyframe" });
       swapped.set(original, result ?? original);
+      hooks.onPhaseProgress?.((swappedCount += 1));
     }
 
     for (const [sceneId, entry] of frames) {
@@ -514,8 +524,9 @@ export async function generateProjectMediaPhased(
   }
 
   // ---- Phase 3: every clip, on the video model -----------------------------
-  hooks.onPhase?.("video");
+  hooks.onPhase?.("video", scenes.length);
   const scored: { scene: Scene; attempt: SceneAttempt }[] = [];
+  let clips = 0;
 
   for (const scene of scenes) {
     if (hooks.shouldCancel?.()) return;
@@ -559,13 +570,16 @@ export async function generateProjectMediaPhased(
       const message = err instanceof Error ? err.message : "Video generation failed";
       hooks.onSceneFailed?.(scene.id, message);
     }
+    hooks.onPhaseProgress?.((clips += 1));
   }
 
   // ---- Phase 4: score every finished scene, on the planning model ----------
   if (scored.length) {
-    hooks.onPhase?.("qc");
+    hooks.onPhase?.("qc", scored.length);
+    let judged = 0;
     for (const { scene, attempt } of scored) {
       await scoreAttempt(projectId, scene, attempt, stages.video);
+      hooks.onPhaseProgress?.((judged += 1));
     }
   }
 }

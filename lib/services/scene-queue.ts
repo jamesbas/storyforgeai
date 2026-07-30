@@ -43,16 +43,33 @@ export type SceneQueueEntry = {
   finishedAt?: string;
 };
 
+/**
+ * How far through the current phase a batch is.
+ *
+ * A phased run spends upwards of an hour inside one phase, and the per-scene
+ * chips do not move for any of it — so without this the UI is indistinguishable
+ * from a stalled job.
+ */
+export type PhaseProgress = { phase: PhaseName; completed: number; total: number };
+
 type QueueStore = {
   entries: SceneQueueEntry[];
   running: boolean;
   cancelRequested: Set<string>;
+  phases: Map<string, PhaseProgress>;
 };
 
 const globalRef = globalThis as unknown as { __storyforgeSceneQueue?: QueueStore };
 
 function store(): QueueStore {
-  globalRef.__storyforgeSceneQueue ??= { entries: [], running: false, cancelRequested: new Set() };
+  globalRef.__storyforgeSceneQueue ??= {
+    entries: [],
+    running: false,
+    cancelRequested: new Set(),
+    phases: new Map(),
+  };
+  // A store created before `phases` existed would otherwise be missing it.
+  globalRef.__storyforgeSceneQueue.phases ??= new Map();
   return globalRef.__storyforgeSceneQueue;
 }
 
@@ -61,14 +78,18 @@ export function getQueue(projectId: string): {
   entries: SceneQueueEntry[];
   active: boolean;
   remaining: number;
+  phase?: PhaseProgress;
 } {
-  const entries = store()
-    .entries.filter((entry) => entry.projectId === projectId)
+  const state = store();
+  const entries = state.entries
+    .filter((entry) => entry.projectId === projectId)
     .sort((a, b) => a.sceneNumber - b.sceneNumber);
+  const active = entries.some((e) => e.state === "pending" || e.state === "running");
   return {
     entries,
-    active: entries.some((e) => e.state === "pending" || e.state === "running"),
+    active,
     remaining: entries.filter((e) => e.state === "pending" || e.state === "running").length,
+    ...(active ? { phase: state.phases.get(projectId) } : {}),
   };
 }
 
@@ -247,8 +268,13 @@ async function drainPhased(projectId: string, pending: SceneQueueEntry[]): Promi
     await generateProjectMediaPhased(projectId, sceneIds, {
       shouldCancel: cancelled,
       runStep,
-      onPhase: (phase) => {
+      onPhase: (phase, total) => {
+        state.phases.set(projectId, { phase, completed: 0, total });
         for (const entry of pending) if (entry.state === "running") entry.phase = phase;
+      },
+      onPhaseProgress: (completed) => {
+        const current = state.phases.get(projectId);
+        if (current) state.phases.set(projectId, { ...current, completed });
       },
       // Scenes finish one at a time during the final phase, so the storyboard
       // fills in as clips land rather than all at once at the end.
@@ -379,6 +405,8 @@ async function drain(): Promise<void> {
     }
   } finally {
     state.running = false;
+    // A stale phase would keep reading as though a batch were still working.
+    state.phases.clear();
     for (const projectId of state.cancelRequested) {
       const stillQueued = state.entries.some(
         (e) => e.projectId === projectId && (e.state === "pending" || e.state === "running"),
@@ -394,6 +422,7 @@ export function resetSceneQueue(): void {
     entries: [],
     running: false,
     cancelRequested: new Set(),
+    phases: new Map(),
   };
 }
 

@@ -83,5 +83,10 @@ export const updateProjectModelsSchema = z.object({
 
 export type UpdateProjectModelsInput = z.infer<typeof updateProjectModelsSchema>;
 
+/** A project's display name. Trimmed, since a title of spaces reads as blank. */
+export const renameProjectSchema = z.object({
+  title: z.string().trim().min(1).max(200),
+});
+
 export type CreateProjectInput = z.input<typeof createProjectSchema>;
 export type CreateProjectValues = z.infer<typeof createProjectSchema>;
