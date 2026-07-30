@@ -15,8 +15,18 @@ export interface PlanningProvider {
   // Input is left `unknown` so `T` binds to the schema's parsed output. A schema
   // with a defaulted field has a wider input than output, and binding to both
   // hands the caller a type where that field is still optional.
-  generateJson<T>(system: string, user: string, schema: ZodType<T, ZodTypeDef, unknown>): Promise<T | null>;
+  generateJson<T>(
+    system: string,
+    user: string,
+    schema: ZodType<T, ZodTypeDef, unknown>,
+    options?: GenerateOptions,
+  ): Promise<T | null>;
 }
+
+export type GenerateOptions = {
+  /** Data URLs to send alongside the text. Requires OPENAI_VISION_MODEL. */
+  images?: readonly string[];
+};
 
 /**
  * OpenAI-compatible provider. Works against the OpenAI API or any compatible
@@ -25,7 +35,10 @@ export interface PlanningProvider {
  * The SDK is loaded via a guarded dynamic import with a non-literal specifier so
  * a missing package degrades to the deterministic builders instead of crashing.
  */
-type ChatMessage = { role: "system" | "user"; content: string };
+type ContentPart =
+  | { type: "text"; text: string }
+  | { type: "image_url"; image_url: { url: string } };
+type ChatMessage = { role: "system" | "user"; content: string | ContentPart[] };
 type ChatChoice = {
   message?: { content?: string | null; reasoning_content?: string | null };
   finish_reason?: string | null;
@@ -139,6 +152,7 @@ function createOpenAiProvider(): PlanningProvider {
       system: string,
       user: string,
       schema: ZodType<T, ZodTypeDef, unknown>,
+      options: GenerateOptions = {},
     ): Promise<T | null> {
       const fail = (reason: string, extra: Record<string, unknown> = {}) => {
         logEvent("agent.llm.failed", { provider: label, reason, ...extra });
@@ -160,12 +174,25 @@ function createOpenAiProvider(): PlanningProvider {
           maxRetries: 1,
         });
 
+        // A vision model is a separate deployment, so images decide the model.
+        const images = options.images ?? [];
+        const useVision = images.length > 0 && Boolean(config.openai.visionModel);
+        const model = useVision ? config.openai.visionModel : config.openai.model;
+
         const messages: ChatMessage[] = [
           // Agent prompts name a schema the model has never seen, so spell out
           // the expected keys. Without this, small local models return
           // plausible JSON with the wrong shape.
           { role: "system", content: withSchemaHint(system, schema) },
-          { role: "user", content: user },
+          {
+            role: "user",
+            content: useVision
+              ? [
+                  { type: "text", text: user },
+                  ...images.map((url) => ({ type: "image_url" as const, image_url: { url } })),
+                ]
+              : user,
+          },
         ];
         // Name the schema after the agent so server-side logs stay traceable.
         const schemaName = system.slice(0, 40);
@@ -173,7 +200,7 @@ function createOpenAiProvider(): PlanningProvider {
         const call = (format: ResponseFormat | null) =>
           client.chat.completions.create(
             {
-              model: config.openai.model,
+              model,
               messages,
               ...(format ? { response_format: format } : {}),
               temperature: config.openai.temperature,
@@ -324,7 +351,7 @@ export function getPlanningProvider(): PlanningProvider | null {
   const provider = createOpenAiProvider();
   return {
     name: provider.name,
-    generateJson: (system, user, schema) =>
-      enqueuePlanning(() => provider.generateJson(system, user, schema)),
+    generateJson: (system, user, schema, options) =>
+      enqueuePlanning(() => provider.generateJson(system, user, schema, options)),
   };
 }

@@ -832,9 +832,25 @@ export default function HelpPage() {
           <h2 className={h2}>10. QC, attempts &amp; approval</h2>
           <p className={p}>
             Generating media for a scene creates an <strong>attempt</strong> — a start frame, an end
-            frame, and a video clip. Each attempt is automatically checked by QC, which reports
-            pass/fail, a severity, and specific issues (continuity breaks, missing outputs, artifacts,
-            etc.).
+            frame, and a video clip.
+          </p>
+          <p className={p}>
+            <strong>QC is off by default</strong>, per project, on the settings screen. It is a full
+            LLM round-trip per scene after rendering finishes, on the same GPU that just did the
+            work, so on a local model it adds minutes to a batch. Turn it on when you want the
+            second opinion; leave it off when you are reviewing the frames yourself.
+          </p>
+          <p className={p}>
+            What it can tell you depends on <code>OPENAI_VISION_MODEL</code>. With one set, the
+            rendered keyframes are attached to the request and QC grades what it can actually see —
+            continuity breaks, subject drift, anatomy, artifacts, framing. Without one it says so
+            and reviews the prompt text alone, checking the start-frame, end-frame and video prompts
+            against each other and the scene card. It will not guess at how a render looks.
+          </p>
+          <p className={p}>
+            Either way the verdict is pass/fail with a severity, and any issues appear on the scene
+            card with regeneration notes. A flagged scene is marked <em>needs review</em>; it is
+            never regenerated automatically.
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             <li className={li}><strong>Regenerate</strong> to create a new attempt (attempt numbers increment; history is kept).</li>

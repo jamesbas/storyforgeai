@@ -148,7 +148,7 @@ media path.
 | 10 | **Image Prompt Engineer** | `prompt-agents.ts` | `Project` + each scene draft | Start/end frame prompts + negative | subset of `scenePromptsSchema` | Orchestrator, step 5 |
 | 11 | **Video Prompt Engineer** | `prompt-agents.ts` | `Project` + each scene draft | Motion prompt + negative + checklist | subset of `scenePromptsSchema` | Orchestrator, step 5 |
 | 12 | **Audio Director** | `audio-agents.ts` | `Project` + scene refs | Audio plan, music/SFX cues | `audioPlanSchema` | `POST /generate-audio-plan` |
-| 13 | **Creative Critic (QC)** | `qc-agent.ts` | `Scene` + `SceneAttempt` | Pass/fail, severity, regen notes | `qcResultSchema` | `media-service` after each attempt |
+| 13 | **Creative Critic (QC)** | `qc-agent.ts` | `Scene` + `SceneAttempt` (+ keyframes when `OPENAI_VISION_MODEL` is set) | Pass/fail, severity, regen notes | `qcResultSchema` | `media-service`, only when `project.qcEnabled` |
 | — | **Deepy assistant** | `deepy/deepy.ts` | Media path + action | Inspection/suggestion text | — | `POST /scenes/{id}/deepy` |
 | — | **Animatic builder** | `mock-audio.ts` | Storyboard snapshot | Animatic plan | `animaticPlanSchema` | `POST /generate-animatic` |
 

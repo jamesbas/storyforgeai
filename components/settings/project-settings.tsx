@@ -85,6 +85,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
       imageSteps?: number | null;
       videoSteps?: number | null;
       resolutionPreset?: ResolutionPreset;
+      qcEnabled?: boolean;
       characterWardrobe?: Record<string, string>;
       loras?: LoraSelectionSet;
     }) => {
@@ -301,6 +302,31 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
               </label>
             ))}
           </div>
+        </div>
+
+        <div className="space-y-2 border-t border-white/10 pt-4">
+          <label className="flex items-start gap-3">
+            <input
+              type="checkbox"
+              checked={Boolean(project.qcEnabled)}
+              disabled={busy}
+              onChange={(e) => void save({ qcEnabled: e.target.checked })}
+              className="mt-0.5 h-4 w-4 rounded border-white/20 bg-canvas accent-accent"
+            />
+            <span>
+              <span className="block text-sm font-semibold">Grade scenes with the QC agent</span>
+              <span className="mt-1 block text-xs text-slate-500">
+                Off by default. QC is a full LLM round-trip per scene once rendering finishes, on
+                the same GPU that just did the work — minutes of extra runtime for a batch.
+              </span>
+            </span>
+          </label>
+          {project.qcEnabled ? (
+            <p className="text-xs text-amber-300/90">
+              Set <code>OPENAI_VISION_MODEL</code> for QC to judge the rendered frames. Without it
+              it reviews prompt text only and cannot comment on how anything looks.
+            </p>
+          ) : null}
         </div>
 
         {saved ? <p className="text-xs text-emerald-400">Saved.</p> : null}

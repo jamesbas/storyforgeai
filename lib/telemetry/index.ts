@@ -24,6 +24,8 @@ export type TelemetryEvent =
   | "wangp.steps.resolved"
   | "wangp.resolution.resolved"
   | "scene.qc"
+  | "qc.mode"
+  | "qc.image_skipped"
   | "scene.continuity"
   | "scene.keyframe_preview"
   | "scene.keyframe_preview_cleared"

@@ -1,16 +1,83 @@
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { qcResultSchema, type QCResult, type SceneAttempt } from "@/lib/schemas/generation";
 import type { Scene } from "@/lib/schemas/storyboard";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
+import { config } from "@/lib/config";
+import { logEvent } from "@/lib/telemetry";
 
-export const QC_SYSTEM =
-  "You are the QC Agent. Compare generated media against the scene card, visual bible, and " +
-  "prompts. Identify continuity breaks, subject drift, visual artifacts, weak motion, incorrect " +
-  "framing, bad text, missing actions, or audio mismatch. Return pass/fail, severity, and " +
-  "specific regeneration instructions. The `expectations` field states what this project's " +
-  "generation mode asked for; do not report media as missing when it was never requested.";
+/**
+ * Grading a finished scene.
+ *
+ * The agent used to be handed `{ scene, attempt }` — which carries file *paths*,
+ * not pixels — under a prompt telling it to spot visual artifacts and weak
+ * motion. Models did the only thing left to them: they noticed the images were
+ * absent, quietly redefined the job as comparing one prompt string to another,
+ * and returned a confident verdict about renders they had never seen. Scenes
+ * were flagged `needs_review` on that basis.
+ *
+ * So there are two honest modes, and which one runs depends on whether a vision
+ * model is configured. Neither claims to be the other.
+ */
+
+const VISUAL_SYSTEM =
+  "You are the QC Agent. The attached images are the generated keyframes for this scene. " +
+  "Judge what you can actually see in them against the scene card and prompts: continuity " +
+  "breaks, subject drift, anatomical errors, visual artifacts, incorrect framing, garbled text, " +
+  "missing actions. Report only defects visible in the images. The `expectations` field states " +
+  "what this project's generation mode asked for; do not report media as missing when it was " +
+  "never requested. Return pass/fail, severity, and specific regeneration instructions.";
+
+const TEXT_SYSTEM =
+  "You are the QC Agent. You are reviewing prompt text only — no images are attached and you " +
+  "cannot see the generated media. Do not speculate about how the render looks. Judge only " +
+  "whether the prompts are internally consistent and faithful to the scene card: contradictory " +
+  "wardrobe or appearance between the start-frame, end-frame and video prompts, actions or " +
+  "camera moves named in the scene card but missing from the prompts, continuity conflicts with " +
+  "the previous scene. Return pass/fail, severity, and specific prompt corrections.";
+
+/** Kept for callers that assert on the prompt; visual grading is the default. */
+export const QC_SYSTEM = VISUAL_SYSTEM;
 
 /** What the project's generation mode asked for, so QC judges against that. */
 export type QcExpectations = { expectVideo: boolean };
+
+/** Images a vision model can accept. WanGP writes png and jpeg. */
+const MIME: Readonly<Record<string, string>> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+};
+
+/**
+ * The largest frame worth sending. A local vision model turns pixels into
+ * tokens, and a full 1920x1088 frame can cost more prompt budget than the whole
+ * scene card — for a judgement a smaller copy supports just as well.
+ */
+const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
+
+/** Read keyframes as data URLs, skipping any that cannot be sent. */
+export async function loadQcImages(paths: readonly (string | undefined)[]): Promise<string[]> {
+  const urls: string[] = [];
+  for (const file of paths) {
+    if (!file) continue;
+    const mime = MIME[path.extname(file).toLowerCase()];
+    if (!mime) continue;
+    try {
+      const bytes = await readFile(file);
+      if (bytes.byteLength > MAX_IMAGE_BYTES) {
+        logEvent("qc.image_skipped", { path: file, reason: "too_large", bytes: bytes.byteLength });
+        continue;
+      }
+      urls.push(`data:${mime};base64,${bytes.toString("base64")}`);
+    } catch {
+      // A frame WanGP wrote where this host cannot read it is not a QC failure.
+      logEvent("qc.image_skipped", { path: file, reason: "unreadable" });
+    }
+  }
+  return urls;
+}
 
 /**
  * Deterministic QC. Fails when required media is missing; otherwise passes with
@@ -47,8 +114,32 @@ export async function qcAgent(
   expectations: QcExpectations = { expectVideo: true },
 ): Promise<QCResult> {
   if (provider) {
-    const user = JSON.stringify({ scene, attempt, expectations });
-    const result = await provider.generateJson(QC_SYSTEM, user, qcResultSchema);
+    const images = config.openai.visionModel
+      ? await loadQcImages([attempt.startImagePath, attempt.endImagePath])
+      : [];
+    const visual = images.length > 0;
+
+    logEvent("qc.mode", {
+      sceneId: scene.id,
+      mode: visual ? "visual" : "text_only",
+      images: images.length,
+    });
+
+    // Paths are noise to a model that can see the frames, and misleading to one
+    // that cannot — it reads them as evidence the media was supplied.
+    const { startImagePath, endImagePath, videoPath, ...rest } = attempt;
+    const user = JSON.stringify({
+      scene,
+      attempt: visual ? rest : { ...rest, note: "Media not attached. Review prompts only." },
+      expectations,
+    });
+
+    const result = await provider.generateJson(
+      visual ? VISUAL_SYSTEM : TEXT_SYSTEM,
+      user,
+      qcResultSchema,
+      visual ? { images } : {},
+    );
     if (result) return result;
   }
   return evaluateQc(scene, attempt, expectations);

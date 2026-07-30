@@ -38,6 +38,8 @@ export const createProjectSchema = z.object({
   musicRequired: z.boolean().default(false),
   sfxRequired: z.boolean().default(false),
   generationMode: z.enum(GENERATION_MODES).default("video_segments"),
+  /** Grade finished scenes with the QC agent. Off unless asked for. */
+  qcEnabled: z.boolean().default(false),
   modelStrategy: z.enum(MODEL_STRATEGIES).default("auto"),
   imageModel: z.string().optional(),
   videoModel: z.string().optional(),
@@ -76,6 +78,8 @@ export const updateProjectModelsSchema = z.object({
    * rough out a storyboard cheaply, then re-render the keepers at high.
    */
   resolutionPreset: z.enum(RESOLUTION_PRESETS).optional(),
+  /** Whether finished scenes are graded by the QC agent. */
+  qcEnabled: z.boolean().optional(),
   /**
    * Continuity affects only scenes generated from here on, so like the model
    * pins it stays editable for the life of the project.

@@ -12,6 +12,7 @@ describe("media generation service — scene attempt lifecycle", () => {
     const project = await createProject({
       concept: "A paper plane crosses a city.",
       requestedDurationSeconds: 40,
+      qcEnabled: true,
     });
     const withStoryboard = await generateStoryboard(project.id);
     const sceneId = withStoryboard.storyboard!.scenes[0]!.id;

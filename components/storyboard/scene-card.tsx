@@ -152,12 +152,31 @@ export function SceneCard({
                 Attempt #{attempt.attemptNumber} ·{" "}
                 {attempt.approved ? (
                   <span className="text-green-300">approved</span>
-                ) : (
+                ) : attempt.qcResult ? (
                   <span>
-                    QC {attempt.qcResult?.passed ? "passed" : "flagged"} ({attempt.qcResult?.severity})
+                    QC {attempt.qcResult.passed ? "passed" : "flagged"} ({attempt.qcResult.severity})
                   </span>
+                ) : (
+                  <span className="text-slate-500">not graded</span>
                 )}
               </div>
+              {attempt.qcResult && !attempt.qcResult.passed ? (
+                <div
+                  className="rounded-md border border-amber-400/25 bg-amber-400/5 p-2 text-amber-200/90"
+                  data-testid="scene-qc-issues"
+                >
+                  <ul className="list-disc space-y-0.5 pl-4">
+                    {attempt.qcResult.issues.map((issue) => (
+                      <li key={issue}>{issue}</li>
+                    ))}
+                  </ul>
+                  {attempt.qcResult.regenerationInstructions ? (
+                    <p className="mt-1.5 border-t border-amber-400/20 pt-1.5 text-amber-200/70">
+                      {attempt.qcResult.regenerationInstructions}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="truncate">start: {attempt.startImagePath ?? "—"}</div>
               <div className="truncate">end: {attempt.endImagePath ?? "—"}</div>
               <div className="truncate" data-testid="scene-video-path">

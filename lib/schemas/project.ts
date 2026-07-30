@@ -51,6 +51,12 @@ export const projectSchema = z.object({
   imageSteps: z.number().int().min(1).max(200).optional(),
   videoSteps: z.number().int().min(1).max(200).optional(),
   /**
+   * Whether the QC agent grades finished scenes. Absent means off: it is a full
+   * LLM round-trip per scene on the same GPU that just rendered them, and it
+   * cannot see anything unless a vision model is configured.
+   */
+  qcEnabled: z.boolean().optional(),
+  /**
    * Opt-in to the global character library. When true, `characterIds` names the
    * cast whose locked descriptions are threaded through planning and into every
    * image and video prompt.

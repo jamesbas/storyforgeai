@@ -98,6 +98,12 @@ export const config = {
   openai: {
     apiKey: str(process.env.OPENAI_API_KEY, ""),
     model: str(process.env.OPENAI_MODEL, "gpt-4o-mini"),
+    /**
+     * Model used when an agent sends images. Empty means none is available, and
+     * the QC agent then grades prompt text only rather than pretending to look
+     * at pixels it was never given.
+     */
+    visionModel: str(process.env.OPENAI_VISION_MODEL, ""),
     /** Point at any OpenAI-compatible server, e.g. LM Studio on :1234/v1. */
     baseUrl: str(process.env.OPENAI_BASE_URL, ""),
     temperature: Number(process.env.OPENAI_TEMPERATURE ?? "0.7"),

@@ -17,11 +17,12 @@ import type { ProjectRecord } from "@/lib/schemas/storyboard";
  * tests pin the observable difference between them.
  */
 
-async function project(mode: GenerationMode): Promise<ProjectRecord> {
+async function project(mode: GenerationMode, qcEnabled = false): Promise<ProjectRecord> {
   const created = await createProject({
     concept: "A keeper argues with his daughter about leaving the island.",
     requestedDurationSeconds: 40,
     generationMode: mode,
+    qcEnabled,
   });
   return generateStoryboard(created.id);
 }
@@ -87,10 +88,23 @@ describe("keyframes_only", () => {
 
   /** QC must not fail a scene for missing media the mode never asked for. */
   it("passes QC without a clip", async () => {
-    const record = await project("keyframes_only");
+    const record = await project("keyframes_only", true);
     const generated = await generateSceneMedia(record.project.id, firstSceneId(record));
 
     expect(generated.attempts?.[firstSceneId(record)]?.[0]?.qcResult?.passed).toBe(true);
+  });
+
+  /**
+   * QC costs a full LLM round-trip per scene on the GPU that just rendered
+   * them, so it stays off until asked for. The scene must still close out as
+   * generated, or it sits in its pre-QC status forever.
+   */
+  it("skips QC entirely by default", async () => {
+    const record = await project("keyframes_only");
+    const generated = await generateSceneMedia(record.project.id, firstSceneId(record));
+
+    expect(generated.attempts?.[firstSceneId(record)]?.[0]?.qcResult).toBeUndefined();
+    expect(generated.storyboard?.scenes[0]?.status).toBe("generated");
   });
 
   it("refuses assembly", async () => {

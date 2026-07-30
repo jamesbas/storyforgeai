@@ -44,6 +44,7 @@ async function project(options: {
   faceSwap: boolean;
   scenes?: number;
   continuity?: "cut" | "reuse_end_frame" | "continue_video";
+  qcEnabled?: boolean;
 }): Promise<ProjectRecord> {
   const character = await characterWithPhoto(options.faceSwap);
   const created = await createProject({
@@ -51,6 +52,7 @@ async function project(options: {
     requestedDurationSeconds: (options.scenes ?? 3) * 20,
     useCharacterLibrary: true,
     characterIds: [character.id],
+    ...(options.qcEnabled ? { qcEnabled: true } : {}),
     ...(options.continuity ? { sceneContinuity: options.continuity } : {}),
   });
   return generateStoryboard(created.id);
@@ -115,7 +117,7 @@ describe("running a phased batch", () => {
   });
 
   it("reports each phase once, in order", async () => {
-    const seeded = await project({ faceSwap: true });
+    const seeded = await project({ faceSwap: true, qcEnabled: true });
     const phases: string[] = [];
 
     await generateProjectMediaPhased(seeded.project.id, sceneIdsOf(seeded), {
@@ -123,6 +125,18 @@ describe("running a phased batch", () => {
     });
 
     expect(phases).toEqual(["keyframes", "face_swap", "video", "qc"]);
+  });
+
+  /** QC is opt-in, so its phase must not appear — or be counted — by default. */
+  it("has no QC phase when the project has not asked for it", async () => {
+    const seeded = await project({ faceSwap: true });
+    const phases: string[] = [];
+
+    await generateProjectMediaPhased(seeded.project.id, sceneIdsOf(seeded), {
+      onPhase: (phase) => phases.push(phase),
+    });
+
+    expect(phases).toEqual(["keyframes", "face_swap", "video"]);
   });
 
   /**
@@ -176,7 +190,7 @@ describe("running a phased batch", () => {
    * starved the next video render of VRAM mid-run.
    */
   it("scores nothing until every clip is rendered", async () => {
-    const seeded = await project({ faceSwap: true });
+    const seeded = await project({ faceSwap: true, qcEnabled: true });
     let scoredAtQc = 0;
 
     await generateProjectMediaPhased(seeded.project.id, sceneIdsOf(seeded), {

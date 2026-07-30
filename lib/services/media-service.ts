@@ -584,7 +584,14 @@ export async function generateProjectMediaPhased(
   }
 
   // ---- Phase 4: score every finished scene, on the planning model ----------
+  // QC is a full LLM round-trip per scene on the GPU that just rendered them,
+  // so it is opt-in. Without it the scenes still have to be closed out, or they
+  // sit in their pre-QC status forever.
   if (scored.length) {
+    if (!record.project.qcEnabled) {
+      for (const { scene } of scored) await markGenerated(projectId, scene.id);
+      return;
+    }
     hooks.onPhase?.("qc", scored.length);
     let judged = 0;
     for (const { scene, attempt } of scored) {
@@ -674,7 +681,16 @@ async function persistThenScore(
   expectVideo: boolean,
 ): Promise<ProjectRecord> {
   await persistAttempt(projectId, scene, attempt, existing, record);
+  if (!record.project.qcEnabled) return markGenerated(projectId, scene.id);
   return scoreAttempt(projectId, scene, attempt, expectVideo);
+}
+
+/** Close a scene out without a QC verdict, for projects that grade manually. */
+async function markGenerated(projectId: string, sceneId: string): Promise<ProjectRecord> {
+  const latest = await getProjectRecord(projectId);
+  const updated = withSceneStatus(latest, sceneId, "generated");
+  await repository.update(projectId, updated);
+  return updated;
 }
 
 /** Write the attempt and its media into the record, unscored. */
