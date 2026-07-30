@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { resolveSteps } from "@/lib/wangp/steps";
+import { stepFloorFor } from "@/lib/wangp/resolution";
 import type { LoraSelection } from "@/lib/schemas/lora";
 
 /**
@@ -141,5 +142,58 @@ describe("the project override", () => {
         floor: FLOOR,
       }),
     ).toEqual({ steps: 12, reason: "project_override" });
+  });
+});
+
+describe("the resolution preset's step floor", () => {
+  /**
+   * The floor scales with the preset, but it is the *last* rule consulted. An
+   * 8-step Lightning LoRA must run at 8 steps at every preset: raising it to
+   * match "high" over-cooks the image just as surely as 4 steps under-cooks it.
+   * The preset buys resolution here, not steps.
+   */
+  it("never moves a LoRA's required step count", () => {
+    for (const preset of ["draft", "standard", "high"] as const) {
+      expect(
+        resolveSteps({
+          modelType: "qwen_image_edit_plus2_20B",
+          modelDefault: 4,
+          loras: [lora("Qwen-Image-Edit-2511-Lightning-8steps.safetensors")],
+          override: undefined,
+          floor: stepFloorFor(preset, FLOOR),
+        }),
+      ).toEqual({ steps: 8, reason: "lora_step_hint" });
+    }
+  });
+
+  /** Nor an accelerated model that declares its own count. */
+  it("never moves an accelerated model's own count", () => {
+    for (const preset of ["draft", "standard", "high"] as const) {
+      expect(
+        resolveSteps({
+          modelType: "ltx2_22B_distilled_1_1",
+          modelDefault: 8,
+          loras: [],
+          override: undefined,
+          floor: stepFloorFor(preset, FLOOR),
+        }),
+      ).toEqual({ steps: 8, reason: "accelerated" });
+    }
+  });
+
+  /** It does scale an ordinary model, which is the whole point of the preset. */
+  it("scales an unaccelerated model", () => {
+    const stepsAt = (preset: "draft" | "standard" | "high") =>
+      resolveSteps({
+        modelType: "flux2_klein_base_9b",
+        modelDefault: undefined,
+        loras: [],
+        override: undefined,
+        floor: stepFloorFor(preset, FLOOR),
+      })?.steps;
+
+    expect(stepsAt("draft")).toBe(18);
+    expect(stepsAt("standard")).toBe(30);
+    expect(stepsAt("high")).toBe(45);
   });
 });
