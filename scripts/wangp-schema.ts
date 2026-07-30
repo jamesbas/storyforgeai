@@ -22,6 +22,17 @@ async function main() {
   console.log(`\n=== ${modelType} ===`);
   console.log(`declared fields: ${schema.fields.map((f) => f.name).join(", ")}\n`);
 
+  // Constraints decide what a manifest may legally write, so they matter as
+  // much as the defaults.
+  const constrained = schema.fields.filter((f) => f.allowed?.length);
+  if (constrained.length) {
+    console.log("allowed values:");
+    for (const field of constrained) {
+      console.log(`  ${field.name.padEnd(24)} ${field.allowed!.join(", ")}`);
+    }
+    console.log("");
+  }
+
   console.log("default settings:");
   for (const [key, value] of Object.entries(schema.defaultSettings)) {
     if (filter && !filter.test(key)) continue;

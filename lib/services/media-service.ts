@@ -4,6 +4,7 @@ import type { SceneAttempt } from "@/lib/schemas/generation";
 import { repository } from "@/lib/db/store";
 import { getProjectRecord } from "@/lib/services/project-service";
 import { buildImageManifest, buildVideoManifest, runToCompletion } from "@/lib/services/wangp-service";
+import type { FrameOptions } from "@/lib/services/wangp-service";
 import { resolveSceneLoras } from "@/lib/services/lora-service";
 import { faceSwapSubject, swapFace } from "@/lib/services/face-swap-service";
 import { referenceImagesOf } from "@/lib/schemas/character";
@@ -26,6 +27,11 @@ function findScene(record: ProjectRecord, sceneId: string): Scene {
 /** The stages this project's generation mode allows. */
 function stagesOf(record: ProjectRecord) {
   return generationStages(record.project.generationMode);
+}
+
+/** Frame shape and quality, which together decide the render resolution. */
+function frameOf(project: ProjectRecord["project"]): FrameOptions {
+  return { aspectRatio: project.aspectRatio, resolutionPreset: project.resolutionPreset };
 }
 
 /** Refuse rather than silently render past what the project asked for. */
@@ -199,6 +205,8 @@ async function renderKeyframe(
     modelStrategy: record.project.modelStrategy,
     modelType: record.project.imageModel,
     seed: keyframeSeed(record.project.sceneSeeds?.[scene.id], purpose),
+    steps: record.project.imageSteps,
+    frame: frameOf(record.project),
     imageRefs: [...extraRefs, ...castRefs],
     // A leading scene frame is the "main subject / landscape" reference; the
     // cast portraits that follow are the people.
@@ -545,6 +553,8 @@ export async function generateProjectMediaPhased(
             imageEnd: entry.end,
             modelStrategy: record.project.modelStrategy,
             modelType: record.project.videoModel,
+            steps: record.project.videoSteps,
+            frame: frameOf(record.project),
             loras: resolveSceneLoras(record.project, scene.id, "video"),
             durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
           })
@@ -810,6 +820,8 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
         videoSource: continuity.videoSource,
         modelStrategy,
         modelType: videoModel,
+        steps: record.project.videoSteps,
+        frame: frameOf(record.project),
         loras: videoLoras,
         // The final scene is often shorter than a full segment.
         durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,

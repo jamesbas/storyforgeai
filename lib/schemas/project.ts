@@ -43,6 +43,14 @@ export const projectSchema = z.object({
   imageModel: z.string().optional(),
   videoModel: z.string().optional(),
   /**
+   * Denoising steps per pinned model. Absent means the count is derived from
+   * the model and its LoRA stack — see `resolveSteps`. Set one only to overrule
+   * that, because a wrong step count is the difference between a clean frame
+   * and a smear.
+   */
+  imageSteps: z.number().int().min(1).max(200).optional(),
+  videoSteps: z.number().int().min(1).max(200).optional(),
+  /**
    * Opt-in to the global character library. When true, `characterIds` names the
    * cast whose locked descriptions are threaded through planning and into every
    * image and video prompt.

@@ -9,9 +9,12 @@ import {
 } from "@/lib/wangp/model-router";
 import { resolveModel } from "@/lib/wangp/resolve-model";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
+import { resolveSteps } from "@/lib/wangp/steps";
+import { resolveResolution, stepFloorFor } from "@/lib/wangp/resolution";
 import { appendTriggerWords, catalogForModel, reconcileLoras } from "@/lib/services/lora-service";
 import type { ResolvedLora } from "@/lib/services/lora-service";
 import type { LoraKind, LoraSelection } from "@/lib/schemas/lora";
+import type { AspectRatio, ResolutionPreset } from "@/lib/types";
 import type {
   WangpGenerationSettings,
   WangpJob,
@@ -28,6 +31,17 @@ export type WangpStatus = {
   mode: "mock" | "live";
   url: string;
   ok: boolean;
+};
+
+/**
+ * The project settings that decide frame size and quality.
+ *
+ * Passed together because they only mean anything together: the aspect ratio
+ * picks the shape and the preset picks the size along it.
+ */
+export type FrameOptions = {
+  aspectRatio: AspectRatio;
+  resolutionPreset: ResolutionPreset;
 };
 
 export async function getWangpStatus(): Promise<WangpStatus> {
@@ -103,6 +117,10 @@ export async function buildVideoManifest(args: {
   fps?: number;
   /** Segment length; the last scene may be shorter than a full segment. */
   durationSeconds?: number;
+  /** Per-project step override. Undefined lets `resolveSteps` decide. */
+  steps?: number;
+  /** Project aspect ratio and quality preset. */
+  frame?: FrameOptions;
 }): Promise<WangpGenerationSettings> {
   const client = getWangpClient();
   const videoModels = await client.listModels("video");
@@ -114,6 +132,7 @@ export async function buildVideoManifest(args: {
   );
   const schema = await client.getModelSchema(model.modelType);
   const loras = await lorasFor(model, args.loras, args.sceneId, "video");
+  const context = { sceneId: args.sceneId, purpose: "video_segment" as const };
   return buildSettingsManifest(schema, {
     sceneId: args.sceneId,
     purpose: "video_segment",
@@ -125,8 +144,79 @@ export async function buildVideoManifest(args: {
     loras,
     fps: args.fps ?? config.defaults.fps,
     durationSeconds: args.durationSeconds,
-    resolution: config.defaults.resolution,
+    resolution: resolutionFor(schema, args.frame, { ...context, modelType: model.modelType }),
+    steps: stepsFor(
+      model.modelType,
+      schema,
+      loras,
+      args.steps,
+      stepFloorFor(args.frame?.resolutionPreset ?? "standard", config.wangp.minVideoSteps),
+      context,
+    ),
   });
+}
+
+/**
+ * The frame size for a job, snapped to what the model actually offers.
+ *
+ * Logged for the same reason as the step count: a project set to 9:16 that
+ * renders landscape is obvious in the output and invisible in the settings.
+ */
+function resolutionFor(
+  schema: WangpModelSchema,
+  frame: FrameOptions | undefined,
+  context: { sceneId: string; purpose: WangpPurpose; modelType: string },
+): string {
+  const allowed = schema.fields.find((field) => field.name === "resolution")?.allowed;
+  const resolution = resolveResolution({
+    aspectRatio: frame?.aspectRatio ?? config.defaults.aspectRatio as AspectRatio,
+    preset: frame?.resolutionPreset ?? "standard",
+    fallback: config.defaults.resolution,
+    allowed: allowed?.map(String),
+  });
+
+  logEvent("wangp.resolution.resolved", {
+    ...context,
+    resolution,
+    aspectRatio: frame?.aspectRatio,
+    preset: frame?.resolutionPreset,
+  });
+  return resolution;
+}
+
+/**
+ * Decide the step count and say why.
+ *
+ * Logged because a step count that changes underneath you is invisible: the job
+ * succeeds, the image is just wrong, and nothing in the output points at the
+ * cause.
+ */
+function stepsFor(
+  modelType: string,
+  schema: WangpModelSchema,
+  loras: readonly ResolvedLora[],
+  override: number | undefined,
+  floor: number,
+  context: { sceneId: string; purpose: WangpPurpose },
+): number | undefined {
+  const raw = schema.defaultSettings.num_inference_steps;
+  const resolution = resolveSteps({
+    modelType,
+    modelDefault: typeof raw === "number" ? raw : undefined,
+    loras,
+    override,
+    floor,
+  });
+  if (!resolution) return undefined;
+
+  logEvent("wangp.steps.resolved", {
+    ...context,
+    modelType,
+    steps: resolution.steps,
+    reason: resolution.reason,
+    modelDefault: raw,
+  });
+  return resolution.steps;
 }
 
 export async function submitJob(settings: Record<string, unknown>): Promise<WangpJob> {
@@ -244,6 +334,10 @@ export async function buildImageManifest(args: {
   loras?: LoraSelection[];
   /** Pinned seed, so a preview and the real render sample identically. */
   seed?: number;
+  /** Per-project step override. Undefined lets `resolveSteps` decide. */
+  steps?: number;
+  /** Project aspect ratio and quality preset. */
+  frame?: FrameOptions;
 }): Promise<WangpGenerationSettings> {
   const client = getWangpClient();
   const imageModels = await client.listModels("image");
@@ -307,8 +401,20 @@ export async function buildImageManifest(args: {
     imageRefs,
     imageRefsLeadWithScene: args.imageRefsLeadWithScene,
     loras,
-    resolution: config.defaults.resolution,
+    resolution: resolutionFor(schema, args.frame, {
+      sceneId: args.sceneId,
+      purpose: args.purpose,
+      modelType: model.modelType,
+    }),
     seed: args.seed,
+    steps: stepsFor(
+      model.modelType,
+      schema,
+      loras,
+      args.steps,
+      stepFloorFor(args.frame?.resolutionPreset ?? "standard", config.wangp.minImageSteps),
+      { sceneId: args.sceneId, purpose: args.purpose },
+    ),
   });
 }
 

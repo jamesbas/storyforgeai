@@ -338,6 +338,38 @@ describe("live-discovered regressions", () => {
     );
     expect("batch_size" in manifest.settings).toBe(false);
   });
+
+  /** The resolved step count has to survive into the payload WanGP receives. */
+  it("writes a resolved step count over the model's own", () => {
+    const manifest = buildSettingsManifest(
+      {
+        modelType: "qwen_image_edit_plus2_20B",
+        defaultSettings: { model_type: "qwen_image_edit_plus2_20B", prompt: "", num_inference_steps: 4 },
+        fields: [
+          { name: "prompt", type: "string" },
+          { name: "num_inference_steps", type: "number" },
+        ],
+      },
+      { sceneId: "s1", purpose: "start_frame", prompt: "a frame", steps: 30 },
+    );
+    expect(manifest.settings.num_inference_steps).toBe(30);
+  });
+
+  /** No decision means no change; the model's own number stands. */
+  it("leaves the step count alone when none is resolved", () => {
+    const manifest = buildSettingsManifest(
+      {
+        modelType: "ltx2_19B",
+        defaultSettings: { model_type: "ltx2_19B", prompt: "", num_inference_steps: 8 },
+        fields: [
+          { name: "prompt", type: "string" },
+          { name: "num_inference_steps", type: "number" },
+        ],
+      },
+      { sceneId: "s1", purpose: "video_segment", prompt: "a clip" },
+    );
+    expect(manifest.settings.num_inference_steps).toBe(8);
+  });
 });
 
 describe("knownKeys", () => {

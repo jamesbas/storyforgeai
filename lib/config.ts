@@ -83,6 +83,17 @@ export const config = {
     videoModel: str(process.env.WANGP_VIDEO_MODEL, ""),
     imageModel: str(process.env.WANGP_IMAGE_MODEL, ""),
     audioModel: str(process.env.WANGP_AUDIO_MODEL, ""),
+    /**
+     * Fewest denoising steps to run when nothing is accelerating the model.
+     *
+     * WanGP reports saved UI state as a model's defaults, so a model last used
+     * with a Lightning LoRA comes back asking for four steps. StoryForge writes
+     * `activated_loras` on every job, which removes the accelerator but not its
+     * step count — and four unaccelerated steps produce a smeared frame. These
+     * only apply when no accelerator LoRA and no distilled model is in play.
+     */
+    minImageSteps: int(process.env.WANGP_MIN_IMAGE_STEPS, 30),
+    minVideoSteps: int(process.env.WANGP_MIN_VIDEO_STEPS, 30),
   },
   openai: {
     apiKey: str(process.env.OPENAI_API_KEY, ""),

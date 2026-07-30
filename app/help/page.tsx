@@ -176,6 +176,12 @@ export default function HelpPage() {
           </p>
 
           <h3 className={h3}>Aspect ratio</h3>
+          <p className={p}>
+            The shape of the frame. Together with the resolution preset it decides the exact size
+            sent to WanGP — a 9:16 project renders portrait, not a cropped landscape. If the model
+            publishes a list of sizes it accepts, the nearest one of the same orientation is used;
+            a portrait project is never snapped to a landscape size.
+          </p>
           <DocList docs={ASPECT_RATIO_DOCS} />
 
           <h3 className={h3}>Style</h3>
@@ -213,6 +219,19 @@ export default function HelpPage() {
           <OptionList options={AUDIENCE_PRESETS} />
 
           <h3 className={h3}>Resolution</h3>
+          <p className={p}>
+            Quality, which sets both the frame size and the floor on denoising steps. At 16:9 that
+            is 848×480, 1280×720 and 1920×1088; the step floor scales with it.
+          </p>
+          <p className={p}>
+            The floor exists because WanGP reports whatever was last set in its own UI as a
+            model&apos;s defaults. A model last used with a Lightning accelerator LoRA comes back
+            asking for 4 steps — and since StoryForgeAI writes the LoRA stack on every job, that
+            would strip the accelerator and keep its step count, which renders a smear. The floor
+            only applies when nothing is accelerating the model: a step count named in an
+            accelerator LoRA&apos;s filename (<code>Lightning-8steps</code> → 8) wins, and a
+            distilled model keeps its own count. Override either on the project settings screen.
+          </p>
           <DocList docs={RESOLUTION_DOCS} />
 
           <h3 className={h3}>Creative mode</h3>

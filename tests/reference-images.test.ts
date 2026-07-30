@@ -194,3 +194,47 @@ describe("pinned model that cannot accept references", () => {
     }
   });
 });
+
+describe("the frame the manifest asks for", () => {
+  /**
+   * The bug this pins: every manifest wrote the DEFAULT_RESOLUTION env value,
+   * so a project set to 9:16 rendered landscape and the resolution preset did
+   * nothing. Both fields were collected by the intake form, described on the
+   * Help page, and read by nothing.
+   */
+  it("comes from the project, not the environment default", async () => {
+    setWangpClient(new MockWangpClient());
+    try {
+      const portrait = await buildImageManifest({
+        sceneId: "scene-1",
+        purpose: "start_frame",
+        prompt: "a lighthouse",
+        modelStrategy: "auto",
+        frame: { aspectRatio: "9:16", resolutionPreset: "standard" },
+      });
+      expect(portrait.settings.resolution).toBe("720x1280");
+
+      const square = await buildImageManifest({
+        sceneId: "scene-1",
+        purpose: "start_frame",
+        prompt: "a lighthouse",
+        modelStrategy: "auto",
+        frame: { aspectRatio: "1:1", resolutionPreset: "high" },
+      });
+      expect(square.settings.resolution).toBe("1024x1024");
+
+      // The mock model publishes only three sizes, so a draft 16:9 target of
+      // 848x480 snaps to the nearest landscape size it will actually accept.
+      const draft = await buildImageManifest({
+        sceneId: "scene-1",
+        purpose: "start_frame",
+        prompt: "a lighthouse",
+        modelStrategy: "auto",
+        frame: { aspectRatio: "16:9", resolutionPreset: "draft" },
+      });
+      expect(draft.settings.resolution).toBe("1280x720");
+    } finally {
+      setWangpClient(undefined);
+    }
+  });
+});

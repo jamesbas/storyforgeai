@@ -66,6 +66,17 @@ export const updateProjectModelsSchema = z.object({
    */
   generationMode: z.enum(GENERATION_MODES).optional(),
   /**
+   * Denoising steps, per pinned model. Undefined means "decide from the model
+   * and its LoRA stack" — see `resolveSteps`.
+   */
+  imageSteps: z.number().int().min(1).max(200).nullable().optional(),
+  videoSteps: z.number().int().min(1).max(200).nullable().optional(),
+  /**
+   * Frame quality. Editable because it is the usual draft-then-final dial:
+   * rough out a storyboard cheaply, then re-render the keepers at high.
+   */
+  resolutionPreset: z.enum(RESOLUTION_PRESETS).optional(),
+  /**
    * Continuity affects only scenes generated from here on, so like the model
    * pins it stays editable for the life of the project.
    */

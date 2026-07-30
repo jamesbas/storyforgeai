@@ -342,13 +342,17 @@ export const ASPECT_RATIO_DOCS: Readonly<Record<string, string>> = {
   "16:9": "Widescreen landscape. YouTube, web embeds, TV and most desktop viewing.",
   "9:16": "Vertical. TikTok, Reels, Shorts and any full-screen phone playback.",
   "1:1": "Square. Feed posts that must read the same on any device.",
-  custom: "Non-standard framing. Set the exact dimensions in the generation backend.",
+  custom:
+    "Non-standard framing. StoryForgeAI cannot infer a shape, so the DEFAULT_RESOLUTION environment value is used verbatim — set it to the exact size you want.",
 };
 
 export const RESOLUTION_DOCS: Readonly<Record<string, string>> = {
-  draft: "Lowest resolution and fewest steps. Fastest way to check story and motion before committing.",
-  standard: "Balanced quality and render time. The default for review cuts.",
-  high: "Highest resolution and step count. Slowest and most VRAM-hungry — use for final renders only.",
+  draft:
+    "Smallest frame and the fewest steps — 848×480 at 16:9, with the step floor scaled down. The fastest way to check story and motion before committing.",
+  standard:
+    "Balanced quality and render time — 1280×720 at 16:9. The default for review cuts.",
+  high:
+    "Largest frame and the most steps — 1920×1088 at 16:9. Slowest and most VRAM-hungry; use for final renders only.",
 };
 
 export const CREATIVE_MODE_DOCS: Readonly<Record<string, string>> = {

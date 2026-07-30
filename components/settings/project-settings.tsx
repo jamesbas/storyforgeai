@@ -7,6 +7,10 @@ import type { LoraSelectionSet } from "@/lib/schemas/lora";
 import type { WangpModel } from "@/lib/schemas/wangp";
 import type { Character } from "@/lib/schemas/character";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
+import type { ResolutionPreset } from "@/lib/types";
+import { RESOLUTION_PRESETS } from "@/lib/types";
+import { RESOLUTION_DOCS } from "@/lib/presets";
+import { resolveResolution } from "@/lib/wangp/resolution";
 
 type ModelsResponse = { models: WangpModel[]; total: number };
 
@@ -78,6 +82,9 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
     async (patch: {
       imageModel?: string;
       videoModel?: string;
+      imageSteps?: number | null;
+      videoSteps?: number | null;
+      resolutionPreset?: ResolutionPreset;
       characterWardrobe?: Record<string, string>;
       loras?: LoraSelectionSet;
     }) => {
@@ -216,6 +223,85 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
             StoryForgeAI substitutes one that can rather than dropping the characters silently.
           </p>
         ) : null}
+
+        <div className="space-y-2 border-t border-white/10 pt-4">
+          <h3 className="text-sm font-semibold">Resolution</h3>
+          <p className="text-xs text-slate-500">
+            Sets the frame size and the floor on automatic steps. The shape comes from the
+            project&apos;s {project.aspectRatio} aspect ratio, so only the quality changes here.
+            Existing media is left alone — re-render a scene to pick up a new size.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {RESOLUTION_PRESETS.map((preset) => {
+              const active = project.resolutionPreset === preset;
+              return (
+                <button
+                  key={preset}
+                  type="button"
+                  disabled={busy}
+                  title={RESOLUTION_DOCS[preset]}
+                  onClick={() => {
+                    if (!active) void save({ resolutionPreset: preset });
+                  }}
+                  className={`rounded-md border px-3 py-1.5 text-xs capitalize disabled:opacity-50 ${
+                    active
+                      ? "border-accent bg-accent/15 text-accent"
+                      : "border-white/10 text-slate-400 hover:border-white/25"
+                  }`}
+                >
+                  {preset}
+                  <span className="ml-2 font-mono text-[10px] text-slate-500">
+                    {resolveResolution({
+                      aspectRatio: project.aspectRatio,
+                      preset,
+                      fallback: "model default",
+                    })}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="space-y-2 border-t border-white/10 pt-4">
+          <h3 className="text-sm font-semibold">Denoising steps</h3>
+          <p className="text-xs text-slate-500">
+            Leave blank to decide automatically. WanGP reports whatever was last set in its own UI
+            as a model&apos;s default, so a model last used with a Lightning LoRA comes back asking
+            for 4 steps — and StoryForgeAI replaces the LoRA stack on every job, which would strip
+            the accelerator but keep its step count. Automatic reads the step count from an
+            accelerator LoRA&apos;s name when it has one (<code>Lightning-8steps</code> → 8), leaves
+            a distilled model&apos;s own count alone, and otherwise holds a floor so an
+            unaccelerated model is never run at a Lightning step count.
+          </p>
+          <div className="flex flex-wrap gap-4">
+            {(
+              [
+                ["Image steps", project.imageSteps, (v: number | null) => save({ imageSteps: v })],
+                ["Video steps", project.videoSteps, (v: number | null) => save({ videoSteps: v })],
+              ] as const
+            ).map(([label, value, onSave]) => (
+              <label key={label} className="text-xs text-slate-400">
+                <span className="block">{label}</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={200}
+                  defaultValue={value ?? ""}
+                  placeholder="auto"
+                  disabled={busy}
+                  onBlur={(e) => {
+                    const raw = e.target.value.trim();
+                    const next = raw === "" ? null : Number(raw);
+                    if (next !== null && (!Number.isInteger(next) || next < 1 || next > 200)) return;
+                    if ((value ?? null) !== next) void onSave(next);
+                  }}
+                  className="mt-1 w-28 rounded-md border border-white/10 bg-canvas px-2 py-1.5 text-sm outline-none focus:border-accent"
+                />
+              </label>
+            ))}
+          </div>
+        </div>
 
         {saved ? <p className="text-xs text-emerald-400">Saved.</p> : null}
       </section>

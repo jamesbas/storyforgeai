@@ -109,6 +109,10 @@ export async function updateProjectModels(id: string, raw: unknown): Promise<Pro
     return next === null || next === "" ? undefined : next;
   };
 
+  // Null clears an override and hands the decision back to `resolveSteps`.
+  const resolveSteps = (next: number | null | undefined, current: number | undefined) =>
+    next === undefined ? current : (next ?? undefined);
+
   const imageModel = resolve(patch.imageModel, record.project.imageModel);
   const videoModel = resolve(patch.videoModel, record.project.videoModel);
   const modelsChanged =
@@ -142,7 +146,10 @@ export async function updateProjectModels(id: string, raw: unknown): Promise<Pro
       ...record.project,
       imageModel,
       videoModel,
+      imageSteps: resolveSteps(patch.imageSteps, record.project.imageSteps),
+      videoSteps: resolveSteps(patch.videoSteps, record.project.videoSteps),
       generationMode: patch.generationMode ?? record.project.generationMode,
+      resolutionPreset: patch.resolutionPreset ?? record.project.resolutionPreset,
       sceneContinuity: patch.sceneContinuity ?? record.project.sceneContinuity,
       characterWardrobe: patch.characterWardrobe ?? record.project.characterWardrobe,
       loras,

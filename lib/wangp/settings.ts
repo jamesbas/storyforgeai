@@ -52,6 +52,8 @@ export type ManifestOverrides = {
   resolution?: string;
   /** Pinned image seed. Left unset, WanGP picks a fresh one per job. */
   seed?: number;
+  /** Denoising steps. Left unset, the model's own default stands. */
+  steps?: number;
   /** Audio models: clip length in seconds. Video: segment length for frame maths. */
   durationSeconds?: number;
 };
@@ -138,6 +140,7 @@ export function buildSettingsManifest(
   setIf("negative_prompt", overrides.negativePrompt ?? "");
   setIf("resolution", overrides.resolution);
   setIf("seed", overrides.seed);
+  setIf("num_inference_steps", overrides.steps);
 
   // WanGP can rewrite the prompt with its own local LLM before generating.
   // Several models ship with it enabled (LTX-2 22B defaults to "T"), which
