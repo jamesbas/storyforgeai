@@ -446,9 +446,33 @@ export async function updateScenePrompts(
   return updated;
 }
 
+/**
+ * What the canvas agents are given.
+ *
+ * Plans accumulate, so an agent run later sees the ones approved before it —
+ * the Cinematographer lights the Director's intent instead of inventing a
+ * second mood from the same one-line concept.
+ */
+async function canvasContext(record: ProjectRecord) {
+  return {
+    selectedVariant: record.variants?.find((v) => v.id === record.selectedVariantId),
+    cast: await resolveProjectCast(record.project),
+    plans: {
+      worldBible: record.worldBible,
+      directorialPlan: record.directorialPlan,
+      cinematographyPlan: record.cinematographyPlan,
+      artDirectionPlan: record.artDirectionPlan,
+    },
+  };
+}
+
 export async function generateWorldBible(id: string): Promise<ProjectRecord> {
   const record = await getProjectRecord(id);
-  const worldBible: WorldBible = await worldBuilderAgent(record.project, getPlanningProvider());
+  const worldBible: WorldBible = await worldBuilderAgent(
+    record.project,
+    getPlanningProvider(),
+    await canvasContext(record),
+  );
   const updated: ProjectRecord = {
     ...record,
     worldBible,
@@ -460,7 +484,11 @@ export async function generateWorldBible(id: string): Promise<ProjectRecord> {
 
 export async function generateDirectorialPlan(id: string): Promise<ProjectRecord> {
   const record = await getProjectRecord(id);
-  const directorialPlan: DirectorialPlan = await directorAgent(record.project, getPlanningProvider());
+  const directorialPlan: DirectorialPlan = await directorAgent(
+    record.project,
+    getPlanningProvider(),
+    await canvasContext(record),
+  );
   const updated: ProjectRecord = {
     ...record,
     directorialPlan,
@@ -475,6 +503,7 @@ export async function generateCinematographyPlan(id: string): Promise<ProjectRec
   const cinematographyPlan: CinematographyPlan = await cinematographerAgent(
     record.project,
     getPlanningProvider(),
+    await canvasContext(record),
   );
   const updated: ProjectRecord = {
     ...record,
@@ -487,7 +516,11 @@ export async function generateCinematographyPlan(id: string): Promise<ProjectRec
 
 export async function generateArtDirectionPlan(id: string): Promise<ProjectRecord> {
   const record = await getProjectRecord(id);
-  const artDirectionPlan: ArtDirectionPlan = await artDirectorAgent(record.project, getPlanningProvider());
+  const artDirectionPlan: ArtDirectionPlan = await artDirectorAgent(
+    record.project,
+    getPlanningProvider(),
+    await canvasContext(record),
+  );
   const updated: ProjectRecord = {
     ...record,
     artDirectionPlan,

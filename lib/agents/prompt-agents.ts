@@ -26,6 +26,15 @@ export const IMAGE_PROMPT_SYSTEM =
   "You are the Image Prompt Agent. For each scene, create a start-frame image prompt and " +
   "end-frame image prompt following the Visual Bible and preserving continuity. Include a " +
   "negative prompt. Return only valid JSON." +
+  // Spec 9.5 asked for this and it was dropped in implementation. Without it the
+  // agent writes mood and subject but never states the shot, so the model picks
+  // its own framing: a scene specified as an extreme close-up came back as a
+  // three-quarter shot.
+  " Each prompt must describe a single still frame with composition, subject, setting, " +
+  "lighting, style, and camera framing. Open every prompt with the shot size and camera height " +
+  "— for example 'Extreme close-up, eye level,' — because the opening words carry the most " +
+  "weight in the render and framing buried mid-prompt is ignored. Honour the shot plan supplied " +
+  "for the scene when there is one." +
   // The two frames are rendered as independent jobs, so anything left vague is
   // reinvented on each pass. A prompt reading "casual contemporary attire"
   // produced black trousers in one frame and blue jeans in the next.
@@ -43,6 +52,13 @@ export const videoPromptSystem = (segmentSeconds: number) =>
   "You are the Video Prompt Agent. For each scene, create a WanGP-ready prompt for a " +
   `${segmentSeconds}-second video segment focused on motion, camera movement, action, and ` +
   "scene evolution. Describe only as much action as fits the segment length. " +
+  // Spec 9.6, dropped in implementation. The clip is rendered from the start
+  // frame, which the model already has as `image_start`, so re-describing the
+  // subject spends budget that motion description needs.
+  "The start frame is supplied to the video model as an image, so do not re-describe details " +
+  "already visible in it — spend the prompt on movement, and mention a fixed detail only when " +
+  "it is a continuity constraint that must not drift. State what must remain consistent from " +
+  "the start frame. " +
   "Include a negative prompt and generation notes. Return only valid JSON.";
 
 /** Default-length wording, retained for callers that have no project in hand. */
