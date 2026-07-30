@@ -85,7 +85,14 @@ async function renderOneScene(faceVisible: boolean) {
   }
 
   const record = await media.generateSceneMedia(created.id, sceneId);
-  return { swaps: swapFace.mock.calls.length, record, sceneId };
+  return {
+    swaps: swapFace.mock.calls.length,
+    record,
+    sceneId,
+    projectId: created.id,
+    media,
+    projects,
+  };
 }
 
 describe("gating the face swap on the planned shot", () => {
@@ -99,5 +106,54 @@ describe("gating the face swap on the planned shot", () => {
     expect(swaps).toBe(0);
     // Skipping the swap must not skip the render.
     expect(record.attempts?.[sceneId]?.[0]?.startImagePath).toBeTruthy();
+  });
+});
+
+/**
+ * The repair path. The automatic pass is decided before anything is drawn, and
+ * the plan can be wrong in either direction — a shot planned as a close-up of
+ * hands can come back framing the face.
+ */
+describe("swapping one frame after the fact", () => {
+  it("replaces the named frame and leaves the other alone", async () => {
+    const { projectId, sceneId, media, record } = await renderOneScene(false);
+    const original = record.attempts![sceneId]![0]!;
+
+    const updated = await media.swapAttemptFrame(projectId, sceneId, "start_frame");
+    const attempt = updated.attempts![sceneId]![0]!;
+
+    expect(attempt.startImagePath).toBe("/swapped.png");
+    expect(attempt.endImagePath).toBe(original.endImagePath);
+  });
+
+  it("refuses when the scene has no media yet", async () => {
+    const { projects, media } = await isolated();
+    const created = await projects.createProject({
+      concept: "Nothing rendered here.",
+      requestedDurationSeconds: 20,
+      generationMode: "keyframes_only",
+    });
+    const withStoryboard = await projects.generateStoryboard(created.id);
+    const sceneId = withStoryboard.storyboard!.scenes[0]!.id;
+
+    await expect(media.swapAttemptFrame(created.id, sceneId, "start_frame")).rejects.toThrow(
+      /Generate this scene's media/,
+    );
+  });
+
+  it("refuses when no character is set up for a swap", async () => {
+    const { projects, media } = await isolated();
+    const created = await projects.createProject({
+      concept: "A street at dawn.",
+      requestedDurationSeconds: 20,
+      generationMode: "keyframes_only",
+    });
+    const withStoryboard = await projects.generateStoryboard(created.id);
+    const sceneId = withStoryboard.storyboard!.scenes[0]!.id;
+    await media.generateSceneMedia(created.id, sceneId);
+
+    await expect(media.swapAttemptFrame(created.id, sceneId, "start_frame")).rejects.toThrow(
+      /exactly one character/,
+    );
   });
 });

@@ -31,6 +31,7 @@ export type TelemetryEvent =
   | "scene.keyframe_preview_cleared"
   | "scene.seed_cleared"
   | "face_swap.applied"
+  | "face_swap.manual"
   | "face_swap.skipped"
   | "face_swap.reference_ignored"
   | "lora.dropped"

@@ -33,6 +33,8 @@ type SceneCardProps = {
   onNewSeed?: () => void;
   /** Correct the planner when a shot's framing was called wrong. */
   onFaceVisibleChange?: (next: boolean) => void;
+  /** Apply the face swap to one already-rendered frame. */
+  onSwapFace?: (purpose: "start_frame" | "end_frame") => void;
 };
 
 /** Render a player for media that exists on disk; fall back to the path. */
@@ -84,6 +86,7 @@ export function SceneCard({
   seed,
   onNewSeed,
   onFaceVisibleChange,
+  onSwapFace,
 }: SceneCardProps) {
   const playable = media.filter((m) => m.available && m.sceneId === scene.id);
   const hasPreviews = playable.some((m) => m.preview);
@@ -271,6 +274,36 @@ export function SceneCard({
                 One image, no clip — for checking a prompt, model or LoRA change cheaply. Previews
                 are not part of an attempt and are never assembled.
               </span>
+            </div>
+          )}
+
+          {onSwapFace && attempt && (attempt.startImagePath || attempt.endImagePath) && (
+            <div className="mt-2 flex flex-wrap items-center gap-2" data-testid="manual-face-swap">
+              <span className="text-[11px] text-slate-500">Swap face on:</span>
+              <button
+                onClick={() => onSwapFace("start_frame")}
+                disabled={busy || !attempt.startImagePath}
+                className="rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-slate-300 hover:border-accent disabled:opacity-50"
+              >
+                Start frame
+              </button>
+              <button
+                onClick={() => onSwapFace("end_frame")}
+                disabled={busy || !attempt.endImagePath}
+                className="rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-slate-300 hover:border-accent disabled:opacity-50"
+              >
+                End frame
+              </button>
+              <span className="text-[10px] text-slate-600">
+                For a shot the plan called faceless that came back with a face. Edits the stored
+                frame in place; running it twice applies a second pass.
+              </span>
+              {attempt.videoPath ? (
+                <p className="w-full text-[10px] text-amber-300/80">
+                  This attempt already has a clip, and it was built from the current frames —
+                  regenerate the media to make the video match a swapped frame.
+                </p>
+              ) : null}
             </div>
           )}
 

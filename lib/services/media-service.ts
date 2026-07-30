@@ -883,6 +883,82 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
   return persistThenScore(projectId, scene, attempt, existing, record, stages.video);
 }
 
+/**
+ * Apply the face swap to one already-rendered keyframe.
+ *
+ * The automatic pass runs inline because each frame feeds the next — the end
+ * frame is conditioned on the start frame, the next scene inherits the end
+ * frame, and the clip is built from both. That ordering is why the swap cannot
+ * simply be deferred to the end.
+ *
+ * This is the repair for when the plan and the render disagree: a shot the
+ * Storyboard Agent called faceless that came back with a face in it. It edits
+ * the stored frame in place and leaves everything downstream alone, so the
+ * caller is responsible for re-rendering whatever already consumed it.
+ */
+export async function swapAttemptFrame(
+  projectId: string,
+  sceneId: string,
+  purpose: "start_frame" | "end_frame",
+): Promise<ProjectRecord> {
+  const record = await getProjectRecord(projectId);
+  const scene = findScene(record, sceneId);
+  const attempts = record.attempts?.[sceneId] ?? [];
+  const target = attempts.at(-1);
+  if (!target) throw new ValidationError("Generate this scene's media before swapping a face.");
+
+  const framePath = purpose === "start_frame" ? target.startImagePath : target.endImagePath;
+  if (!framePath) {
+    throw new ValidationError(`This attempt has no ${purpose.replace("_", " ")} to swap.`);
+  }
+
+  const subject = faceSwapSubject(await resolveProjectCast(record.project));
+  if (!subject) {
+    throw new ValidationError(
+      "Face swap needs exactly one character in this project with face swap enabled and a " +
+        "reference image.",
+    );
+  }
+
+  const swapped = await swapFace(framePath, subject, { sceneId, purpose });
+  if (!swapped) {
+    throw new ValidationError(
+      "The swap did not produce an image. Check that the Qwen Image Edit model and its " +
+        "face-swap LoRAs are installed in WanGP.",
+    );
+  }
+
+  const updated: ProjectRecord = {
+    ...record,
+    attempts: {
+      ...(record.attempts ?? {}),
+      [sceneId]: attempts.map((a) =>
+        a.id === target.id
+          ? {
+              ...a,
+              ...(purpose === "start_frame"
+                ? { startImagePath: swapped }
+                : { endImagePath: swapped }),
+            }
+          : a,
+      ),
+    },
+    project: { ...record.project, updatedAt: new Date().toISOString() },
+    history: [
+      ...(record.history ?? []),
+      {
+        at: new Date().toISOString(),
+        action: "scene.face_swapped",
+        detail: `Scene ${scene.sceneNumber} ${purpose.replace("_", " ")}`,
+      },
+    ],
+  };
+
+  await repository.update(projectId, updated);
+  logEvent("face_swap.manual", { projectId, sceneId, purpose, character: subject.name });
+  return updated;
+}
+
 export async function approveAttempt(
   projectId: string,
   sceneId: string,

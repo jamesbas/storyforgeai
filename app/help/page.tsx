@@ -408,6 +408,42 @@ export default function HelpPage() {
             shows the face, since the one that does still needs it corrected.
           </p>
 
+          <h3 className={h3}>Swapping a frame by hand</h3>
+          <p className={p}>
+            The automatic pass is decided <strong>before anything is drawn</strong>, from the shot
+            the Storyboard Agent planned — and a render does not always match its prompt. A scene
+            written as a close-up of hands can come back framing the face, and then the tick box was
+            wrong.
+          </p>
+          <p className={p}>
+            The swap cannot simply be deferred to the end, because each frame feeds the next: the
+            end frame is rendered against the start frame, the next scene inherits the end frame
+            under <em>reuse end frame</em>, and the clip is built from both. A swap applied
+            afterwards would arrive too late for all three.
+          </p>
+          <p className={p}>
+            So the scene card offers <strong>Swap face on: Start frame / End frame</strong> as a
+            repair. It edits the stored frame in place and takes seconds.
+          </p>
+          <p className={p}>
+            <strong>When to use it.</strong> A scene marked <em>Face in frame</em> off whose render
+            turned out to show the face after all — swap the frame rather than re-running the whole
+            scene. Or a swap that failed because the model was not yet installed in WanGP.
+          </p>
+          <p className={p}>
+            <strong>How to use it.</strong> Generate the scene, look at the frames on the card, then
+            press the button for the frame that needs it. Two things to know: running it twice
+            applies a <em>second</em> pass to an already-swapped frame rather than redoing the
+            first, and if the attempt already has a clip, that clip was built from the old frames —
+            regenerate the media to bring the video back in line. The card warns you when a clip
+            exists.
+          </p>
+          <p className={p}>
+            To decide before spending a full render, use <strong>Start frame only</strong> under
+            <em> Preview one frame</em>: one image, no clip, not part of an attempt. Check the
+            framing, set the tick box, then generate properly.
+          </p>
+
           <h3 className={h3}>Using it in a project</h3>
           <p className={p}>
             On the New Project form, tick <em>Use saved character descriptions</em> and select the

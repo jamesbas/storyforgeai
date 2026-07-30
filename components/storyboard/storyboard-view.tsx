@@ -405,6 +405,27 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     [projectId, failureMessage],
   );
 
+  const swapSceneFace = useCallback(
+    async (sceneId: string, purpose: "start_frame" | "end_frame") => {
+      setSceneBusy(sceneId);
+      setError(null);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/scenes/${sceneId}/face-swap`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ purpose }),
+        });
+        if (!res.ok) throw new Error(await failureMessage(res, "Failed to swap the face"));
+        setRecord((await res.json()) as ProjectRecord);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to swap the face");
+      } finally {
+        setSceneBusy(null);
+      }
+    },
+    [projectId, failureMessage],
+  );
+
   const approveScene = useCallback(
     async (sceneId: string, attemptId: string) => {
       setSceneBusy(sceneId);
@@ -769,6 +790,9 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   seed={record.project.sceneSeeds?.[scene.id]}
                   onNewSeed={() => void newSceneSeed(scene.id)}
                   onFaceVisibleChange={(next) => void setFaceVisible(scene.id, next)}
+                  onSwapFace={
+                    stages.keyframes ? (purpose) => void swapSceneFace(scene.id, purpose) : undefined
+                  }
                 />
               );
             })}

@@ -565,6 +565,9 @@ into the storyboard snapshot rather than beside it. That preserves the invariant
 that the Prompts panel shows exactly what will be sent, at the cost of edits being
 replaced when the storyboard is regenerated.
 
+`PATCH /scenes/:sceneId/framing` edits `subjectFaceVisible` the same way, for
+correcting the Storyboard Agent's read of a shot without regenerating the plan.
+
 ### 4.2 Character identity conditioning
 
 Four mechanisms, ordered by where they act in the pipeline.
@@ -612,6 +615,17 @@ Three properties this encodes:
    exactly one has opted in, because the preset's prompt names "the woman" in each
    picture. Two opted-in characters is ambiguous, and swapping the wrong face is
    worse than not swapping, so it is skipped and logged.
+4. **Gated on the planned shot.** The pass never declines on its own: told to
+   replace a head in a frame that has none, it invents somewhere to put one. The
+   Storyboard Agent sets `scene.subjectFaceVisible`, and `renderKeyframe` skips
+   the swap when it is false. In the batch phase a frame shared by two scenes
+   (`reuse_end_frame`) is swapped if either shows the face.
+
+`swapAttemptFrame()` is the escape hatch: it applies the swap to one stored frame
+of the latest attempt, for when the plan and the render disagree. It deliberately
+touches nothing downstream — the frames and clips already derived from that image
+keep their old content until regenerated, which is the cost of doing it out of
+order.
 
 **Scene continuity** carries the result forward: under `reuse_end_frame` a scene
 starts from the previous scene's swapped end frame rather than re-synthesising.
@@ -916,6 +930,8 @@ flowchart LR
         g2["POST scenes/:sceneId/approve-attempt/:attemptId"]
         g3["POST scenes/:sceneId/deepy"]
         g4["GET media · GET media/:assetId"]
+        g5["PATCH scenes/:sceneId/framing"]
+        g6["POST scenes/:sceneId/face-swap"]
     end
     subgraph audio["Audio cues"]
         c1["GET · POST audio-cues"]

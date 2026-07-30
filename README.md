@@ -291,6 +291,19 @@ has it enabled — the recipe is written around a single subject, so with two th
 is no way to say which face belongs where. Disable globally with
 `FACE_SWAP_ENABLED=false`; change the model with `FACE_SWAP_MODEL`.
 
+**Which shots get swapped.** The pass is unconditional once it runs: its prompt
+says to replace "the head of the woman", so on a close-up of hands it grafts one
+on rather than declining. Each scene therefore carries `subjectFaceVisible`, set
+by the Storyboard Agent from the shot it planned and shown as a **Face in frame**
+tick box. Clear it and that scene's frames keep their originals.
+
+**Repairing one frame.** The flag is decided before anything is drawn, and a
+render does not always match its prompt. `POST /scenes/{id}/face-swap` with
+`{ "purpose": "start_frame" | "end_frame" }` — the **Swap face on** buttons on the
+scene card — applies the swap to a stored frame after the fact. It edits that
+frame alone, so anything already built from it (the end frame, the next scene's
+start, the clip) stays as it was and needs regenerating to match.
+
 **Scene continuity.** `reuse_end_frame` (the default) starts each scene from the
 previous scene's end frame, so a corrected face propagates forward rather than
 being re-synthesised per scene.
