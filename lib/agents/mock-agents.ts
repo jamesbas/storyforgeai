@@ -3,6 +3,7 @@ import type { CreativeBrief, StoryPlan, VisualBible } from "@/lib/schemas/agents
 import type { ScenePrompts, SceneDraft } from "@/lib/schemas/storyboard";
 import type { Character } from "@/lib/schemas/character";
 import { castNegativeSuffix, castPromptSuffix } from "@/lib/agents/cast";
+import { isContinuousTake } from "@/lib/agents/continuity";
 import { lookPromptSuffix } from "@/lib/agents/look";
 import {
   continuityNegativeSuffix,
@@ -226,8 +227,10 @@ export function buildSceneDrafts(
             : "The stakes visibly rise."),
       cameraMovement:
         slice.shotPlan ?? (sceneNumber % 2 === 0 ? "Slow push-in" : "Gentle lateral tracking"),
-      transitionIn: sceneNumber === 1 ? "Fade in" : "Cut",
-      transitionOut: isLast ? "Fade out" : "Cut",
+      // A segment boundary is a technical join, so it is only a cut when the
+      // project says its scenes are separate shots.
+      transitionIn: sceneNumber === 1 ? "Fade in" : isContinuousTake(project) ? "Continuous" : "Cut",
+      transitionOut: isLast ? "Fade out" : isContinuousTake(project) ? "Continuous" : "Cut",
       continuityNotes: [
         cast.length > 0
           ? `Maintain ${cast.map((c) => c.name).join(" and ")} exactly as described in the character library`

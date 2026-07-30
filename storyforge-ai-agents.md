@@ -434,14 +434,28 @@ which *"separates the subject from the background and highlights contours"*.
 Prompt Agent nothing to convert into framing — which is consistent with the observed failure where
 a scene specified as an extreme close-up rendered as a three-quarter shot.
 
+**Correction, same day.** The first version of this prompt also carried StudioBinder's shot-contrast
+advice as an unconditional instruction — *"vary sizes deliberately across the storyboard… a run of
+identical framings has no emphasis"*. That is craft guidance for an **edited film**, and this system
+mostly does not make one. A segment boundary here exists because the video model renders about
+twenty seconds at a time; it is a technical join, not a cut. Told to vary sizes, the Cinematographer
+turned a continuous sixty-second piece into a three-shot edit nobody asked for, and `reuse_end_frame`
+then reused the frame across the invented cut — so the next segment's start-frame prompt was
+discarded and its clip opened on the wrong framing.
+
+The shot-contrast advice now applies only when `sceneContinuity` is `cut`. On the continuing modes
+the agent is told the segments are one take: hold shot size, lens and camera height across
+boundaries, and get variety from movement instead. Verified live on the same project — continuous
+returned MWS → MWS → MCU on one 35mm lens at eye level throughout, reaching the close-up *through* a
+push-in, where `cut` returned WS → MCU → CU across three lenses. The general lesson is that sourced
+craft practice still has to be checked against what the system actually builds.
+
 > You are the Cinematographer Agent. Define the visual camera language for the project. Specify
 > shot types, lens/framing rules, camera movements, lighting approach, and transition language.
 >
 > Use the standard shot-size vocabulary and name exactly one per scene: extreme wide (EWS), wide
 > (WS), full (FS), medium wide (MWS), cowboy, medium (MS), medium close-up (MCU), close-up (CU),
-> extreme close-up (ECU). Vary sizes deliberately across the storyboard — contrast between shot
-> sizes is what signals which moments matter, and a run of identical framings has no emphasis.
-> Establish a new location on a wider size before moving in.
+> extreme close-up (ECU).
 >
 > Give lens choices in millimetres with the reason: wide lenses (18–35mm) exaggerate depth and
 > proximity; long lenses (85mm+) compress and isolate. State camera height per scene — eye level,

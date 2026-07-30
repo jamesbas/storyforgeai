@@ -2,6 +2,7 @@ import { z } from "zod";
 import { scenePromptsSchema, type Scene, type SceneDraft } from "@/lib/schemas/storyboard";
 import { buildImagePrompts, buildVideoPrompts } from "@/lib/agents/mock-agents";
 import { castNegativeSuffix, castPromptSuffix, castSystemDirective } from "@/lib/agents/cast";
+import { seamDirective } from "@/lib/agents/continuity";
 import { lookPromptSuffix } from "@/lib/agents/look";
 import {
   continuityNegativeSuffix,
@@ -94,6 +95,8 @@ export async function attachScenePrompts(
   const cast = context.cast ?? [];
   const plans = context.plans;
   const scenes: Scene[] = [];
+  // The seam can only be matched by an agent that can see what it is matching.
+  let previousEndFramePrompt: string | undefined;
   for (const draft of drafts) {
     // Only this scene's slice of the Director and Cinematographer plans travels
     // into the prompt. The full documents would crowd out the shot description.
@@ -105,6 +108,7 @@ export async function attachScenePrompts(
       const user = JSON.stringify({
         project,
         scene: draft,
+        previousEndFramePrompt,
         visualBible: context.visualBible,
         cast,
         sceneIntent: slice.intent,
@@ -121,7 +125,10 @@ export async function attachScenePrompts(
         forbiddenContradictions: plans?.worldBible?.forbiddenContradictions,
       });
       const image = await provider.generateJson(
-        IMAGE_PROMPT_SYSTEM + castSystemDirective(cast, true) + precedenceDirective(cast, plans),
+        IMAGE_PROMPT_SYSTEM +
+          seamDirective(project) +
+          castSystemDirective(cast, true) +
+          precedenceDirective(cast, plans),
         user,
         imagePartSchema,
       );
@@ -137,6 +144,7 @@ export async function attachScenePrompts(
     }
 
     scenes.push({ ...draft, prompts: { ...imagePart, ...videoPart } });
+    previousEndFramePrompt = imagePart.endFramePrompt;
   }
   return scenes;
 }

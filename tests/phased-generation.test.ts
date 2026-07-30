@@ -6,7 +6,6 @@ import { canRunPhased, generateProjectMediaPhased } from "@/lib/services/media-s
 import { getProjectRecord } from "@/lib/services/project-service";
 import { MockWangpClient } from "@/lib/wangp/mock-client";
 import { setWangpClient } from "@/lib/wangp/factory";
-import { repository } from "@/lib/db/store";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 
 /**
@@ -163,9 +162,9 @@ describe("running a phased batch", () => {
 
     expect(totals.keyframes).toBe(sceneCount);
     expect(totals.video).toBe(sceneCount);
-    // The built storyboard cuts between scenes, so no frame is shared and every
-    // scene renders both of its own.
-    expect(totals.face_swap).toBe(sceneCount * 2);
+    // Segments join continuously by default, so each scene's end frame is the
+    // next one's start frame: one start frame plus an end frame per scene.
+    expect(totals.face_swap).toBe(sceneCount + 1);
 
     // Counts climb one at a time and finish on the total.
     for (const [phase, seen] of Object.entries(counts)) {
@@ -180,35 +179,34 @@ describe("running a phased batch", () => {
    */
   it("swaps a frame shared across a continuous seam only once", async () => {
     const seeded = await project({ faceSwap: true, continuity: "reuse_end_frame" });
-    const scenes = seeded.storyboard!.scenes.map((scene) => ({
-      ...scene,
-      transitionIn: scene.sceneNumber === 1 ? "Fade in" : "Continuous",
-      transitionOut: "Continuous",
-      visualDescription: `Medium shot, eye level. ${scene.visualDescription}`,
-      prompts: {
-        ...scene.prompts,
-        startFramePrompt: `Medium shot, eye level. ${scene.prompts.startFramePrompt}`,
-        endFramePrompt: `Medium shot, eye level. ${scene.prompts.endFramePrompt}`,
-      },
-    }));
-    const record = { ...seeded, storyboard: { ...seeded.storyboard!, scenes } };
-    await repository.update(record.project.id, record);
-
-    const sceneCount = scenes.length;
+    const sceneCount = sceneIdsOf(seeded).length;
     let swapTotal = 0;
-    await generateProjectMediaPhased(record.project.id, sceneIdsOf(record), {
+    await generateProjectMediaPhased(seeded.project.id, sceneIdsOf(seeded), {
       onPhase: (phase, total) => {
         if (phase === "face_swap") swapTotal = total;
       },
     });
 
-    // One start frame plus an end frame per scene, each swapped once.
     expect(swapTotal).toBe(sceneCount + 1);
 
-    const after = await getProjectRecord(record.project.id);
-    const latest = scenes.map((s) => after.attempts![s.id]!.at(-1)!);
+    const after = await getProjectRecord(seeded.project.id);
+    const latest = seeded.storyboard!.scenes.map((s) => after.attempts![s.id]!.at(-1)!);
     expect(latest[1]!.startImagePath).toBe(latest[0]!.endImagePath);
     expect(latest[1]!.startImageInherited).toBe(true);
+  });
+
+  /** Cut scenes share nothing, so every frame is its own swap. */
+  it("swaps every frame when the project cuts between scenes", async () => {
+    const seeded = await project({ faceSwap: true, continuity: "cut" });
+    const sceneCount = sceneIdsOf(seeded).length;
+    let swapTotal = 0;
+    await generateProjectMediaPhased(seeded.project.id, sceneIdsOf(seeded), {
+      onPhase: (phase, total) => {
+        if (phase === "face_swap") swapTotal = total;
+      },
+    });
+
+    expect(swapTotal).toBe(sceneCount * 2);
   });
 
   /**

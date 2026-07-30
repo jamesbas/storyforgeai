@@ -20,6 +20,7 @@ import {
   buildWorldBible,
 } from "@/lib/agents/mock-canvas";
 import { castSystemDirective } from "@/lib/agents/cast";
+import { cameraContinuityDirective } from "@/lib/agents/continuity";
 import { planningPayload, precedenceDirective, type CreativePlans } from "@/lib/agents/creative-context";
 import type { StoryPlan } from "@/lib/schemas/agents";
 import type { Character } from "@/lib/schemas/character";
@@ -100,9 +101,7 @@ export const CINEMATOGRAPHER_SYSTEM =
   "language. " +
   "Use the standard shot-size vocabulary and name exactly one per scene: extreme wide (EWS), " +
   "wide (WS), full (FS), medium wide (MWS), cowboy, medium (MS), medium close-up (MCU), " +
-  "close-up (CU), extreme close-up (ECU). Vary sizes deliberately across the storyboard — " +
-  "contrast between shot sizes is what signals which moments matter, and a run of identical " +
-  "framings has no emphasis. Establish a new location on a wider size before moving in. " +
+  "close-up (CU), extreme close-up (ECU). " +
   "Give lens choices in millimetres with the reason: wide lenses (18-35mm) exaggerate depth and " +
   "proximity, long lenses (85mm+) compress and isolate. State camera height per scene — eye " +
   "level, low, high or overhead. " +
@@ -249,7 +248,9 @@ export async function cinematographerAgent(
       plans: planningPayload(ctx.plans),
     });
     const result = await provider.generateJson(
-      CINEMATOGRAPHER_SYSTEM + precedenceDirective(ctx.cast ?? [], ctx.plans),
+      CINEMATOGRAPHER_SYSTEM +
+        cameraContinuityDirective(project) +
+        precedenceDirective(ctx.cast ?? [], ctx.plans),
       user,
       cinematographyPlanSchema,
     );

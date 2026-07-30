@@ -265,21 +265,31 @@ export default function HelpPage() {
           </p>
           <OptionList options={SCENE_CONTINUITY_OPTIONS} />
           <p className={p}>
-            <strong>&ldquo;Continue from previous end frame&rdquo; yields to a planned cut.</strong>{" "}
-            Inheriting a frame only makes sense where the action runs on. If a scene cuts to a
-            different shot size — a wide two-shot followed by an extreme close-up — or its{" "}
-            <em>transition in</em> names a cut, dissolve, fade or wipe, that scene renders its own
-            start frame even in this mode. Without that rule the scene&apos;s start-frame prompt was
-            never sent to the image model at all: the clip began on the previous framing while its
-            video prompt argued for a different one, and the storyboard&apos;s shot design was lost.
-            When a frame <em>is</em> inherited the scene card says so, because the Prompts panel
-            would otherwise show a start-frame prompt that had no effect on the image.
+            <strong>This setting also drives the planning.</strong> A segment boundary exists because
+            the video model renders only so many seconds at a time — it is a technical join, not a
+            creative cut. On the two continuing modes the Cinematographer is told the
+            piece is one continuous take: it holds the shot size, lens and camera height across
+            boundaries and gets its variety from <em>movement</em> instead — push-in, pull-out,
+            orbit, arc, pan, tilt, tracking. A push-in that ends tight is how the piece reaches a
+            close-up; cutting to one is not on the table. The Storyboard and Image Prompt agents are
+            told the same thing, so each segment&apos;s start frame describes the previous
+            segment&apos;s end frame rather than opening a new framing.
           </p>
           <p className={p}>
-            Most storyboards cut between scenes, so in practice this mode now behaves like
-            &ldquo;Cut between scenes&rdquo; except where the storyboard genuinely plans continuous
-            action. Choose <strong>Cut between scenes</strong> outright if you want every scene to
-            render its own frames unconditionally.
+            <strong>To cut, say so in the concept.</strong> Write it into the project description —
+            &ldquo;cut to the husband watching from his table&rdquo; — and the agents will plan the
+            change of framing. Choosing <strong>Cut between scenes</strong> switches the whole piece
+            to separate shots, and the Cinematographer is then told to vary shot sizes deliberately,
+            because contrast between framings is what signals which moments matter in an edit.
+          </p>
+          <p className={p}>
+            <strong>Rendering respects a planned cut regardless.</strong> If a scene does cut to a
+            different shot size, or its <em>transition in</em> names a cut, dissolve, fade or wipe,
+            that scene renders its own start frame even on a continuing mode. Without that rule the
+            scene&apos;s start-frame prompt was never sent to the image model at all: the clip began
+            on the previous framing while its video prompt argued for a different one. When a frame
+            <em> is</em> inherited the scene card says so, because the Prompts panel would otherwise
+            show a start-frame prompt that had no effect on the image.
           </p>
 
           <h3 className={h3}>Batch generation (Storyboard screen)</h3>
