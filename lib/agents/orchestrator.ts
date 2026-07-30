@@ -71,7 +71,12 @@ export async function runStoryboardOrchestrator(
     brief: ctx.brief,
     visualBible: ctx.visualBible,
     scenes,
+    fallbacks: ctx.fallbacks?.length ? ctx.fallbacks : undefined,
   });
-  logEvent("storyboard.generated", { projectId: project.id, scenes: snapshot.scenes.length });
+  logEvent("storyboard.generated", {
+    projectId: project.id,
+    scenes: snapshot.scenes.length,
+    fallbacks: ctx.fallbacks?.map((f) => f.agent) ?? [],
+  });
   return snapshot;
 }

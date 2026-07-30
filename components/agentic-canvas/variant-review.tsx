@@ -5,6 +5,16 @@ import Link from "next/link";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { CreativeVariant } from "@/lib/schemas/canvas";
 
+/** What each direction changes, so three cards read as three choices. */
+const VARIANT_AXIS: Readonly<Record<string, string>> = {
+  concept: "different premise",
+  story: "different story",
+  visual_style: "different look",
+  hook: "different opening",
+  scene: "different moments",
+  platform_cut: "different platform",
+};
+
 export function VariantReview({ projectId }: { projectId: string }) {
   const [record, setRecord] = useState<ProjectRecord | null>(null);
   const [busy, setBusy] = useState(false);
@@ -100,13 +110,21 @@ export function VariantReview({ projectId }: { projectId: string }) {
                 v.selected ? "border-accent bg-accent/10" : "border-white/10 bg-panel/40"
               }`}
             >
-              <h3 className="font-semibold">{v.name}</h3>
+              <div className="flex items-baseline justify-between gap-2">
+                <h3 className="font-semibold">{v.name}</h3>
+                <span
+                  className="shrink-0 rounded bg-white/5 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-slate-400"
+                  title="What this direction changes relative to the others"
+                >
+                  {VARIANT_AXIS[v.variantType] ?? v.variantType}
+                </span>
+              </div>
               <p className="mt-1 text-sm text-slate-300">{v.summary}</p>
               <dl className="mt-3 space-y-1 text-xs text-slate-400">
                 {v.hook && <div>Hook: {v.hook}</div>}
                 {v.bestFitPlatform && <div>Best fit: {v.bestFitPlatform}</div>}
                 <div>Strengths: {v.strengths.join(", ")}</div>
-                <div>Risks: {v.risks.join(", ")}</div>
+                <div>Gives up: {v.risks.join(", ")}</div>
               </dl>
               <button
                 onClick={() => select(v.id)}

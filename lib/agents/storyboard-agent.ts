@@ -95,13 +95,16 @@ export async function storyboardAgent(
     // Worth its own event: the deterministic drafts that follow are schema-valid
     // and look like a finished storyboard, so a silent fallback is only visible
     // as scene cards that all describe the same thing.
+    const reason = result ? "scene_count_mismatch" : "no_valid_response";
     logEvent("agent.fallback", {
       projectId: ctx.project.id,
       agent: "storyboard",
-      reason: result ? "scene_count_mismatch" : "no_valid_response",
+      reason,
       expectedScenes: ctx.project.segmentCount,
       returnedScenes: result?.scenes.length ?? 0,
     });
+    // Carried on the context so it reaches the stored snapshot, not just the log.
+    ctx.fallbacks = [...(ctx.fallbacks ?? []), { agent: "Storyboard Agent", reason }];
   }
   return buildSceneDrafts(ctx.project, storyPlan, brief, visualBible, ctx.cast ?? [], ctx.plans);
 }

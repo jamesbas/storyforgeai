@@ -218,11 +218,13 @@ re-describing the subject burns prompt budget that motion description needs. Its
 in production — video prompts currently repeat the full character description, which in one measured
 case was over half the prompt.
 
-### 3.7 Variant Explorer — **C**
+### 3.7 Variant Explorer — **C**, now **B** (§4.5 shipped)
 
-Spec §9.9 verbatim. A list of fields to fill. `VARIANT_TYPES` exists in the schema but is never
-explained to the model, so the three "distinct" directions tend to be tonal variations of one idea
-rather than genuinely different strategies.
+Was spec §9.9 verbatim: a list of fields to fill. `VARIANT_TYPES` existed in the schema but was never
+explained to the model, so the three "distinct" directions tended to be tonal variations of one idea
+rather than genuinely different strategies. The prompt now defines all six axes, requires a different
+one per variant, and applies a similarity test; the UI shows the axis on each card. Not an A until
+it has been run enough times to show the three stay genuinely apart.
 
 ### 3.8 World Builder / Director / Cinematographer / Art Director — **C**
 
@@ -366,17 +368,27 @@ The one idea in the original list still unbuilt is **regenerate prompts only** �
 prompt agents against existing scene cards, so a late plan applies without rewriting the story.
 Worth considering only if regenerating whole storyboards proves annoying in practice.
 
-### 4.5 Give the Variant Explorer something to vary
+### 4.5 Give the Variant Explorer something to vary — **shipped**
 
-Explain `VARIANT_TYPES` in the prompt and require the three directions to differ on a *named axis* —
-tone, structure, or point of view — rather than being three descriptions of one idea. Requiring each
-variant to state what it sacrifices would make the `risks` field earn its place.
+`VARIANT_TYPES` had been in the schema since the beginning, never explained to the model and never
+shown to the user. The prompt now defines all six axes — `story`, `concept`, `visual_style`, `hook`,
+`scene`, `platform_cut` — requires a different one per variant, and gives the model a cheap
+self-check: *if two directions would produce similar images, they are the same direction described
+twice.* Risks must name what the direction gives up rather than listing production caveats, which is
+what makes that field worth reading. The card in `variant-review.tsx` now shows the axis as a plain
+label ("different look", "different opening") and renames the risks line to **Gives up**, so three
+options read as three choices instead of three moods.
 
-### 4.6 Watch `agent.fallback`
+### 4.6 Watch `agent.fallback` — **shipped**
 
-A deterministic fallback produces a schema-valid storyboard that looks finished. The event exists;
-surfacing it in the UI when a storyboard was built from one would stop a mechanical plan being
-mistaken for a considered one.
+The event alone was not enough: it goes to the log, and the storyboard it describes is schema-valid,
+complete, and indistinguishable from a considered one on screen. `AgentContext` now carries a
+`fallbacks` array, the storyboard agent pushes `{agent, reason}` onto it, and the orchestrator writes
+it into `storyboardSnapshotSchema.fallbacks` so the fact is *stored*, not just logged. The Storyboard
+screen renders an amber banner — *this storyboard was not written by the planning model* — with the
+reason in plain words (`scene_count_mismatch` → "wrong number of scenes returned") and a **Regenerate
+storyboard** button. The cost of missing this is measured in GPU hours spent rendering placeholder
+writing, which is why it needed to be visible rather than discoverable.
 
 ---
 
@@ -604,14 +616,15 @@ material in this system sourced from outside it.
 
 ## 7. Suggested sequence
 
-§4.1, §4.2/§5 and §4.3 are **shipped**, as is the Story Architect rewrite (§3.2). §4.4 turned out to
-be **already built**. What remains:
+§4.1, §4.2/§5, §4.3, §4.5 and §4.6 are **shipped**, as is the Story Architect rewrite (§3.2). §4.4
+turned out to be **already built**. What remains:
 
-1. **§4.5** — give the Variant Explorer a named axis to vary on. It is the last **C** grade.
-2. **§4.6** — surface `agent.fallback` in the UI, so a mechanical storyboard is not mistaken for a
-   considered one.
-3. **Intake** (§3.1) is still a field checklist. Lowest value of the three: its output feeds the
-   Story Architect, which now has enough structure of its own to compensate for a thin brief.
+1. **Intake** (§3.1) is still a field checklist — the last unimproved agent. Lowest value of the
+   original list: its output feeds the Story Architect, which now has enough structure of its own to
+   compensate for a thin brief.
+2. **Regenerate prompts only** (§4.4) — re-run the two prompt agents against existing scene cards so
+   a late plan applies without rewriting the story. Worth building only if regenerating whole
+   storyboards proves annoying in practice.
 
 A note on measuring this: the prompt-agent output is stored, so the effect of §5 is directly
 inspectable. Generate a storyboard before and after on the same concept and seed, and compare the

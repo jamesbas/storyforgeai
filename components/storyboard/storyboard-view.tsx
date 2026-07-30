@@ -542,6 +542,38 @@ export function StoryboardView({ projectId }: { projectId: string }) {
 
       {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
 
+      {storyboard?.fallbacks?.length ? (
+        <section
+          className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4"
+          data-testid="storyboard-fallback"
+        >
+          <h2 className="text-sm font-semibold text-amber-200">
+            This storyboard was not written by the planning model
+          </h2>
+          <p className="mt-1 text-xs text-amber-200/90">
+            {storyboard.fallbacks.map((f) => f.agent).join(", ")} produced no usable output, so the
+            built-in builder filled in from the story beats. The result is structurally complete and
+            will render, but it is mechanical — scene descriptions follow the beats rather than
+            interpreting them.
+          </p>
+          <p className="mt-2 text-[11px] text-amber-200/70">
+            Reason:{" "}
+            {storyboard.fallbacks
+              .map((f) => (f.reason === "scene_count_mismatch" ? "wrong number of scenes returned" : "no valid response"))
+              .join(", ")}
+            . Check the planning model is loaded, then regenerate the storyboard.
+          </p>
+          <button
+            type="button"
+            onClick={generate}
+            disabled={busy}
+            className="mt-3 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+          >
+            {busy ? "Regenerating…" : "Regenerate storyboard"}
+          </button>
+        </section>
+      ) : null}
+
       <CreativePlansPanel
         record={record}
         projectId={projectId}

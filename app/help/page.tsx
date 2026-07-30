@@ -541,7 +541,7 @@ export default function HelpPage() {
           <h2 className={h2}>6. The end-to-end workflow</h2>
           <ol className="mt-2 list-decimal space-y-2 pl-5">
             <li className={li}><strong>New project</strong> — describe the idea and settings.</li>
-            <li className={li}><strong>Variant Review</strong> (optional) — generate 3 creative directions and select one.</li>
+            <li className={li}><strong>Variant Review</strong> (optional) — generate 3 creative directions, each changing a different thing, and select one.</li>
             <li className={li}><strong>Storyboard</strong> — generate the brief, visual bible, and 20s scene cards; edit and approve.</li>
             <li className={li}><strong>Agentic Canvas</strong> — run the World Builder, Director, Cinematographer, Art Director, and Audio Director; review each artifact.</li>
             <li className={li}><strong>Animatic</strong> (optional) — preview pacing and captions before spending time on video.</li>
@@ -614,6 +614,17 @@ export default function HelpPage() {
             your images or video until you regenerate — see{" "}
             <a href="#agents" className="text-accent hover:underline">The creative team</a> for why.
           </p>
+          <p className={p}>
+            If an amber banner appears saying <strong>this storyboard was not written by the planning
+            model</strong>, take it seriously. It means the planning model was unreachable or returned
+            something unusable, and the scenes you are looking at were assembled by a built-in
+            fallback that splits your concept evenly across the runtime. They are structurally valid
+            and will render, but they carry none of the story judgement you asked for — no arc, no
+            escalation, generic visual descriptions. Fix the model connection (see{" "}
+            <a href="#fields" className="text-accent hover:underline">Planning model</a>) and click{" "}
+            <strong>Regenerate storyboard</strong> in the banner rather than proceeding to media, or
+            you will spend GPU hours rendering placeholder writing.
+          </p>
 
           <p className={p}>
             Each scene card also carries two panels of its own. <strong>Prompts</strong> is editable —
@@ -627,6 +638,19 @@ export default function HelpPage() {
           <p className={p}>
             Generates 3 distinct creative directions (hook, story angle, visual style, strengths,
             risks, best-fit platform). Select one to steer the storyboard, or regenerate for new ideas.
+          </p>
+          <p className={p}>
+            Each card carries a small grey label — <em>different premise</em>, <em>different story</em>,
+            <em> different look</em>, <em>different opening</em>, <em>different moments</em>,
+            <em> different platform</em> — naming what that direction changes relative to the other two.
+            Three options are only a real choice if they differ on something, so the agent is required
+            to move a different lever in each one. If two labels ever come back the same, or the three
+            read as one idea in three moods, regenerate.
+          </p>
+          <p className={p}>
+            <strong>Read the &ldquo;Gives up&rdquo; line.</strong> Every direction sacrifices something,
+            and that line is where the agent has to say what. It is usually more useful for choosing
+            between three good-sounding options than the strengths are.
           </p>
 
           <h3 className={h3}>Agentic Canvas</h3>

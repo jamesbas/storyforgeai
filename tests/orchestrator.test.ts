@@ -121,6 +121,34 @@ describe("storyboard orchestrator (integration with in-memory repo)", () => {
     expect(snapshot.scenes.at(-1)!.endTimeSeconds).toBe(60);
   });
 
+  /**
+   * A builder storyboard is schema-valid and looks finished, so the only way a
+   * user can tell one apart is if the app says so. Recorded on the snapshot,
+   * not just logged.
+   */
+  it("records on the snapshot when the storyboard agent fell back", async () => {
+    const project = makeProject(60);
+    const provider: PlanningProvider = {
+      name: "test",
+      generateJson: async <T,>() => null as T | null,
+    };
+
+    const snapshot = await runStoryboardOrchestrator(project, { provider });
+
+    expect(snapshot.fallbacks).toEqual([
+      { agent: "Storyboard Agent", reason: "no_valid_response" },
+    ]);
+    // The scenes are still complete — that is exactly why it needs saying.
+    expect(snapshot.scenes).toHaveLength(3);
+  });
+
+  it("records nothing when the model's storyboard was accepted", async () => {
+    const project = makeProject(60);
+    const snapshot = await runStoryboardOrchestrator(project, { provider: null });
+    // No provider means the builder ran by design, not by failure.
+    expect(snapshot.fallbacks).toBeUndefined();
+  });
+
   it("round-trips through the repository", async () => {
     const project = makeProject(40);
     const snapshot = await runStoryboardOrchestrator(project);

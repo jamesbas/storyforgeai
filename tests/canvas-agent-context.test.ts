@@ -9,8 +9,10 @@ import {
   ART_DIRECTOR_SYSTEM,
   CINEMATOGRAPHER_SYSTEM,
   DIRECTOR_SYSTEM,
+  VARIANT_EXPLORER_SYSTEM,
   WORLD_BUILDER_SYSTEM,
 } from "@/lib/agents/canvas-agents";
+import { VARIANT_TYPES } from "@/lib/types";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 import type { Project } from "@/lib/schemas/project";
 import type { Character } from "@/lib/schemas/character";
@@ -217,5 +219,32 @@ describe("what each canvas agent is shown", () => {
   it("keeps the colour script out of the string that rides on every prompt", () => {
     expect(ART_DIRECTOR_SYSTEM).toMatch(/Put all of that in colorScript, never in productionDesign/);
     expect(ART_DIRECTOR_SYSTEM).toMatch(/two or three sentences/);
+  });
+});
+
+/**
+ * Three directions are only a choice if they differ. Without a stated axis the
+ * agent returns one idea in three moods, and `variantType` — which the schema
+ * has always had — was never explained to the model or shown to the user.
+ */
+describe("the Variant Explorer's instruction", () => {
+  it("explains every variantType the schema allows", () => {
+    for (const type of VARIANT_TYPES) {
+      expect(VARIANT_EXPLORER_SYSTEM).toContain(`"${type}"`);
+    }
+  });
+
+  it("requires the three to differ on a named axis", () => {
+    expect(VARIANT_EXPLORER_SYSTEM).toMatch(/differ on a named axis/);
+    expect(VARIANT_EXPLORER_SYSTEM).toMatch(/different variantType for each/);
+  });
+
+  /** The cheapest check the model can apply to its own answer. */
+  it("gives it a test for whether two directions are really the same", () => {
+    expect(VARIANT_EXPLORER_SYSTEM).toMatch(/would produce similar images/);
+  });
+
+  it("makes the risks field say what is given up", () => {
+    expect(VARIANT_EXPLORER_SYSTEM).toMatch(/name what this direction gives up/);
   });
 });

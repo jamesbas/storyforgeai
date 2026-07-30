@@ -110,6 +110,15 @@ export const storyboardSnapshotSchema = z.object({
   brief: creativeBriefSchema,
   visualBible: visualBibleSchema,
   scenes: z.array(sceneSchema),
+  /**
+   * Agents whose output was rejected, so the deterministic builder ran instead.
+   *
+   * Recorded rather than only logged because a builder storyboard is
+   * schema-valid and looks finished — distinct titles, per-beat content, the
+   * lot. Without this the only way to tell is reading `storyBeat` against
+   * `visualDescription` in the raw JSON.
+   */
+  fallbacks: maybe(z.array(z.object({ agent: z.string(), reason: z.string() }))),
 });
 export type StoryboardSnapshot = z.infer<typeof storyboardSnapshotSchema>;
 

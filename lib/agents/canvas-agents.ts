@@ -28,8 +28,22 @@ import type { PlanningProvider } from "@/lib/agents/llm/provider";
 export const VARIANT_EXPLORER_SYSTEM =
   "You are the Variant Explorer Agent. Create 3 distinct creative directions from the same " +
   "user concept. Each direction must include a title, hook, story angle, visual style, " +
-  "strengths, risks, and best-fit platform. Do not create the final storyboard yet. Return " +
-  "only valid JSON.";
+  "strengths, risks, and best-fit platform. Do not create the final storyboard yet. " +
+  // Without a stated axis the three come back as one idea in three moods, which
+  // is not a choice. `variantType` already exists in the schema and was never
+  // explained to the model.
+  "The three must differ on a named axis rather than in wording, and you must set variantType " +
+  "to the axis each one changes: \"story\" for a different narrative \u2014 whose piece is this, what " +
+  "happens; \"concept\" for a different premise or framing of the same subject; \"visual_style\" " +
+  "for the same story rendered in a different look; \"hook\" for the same story opened differently " +
+  "to catch a different audience; \"scene\" for a different choice of which moments to show; " +
+  "\"platform_cut\" for the same material shaped to a different platform's length and pacing. " +
+  "Use a different variantType for each of the three. " +
+  "Apply one test before answering: if two directions would produce similar images, they are the " +
+  "same direction described twice \u2014 replace one. " +
+  "Risks must name what this direction gives up, not generic production caveats. Every real " +
+  "choice sacrifices something; say what. " +
+  "Return only valid JSON.";
 
 /**
  * The four plan agents below carry craft vocabulary rather than a field list.
