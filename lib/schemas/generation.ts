@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { maybe } from "@/lib/schemas/maybe";
 
 /** QC result (spec Section 16). */
 export const qcResultSchema = z.object({
@@ -7,9 +8,7 @@ export const qcResultSchema = z.object({
   severity: z.enum(["none", "minor", "major", "critical"]),
   issues: z.array(z.string()),
   matchedRequirements: z.array(z.string()),
-  // Nullish, not optional: OpenAI's strict JSON Schema mode refuses a bare
-  // `.optional()`, which would cost this schema its structured-output guarantee.
-  regenerationInstructions: z.string().nullish(),
+  regenerationInstructions: maybe(z.string()),
 });
 export type QCResult = z.infer<typeof qcResultSchema>;
 
@@ -18,12 +17,12 @@ export const sceneAttemptSchema = z.object({
   id: z.string(),
   sceneId: z.string(),
   attemptNumber: z.number().int().positive(),
-  startImagePath: z.string().optional(),
-  endImagePath: z.string().optional(),
-  videoPath: z.string().optional(),
-  audioPath: z.string().optional(),
+  startImagePath: maybe(z.string()),
+  endImagePath: maybe(z.string()),
+  videoPath: maybe(z.string()),
+  audioPath: maybe(z.string()),
   settingsIds: z.array(z.string()),
-  qcResult: qcResultSchema.optional(),
+  qcResult: maybe(qcResultSchema),
   approved: z.boolean(),
   createdAt: z.string(),
 });
@@ -40,8 +39,8 @@ export type SceneAttempt = z.infer<typeof sceneAttemptSchema>;
  * never assembled.
  */
 export const scenePreviewSchema = z.object({
-  startFramePath: z.string().optional(),
-  endFramePath: z.string().optional(),
+  startFramePath: maybe(z.string()),
+  endFramePath: maybe(z.string()),
   updatedAt: z.string(),
 });
 export type ScenePreview = z.infer<typeof scenePreviewSchema>;

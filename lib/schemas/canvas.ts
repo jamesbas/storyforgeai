@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "zod";import { maybe } from "@/lib/schemas/maybe";
 import { namedSpecSchema } from "@/lib/schemas/agents";
 import { VARIANT_TYPES } from "@/lib/types";
 
@@ -9,10 +9,10 @@ export const creativeVariantSchema = z.object({
   name: z.string(),
   variantType: z.enum(VARIANT_TYPES),
   summary: z.string(),
-  hook: z.string().optional(),
-  storyAngle: z.string().optional(),
-  visualStyle: z.string().optional(),
-  bestFitPlatform: z.string().optional(),
+  hook: maybe(z.string()),
+  storyAngle: maybe(z.string()),
+  visualStyle: maybe(z.string()),
+  bestFitPlatform: maybe(z.string()),
   strengths: z.array(z.string()),
   risks: z.array(z.string()),
   selected: z.boolean(),
@@ -28,7 +28,7 @@ export const worldBibleSchema = z.object({
   universeRules: z.array(z.string()),
   timelineRules: z.array(z.string()),
   locations: z.array(namedSpecSchema),
-  factionsOrGroups: z.array(z.string()).optional(),
+  factionsOrGroups: maybe(z.array(z.string())),
   characterRelationships: z.array(z.string()),
   recurringMotifs: z.array(z.string()),
   visualAnchors: z.array(z.string()),
@@ -68,8 +68,8 @@ export const artDirectionPlanSchema = z.object({
   wardrobeRules: z.array(z.string()),
   propRules: z.array(z.string()),
   setDressingRules: z.array(z.string()),
-  typographyRules: z.array(z.string()).optional(),
-  productPlacementRules: z.array(z.string()).optional(),
+  typographyRules: maybe(z.array(z.string())),
+  productPlacementRules: maybe(z.array(z.string())),
 });
 export type ArtDirectionPlan = z.infer<typeof artDirectionPlanSchema>;
 
@@ -77,6 +77,6 @@ export type ArtDirectionPlan = z.infer<typeof artDirectionPlanSchema>;
 export const historyEntrySchema = z.object({
   at: z.string(),
   action: z.string(),
-  detail: z.string().optional(),
+  detail: maybe(z.string()),
 });
 export type HistoryEntry = z.infer<typeof historyEntrySchema>;

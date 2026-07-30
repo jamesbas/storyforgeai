@@ -3,8 +3,23 @@ import { z } from "zod";
 import { zodResponseFormat } from "openai/helpers/zod";
 import { describeSchema, withSchemaHint } from "@/lib/agents/llm/schema-hint";
 import { extractJsonObject, isResponseFormatRejection } from "@/lib/agents/llm/provider";
-import { scenePromptsSchema } from "@/lib/schemas/storyboard";
+import { maybe } from "@/lib/schemas/maybe";
+import {
+  scenePromptsSchema,
+  sceneSchema,
+  sceneDraftSchema,
+  storyboardSnapshotSchema,
+} from "@/lib/schemas/storyboard";
 import { qcResultSchema } from "@/lib/schemas/generation";
+import { creativeBriefSchema, storyPlanSchema, visualBibleSchema } from "@/lib/schemas/agents";
+import { audioPlanSchema } from "@/lib/schemas/audio";
+import {
+  worldBibleSchema,
+  directorialPlanSchema,
+  cinematographyPlanSchema,
+  artDirectionPlanSchema,
+  creativeVariantSchema,
+} from "@/lib/schemas/canvas";
 
 describe("describeSchema", () => {
   it("lists required and optional keys with their types", () => {
@@ -135,7 +150,7 @@ describe("isResponseFormatRejection", () => {
  * losing it is silent — the call still returns JSON, just with the wrong keys.
  *
  * A schema OpenAI's strict mode refuses never reaches the server as
- * `json_schema` at all. Bare `.optional()` is the usual cause; `.nullish()`
+ * `json_schema` at all. Bare `.optional()` is the usual cause; `maybe()`
  * expresses the same intent and converts.
  */
 describe("schemas that must survive strict JSON Schema conversion", () => {
@@ -148,16 +163,54 @@ describe("schemas that must survive strict JSON Schema conversion", () => {
     }
   };
 
-  it("accepts nullish where strict mode refuses optional", () => {
+  it("accepts maybe() where strict mode refuses optional", () => {
     expect(converts(z.object({ a: z.string().optional() }))).toBe(false);
-    expect(converts(z.object({ a: z.string().nullish() }))).toBe(true);
+    expect(converts(z.object({ a: maybe(z.string()) }))).toBe(true);
   });
 
-  it("converts the QC result schema", () => {
-    expect(converts(qcResultSchema)).toBe(true);
+  /** Every schema an agent asks a model to fill. Add new ones here. */
+  const responseSchemas = {
+    creativeBriefSchema,
+    storyPlanSchema,
+    visualBibleSchema,
+    scenePromptsSchema,
+    sceneSchema,
+    sceneDraftSchema,
+    storyboardSnapshotSchema,
+    qcResultSchema,
+    audioPlanSchema,
+    worldBibleSchema,
+    directorialPlanSchema,
+    cinematographyPlanSchema,
+    artDirectionPlanSchema,
+    creativeVariantSchema,
+  };
+
+  for (const [name, schema] of Object.entries(responseSchemas)) {
+    it(`converts ${name}`, () => {
+      expect(converts(schema)).toBe(true);
+    });
+  }
+});
+
+/**
+ * `maybe()` must stay a drop-in for `.optional()`: an absent value has to stay
+ * absent, or every stored record grows explicit nulls.
+ */
+describe("maybe()", () => {
+  const schema = z.object({ a: maybe(z.string()) });
+
+  it("accepts a missing key, a null, and a value", () => {
+    expect(schema.parse({})).toEqual({});
+    expect(schema.parse({ a: null })).toEqual({});
+    expect(schema.parse({ a: "x" })).toEqual({ a: "x" });
   });
 
-  it("converts the scene prompts schema", () => {
-    expect(converts(scenePromptsSchema)).toBe(true);
+  it("does not serialise an absent value as null", () => {
+    expect(JSON.stringify(schema.parse({ a: null }))).toBe("{}");
+  });
+
+  it("still rejects the wrong type", () => {
+    expect(schema.safeParse({ a: 7 }).success).toBe(false);
   });
 });

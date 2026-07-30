@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "zod";import { maybe } from "@/lib/schemas/maybe";
 import { MAX_SEGMENT_SECONDS, MIN_SEGMENT_SECONDS, SCENE_STATUSES } from "@/lib/types";
 import { creativeBriefSchema, visualBibleSchema } from "@/lib/schemas/agents";
 import { projectSchema } from "@/lib/schemas/project";
@@ -60,7 +60,7 @@ export const sceneSchema = z.object({
   startTimeSeconds: z.number().int().nonnegative(),
   endTimeSeconds: z.number().int().positive(),
   targetDurationSeconds: z.number().int().min(MIN_SEGMENT_SECONDS).max(MAX_SEGMENT_SECONDS),
-  trimAtEndSeconds: z.number().int().positive().optional(),
+  trimAtEndSeconds: maybe(z.number().int().positive()),
   title: z.string(),
   sceneObjective: z.string(),
   storyBeat: z.string(),
@@ -76,10 +76,10 @@ export const sceneSchema = z.object({
    * reading of "nothing to carry".
    */
   continuityNotes: z.array(z.string()).default([]),
-  narrationText: z.string().optional(),
-  dialogue: z.array(dialogueLineSchema).optional(),
-  musicNotes: z.string().optional(),
-  sfxNotes: z.string().optional(),
+  narrationText: maybe(z.string()),
+  dialogue: maybe(z.array(dialogueLineSchema)),
+  musicNotes: maybe(z.string()),
+  sfxNotes: maybe(z.string()),
   status: sceneStatusSchema,
   prompts: scenePromptsSchema,
 });
