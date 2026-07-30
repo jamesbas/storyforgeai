@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
+import type { ZodType, ZodTypeDef } from "zod";
 import { InMemoryProjectRepository } from "@/lib/db/in-memory-repository";
 import { runStoryboardOrchestrator } from "@/lib/agents/orchestrator";
+import type { PlanningProvider } from "@/lib/agents/llm/provider";
 import { computeSegmentation } from "@/lib/duration";
 import type { Project } from "@/lib/schemas/project";
 import { storyboardSnapshotSchema } from "@/lib/schemas/storyboard";
@@ -64,6 +66,59 @@ describe("storyboard orchestrator (integration with in-memory repo)", () => {
     const project = makeProject(60);
     const snapshot = await runStoryboardOrchestrator(project);
     expect(snapshot.scenes.at(-1)!.trimAtEndSeconds).toBeUndefined();
+  });
+
+  /**
+   * Timing is derived from the segmentation, but the scene schema exposes it and
+   * a model under structured output fills every field it is shown. One returned
+   * `trimAtEndSeconds: 2` on all three scenes of a 60-second project — that
+   * field is the scene's final length, so each 20-second segment rendered as a
+   * 2-second clip. Nothing failed; the videos were just wrong.
+   */
+  it("overrules timing invented by the planning model", async () => {
+    const project = makeProject(60);
+    const provider: PlanningProvider = {
+      name: "test",
+      generateJson: async <T,>(
+        system: string,
+        _user: string,
+        schema: ZodType<T, ZodTypeDef, unknown>,
+      ) => {
+        if (!system.startsWith("You are the Storyboard Agent")) return null;
+        const scenes = Array.from({ length: 3 }, (_, i) => ({
+          id: `${project.id}-scene-00${i + 1}`,
+          projectId: project.id,
+          sceneNumber: 99,
+          startTimeSeconds: 500,
+          endTimeSeconds: 505,
+          targetDurationSeconds: 5,
+          // The real failure: no lower bound on this field, unlike
+          // targetDurationSeconds, so a model's guess passes validation.
+          trimAtEndSeconds: 2,
+          title: `Scene ${i + 1}`,
+          sceneObjective: "o",
+          storyBeat: "b",
+          visualDescription: "v",
+          actionDescription: "a",
+          cameraMovement: "static",
+          transitionIn: "cut",
+          transitionOut: "cut",
+          continuityNotes: [],
+          status: "planned",
+        }));
+        const parsed = schema.safeParse({ scenes });
+        return parsed.success ? parsed.data : null;
+      },
+    };
+
+    const snapshot = await runStoryboardOrchestrator(project, { provider });
+
+    expect(snapshot.scenes).toHaveLength(3);
+    expect(snapshot.scenes.map((s) => s.sceneNumber)).toEqual([1, 2, 3]);
+    expect(snapshot.scenes.every((s) => s.targetDurationSeconds === 20)).toBe(true);
+    expect(snapshot.scenes.every((s) => s.trimAtEndSeconds === undefined)).toBe(true);
+    expect(snapshot.scenes.map((s) => s.startTimeSeconds)).toEqual([0, 20, 40]);
+    expect(snapshot.scenes.at(-1)!.endTimeSeconds).toBe(60);
   });
 
   it("round-trips through the repository", async () => {

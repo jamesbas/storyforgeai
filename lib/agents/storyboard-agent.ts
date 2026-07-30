@@ -5,6 +5,7 @@ import { castSystemDirective } from "@/lib/agents/cast";
 import { creativeModeDirective } from "@/lib/agents/look";
 import { planningPayload, precedenceDirective } from "@/lib/agents/creative-context";
 import { SEGMENT_SECONDS } from "@/lib/types";
+import type { Project } from "@/lib/schemas/project";
 import type { AgentContext } from "@/lib/agents/types";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 import { logEvent } from "@/lib/telemetry";
@@ -21,6 +22,39 @@ export const storyboardSystem = (segmentSeconds: number) =>
 export const STORYBOARD_SYSTEM = storyboardSystem(SEGMENT_SECONDS);
 
 const sceneDraftsSchema = z.object({ scenes: z.array(sceneDraftSchema) });
+
+/**
+ * Overwrite the timing fields on model-authored drafts.
+ *
+ * Timing is derived from the project's segmentation, but the schema exposes it,
+ * and a model under structured output fills every field it is shown. One wrote
+ * `trimAtEndSeconds: 2` on all three scenes of a 60-second project; that field
+ * is the scene's *final* length, so each 20-second segment rendered as a
+ * 2-second clip. The model owns the creative content, never the clock.
+ */
+function withDerivedTiming(scenes: SceneDraft[], project: Project): SceneDraft[] {
+  return scenes.map((scene, index) => {
+    const sceneNumber = index + 1;
+    const startTimeSeconds = index * project.segmentSeconds;
+    const isLast = sceneNumber === project.segmentCount;
+    return {
+      ...scene,
+      // Identity is derived too: two scenes handed the same invented id would
+      // collide in the attempts and seed maps, which are keyed by it.
+      id: `${project.id}-scene-${String(sceneNumber).padStart(3, "0")}`,
+      projectId: project.id,
+      sceneNumber,
+      startTimeSeconds,
+      endTimeSeconds: startTimeSeconds + project.segmentSeconds,
+      targetDurationSeconds: project.segmentSeconds,
+      // Only the final scene is shortened, and only to hit the requested total.
+      trimAtEndSeconds:
+        isLast && project.finalTrimSeconds > 0
+          ? project.segmentSeconds - project.finalTrimSeconds
+          : undefined,
+    };
+  });
+}
 
 export async function storyboardAgent(
   ctx: AgentContext,
@@ -52,7 +86,7 @@ export async function storyboardAgent(
       sceneDraftsSchema,
     );
     if (result && result.scenes.length === ctx.project.segmentCount) {
-      return result.scenes;
+      return withDerivedTiming(result.scenes, ctx.project);
     }
     // Worth its own event: the deterministic drafts that follow are schema-valid
     // and look like a finished storyboard, so a silent fallback is only visible
