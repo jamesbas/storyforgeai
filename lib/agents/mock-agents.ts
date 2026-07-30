@@ -33,6 +33,28 @@ export function deriveTitle(concept: string): string {
   return title.length > 0 ? title : "Untitled Project";
 }
 
+/**
+ * The opening of a concept, for scene cards that need the setting without the
+ * whole brief.
+ *
+ * Pasting the full concept into all fifteen scenes made every card read
+ * identically, which is indistinguishable from a bug — and it drowned the one
+ * line that actually described the shot.
+ */
+function conceptGist(concept: string, limit = 180): string {
+  const cleaned = concept.trim().replace(/\s+/g, " ");
+  const sentence = cleaned.split(/(?<=[.!?])\s/)[0] ?? cleaned;
+  const gist = sentence.length <= limit ? sentence : `${cleaned.slice(0, limit).trimEnd()}…`;
+  return /[.!?…]$/.test(gist) ? gist : `${gist}.`;
+}
+
+/** A scene title taken from its beat, so cards are distinguishable at a glance. */
+function beatTitle(beat: string, sceneNumber: number): string {
+  const clause = beat.trim().split(/[.;:—]/)[0]?.trim() ?? "";
+  const title = titleCase(clause);
+  return title.length > 0 ? title : `Scene ${sceneNumber}`;
+}
+
 export function buildCreativeBrief(project: Project): CreativeBrief {
   return {
     projectId: project.id,
@@ -160,6 +182,18 @@ export function buildSceneDrafts(
     // an approved plan overrides the generic defaults for both.
     const slice = sceneCreativeSlice(plans, { id: "", sceneNumber });
 
+    // The beat is the one genuinely per-scene input this builder has, so every
+    // descriptive field is written from it rather than from the shared concept.
+    const rawBeat = storyPlan.segmentBeats[i]?.trim() ?? "";
+    const beat = rawBeat || `Beat ${sceneNumber} of ${project.segmentCount}.`;
+    const emotion = storyPlan.emotionalProgression[i] ?? "rising tension";
+    const phase =
+      sceneNumber === 1
+        ? "Establishes the situation and the people in it"
+        : isLast
+          ? "Closes on the final beat and its aftermath"
+          : "Carries the situation further than the scene before it";
+
     drafts.push({
       id: `${project.id}-scene-${String(sceneNumber).padStart(3, "0")}`,
       projectId: project.id,
@@ -168,7 +202,7 @@ export function buildSceneDrafts(
       endTimeSeconds,
       targetDurationSeconds: project.segmentSeconds,
       trimAtEndSeconds,
-      title: `Scene ${sceneNumber}`,
+      title: rawBeat ? beatTitle(rawBeat, sceneNumber) : `Scene ${sceneNumber}`,
       sceneObjective:
         slice.intent ??
         (sceneNumber === 1
@@ -176,21 +210,17 @@ export function buildSceneDrafts(
           : isLast
             ? "Deliver the resolution and payoff."
             : `Advance beat ${sceneNumber} of the narrative.`),
-      storyBeat: storyPlan.segmentBeats[i] ?? `Beat ${sceneNumber} of ${project.segmentCount}.`,
+      storyBeat: beat,
       visualDescription:
-        `${project.concept.trim()} — ` +
-        (sceneNumber === 1
-          ? "establishing the situation and the people in it"
-          : isLast
-            ? "the final confrontation and its aftermath"
-            : `the situation escalating, beat ${sceneNumber}`) +
-        `, ${storyPlan.emotionalProgression[i] ?? "rising tension"} in the performances`,
+        `${sentence(beat)}${phase}, with ${emotion} in the performances. ` +
+        `Set within: ${conceptGist(project.concept)}`,
       actionDescription:
-        sceneNumber === 1
-          ? `${lead} enters the frame and the central tension is revealed through what they do.`
+        `${lead} plays this beat: ${sentence(beat).trim()} ` +
+        (sceneNumber === 1
+          ? "The central tension is revealed through what they do."
           : isLast
-            ? `${lead} commits to a decision and the tension releases.`
-            : `${lead} presses the conflict further and the stakes visibly rise.`,
+            ? "The tension releases as the story lands."
+            : "The stakes visibly rise."),
       cameraMovement:
         slice.shotPlan ?? (sceneNumber % 2 === 0 ? "Slow push-in" : "Gentle lateral tracking"),
       transitionIn: sceneNumber === 1 ? "Fade in" : "Cut",

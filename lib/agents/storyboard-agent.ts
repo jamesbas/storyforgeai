@@ -7,6 +7,7 @@ import { planningPayload, precedenceDirective } from "@/lib/agents/creative-cont
 import { SEGMENT_SECONDS } from "@/lib/types";
 import type { AgentContext } from "@/lib/agents/types";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
+import { logEvent } from "@/lib/telemetry";
 
 export const storyboardSystem = (segmentSeconds: number) =>
   `You are the Storyboard Agent. Create exactly one scene card per ${segmentSeconds}-second ` +
@@ -53,6 +54,16 @@ export async function storyboardAgent(
     if (result && result.scenes.length === ctx.project.segmentCount) {
       return result.scenes;
     }
+    // Worth its own event: the deterministic drafts that follow are schema-valid
+    // and look like a finished storyboard, so a silent fallback is only visible
+    // as scene cards that all describe the same thing.
+    logEvent("agent.fallback", {
+      projectId: ctx.project.id,
+      agent: "storyboard",
+      reason: result ? "scene_count_mismatch" : "no_valid_response",
+      expectedScenes: ctx.project.segmentCount,
+      returnedScenes: result?.scenes.length ?? 0,
+    });
   }
   return buildSceneDrafts(ctx.project, storyPlan, brief, visualBible, ctx.cast ?? [], ctx.plans);
 }

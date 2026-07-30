@@ -13,6 +13,7 @@ export type TelemetryEvent =
   | "storyboard.exported"
   | "agent.run"
   | "agent.llm.failed"
+  | "agent.fallback"
   | "llm.runtime"
   | "wangp.discovery"
   | "wangp.model.selected"
