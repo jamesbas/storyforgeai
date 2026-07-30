@@ -426,6 +426,26 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     [projectId, failureMessage],
   );
 
+  const revertSceneFace = useCallback(
+    async (sceneId: string, purpose: "start_frame" | "end_frame") => {
+      setSceneBusy(sceneId);
+      setError(null);
+      try {
+        const res = await fetch(
+          `/api/projects/${projectId}/scenes/${sceneId}/face-swap?purpose=${purpose}`,
+          { method: "DELETE" },
+        );
+        if (!res.ok) throw new Error(await failureMessage(res, "Failed to undo the swap"));
+        setRecord((await res.json()) as ProjectRecord);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to undo the swap");
+      } finally {
+        setSceneBusy(null);
+      }
+    },
+    [projectId, failureMessage],
+  );
+
   const approveScene = useCallback(
     async (sceneId: string, attemptId: string) => {
       setSceneBusy(sceneId);
@@ -792,6 +812,11 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   onFaceVisibleChange={(next) => void setFaceVisible(scene.id, next)}
                   onSwapFace={
                     stages.keyframes ? (purpose) => void swapSceneFace(scene.id, purpose) : undefined
+                  }
+                  onRevertFace={
+                    stages.keyframes
+                      ? (purpose) => void revertSceneFace(scene.id, purpose)
+                      : undefined
                   }
                 />
               );

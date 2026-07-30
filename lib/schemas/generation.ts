@@ -19,6 +19,13 @@ export const sceneAttemptSchema = z.object({
   attemptNumber: z.number().int().positive(),
   startImagePath: maybe(z.string()),
   endImagePath: maybe(z.string()),
+  /**
+   * The keyframes as rendered, before any face swap. Kept so a manual swap
+   * works from the original rather than stacking a second pass on the first,
+   * and so a swap can be undone. Absent when nothing was swapped.
+   */
+  startImageSourcePath: maybe(z.string()),
+  endImageSourcePath: maybe(z.string()),
   videoPath: maybe(z.string()),
   audioPath: maybe(z.string()),
   settingsIds: z.array(z.string()),

@@ -32,6 +32,7 @@ export type TelemetryEvent =
   | "scene.seed_cleared"
   | "face_swap.applied"
   | "face_swap.manual"
+  | "face_swap.reverted"
   | "face_swap.skipped"
   | "face_swap.reference_ignored"
   | "lora.dropped"

@@ -196,7 +196,7 @@ async function renderKeyframe(
   castRefs: string[],
   extraRefs: string[] = [],
   swapSubject: Character | null = null,
-): Promise<{ id: string; path?: string }> {
+): Promise<{ id: string; path?: string; source?: string }> {
   const manifest = await buildImageManifest({
     sceneId: scene.id,
     purpose,
@@ -227,7 +227,7 @@ async function renderKeyframe(
       return { id: manifest.id, path: rendered };
     }
     const swapped = await swapFace(rendered, swapSubject, { sceneId: scene.id, purpose });
-    if (swapped) return { id: manifest.id, path: swapped };
+    if (swapped) return { id: manifest.id, path: swapped, source: rendered };
   }
 
   return { id: manifest.id, path: rendered };
@@ -422,7 +422,16 @@ export async function generateProjectMediaPhased(
   /** Rendered frame paths per scene, rewritten in place as phases progress. */
   const frames = new Map<
     string,
-    { start?: string; end?: string; startId?: string; endId?: string; attemptId?: string }
+    {
+      start?: string;
+      end?: string;
+      startId?: string;
+      endId?: string;
+      attemptId?: string;
+      /** Pre-swap renders, set when phase 2 replaces a frame. */
+      startSource?: string;
+      endSource?: string;
+    }
   >();
 
   // ---- Phase 1: every keyframe, on the image model -------------------------
@@ -509,7 +518,13 @@ export async function generateProjectMediaPhased(
       // A frame left out of the swap set keeps its original path.
       const start = entry.start ? (swapped.get(entry.start) ?? entry.start) : undefined;
       const end = entry.end ? (swapped.get(entry.end) ?? entry.end) : undefined;
-      frames.set(sceneId, { ...entry, start, end });
+      frames.set(sceneId, {
+        ...entry,
+        start,
+        end,
+        startSource: start !== entry.start ? entry.start : undefined,
+        endSource: end !== entry.end ? entry.end : undefined,
+      });
     }
   }
 
@@ -534,6 +549,8 @@ export async function generateProjectMediaPhased(
       attemptNumber: existing.length + 1,
       startImagePath: entry.start,
       endImagePath: entry.end,
+      startImageSourcePath: entry.startSource,
+      endImageSourcePath: entry.endSource,
       settingsIds: [entry.startId, entry.endId].filter((id): id is string => id !== undefined),
       approved: false,
       createdAt: new Date().toISOString(),
@@ -788,7 +805,7 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
     purpose: "start_frame" | "end_frame",
     prompt: string,
     extraRefs: string[] = [],
-  ): Promise<{ id: string; path?: string }> =>
+  ): Promise<{ id: string; path?: string; source?: string }> =>
     renderKeyframe(record, scene, purpose, prompt, imageRefs, extraRefs, swapSubject);
 
   // Continuing from the previous clip supersedes both keyframes; reusing the
@@ -872,6 +889,8 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
     attemptNumber: existing.length + 1,
     startImagePath,
     endImagePath,
+    startImageSourcePath: start?.source,
+    endImageSourcePath: end?.source,
     videoPath: videoJob?.generatedFiles[0],
     settingsIds: [start?.id, end?.id, videoManifest?.id].filter(
       (id): id is string => id !== undefined,
@@ -912,6 +931,12 @@ export async function swapAttemptFrame(
     throw new ValidationError(`This attempt has no ${purpose.replace("_", " ")} to swap.`);
   }
 
+  // Swap the render, not a previous swap's output. Feeding an already-swapped
+  // frame back in stacks a second pass on the first rather than redoing it.
+  const source =
+    (purpose === "start_frame" ? target.startImageSourcePath : target.endImageSourcePath) ??
+    framePath;
+
   const subject = faceSwapSubject(await resolveProjectCast(record.project));
   if (!subject) {
     throw new ValidationError(
@@ -920,7 +945,7 @@ export async function swapAttemptFrame(
     );
   }
 
-  const swapped = await swapFace(framePath, subject, { sceneId, purpose });
+  const swapped = await swapFace(source, subject, { sceneId, purpose });
   if (!swapped) {
     throw new ValidationError(
       "The swap did not produce an image. Check that the Qwen Image Edit model and its " +
@@ -937,8 +962,8 @@ export async function swapAttemptFrame(
           ? {
               ...a,
               ...(purpose === "start_frame"
-                ? { startImagePath: swapped }
-                : { endImagePath: swapped }),
+                ? { startImagePath: swapped, startImageSourcePath: source }
+                : { endImagePath: swapped, endImageSourcePath: source }),
             }
           : a,
       ),
@@ -956,6 +981,53 @@ export async function swapAttemptFrame(
 
   await repository.update(projectId, updated);
   logEvent("face_swap.manual", { projectId, sceneId, purpose, character: subject.name });
+  return updated;
+}
+
+/** Put back the frame as it was rendered, discarding the swap. */
+export async function revertAttemptFrame(
+  projectId: string,
+  sceneId: string,
+  purpose: "start_frame" | "end_frame",
+): Promise<ProjectRecord> {
+  const record = await getProjectRecord(projectId);
+  const scene = findScene(record, sceneId);
+  const attempts = record.attempts?.[sceneId] ?? [];
+  const target = attempts.at(-1);
+  const source =
+    purpose === "start_frame" ? target?.startImageSourcePath : target?.endImageSourcePath;
+  if (!target || !source) {
+    throw new ValidationError("This frame has no un-swapped original to go back to.");
+  }
+
+  const updated: ProjectRecord = {
+    ...record,
+    attempts: {
+      ...(record.attempts ?? {}),
+      [sceneId]: attempts.map((a) =>
+        a.id === target.id
+          ? {
+              ...a,
+              ...(purpose === "start_frame"
+                ? { startImagePath: source, startImageSourcePath: undefined }
+                : { endImagePath: source, endImageSourcePath: undefined }),
+            }
+          : a,
+      ),
+    },
+    project: { ...record.project, updatedAt: new Date().toISOString() },
+    history: [
+      ...(record.history ?? []),
+      {
+        at: new Date().toISOString(),
+        action: "scene.face_swap_reverted",
+        detail: `Scene ${scene.sceneNumber} ${purpose.replace("_", " ")}`,
+      },
+    ],
+  };
+
+  await repository.update(projectId, updated);
+  logEvent("face_swap.reverted", { projectId, sceneId, purpose });
   return updated;
 }
 

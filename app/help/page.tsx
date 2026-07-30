@@ -432,11 +432,15 @@ export default function HelpPage() {
           </p>
           <p className={p}>
             <strong>How to use it.</strong> Generate the scene, look at the frames on the card, then
-            press the button for the frame that needs it. Two things to know: running it twice
-            applies a <em>second</em> pass to an already-swapped frame rather than redoing the
-            first, and if the attempt already has a clip, that clip was built from the old frames —
-            regenerate the media to bring the video back in line. The card warns you when a clip
-            exists.
+            press the button for the frame that needs it. A <strong>✓</strong> on the button means
+            that frame is already swapped, and an <strong>undo</strong> appears next to it — the
+            frame as originally rendered is kept, so a swap is always reversible and re-running one
+            works from that original rather than stacking a second pass on the first.
+          </p>
+          <p className={p}>
+            The one thing to watch: if the attempt already has a clip, that clip was built from the
+            old frames, so regenerate the media to bring the video back in line. The card warns you
+            when a clip exists.
           </p>
           <p className={p}>
             To decide before spending a full render, use <strong>Start frame only</strong> under

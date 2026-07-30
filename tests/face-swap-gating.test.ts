@@ -92,6 +92,7 @@ async function renderOneScene(faceVisible: boolean) {
     projectId: created.id,
     media,
     projects,
+    swapFace,
   };
 }
 
@@ -154,6 +155,55 @@ describe("swapping one frame after the fact", () => {
 
     await expect(media.swapAttemptFrame(created.id, sceneId, "start_frame")).rejects.toThrow(
       /exactly one character/,
+    );
+  });
+});
+
+/**
+ * Swapping works from the frame as rendered, never from a previous swap's
+ * output. Feeding an already-swapped image back in would stack a second head
+ * onto the first rather than redoing it, and there would be no way back.
+ */
+describe("keeping the un-swapped render", () => {
+  it("records the original when the automatic pass swaps a frame", async () => {
+    const { record, sceneId } = await renderOneScene(true);
+    const attempt = record.attempts![sceneId]![0]!;
+
+    expect(attempt.startImagePath).toBe("/swapped.png");
+    expect(attempt.startImageSourcePath).toBeTruthy();
+    expect(attempt.startImageSourcePath).not.toBe("/swapped.png");
+  });
+
+  it("records nothing when no swap ran", async () => {
+    const { record, sceneId } = await renderOneScene(false);
+    expect(record.attempts![sceneId]![0]!.startImageSourcePath).toBeUndefined();
+  });
+
+  it("swaps the original again rather than the previous swap", async () => {
+    const { projectId, sceneId, media, record, swapFace } = await renderOneScene(true);
+    const original = record.attempts![sceneId]![0]!.startImageSourcePath;
+
+    swapFace.mockClear();
+    await media.swapAttemptFrame(projectId, sceneId, "start_frame");
+
+    expect(swapFace.mock.calls[0]![0]).toBe(original);
+  });
+
+  it("puts the original back on revert", async () => {
+    const { projectId, sceneId, media, record } = await renderOneScene(true);
+    const original = record.attempts![sceneId]![0]!.startImageSourcePath;
+
+    const reverted = await media.revertAttemptFrame(projectId, sceneId, "start_frame");
+    const attempt = reverted.attempts![sceneId]![0]!;
+
+    expect(attempt.startImagePath).toBe(original);
+    expect(attempt.startImageSourcePath).toBeUndefined();
+  });
+
+  it("refuses to revert a frame that was never swapped", async () => {
+    const { projectId, sceneId, media } = await renderOneScene(false);
+    await expect(media.revertAttemptFrame(projectId, sceneId, "start_frame")).rejects.toThrow(
+      /no un-swapped original/,
     );
   });
 });

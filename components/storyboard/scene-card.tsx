@@ -35,6 +35,8 @@ type SceneCardProps = {
   onFaceVisibleChange?: (next: boolean) => void;
   /** Apply the face swap to one already-rendered frame. */
   onSwapFace?: (purpose: "start_frame" | "end_frame") => void;
+  /** Discard a swap, restoring the frame as it was rendered. */
+  onRevertFace?: (purpose: "start_frame" | "end_frame") => void;
 };
 
 /** Render a player for media that exists on disk; fall back to the path. */
@@ -87,6 +89,7 @@ export function SceneCard({
   onNewSeed,
   onFaceVisibleChange,
   onSwapFace,
+  onRevertFace,
 }: SceneCardProps) {
   const playable = media.filter((m) => m.available && m.sceneId === scene.id);
   const hasPreviews = playable.some((m) => m.preview);
@@ -280,23 +283,36 @@ export function SceneCard({
           {onSwapFace && attempt && (attempt.startImagePath || attempt.endImagePath) && (
             <div className="mt-2 flex flex-wrap items-center gap-2" data-testid="manual-face-swap">
               <span className="text-[11px] text-slate-500">Swap face on:</span>
-              <button
-                onClick={() => onSwapFace("start_frame")}
-                disabled={busy || !attempt.startImagePath}
-                className="rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-slate-300 hover:border-accent disabled:opacity-50"
-              >
-                Start frame
-              </button>
-              <button
-                onClick={() => onSwapFace("end_frame")}
-                disabled={busy || !attempt.endImagePath}
-                className="rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-slate-300 hover:border-accent disabled:opacity-50"
-              >
-                End frame
-              </button>
+              {(
+                [
+                  ["start_frame", "Start", attempt.startImagePath, attempt.startImageSourcePath],
+                  ["end_frame", "End", attempt.endImagePath, attempt.endImageSourcePath],
+                ] as const
+              ).map(([purpose, label, path, source]) => (
+                <span key={purpose} className="flex items-center gap-1">
+                  <button
+                    onClick={() => onSwapFace(purpose)}
+                    disabled={busy || !path}
+                    title={source ? "Re-runs the swap from the original render" : undefined}
+                    className="rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-slate-300 hover:border-accent disabled:opacity-50"
+                  >
+                    {label} frame{source ? " ✓" : ""}
+                  </button>
+                  {source && onRevertFace ? (
+                    <button
+                      onClick={() => onRevertFace(purpose)}
+                      disabled={busy}
+                      title="Put back the frame as it was rendered"
+                      className="rounded-md border border-white/10 px-2 py-1 text-[11px] text-slate-400 hover:border-accent disabled:opacity-50"
+                    >
+                      undo
+                    </button>
+                  ) : null}
+                </span>
+              ))}
               <span className="text-[10px] text-slate-600">
-                For a shot the plan called faceless that came back with a face. Edits the stored
-                frame in place; running it twice applies a second pass.
+                For a shot the plan called faceless that came back with a face. A ✓ means the frame
+                is already swapped; re-running works from the original render, not the swap.
               </span>
               {attempt.videoPath ? (
                 <p className="w-full text-[10px] text-amber-300/80">

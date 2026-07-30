@@ -300,9 +300,15 @@ tick box. Clear it and that scene's frames keep their originals.
 **Repairing one frame.** The flag is decided before anything is drawn, and a
 render does not always match its prompt. `POST /scenes/{id}/face-swap` with
 `{ "purpose": "start_frame" | "end_frame" }` — the **Swap face on** buttons on the
-scene card — applies the swap to a stored frame after the fact. It edits that
-frame alone, so anything already built from it (the end frame, the next scene's
-start, the clip) stays as it was and needs regenerating to match.
+scene card — applies the swap to a stored frame after the fact, and `DELETE` with
+`?purpose=` undoes it.
+
+The attempt keeps `startImageSourcePath` / `endImageSourcePath`: the keyframes as
+rendered, before any swap. A manual swap always works from those, so re-running
+one redoes the swap instead of stacking a second head on the first, and a swap is
+always reversible. What it does *not* do is touch anything already built from the
+frame — the end frame, the next scene's start, the clip — which stays as it was
+until regenerated.
 
 **Scene continuity.** `reuse_end_frame` (the default) starts each scene from the
 previous scene's end frame, so a corrected face propagates forward rather than

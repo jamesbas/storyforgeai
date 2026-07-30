@@ -622,10 +622,13 @@ Three properties this encodes:
    (`reuse_end_frame`) is swapped if either shows the face.
 
 `swapAttemptFrame()` is the escape hatch: it applies the swap to one stored frame
-of the latest attempt, for when the plan and the render disagree. It deliberately
-touches nothing downstream — the frames and clips already derived from that image
-keep their old content until regenerated, which is the cost of doing it out of
-order.
+of the latest attempt, for when the plan and the render disagree. Attempts carry
+`startImageSourcePath` / `endImageSourcePath` — the frames as rendered, before any
+swap — and the manual pass always reads from those. Swapping is therefore
+repeatable rather than cumulative, and `revertAttemptFrame()` can put the original
+back. It deliberately touches nothing downstream: the frames and clips already
+derived from that image keep their old content until regenerated, which is the
+cost of doing it out of order.
 
 **Scene continuity** carries the result forward: under `reuse_end_frame` a scene
 starts from the previous scene's swapped end frame rather than re-synthesising.
@@ -931,7 +934,7 @@ flowchart LR
         g3["POST scenes/:sceneId/deepy"]
         g4["GET media · GET media/:assetId"]
         g5["PATCH scenes/:sceneId/framing"]
-        g6["POST scenes/:sceneId/face-swap"]
+        g6["POST · DELETE scenes/:sceneId/face-swap"]
     end
     subgraph audio["Audio cues"]
         c1["GET · POST audio-cues"]
