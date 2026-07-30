@@ -1,9 +1,9 @@
 # StoryForgeAI — Architecture & Agent Process
 
-A reference for how **StoryForgeAI** is put together and, in particular, how its
-**agent team** is wired: which agents exist, what each one consumes and produces,
-how artifacts flow between them, and where the hand-offs to media generation,
-audio, and assembly happen.
+The single architecture reference for **StoryForgeAI**: how it is put together and,
+in particular, how its **agent team** is wired — which agents exist, what each one
+consumes and produces, how artifacts flow between them, and where the hand-offs to
+media generation, audio, and assembly happen.
 
 - **Style:** modular monolith — a single Next.js App Router deployable, plus
   optional sidecars (WanGP MCP server, Deepy, ffmpeg, PostgreSQL).
@@ -124,6 +124,29 @@ flowchart TD
 | Agents | Creative reasoning, artifact production | Deterministic builder + optional LLM |
 | Adapters | External systems behind an interface | Always paired with a mock |
 | Cross-cutting | Config, schemas, telemetry | Imported everywhere; no upward deps |
+
+### 2.1 Source layout
+
+```mermaid
+flowchart LR
+    root["storyforge-ai/"]
+    root --> app["app/ (routes + api)"]
+    root --> comp["components/ (by surface)"]
+    root --> lib["lib/"]
+    root --> prisma["prisma/"]
+    root --> scripts["scripts/ (smoke, probes)"]
+    root --> tests["tests/ (Vitest)"]
+    root --> e2e["e2e/ (Playwright)"]
+
+    lib --> l1["config.ts · types.ts · presets.ts"]
+    lib --> l2["schemas/"]
+    lib --> l3["agents/ + agents/llm"]
+    lib --> l4["services/"]
+    lib --> l5["wangp/"]
+    lib --> l6["media/"]
+    lib --> l7["lora/ · deepy/"]
+    lib --> l8["db/ · telemetry/ · export/"]
+```
 
 ---
 

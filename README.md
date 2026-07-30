@@ -173,14 +173,13 @@ prisma/                 # schema.prisma + seed
 scripts/                # smoke script
 tests/                  # Vitest suites
 e2e/                    # Playwright specs
-docs/                   # Spec, approach, ARCHITECTURE.md, BUILD-SUMMARY.md
 Dockerfile, docker-compose.yml
 ```
 
-See [architecture.md](architecture.md) for the full design — agent roster, prompt
-precedence, face-swap pipeline, continuity seam and data model. The condensed view
-with diagrams is [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and
-[docs/BUILD-SUMMARY.md](docs/BUILD-SUMMARY.md) records what is implemented vs. mocked.
+See [architecture.md](architecture.md) — the single architecture reference,
+covering the agent roster and interconnections, prompt precedence, LoRA and
+character-identity conditioning, the face-swap pipeline, the continuity seam, the
+data model, the API surface, and the flag/mock strategy.
 
 ---
 

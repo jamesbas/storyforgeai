@@ -1059,7 +1059,7 @@ export default function HelpPage() {
 
           <h3 className={h3}>Where can I learn more?</h3>
           <p className={p}>
-            See the project README and <code>docs/ARCHITECTURE.md</code> for design detail, and the
+            See the project README and <code>architecture.md</code> for design detail, and the
             <a href="/about" className="text-accent hover:underline"> About</a> page for licensing and
             configuration.
           </p>
