@@ -22,7 +22,8 @@ gap — and it is free to fix (§4.1).
 characters, locations, props, colour palette". None names a shot size, a lens length, a lighting
 setup, a story structure, or a colour-theory relationship. The agents' expertise is therefore
 entirely whatever the base model brings unprompted, which on a local 26B model is shallow and
-inconsistent. This is the ceiling on output quality (§4.2).
+inconsistent. This is the ceiling on output quality — **§5 now provides sourced replacement prompts
+for all four canvas agents.**
 
 **3. The canvas agents are asked to plan scenes they have never seen.** All four receive only
 `{ project }` — no brief, no story beats, no cast, not even the selected creative variant. Yet the
@@ -299,24 +300,15 @@ in the start image"*. It reduces prompt bloat on every video job in the system.
 The single largest quality lever. Each agent should name the concepts a practitioner would use, so
 the model has something specific to reason with instead of a noun list.
 
-**Cinematographer** — currently "define the visual camera language". Should specify:
-
-> Work in standard shot sizes (extreme wide, wide, medium, medium close-up, close-up, extreme
-> close-up) and state one per scene. Give lens choices in millimetres with the reason (wide for
-> distortion and immersion, long for compression and isolation). Movement must be motivated by
-> story, not decoration — name the motivation. Lighting rules should state key direction, key-to-fill
-> ratio, quality (hard/soft) and colour temperature, and whether sources are practical or motivated.
-
-**Director** — should name a structure and require intent per scene to be an *objective plus
-obstacle*, not a description. Emotional arc should move, with a stated turn.
-
-**Art Director** — should ask for a colour script with a named relationship (complementary,
-analogous, split-complementary, monochrome with accent), texture language, and a period/geography
-anchor. Currently asks for "production design" and gets adjectives.
+**§5 now contains drop-in replacement prompts for the four canvas agents**, each grounded in a cited
+source. The remaining agents, in brief:
 
 **Story Architect** — should name a beat structure appropriate to the duration: a three-act shape
 for longer pieces, a hook/turn/payoff for short-form, with an explicit midpoint or turn for anything
-above ~6 segments. The current instruction is purely arithmetic.
+above ~6 segments. The current instruction is purely arithmetic. A story beat is defined in
+screenwriting practice as *"a structural element of a narrative that's used to mark an intentional
+shift in tone"* — the agent is currently asked for beats without being told that a beat must
+*change* something.
 
 **Image Prompt Agent** — restore the composition clause, and go further: require an explicit shot
 size and camera height per frame, and state that the *first clause of the prompt sets the framing*.
@@ -367,7 +359,207 @@ mistaken for a considered one.
 
 ---
 
-## 5. Where the instructions came from
+## 5. Sourced craft practice and drop-in prompts
+
+Each subsection states the practice, cites where it comes from, says why it matters *for this
+system specifically*, and gives a complete replacement prompt. The spec's own dropped sentence is
+retained as the opening of each, so §4.1 and §5 can ship together.
+
+**Sources**
+
+- StudioBinder, *Guide to Camera Shots: Every Shot Size Explained* — shot-size taxonomy and the
+  role of contrast
+- StudioBinder, *Types of Camera Movements in Film* — movement vocabulary and motivation
+- Wikipedia, *Three-point lighting* — key / fill / backlight and the four-point extension
+- StudioBinder, *What is a Color Script* — colour as a narrative instrument
+- StudioBinder, *What is Production Design in Film* — design as narrative information
+- StudioBinder, *What Does a Director Do* — the director's role across departments
+- StudioBinder, *What is a Story Beat in a Screenplay* — a beat as a deliberate shift in tone
+- Wikipedia, *Bible (screenwriting)* and *Continuity (fiction)* — the bible as continuity record
+
+### 5.1 Cinematographer
+
+**Practice.** Shot size is a named, standardised vocabulary — EWS, WS, FS, MWS, cowboy, MS, MCU,
+CU, ECU — abbreviated on every shot list and storyboard in the industry. Crucially, meaning comes
+from *contrast*: StudioBinder puts it directly — *"If you don't use all of the different types of
+camera shots in film, how can you signal anything to your viewer without shot size contrast?"* Shot
+size also drives lens choice, camera placement and staging, not just framing.
+
+Camera movement is expected to be **motivated**, never decorative: pans are *"often motivated by a
+character's actions"*, and of handheld work — *"the random movement should always serve the story"*.
+Each move has a conventional meaning: push-in for intimacy or a decision forming; pull-out for
+isolation or reveal; arc for unease; boom for scale; roll/Dutch for disorientation; zoom is
+described as *"artificial or even unnatural"* because it has no equivalent in human vision.
+
+Lighting has a standard three-point grammar: the key, whose *"strength, color and angle… determines
+the shot's overall lighting design"*; the fill, *"usually softer and less bright than the key, up to
+half the amount"*, whose absence produces deliberate chiaroscuro or low-key; and the backlight,
+which *"separates the subject from the background and highlights contours"*.
+
+**Why it matters here.** This is the agent whose output most directly shapes a render, and its
+`sceneShotPlans` feed each scene's prompt. A plan that says "cinematic and moody" gives the Image
+Prompt Agent nothing to convert into framing — which is consistent with the observed failure where
+a scene specified as an extreme close-up rendered as a three-quarter shot.
+
+> You are the Cinematographer Agent. Define the visual camera language for the project. Specify
+> shot types, lens/framing rules, camera movements, lighting approach, and transition language.
+>
+> Use the standard shot-size vocabulary and name exactly one per scene: extreme wide (EWS), wide
+> (WS), full (FS), medium wide (MWS), cowboy, medium (MS), medium close-up (MCU), close-up (CU),
+> extreme close-up (ECU). Vary sizes deliberately across the storyboard — contrast between shot
+> sizes is what signals which moments matter, and a run of identical framings has no emphasis.
+> Establish a new location on a wider size before moving in.
+>
+> Give lens choices in millimetres with the reason: wide lenses (18–35mm) exaggerate depth and
+> proximity; long lenses (85mm+) compress and isolate. State camera height per scene — eye level,
+> low, high or overhead.
+>
+> Every camera move must be motivated by story, and you must state the motivation. Use the standard
+> vocabulary and respect its meaning: static (lets performance carry; best for dialogue), push-in
+> (rising intimacy, or a decision forming), pull-out (isolation, or revealing context), pan and tilt
+> (following action, or revealing scale), tracking (travelling with a subject), arc (unease or
+> heightened energy), boom or crane (scale, establishing), handheld (raw and immediate), roll or
+> Dutch (disorientation), zoom (deliberately artificial — it has no equivalent in human vision).
+> Where a scene needs no movement, say static and say why.
+>
+> Lighting rules must state key direction, key-to-fill ratio, hard or soft quality, colour
+> temperature, and whether sources are practical (visible in frame) or motivated (implied by the
+> world). Name low-key explicitly when you want deep shadow and high contrast, and specify the
+> backlight or rim separately — it is what separates a subject from the background.
+
+### 5.2 Art Director
+
+**Practice.** Production design *"serves to provide the narrative with visual information that is
+as important as dialogue or characterization."* Costume tells the audience *"where they come from,
+their social status, their personality, and their profession"*, and props reveal character through
+use: *"the placement of the prop and how the actor interacts with it can say a lot about a
+character… and even reveal their backstory or motivations."* Sets must *"establish the location and
+the era."*
+
+Colour is handled as a **colour script** — *"a visual roadmap of a film's story, told through the
+strategic use of colour"*, used for *"conveying emotional arc, establishing narrative rhythm,
+visualizing scene transitions."* Pioneered by Pixar on *A Bug's Life* (1998). Temperature carries
+meaning: *"cool colors like blue can create a sense of calm or sadness, while warm colors like red
+can convey anger or love."*
+
+**Why it matters here.** `artDirectionPlan` is the one plan that reaches renders *globally* —
+`globalStyleSuffix()` appends its production design and first wardrobe, prop and set-dressing rule
+to every prompt. Vague adjectives here are multiplied across every frame in the project. A colour
+script is also the natural fit for a storyboard already divided into ordered segments.
+
+> You are the Art Director Agent. Define production design, wardrobe, props, set dressing, texture,
+> colour, typography, and brand/product placement rules.
+>
+> Production design carries narrative information as directly as dialogue does. Every choice should
+> say something about who these people are and where they are. Anchor the world first: state the
+> period, the geography and the economic register, because those three decide most of the rest.
+>
+> Give the project a colour script rather than a palette. Name the relationship (complementary,
+> analogous, split-complementary, triadic, or monochrome with one accent), give the dominant and
+> accent hues, and say how colour shifts across the storyboard as the emotional arc moves. Cool hues
+> read as calm, distance or sadness; warm hues as intimacy, appetite or anger. State colour
+> temperature explicitly so the palette and the lighting plan do not fight each other.
+>
+> Wardrobe must convey social status, profession and self-image through specific named garments,
+> fabrics and colours — never a generic register such as "casual clothing". Choose props for what
+> they reveal: name the object and what it says about its owner. Set dressing should show evidence
+> of use — what is worn, repaired, cherished or neglected. Name surfaces and materials; texture
+> carries as much as colour.
+
+### 5.3 World Builder
+
+**Practice.** A bible is a *"reference document used by screenwriters for information on characters,
+settings, and other elements"*, kept as a live continuity record — the *Frasier* bible was
+*"scrupulously maintained"*, with anything established on screen written back into it so it could
+*"serve as a resource for writers to keep everything within the series consistent."*
+
+Continuity matters most because film is shot out of order: *"scenes are rarely shot in the order in
+which they appear in the final film"*, which is why a script supervisor keeps photographs and notes
+*"so that all related shots can match, even though filming has been split up over months on
+different sets and locations."* The failure modes are catalogued — visual errors where *"items of
+clothing change colors, shadows get longer or shorter, items within a scene change place or
+disappear"* — and they matter because they *"affect the audience's suspension of disbelief."*
+
+**Why it matters here.** This is the closest real-world analogue to what StoryForgeAI actually does.
+Every scene is generated independently, out of order, by a model with no memory of the last one —
+the extreme case of the problem a script supervisor exists to solve. The bible should therefore be
+weighted towards *checkable physical facts*, not lore. There is also a hard system constraint:
+`forbiddenContradictions` are fed into negative prompts by `continuityNegativeSuffix()`, so their
+wording must suit that use.
+
+> You are the World Builder Agent. Create a World Bible for the selected creative direction. Define
+> the universe, story rules, recurring locations, character relationships, motifs, visual anchors,
+> and contradictions to avoid.
+>
+> A bible is a continuity reference, not an essay. Every entry must be a fact a later agent can
+> check a scene against — prefer short, checkable statements to description.
+>
+> Scenes are generated independently and out of order, exactly as a film is shot out of sequence, so
+> this document does the job a script supervisor does on set: it is the record that makes unrelated
+> shots match. Weight it towards what would visibly differ between two separately generated images —
+> recurring locations and their fixed features, time of day and weather, what each character
+> habitually wears and carries, and the physical details that must not drift.
+>
+> Visual anchors must be concrete and repeatable: a specific object, colour, texture or light source
+> that can recur across scenes and bind them together.
+>
+> Forbidden contradictions are used directly as negative prompts. Write each as a short noun phrase
+> naming what must never appear, not as a sentence about what should be true.
+
+### 5.4 Director
+
+**Practice.** The director *"manages the creative aspects of the production… by visualizing the
+script while guiding the actors and technical crew"*, and owns tone across departments: *"a film's
+tone should be thoroughly considered and discussed before the first shot is taken. The film director
+has the final say."*
+
+A story beat is *"a structural element of a narrative that's used to mark an intentional shift in
+tone"* — writers use beats *"to structure their narratives and control emotional arcs."* In the Save
+the Cat model each beat *"is meant to move the story forward in a new and meaningful way."*
+
+**Why it matters here.** `sceneIntent` is the Director's only output that reaches a render, arriving
+as `Scene intent: …` in that scene's prompts. If the intent restates the visual description, it adds
+tokens and no information. And because this system renders images rather than directing actors,
+performance notes are only useful if they are *visible*.
+
+> You are the Director Agent. Convert the selected concept and story arc into a directorial plan.
+> Define creative thesis, pacing, emotional arc, performance guidance, and scene-level intent.
+>
+> The creative thesis is the argument the piece makes — one sentence, specific enough that someone
+> could disagree with it. Everything else serves it.
+>
+> A beat marks a deliberate shift in tone, not a description of events. Each scene's intent must
+> therefore state what *changes*: who wants what, what is in the way, and what is different by the
+> end. "She plays pool in a bar" is not an intent; "she is being watched and pretends not to notice"
+> is. Never restate the scene's visual description as its intent.
+>
+> The emotional arc must move. Name the value at each step (for example curiosity → confidence →
+> exposure → resolve) and identify the turn, the point where the piece changes direction. Do not
+> repeat the same emotional register in consecutive scenes.
+>
+> Performance direction must be physical and playable: posture, gesture, eyeline, tempo, and where
+> the character's attention is. This system renders images, so direction that cannot be seen cannot
+> be executed — "conflicted" is not directable; "holds eye contact a beat too long, then looks away
+> first" is.
+
+### 5.5 What these prompts assume
+
+All four prompts assume the input fixes in §4.3. In particular:
+
+- **5.1 and 5.4 write per-scene maps.** Both are far more useful once the story plan is persisted
+  and passed, since they can then key intent and shot plans to real beats instead of guessing at
+  segment numbers.
+- **5.2 references the lighting plan**, so the Art Director should receive the Cinematography plan
+  when one exists (§4.3.4).
+- **5.3 refers to "the selected creative direction"**, which the World Builder is still not given
+  (§4.3.1).
+
+Shipping §5 without §4.3 would still be a clear improvement — the vocabulary alone gives the model
+something to reason with — but the per-scene outputs stay guesswork until the inputs are fixed.
+
+---
+
+## 6. Where the instructions came from
 
 | Origin | Agents | Quality |
 |---|---|---|
@@ -375,25 +567,32 @@ mistaken for a considered one.
 | **Spec, abbreviated in implementation** | World Builder, Director, Cinematographer, Art Director, Image Prompt, Video Prompt, Story Architect | **Below spec.** See §4.1. |
 | **Debugged against observed production failures** | Image Prompt (wardrobe), Story Architect (segment length), Storyboard (timing, face visibility), QC (vision) | **Best in the system.** |
 | **Deliberate, reasoned departure from spec** | Audio Director | Correct — spec was wrong for this architecture. |
-| **External craft references** | *none* | **The gap.** |
+| **External craft references** | *none yet* — proposed in §5 | **The gap.** |
 
-No prompt in the system cites cinematography, screenwriting or production-design practice. Every
-instruction is either a schema field list or a patch for a specific past failure. That is a
-defensible way to have got here — the failures were real and the fixes work — but it means the
-system's creative ceiling is the base model's unprompted instincts.
+No prompt in the system currently cites cinematography, screenwriting or production-design
+practice. Every instruction is either a schema field list or a patch for a specific past failure.
+That is a defensible way to have got here — the failures were real and the fixes work — but it means
+the system's creative ceiling is the base model's unprompted instincts.
 
-The agents that were burned are good. The agents that were not are placeholders.
+The agents that were burned are good. The agents that were not are placeholders. §5 is the first
+material in this system sourced from outside it.
 
 ---
 
-## 6. Suggested sequence
+## 7. Suggested sequence
 
 1. **§4.1** — restore the dropped clauses. An hour, no risk, immediate effect on every project.
-2. **§4.3.1–2** — pass the selected variant; persist the story plan. Unblocks everything else.
-3. **§4.2** — craft vocabulary, one agent at a time, starting with the Cinematographer and Image
-   Prompt agents since they most directly shape what is rendered.
+2. **§4.3.1–2** — pass the selected variant; persist the story plan. Unblocks §5's per-scene outputs.
+3. **§5** — the sourced prompts, one agent at a time. Start with the **Cinematographer** (§5.1) and
+   **Art Director** (§5.2): the first writes the per-scene shot plans, the second is appended to
+   *every* prompt via `globalStyleSuffix`, so between them they touch the most rendered frames.
 4. **§4.4** — ordering safety, once plans are worth protecting.
 5. **§4.5, §4.6** — polish.
+
+A note on measuring this: the prompt-agent output is stored, so the effect of §5 is directly
+inspectable. Generate a storyboard before and after on the same concept and seed, and compare the
+stored `startFramePrompt` values — the sourced prompts should produce an explicit shot size and
+camera height where the current ones produce mood adjectives.
 
 Structured output is now reliable (see the format-ladder fix of 2026-07-30), so richer prompts and
 larger schemas are a safer bet than they were when this system was first assembled. That was the
