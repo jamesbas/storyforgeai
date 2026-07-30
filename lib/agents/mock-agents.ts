@@ -202,6 +202,9 @@ export function buildSceneDrafts(
       endTimeSeconds,
       targetDurationSeconds: project.segmentSeconds,
       trimAtEndSeconds,
+      // The builder has only a beat to go on, so it assumes the face is in
+      // frame; the planning model decides properly when one is available.
+      subjectFaceVisible: true,
       title: rawBeat ? beatTitle(rawBeat, sceneNumber) : `Scene ${sceneNumber}`,
       sceneObjective:
         slice.intent ??

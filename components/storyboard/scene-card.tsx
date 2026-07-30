@@ -31,6 +31,8 @@ type SceneCardProps = {
   seed?: number;
   /** Re-roll the pinned seed so the next render samples afresh. */
   onNewSeed?: () => void;
+  /** Correct the planner when a shot's framing was called wrong. */
+  onFaceVisibleChange?: (next: boolean) => void;
 };
 
 /** Render a player for media that exists on disk; fall back to the path. */
@@ -81,6 +83,7 @@ export function SceneCard({
   onClearPreviews,
   seed,
   onNewSeed,
+  onFaceVisibleChange,
 }: SceneCardProps) {
   const playable = media.filter((m) => m.available && m.sceneId === scene.id);
   const hasPreviews = playable.some((m) => m.preview);
@@ -110,6 +113,24 @@ export function SceneCard({
           <dd className="inline">{scene.cameraMovement}</dd>
         </div>
       </dl>
+      {onFaceVisibleChange ? (
+        <label className="mt-3 flex items-center gap-2 text-xs text-slate-400">
+          <input
+            type="checkbox"
+            checked={scene.subjectFaceVisible !== false}
+            disabled={busy}
+            onChange={(e) => onFaceVisibleChange(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-white/20 bg-canvas accent-accent"
+            data-testid="scene-face-visible"
+          />
+          <span>
+            Face in frame
+            <span className="ml-1 text-slate-500">
+              — off skips the face swap, which otherwise grafts a head onto shots that have none
+            </span>
+          </span>
+        </label>
+      ) : null}
       {projectId ? (
         <ScenePromptsPanel
           scene={scene}

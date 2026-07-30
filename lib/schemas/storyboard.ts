@@ -54,6 +54,12 @@ export const scenePromptsPatchSchema = z
   });
 export type ScenePromptsPatch = z.infer<typeof scenePromptsPatchSchema>;
 
+/** Framing facts a human can correct after seeing the render. */
+export const sceneFramingPatchSchema = z.object({
+  subjectFaceVisible: z.boolean(),
+});
+export type SceneFramingPatch = z.infer<typeof sceneFramingPatchSchema>;
+
 export const sceneSchema = z.object({
   id: z.string(),
   projectId: z.string(),
@@ -77,6 +83,13 @@ export const sceneSchema = z.object({
    * reading of "nothing to carry".
    */
   continuityNotes: z.array(z.string()).default([]),
+  /**
+   * Whether the cast member's face is in frame. Gates the face-swap pass, which
+   * is unconditional once it runs: given a close-up of hands it will graft a
+   * head onto the composition rather than decline. Defaults true so a scene
+   * planned before this existed behaves as it always did.
+   */
+  subjectFaceVisible: z.boolean().default(true),
   narrationText: maybe(z.string()),
   dialogue: maybe(z.array(dialogueLineSchema)),
   musicNotes: maybe(z.string()),

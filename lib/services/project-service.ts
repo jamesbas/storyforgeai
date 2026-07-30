@@ -9,7 +9,7 @@ import {
   validateSelectionSet,
 } from "@/lib/services/lora-service";
 import type { Project } from "@/lib/schemas/project";
-import { scenePromptsPatchSchema } from "@/lib/schemas/storyboard";
+import { sceneFramingPatchSchema, scenePromptsPatchSchema } from "@/lib/schemas/storyboard";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type {
   ArtDirectionPlan,
@@ -390,6 +390,33 @@ export async function selectVariant(id: string, variantId: string): Promise<Proj
  *
  * Regenerating the storyboard replaces them, which is why the UI says so.
  */
+export async function updateSceneFraming(
+  id: string,
+  sceneId: string,
+  raw: unknown,
+): Promise<ProjectRecord> {
+  const patch = sceneFramingPatchSchema.parse(raw);
+  const record = await getProjectRecord(id);
+  if (!record.storyboard) throw new ValidationError("Generate a storyboard before editing framing");
+
+  const scene = record.storyboard.scenes.find((s) => s.id === sceneId);
+  if (!scene) throw new NotFoundError(`Scene ${sceneId} not found`);
+
+  const updated: ProjectRecord = {
+    ...record,
+    storyboard: {
+      ...record.storyboard,
+      scenes: record.storyboard.scenes.map((s) => (s.id === sceneId ? { ...s, ...patch } : s)),
+    },
+    project: { ...record.project, updatedAt: new Date().toISOString() },
+    history: appendHistory(record, "scene.framing_edited", `Scene ${scene.sceneNumber}`),
+  };
+
+  await repository.update(id, updated);
+  logEvent("project.updated", { id, change: "scene_framing", sceneId });
+  return updated;
+}
+
 export async function updateScenePrompts(
   id: string,
   sceneId: string,

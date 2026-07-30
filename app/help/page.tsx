@@ -394,6 +394,19 @@ export default function HelpPage() {
             belongs where and the swap is skipped rather than guessed. It also needs a Qwen Image Edit
             model and its two face-swap LoRAs installed in WanGP.
           </p>
+          <p className={p}>
+            The pass is <strong>unconditional once it runs</strong>. Its prompt instructs the model
+            to replace &quot;the head of the woman&quot; in the frame, so given a close-up of hands
+            or a shot from behind it will graft a head onto the composition rather than decline.
+            Every scene therefore carries a <strong>Face in frame</strong> tick box, set by the
+            Storyboard Agent from the shot it planned and overridable on the scene card. Clear it
+            and that scene&apos;s frames skip the swap and keep their originals.
+          </p>
+          <p className={p}>
+            Under <em>Continue from previous end frame</em> one file is both a scene&apos;s end
+            frame and the next scene&apos;s start. Such a frame is swapped if <em>either</em> scene
+            shows the face, since the one that does still needs it corrected.
+          </p>
 
           <h3 className={h3}>Using it in a project</h3>
           <p className={p}>

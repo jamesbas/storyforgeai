@@ -220,6 +220,12 @@ async function renderKeyframe(
   // render, the clip, the next scene's inherited start — sees the corrected
   // face. Deferring it would mean those all carry the uncorrected one.
   if (rendered && swapSubject) {
+    // The swap prompt is unconditional: told to replace "the head of the woman"
+    // in a frame that has none, the model invents somewhere to put one.
+    if (scene.subjectFaceVisible === false) {
+      logEvent("face_swap.skipped", { reason: "no_face_in_shot", sceneId: scene.id, purpose });
+      return { id: manifest.id, path: rendered };
+    }
     const swapped = await swapFace(rendered, swapSubject, { sceneId: scene.id, purpose });
     if (swapped) return { id: manifest.id, path: swapped };
   }
@@ -479,8 +485,12 @@ export async function generateProjectMediaPhased(
     // Under reuse_end_frame one file is both a scene's end frame and the next
     // scene's start frame. Swapping per scene would run it twice, wasting a
     // render and producing two subtly different images for the same moment.
+    //
+    // A frame is swapped when any scene using it shows the face: a shared frame
+    // that a face scene depends on still needs correcting.
     const distinct = new Set<string>();
-    for (const entry of frames.values()) {
+    for (const [sceneId, entry] of frames) {
+      if (scenes.find((s) => s.id === sceneId)?.subjectFaceVisible === false) continue;
       if (entry.start) distinct.add(entry.start);
       if (entry.end) distinct.add(entry.end);
     }
@@ -496,8 +506,9 @@ export async function generateProjectMediaPhased(
     }
 
     for (const [sceneId, entry] of frames) {
-      const start = entry.start ? swapped.get(entry.start) : undefined;
-      const end = entry.end ? swapped.get(entry.end) : undefined;
+      // A frame left out of the swap set keeps its original path.
+      const start = entry.start ? (swapped.get(entry.start) ?? entry.start) : undefined;
+      const end = entry.end ? (swapped.get(entry.end) ?? entry.end) : undefined;
       frames.set(sceneId, { ...entry, start, end });
     }
   }

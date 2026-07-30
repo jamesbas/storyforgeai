@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { createCharacter, setReferenceImage } from "@/lib/services/character-service";
 import { createProject, generateStoryboard } from "@/lib/services/project-service";
+import { updateSceneFraming } from "@/lib/services/project-service";
 import { canRunPhased, generateProjectMediaPhased } from "@/lib/services/media-service";
 import { getProjectRecord } from "@/lib/services/project-service";
 import { MockWangpClient } from "@/lib/wangp/mock-client";
@@ -168,6 +169,53 @@ describe("running a phased batch", () => {
     for (const [phase, seen] of Object.entries(counts)) {
       expect(seen).toEqual(Array.from({ length: totals[phase]! }, (_, i) => i + 1));
     }
+  });
+
+  /**
+   * The swap prompt is unconditional — told to replace "the head of the woman"
+   * in a close-up of hands, the model grafts one on rather than declining. The
+   * storyboard already knows which shots show a face, so it gates the pass.
+   */
+  it("leaves out the frames of a scene with no face in shot", async () => {
+    const seeded = await project({ faceSwap: true, continuity: "cut" });
+    const faceless = seeded.storyboard!.scenes[1]!.id;
+    await updateSceneFraming(seeded.project.id, faceless, { subjectFaceVisible: false });
+
+    let swapTotal = 0;
+    await generateProjectMediaPhased(seeded.project.id, sceneIdsOf(seeded), {
+      onPhase: (phase, total) => {
+        if (phase === "face_swap") swapTotal = total;
+      },
+    });
+
+    // Every scene renders two frames under `cut`; one scene's pair drops out.
+    expect(swapTotal).toBe((sceneIdsOf(seeded).length - 1) * 2);
+
+    // Skipping the swap must not skip the render.
+    const record = await getProjectRecord(seeded.project.id);
+    expect(record.attempts?.[faceless]?.[0]?.startImagePath).toBeTruthy();
+  });
+
+  /**
+   * Under `reuse_end_frame` one file is two scenes' frame. A scene that hides
+   * the face cannot veto it for the neighbour that shows one, so the rule is
+   * "swap when any scene using it shows the face".
+   */
+  it("still swaps a frame shared with a scene that does show the face", async () => {
+    const seeded = await project({ faceSwap: true, continuity: "reuse_end_frame" });
+    await updateSceneFraming(seeded.project.id, seeded.storyboard!.scenes[1]!.id, {
+      subjectFaceVisible: false,
+    });
+
+    let swapTotal = 0;
+    await generateProjectMediaPhased(seeded.project.id, sceneIdsOf(seeded), {
+      onPhase: (phase, total) => {
+        if (phase === "face_swap") swapTotal = total;
+      },
+    });
+
+    // Both of the middle scene's frames belong to a neighbour as well.
+    expect(swapTotal).toBe(sceneIdsOf(seeded).length + 1);
   });
 
   /**

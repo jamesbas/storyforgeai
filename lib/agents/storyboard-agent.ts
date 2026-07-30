@@ -15,7 +15,11 @@ export const storyboardSystem = (segmentSeconds: number) =>
   "segment. Each scene must include scene objective, story beat, visual description, action, " +
   "camera movement, transition in/out, continuity notes, and optional narration/dialogue/" +
   "music/SFX notes. Scope the action to what can actually happen in " +
-  `${segmentSeconds} seconds. Do not write image prompts or video prompts yet. ` +
+  `${segmentSeconds} seconds. ` +
+  "Set subjectFaceVisible to false when the shot does not show the main character's face — " +
+  "close-ups of hands or objects, shots from behind, silhouettes, or any framing that crops " +
+  "the head. Set it to true whenever the face is in frame, even partially. " +
+  "Do not write image prompts or video prompts yet. " +
   "Return only valid JSON.";
 
 /** Default-length wording, retained for callers that have no project in hand. */

@@ -384,6 +384,27 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     [projectId, failureMessage],
   );
 
+  const setFaceVisible = useCallback(
+    async (sceneId: string, subjectFaceVisible: boolean) => {
+      setSceneBusy(sceneId);
+      setError(null);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/scenes/${sceneId}/framing`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ subjectFaceVisible }),
+        });
+        if (!res.ok) throw new Error(await failureMessage(res, "Failed to update framing"));
+        setRecord((await res.json()) as ProjectRecord);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to update framing");
+      } finally {
+        setSceneBusy(null);
+      }
+    },
+    [projectId, failureMessage],
+  );
+
   const approveScene = useCallback(
     async (sceneId: string, attemptId: string) => {
       setSceneBusy(sceneId);
@@ -747,6 +768,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   onClearPreviews={() => void clearScenePreviews(scene.id)}
                   seed={record.project.sceneSeeds?.[scene.id]}
                   onNewSeed={() => void newSceneSeed(scene.id)}
+                  onFaceVisibleChange={(next) => void setFaceVisible(scene.id, next)}
                 />
               );
             })}
