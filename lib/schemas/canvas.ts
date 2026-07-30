@@ -1,4 +1,5 @@
-import { z } from "zod";import { maybe } from "@/lib/schemas/maybe";
+import { z } from "zod";
+import { maybe } from "@/lib/schemas/maybe";
 import { namedSpecSchema } from "@/lib/schemas/agents";
 import { VARIANT_TYPES } from "@/lib/types";
 
@@ -65,6 +66,15 @@ export type CinematographyPlan = z.infer<typeof cinematographyPlanSchema>;
 export const artDirectionPlanSchema = z.object({
   projectId: z.string(),
   productionDesign: z.string(),
+  /**
+   * The colour plan for the whole piece, in its own field rather than folded
+   * into `productionDesign` — that string is appended to every image and video
+   * prompt, so a paragraph of colour theory there would cost attention on every
+   * render. The prompt agents read this when writing a scene; nothing appends
+   * it verbatim.
+   */
+  colorScript: maybe(z.string()),
+  textureRules: maybe(z.array(z.string())),
   wardrobeRules: z.array(z.string()),
   propRules: z.array(z.string()),
   setDressingRules: z.array(z.string()),

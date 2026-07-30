@@ -21,6 +21,10 @@ import type {
 } from "@/lib/schemas/canvas";
 import { repository } from "@/lib/db/store";
 import { runStoryboardOrchestrator } from "@/lib/agents/orchestrator";
+import { intakeAgent } from "@/lib/agents/intake-agent";
+import { storyArchitectAgent } from "@/lib/agents/story-architect-agent";
+import type { AgentContext } from "@/lib/agents/types";
+import type { StoryPlan } from "@/lib/schemas/agents";
 import { deriveTitle } from "@/lib/agents/mock-agents";
 import {
   artDirectorAgent,
@@ -307,14 +311,20 @@ export async function generateStoryboard(id: string): Promise<ProjectRecord> {
     cinematographyPlan: record.cinematographyPlan,
     artDirectionPlan: record.artDirectionPlan,
   };
+  let freshStoryPlan: StoryPlan | undefined;
   const snapshot = await runStoryboardOrchestrator(record.project, {
     selectedVariant,
     cast,
     plans,
+    storyPlan: record.storyPlan,
+    onStoryPlan: (plan) => {
+      freshStoryPlan = plan;
+    },
   });
   const updated: ProjectRecord = {
     ...record,
     project: { ...record.project, status: "storyboard_ready", updatedAt: new Date().toISOString() },
+    storyPlan: freshStoryPlan ?? record.storyPlan,
     storyboard: snapshot,
     history: appendHistory(record, "storyboard.generated", selectedVariant?.name),
   };
@@ -447,6 +457,36 @@ export async function updateScenePrompts(
 }
 
 /**
+ * Guarantee the project has a narrative arc.
+ *
+ * The Director is asked to convert "the selected concept and story arc", and
+ * writes `sceneIntent` keyed by scene — but the canvas runs before the
+ * storyboard exists, so without this it is inventing beats and guessing at
+ * segment numbers. Generating the arc here makes its per-scene direction real,
+ * and `generateStoryboard` then reuses it rather than paying for it twice.
+ */
+async function withStoryPlan(record: ProjectRecord): Promise<ProjectRecord> {
+  if (record.storyPlan) return record;
+
+  const provider = getPlanningProvider();
+  const ctx: AgentContext = {
+    project: record.project,
+    cast: await resolveProjectCast(record.project),
+    selectedVariant: record.variants?.find((v) => v.id === record.selectedVariantId),
+  };
+  ctx.brief = await intakeAgent(ctx, provider);
+  const storyPlan = await storyArchitectAgent(ctx, provider);
+
+  const updated: ProjectRecord = {
+    ...record,
+    storyPlan,
+    history: appendHistory(record, "story_plan.generated"),
+  };
+  await repository.update(record.project.id, updated);
+  return updated;
+}
+
+/**
  * What the canvas agents are given.
  *
  * Plans accumulate, so an agent run later sees the ones approved before it —
@@ -457,6 +497,7 @@ async function canvasContext(record: ProjectRecord) {
   return {
     selectedVariant: record.variants?.find((v) => v.id === record.selectedVariantId),
     cast: await resolveProjectCast(record.project),
+    storyPlan: record.storyPlan,
     plans: {
       worldBible: record.worldBible,
       directorialPlan: record.directorialPlan,
@@ -483,7 +524,9 @@ export async function generateWorldBible(id: string): Promise<ProjectRecord> {
 }
 
 export async function generateDirectorialPlan(id: string): Promise<ProjectRecord> {
-  const record = await getProjectRecord(id);
+  // The Director is the one canvas agent whose prompt names the story arc, so
+  // it is the natural place to produce one when the project has none yet.
+  const record = await withStoryPlan(await getProjectRecord(id));
   const directorialPlan: DirectorialPlan = await directorAgent(
     record.project,
     getPlanningProvider(),

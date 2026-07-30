@@ -319,31 +319,36 @@ framing being buried mid-prompt.
 `precedenceDirective` already establish the pattern of composable directives appended to several
 agents; a `craftDirective(kind)` alongside them fits the existing architecture.
 
-### 4.3 Fix what the canvas agents can see
+### 4.3 Fix what the canvas agents can see — **shipped**
 
 Ordered by value:
 
-1. **Pass the selected variant** to all four. The World Builder prompt already claims to have it.
-   One-line change per agent.
-2. **Persist the story plan.** It is generated inside `runStoryboardOrchestrator` and thrown away.
-   Storing it on the record would let the Director and Cinematographer write per-scene direction
-   against real beats instead of guessing, and would let a user inspect the arc.
-3. **Pass the cast** to the Art Director. It writes wardrobe rules that can contradict a pinned
-   character, and `precedenceDirective` then has to resolve a conflict that need not have existed.
-4. **Chain the canvas agents.** The Cinematographer should see the Director's plan; the Art Director
-   should see both. Currently three of them independently invent a mood from the same one-line
-   concept, and the storyboard has to reconcile them.
+1. ~~**Pass the selected variant** to all four.~~ **Done.** Each agent now receives the direction's
+   substance — name, hook, angle, visual style and risks — rather than nothing.
+2. ~~**Persist the story plan.**~~ **Done.** `projectRecordSchema.storyPlan` holds it. Running the
+   **Director** generates one when the project has none, since its prompt is the one that names the
+   story arc; `generateStoryboard` then reuses it via `OrchestratorDeps.storyPlan` rather than
+   paying twice, and persists a fresh one through `onStoryPlan`.
+3. ~~**Pass the cast** to the Art Director.~~ **Done**, and to the World Builder and Director too.
+4. ~~**Chain the canvas agents.**~~ **Done.** `canvasContext()` hands each agent the plans already
+   approved, so the Cinematographer lights the Director's intent instead of inventing a second mood.
 
-### 4.4 Make the ordering safe
+### 4.4 Make the ordering safe — **already built (correction)**
 
-Canvas plans only reach a render if they existed when the storyboard was written. Today that is
-documentation. Options, cheapest first:
+This section originally claimed the ordering rule was "documentation" only. That was wrong, and the
+result of not reading `components/storyboard/creative-plans-panel.tsx` before writing it.
 
-- Warn on **Generate storyboard** when a plan is newer than the existing storyboard.
-- Record which plans were present at generation time, and show it on the Storyboard screen — the
-  "in this storyboard" badges already imply this and would become factual rather than advisory.
-- Offer **regenerate prompts only**, re-running the two prompt agents against the existing scene
-  cards, so a late plan can be applied without rewriting the story.
+`planStates()` already derives staleness from the history — comparing each plan's
+`*_plan.generated` entry against the last `storyboard.generated` — and the panel renders an amber
+banner reading *"N plans changed after this storyboard was written"* with a **Regenerate storyboard
+to apply** button. It also handles the inverse case, telling a user with no storyboard yet to run
+the plans first.
+
+That is a better implementation than the warning proposed here. Nothing to do.
+
+The one idea in the original list still unbuilt is **regenerate prompts only** — re-running the two
+prompt agents against existing scene cards, so a late plan applies without rewriting the story.
+Worth considering only if regenerating whole storyboards proves annoying in practice.
 
 ### 4.5 Give the Variant Explorer something to vary
 
@@ -542,20 +547,22 @@ performance notes are only useful if they are *visible*.
 > be executed — "conflicted" is not directable; "holds eye contact a beat too long, then looks away
 > first" is.
 
-### 5.5 What these prompts assume
+### 5.5 What these prompts assume — **resolved**
 
-All four prompts assume the input fixes in §4.3. In particular:
+When written, all four prompts depended on input fixes that had not been made. Those are now in
+place (§4.3), so the prompts run on real material:
 
-- **5.1 and 5.4 write per-scene maps.** Both are far more useful once the story plan is persisted
-  and passed, since they can then key intent and shot plans to real beats instead of guessing at
-  segment numbers.
-- **5.2 references the lighting plan**, so the Art Director should receive the Cinematography plan
-  when one exists (§4.3.4).
-- **5.3 refers to "the selected creative direction"**, which the World Builder is still not given
-  (§4.3.1).
+- **5.1 and 5.4 write per-scene maps** against the persisted story plan's beats, and are told to key
+  them by segment number so `sceneEntry()` resolves them.
+- **5.2's colour script** has its own `colorScript` field. It is deliberately **not** added to
+  `globalStyleSuffix`: the prompt agents read it when writing a scene, which is better than
+  appending a paragraph of colour theory to every render job. `productionDesign` is now capped at
+  two sentences in that suffix — it was previously the only entry there with no bound.
+- **5.3's "selected creative direction"** is now supplied.
 
-Shipping §5 without §4.3 would still be a clear improvement — the vocabulary alone gives the model
-something to reason with — but the per-scene outputs stay guesswork until the inputs are fixed.
+Shipped and verified live: the Cinematographer returns *"WS, 35mm (exaggerates depth to establish
+bar scale), eye level, static to emphasize the quiet stillness of the room"* where it previously
+returned mood adjectives.
 
 ---
 
@@ -581,13 +588,14 @@ material in this system sourced from outside it.
 
 ## 7. Suggested sequence
 
-1. **§4.1** — restore the dropped clauses. An hour, no risk, immediate effect on every project.
-2. **§4.3.1–2** — pass the selected variant; persist the story plan. Unblocks §5's per-scene outputs.
-3. **§5** — the sourced prompts, one agent at a time. Start with the **Cinematographer** (§5.1) and
-   **Art Director** (§5.2): the first writes the per-scene shot plans, the second is appended to
-   *every* prompt via `globalStyleSuffix`, so between them they touch the most rendered frames.
-4. **§4.4** — ordering safety, once plans are worth protecting.
-5. **§4.5, §4.6** — polish.
+§4.1, §4.2/§5 and §4.3 are **shipped**. §4.4 turned out to be **already built**. What remains:
+
+1. **§4.5** — give the Variant Explorer a named axis to vary on.
+2. **§4.6** — surface `agent.fallback` in the UI, so a mechanical storyboard is not mistaken for a
+   considered one.
+3. The Story Architect and Intake agents (§3.1, §3.2) are still field checklists. The Story
+   Architect is the higher value of the two: it decides the beats everything downstream works from,
+   and currently has only an arithmetic constraint.
 
 A note on measuring this: the prompt-agent output is stored, so the effect of §5 is directly
 inspectable. Generate a storyboard before and after on the same concept and seed, and compare the

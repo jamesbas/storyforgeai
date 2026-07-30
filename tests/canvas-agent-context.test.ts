@@ -181,4 +181,41 @@ describe("what each canvas agent is shown", () => {
     expect(plan.projectId).toBe(project.id);
     expect(plan.cameraLanguage.length).toBeGreaterThan(0);
   });
+
+  /**
+   * The two agents that write per-scene maps are the ones that most need the
+   * arc — without it they key by segment number and guess what happens there.
+   */
+  it("gives the arc to the agents that write per-scene direction", async () => {
+    const storyPlan = {
+      projectId: project.id,
+      title: "Night Watchman",
+      logline: "A caretaker watches the paint move.",
+      emotionalProgression: ["unease", "dread", "acceptance"],
+      segmentBeats: ["She locks the door.", "The mural shifts.", "She sits down to watch."],
+    };
+
+    for (const agent of [directorAgent, cinematographerAgent]) {
+      const { calls, provider } = recorder();
+      await agent(project, provider, { ...ctx, storyPlan });
+
+      const payload = JSON.parse(calls[0]!.user) as { storyPlan?: { segmentBeats: string[] } };
+      expect(payload.storyPlan?.segmentBeats).toHaveLength(3);
+    }
+  });
+
+  /** Keying has to line up with `sceneEntry()`, which resolves "1" and "Scene 1". */
+  it("tells those agents how to key their per-scene maps", () => {
+    expect(DIRECTOR_SYSTEM).toMatch(/key it by segment number as a plain string/);
+    expect(CINEMATOGRAPHER_SYSTEM).toMatch(/key it by segment number as a plain string/);
+  });
+
+  /**
+   * `productionDesign` is appended to every image and video prompt, so the
+   * colour script gets its own field rather than being folded into it.
+   */
+  it("keeps the colour script out of the string that rides on every prompt", () => {
+    expect(ART_DIRECTOR_SYSTEM).toMatch(/Put all of that in colorScript, never in productionDesign/);
+    expect(ART_DIRECTOR_SYSTEM).toMatch(/two or three sentences/);
+  });
 });

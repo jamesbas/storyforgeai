@@ -53,6 +53,31 @@ describe("agentic canvas plans reach the render prompts", () => {
     expect(globalStyleSuffix({})).toBe("");
   });
 
+  /**
+   * `productionDesign` rides on every image and video prompt and was the only
+   * entry here without a bound, so a model that answered at length put a
+   * paragraph in front of every render.
+   */
+  it("caps the production design summary that rides on every prompt", () => {
+    const long =
+      "A rain-slicked dockside in late autumn. Sodium lamps and wet granite throughout. " +
+      "Every surface should read as salt-worn and repaired. The palette leans to bottle green. " +
+      "Nothing is new; everything has been mended at least once.";
+
+    const suffix = globalStyleSuffix({
+      artDirectionPlan: {
+        projectId: "p",
+        productionDesign: long,
+        wardrobeRules: [],
+        propRules: [],
+        setDressingRules: [],
+      },
+    });
+
+    expect(suffix).toContain("A rain-slicked dockside in late autumn.");
+    expect(suffix).not.toContain("Nothing is new");
+  });
+
   it("carries directorial intent and art direction into every scene prompt", async () => {
     const project = await createProject({
       concept: "A lighthouse keeper waits out a storm.",

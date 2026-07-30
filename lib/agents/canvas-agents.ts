@@ -21,6 +21,7 @@ import {
 } from "@/lib/agents/mock-canvas";
 import { castSystemDirective } from "@/lib/agents/cast";
 import { planningPayload, precedenceDirective, type CreativePlans } from "@/lib/agents/creative-context";
+import type { StoryPlan } from "@/lib/schemas/agents";
 import type { Character } from "@/lib/schemas/character";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 
@@ -75,6 +76,8 @@ export const DIRECTOR_SYSTEM =
   "where the character's attention is. This system renders images, so direction that cannot be " +
   "seen cannot be executed — \"conflicted\" is not directable, \"holds eye contact a beat too " +
   "long, then looks away first\" is. " +
+  "When a story plan is supplied, write one sceneIntent per segment beat and key it by segment " +
+  "number as a plain string — \"1\", \"2\", \"3\" — matching the order of the beats. " +
   "Return only valid JSON matching the DirectorialPlan schema.";
 
 export const CINEMATOGRAPHER_SYSTEM =
@@ -100,6 +103,8 @@ export const CINEMATOGRAPHER_SYSTEM =
   "temperature, and whether sources are practical (visible in frame) or motivated (implied by " +
   "the world). Name low-key explicitly when you want deep shadow and high contrast, and specify " +
   "the backlight or rim separately — it is what separates a subject from the background. " +
+  "When a story plan is supplied, write one sceneShotPlan per segment beat and key it by segment " +
+  "number as a plain string — \"1\", \"2\", \"3\" — matching the order of the beats. " +
   "Return only valid JSON matching the CinematographyPlan schema.";
 
 export const ART_DIRECTOR_SYSTEM =
@@ -114,6 +119,12 @@ export const ART_DIRECTOR_SYSTEM =
   "props for what they reveal: name the object and what it says about its owner. Set dressing " +
   "should show evidence of use — what is worn, repaired, cherished or neglected. Name surfaces " +
   "and materials, since texture carries as much as colour. " +
+  "Give the project a colour script rather than a palette: name the relationship (complementary, " +
+  "analogous, split-complementary, triadic, or monochrome with one accent), give the dominant " +
+  "and accent hues, and say how colour shifts across the storyboard as the emotional arc moves. " +
+  "Cool hues read as calm, distance or sadness; warm hues as intimacy, appetite or anger. State " +
+  "colour temperature so the palette and the lighting plan do not fight each other. Put all of " +
+  "that in colorScript, never in productionDesign. " +
   "Keep the production design summary to two or three sentences: it is appended to every image " +
   "and video prompt in the project, so length there costs attention on every render. " +
   "Return only valid JSON matching the ArtDirectionPlan schema.";
@@ -133,6 +144,7 @@ const variantsSchema = z.object({ variants: z.array(creativeVariantSchema) });
 export type CanvasContext = {
   selectedVariant?: CreativeVariant;
   cast?: readonly Character[];
+  storyPlan?: StoryPlan;
   plans?: CreativePlans;
 };
 
@@ -173,6 +185,7 @@ export async function worldBuilderAgent(
       project,
       selectedDirection: directionOf(ctx.selectedVariant),
       cast: ctx.cast ?? [],
+      storyPlan: ctx.storyPlan,
     });
     const result = await provider.generateJson(
       WORLD_BUILDER_SYSTEM + castSystemDirective(ctx.cast ?? []),
@@ -194,6 +207,7 @@ export async function directorAgent(
       project,
       selectedDirection: directionOf(ctx.selectedVariant),
       cast: ctx.cast ?? [],
+      storyPlan: ctx.storyPlan,
       plans: planningPayload(ctx.plans),
     });
     const result = await provider.generateJson(
@@ -217,6 +231,7 @@ export async function cinematographerAgent(
     const user = JSON.stringify({
       project,
       selectedDirection: directionOf(ctx.selectedVariant),
+      storyPlan: ctx.storyPlan,
       plans: planningPayload(ctx.plans),
     });
     const result = await provider.generateJson(
@@ -239,6 +254,7 @@ export async function artDirectorAgent(
       project,
       selectedDirection: directionOf(ctx.selectedVariant),
       cast: ctx.cast ?? [],
+      storyPlan: ctx.storyPlan,
       plans: planningPayload(ctx.plans),
     });
     const result = await provider.generateJson(

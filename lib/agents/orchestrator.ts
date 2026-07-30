@@ -56,7 +56,9 @@ export async function runStoryboardOrchestrator(
       constraints: [...ctx.brief.constraints, ...direction],
     };
   }
-  ctx.storyPlan = await storyArchitectAgent(ctx, provider);
+  ctx.storyPlan = deps.storyPlan ?? (await storyArchitectAgent(ctx, provider));
+  // Only a freshly generated arc is worth reporting; a reused one is already stored.
+  if (!deps.storyPlan) deps.onStoryPlan?.(ctx.storyPlan);
   ctx.visualBible = await visualBibleAgent(ctx, provider);
   ctx.sceneDrafts = await storyboardAgent(ctx, provider);
   const scenes = await attachScenePrompts(project, ctx.sceneDrafts, provider, {

@@ -94,10 +94,27 @@ function firstFew(values: readonly string[] | undefined, limit: number): string[
 }
 
 /**
+ * The opening sentences of a plan field.
+ *
+ * `productionDesign` rides on every image and video prompt in the project, and
+ * was the one entry here with no bound — a model that answered at length put a
+ * paragraph in front of every render, crowding out the shot description the
+ * rest of the prompt is for.
+ */
+function firstSentences(text: string, limit: number): string {
+  const trimmed = text.trim();
+  const sentences = trimmed.match(/[^.!?]+[.!?]+/g);
+  if (!sentences || sentences.length <= limit) return trimmed;
+  return sentences.slice(0, limit).join(" ").trim();
+}
+
+/**
  * Global rules compact enough to ride along in a render prompt.
  *
  * Deliberately capped: these compete for attention with the scene description,
  * and past a couple of clauses each they cost more adherence than they buy.
+ * The colour script is deliberately absent — the prompt agents read it when
+ * writing a scene, which is better than appending it to every job.
  */
 export function globalStyleSuffix(plans: CreativePlans | undefined): string {
   if (!plans) return "";
@@ -111,7 +128,7 @@ export function globalStyleSuffix(plans: CreativePlans | undefined): string {
   const motifs = firstFew(plans.worldBible?.visualAnchors, 1);
 
   if (plans.artDirectionPlan?.productionDesign) {
-    parts.push(plans.artDirectionPlan.productionDesign.trim());
+    parts.push(firstSentences(plans.artDirectionPlan.productionDesign, 2));
   }
   parts.push(...wardrobe, ...props, ...setDressing, ...lens, ...lighting, ...motifs);
 

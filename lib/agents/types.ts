@@ -38,4 +38,8 @@ export type OrchestratorDeps = {
   selectedVariant?: CreativeVariant;
   cast?: Character[];
   plans?: CreativePlans;
+  /** A previously generated arc, reused rather than paid for again. */
+  storyPlan?: StoryPlan;
+  /** Reports a freshly generated arc so the caller can persist it. */
+  onStoryPlan?: (plan: StoryPlan) => void;
 };
