@@ -136,16 +136,16 @@ media path.
 
 | # | Agent | Module | Consumes | Produces | Schema | Invoked by |
 |---|---|---|---|---|---|---|
-| 1 | **Variant Explorer** | `canvas-agents.ts` | `Project` | 3+ creative directions | `creativeVariantSchema[]` | `POST /generate-variants` |
-| 2 | **World Builder** | `canvas-agents.ts` | `Project` | World Bible | `worldBibleSchema` | `POST /generate-world-bible` |
-| 3 | **Director** | `canvas-agents.ts` | `Project` | Directorial plan | `directorialPlanSchema` | `POST /generate-directorial-plan` |
-| 4 | **Cinematographer** | `canvas-agents.ts` | `Project` | Camera plan | `cinematographyPlanSchema` | `POST /generate-cinematography-plan` |
-| 5 | **Art Director** | `canvas-agents.ts` | `Project` | Art direction plan | `artDirectionPlanSchema` | `POST /generate-art-direction-plan` |
+| 1 | **Variant Explorer** | `canvas-agents.ts` | `Project` | 3 creative directions, each on a different `variantType` axis | `creativeVariantSchema[]` | `POST /generate-variants` |
+| 2 | **World Builder** | `canvas-agents.ts` | `Project` + variant + cast + story plan | World Bible | `worldBibleSchema` | `POST /generate-world-bible` |
+| 3 | **Director** | `canvas-agents.ts` | `Project` + variant + cast + story plan + plans | Directorial plan | `directorialPlanSchema` | `POST /generate-directorial-plan` |
+| 4 | **Cinematographer** | `canvas-agents.ts` | `Project` (incl. continuity mode) + variant + story plan + plans | Camera plan | `cinematographyPlanSchema` | `POST /generate-cinematography-plan` |
+| 5 | **Art Director** | `canvas-agents.ts` | `Project` + variant + cast + story plan + plans | Art direction plan | `artDirectionPlanSchema` | `POST /generate-art-direction-plan` |
 | 6 | **Intake Producer** | `intake-agent.ts` | `Project` (+ selected variant) | Creative brief | `creativeBriefSchema` | Orchestrator, step 1 |
 | 7 | **Story Architect** | `story-architect-agent.ts` | `Project` + brief | Story plan, 1 beat per segment | `storyPlanSchema` | Orchestrator, step 2 |
 | 8 | **Visual Bible** | `visual-bible-agent.ts` | `Project` + brief | Continuity guide | `visualBibleSchema` | Orchestrator, step 3 |
 | 9 | **Storyboard Artist** | `storyboard-agent.ts` | `Project` + brief + story plan + visual bible | Scene drafts | `sceneDraftSchema[]` | Orchestrator, step 4 |
-| 10 | **Image Prompt Engineer** | `prompt-agents.ts` | `Project` + each scene draft | Start/end frame prompts + negative | subset of `scenePromptsSchema` | Orchestrator, step 5 |
+| 10 | **Image Prompt Engineer** | `prompt-agents.ts` | `Project` + scene draft + **previous scene's end-frame prompt** | Start/end frame prompts + negative | subset of `scenePromptsSchema` | Orchestrator, step 5 |
 | 11 | **Video Prompt Engineer** | `prompt-agents.ts` | `Project` + each scene draft | Motion prompt + negative + checklist | subset of `scenePromptsSchema` | Orchestrator, step 5 |
 | 12 | **Audio Director** | `audio-agents.ts` | `Project` + scene refs | Audio plan, music/SFX cues | `audioPlanSchema` | `POST /generate-audio-plan` |
 | 13 | **Creative Critic (QC)** | `qc-agent.ts` | `Scene` + `SceneAttempt` (+ keyframes when `OPENAI_VISION_MODEL` is set) | Pass/fail, severity, regen notes | `qcResultSchema` | `media-service`, only when `project.qcEnabled` |
@@ -631,10 +631,41 @@ derived from that image keep their old content until regenerated, which is the
 cost of doing it out of order.
 
 **Scene continuity** carries the result forward: under `reuse_end_frame` a scene
-starts from the previous scene's swapped end frame rather than re-synthesising.
+starts from the previous scene's swapped end frame rather than re-synthesising —
+unless the seam is a planned cut, in which case it renders its own start frame
+(see [Scene continuity and the seam](#scene-continuity-and-the-seam)).
 
 Face swap corrects keyframes only. The clip between them is model-interpolated, so
 identity can drift mid-motion even when every keyframe is exact.
+
+### Scene continuity and the seam
+
+`project.sceneContinuity` decides what a scene inherits from its predecessor:
+`cut` (render both frames), `reuse_end_frame` (start from the previous end frame),
+`continue_video` (continue from the previous clip). It is now read in **two**
+places, planning as well as rendering.
+
+**Planning.** A segment boundary exists because the video model renders about
+`segmentSeconds` at a time — a technical join, not a creative cut.
+`lib/agents/continuity.ts` turns the mode into a directive: on the continuing
+modes the Cinematographer holds shot size, lens and camera height across
+boundaries and varies movement instead, while the Storyboard and Image Prompt
+agents are told each segment's start frame *is* the previous segment's end frame.
+On `cut` the Cinematographer gets the opposite instruction — vary shot sizes for
+contrast. `attachScenePrompts` threads the previous scene's `endFramePrompt` into
+each call, because an agent cannot match a frame it has not been shown.
+
+**Rendering.** `lib/media/seam.ts` is the backstop. `seamBreak(previous, scene)`
+reads the shot size out of each prompt — the agents open with it, and only the
+first 160 characters are scanned so the appended cast sheet cannot produce a
+false match — and reports a cut when the size changes, falling back to
+`transitionIn` naming a cut, dissolve, fade or wipe. Both `resolveContinuity()`
+and the phased batch consult it and log `scene.continuity` with the reason.
+
+Inheritance is not free of consequence: the inheriting scene's `startFramePrompt`
+is never rendered. The attempt therefore records `startImageInherited` and the
+scene card says so, because the Prompts panel would otherwise display text that
+had no effect on any image.
 
 ### Scene status lifecycle
 

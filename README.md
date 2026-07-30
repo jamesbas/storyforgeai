@@ -177,8 +177,10 @@ docs/                   # Spec, approach, ARCHITECTURE.md, BUILD-SUMMARY.md
 Dockerfile, docker-compose.yml
 ```
 
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for diagrams and design detail, and
-[docs/BUILD-SUMMARY.md](docs/BUILD-SUMMARY.md) for what is implemented vs. mocked.
+See [architecture.md](architecture.md) for the full design — agent roster, prompt
+precedence, face-swap pipeline, continuity seam and data model. The condensed view
+with diagrams is [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), and
+[docs/BUILD-SUMMARY.md](docs/BUILD-SUMMARY.md) records what is implemented vs. mocked.
 
 ---
 
@@ -219,6 +221,33 @@ audio reaches the clip; nothing is synthesized separately.
 Deterministic builders always produce a complete prompt. When `AI_PLANNING_ENABLED`
 is set, an LLM refines each artifact and falls back to the builder on any failure.
 
+### One take or an edit
+
+A segment boundary exists because the video model renders about 20 seconds at a
+time. It is a **technical join, not a cut** — and the planning agents are told
+which, from the project's scene-continuity setting.
+
+On the continuing modes (`reuse_end_frame`, `continue_video`) the Cinematographer
+holds the shot size, lens and camera height across boundaries and takes its
+variety from movement instead — push-in, pull-out, orbit, arc, pan, tilt,
+tracking. A push-in that ends tight is how the piece reaches a close-up; cutting
+to one is not on the table. The Storyboard and Image Prompt agents get the
+matching rule, and the Image Prompt Agent is handed the previous scene's
+end-frame prompt so it can describe that same frame rather than opening a new
+one.
+
+On `cut`, the Cinematographer is told the opposite: vary shot sizes deliberately,
+because contrast between framings is what signals which moments matter in an
+edit. **To cut inside a continuous piece, say so in the concept text.**
+
+Rendering enforces this independently. If a scene does cut to a different shot
+size, or its transition names a cut, dissolve, fade or wipe, it renders its own
+start frame even on a continuing mode. Without that rule the scene's start-frame
+prompt was never sent to the image model at all — the clip opened on the previous
+framing while its own prompt argued for a different one. When a frame *is*
+inherited the scene card says so, since the Prompts panel would otherwise show a
+start-frame prompt that had no effect on the image.
+
 ### Local LLM (LM Studio, Ollama, llama.cpp)
 ```
 AI_PLANNING_ENABLED=true
@@ -227,14 +256,19 @@ OPENAI_MODEL=<model id from the server>
 OPENAI_API_KEY=lm-studio
 ```
 
-JSON mode is negotiated at runtime: the provider asks for `json_object` and
-falls back to plain text if the server rejects it (LM Studio accepts only
-`json_schema` or `text`), recovering the payload from prose or a code fence.
+The response format is negotiated at runtime down a ladder — `json_schema`,
+then `json_object`, then plain text — and a rung is abandoned only when the
+server actually rejects it. Whether a given schema can be expressed as JSON
+Schema is decided per call, so one unconvertible schema no longer demotes every
+later agent. LM Studio accepts `json_schema` or `text` and refuses
+`json_object`, which the ladder discovers once and then skips.
 
-Every failure is logged as `agent.llm.failed` with a reason — `json_mode_unsupported`,
+Every failure is logged as `agent.llm.failed` with a reason — `format_unsupported`,
 `schema_mismatch`, `unparseable_json`, `request_failed`. **Watch for these.**
 A silent fallback to the deterministic builder looks like success but means the
-LLM contributed nothing.
+LLM contributed nothing — and because a built storyboard is schema-valid and
+complete, the Storyboard screen shows an amber banner naming the reason rather
+than leaving it to the log.
 
 WanGP's own `prompt_enhancer` is explicitly disabled on every request. Several
 models ship with it on (LTX-2 22B defaults to `"T"`), and it would rewrite the
@@ -312,7 +346,7 @@ until regenerated.
 
 **Scene continuity.** `reuse_end_frame` (the default) starts each scene from the
 previous scene's end frame, so a corrected face propagates forward rather than
-being re-synthesised per scene.
+being re-synthesised per scene. It yields to a planned cut — see below.
 
 > Face swap corrects keyframes. The clip between them is model-interpolated, so
 > identity can still drift mid-motion; the endpoints of every scene are the frames

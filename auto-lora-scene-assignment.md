@@ -11,6 +11,12 @@ scene's prompts, attach them to the scene, and leave the result fully editable.
 > not survive strict JSON Schema conversion (§3.5). A new interaction with `resolveSteps` means
 > auto-assignment can silently re-time a scene (§7). And the face-swap work shipped the exact
 > plan-decides / human-overrides pattern Phase 1 needs (§6.1).
+>
+> **2026-07-30, later.** Re-checked against the scene-continuity and fallback-surfacing work. No
+> logic in this plan is invalidated: §3.5 still holds (`loraSelectionSchema.triggerWords` is still
+> `.optional()`), scene ids are still canonicalised, and `ACCELERATOR_PATTERNS` is unchanged. Two
+> refinements follow from it — a fallback must now be **recorded**, not merely logged (§6.2), and
+> the "agent decides, human overrides" precedent has gained a second instance worth copying (§6.1).
 
 ---
 
@@ -299,6 +305,22 @@ Copy that shape rather than inventing one: **agent decides → value stored on t
 the UI → one endpoint to override → one action to revert.** The route and service naming
 (`updateSceneFraming`, `revertAttemptFrame`) are worth mirroring.
 
+#### 6.2 A fallback must be recorded, not merely logged *(new)*
+
+The original Phase 2 note said to "emit `agent.fallback` when the LLM path is not used, consistent
+with the storyboard agent". That consistency is now worth more than it was, because the storyboard
+agent's own handling proved insufficient: the event went to the log, while the artifact it
+described was schema-valid, complete, and indistinguishable on screen from a considered one. The
+cost was paid in GPU hours before anyone noticed.
+
+`AgentContext` now carries a `fallbacks: { agent, reason }[]` array which the orchestrator writes
+into `storyboardSnapshotSchema.fallbacks`, and the Storyboard screen renders it as a banner. A
+lexically-matched LoRA set has exactly the same property — it looks like a decision — so Phase 2
+should record its fallback on the record the same way and surface it in `SceneLoraPanel`, rather
+than relying on the telemetry event alone. This folds neatly into the `source` provenance field
+Phase 1 already adds: `"user" | "auto" | "auto_lexical"` distinguishes an LLM judgement from a
+keyword score at no extra cost.
+
 - Extend `sceneLoraOverrideSchema` with `source: z.enum(["user","auto"]).default("user")` and an
   optional per-selection `rationale` — using `maybe()`, not `.optional()` (§3.5).
 - New `lib/lora/match.ts`: pure scoring of a catalog against scene text, with de-leet normalisation
@@ -333,7 +355,8 @@ the UI → one endpoint to override → one action to revert.** The route and se
   under structured output fills every field it is shown, including ones it has no business setting.
   Accept only the LoRA name, trigger-word choice and rationale; stamp everything else.
 - Drop any name absent from the catalog rather than failing the run.
-- Emit `agent.fallback` when the LLM path is not used, consistent with the storyboard agent.
+- Emit `agent.fallback` when the LLM path is not used **and record it on the project record**, per
+  §6.2 — the telemetry event alone was proven insufficient for the storyboard agent.
 - **Size:** medium. **Risk:** medium — structured-output reliability on a local model is the known
   weak point.
 

@@ -9,6 +9,10 @@ TypeScript-first agentic creative studio for storyboard-driven video generation.
   swappable interface, so the app runs fully local with zero cloud dependencies and
   is "repointed" at real systems by configuration, not by rewriting logic.*
 
+> This is the condensed view. [`architecture.md`](../architecture.md) in the repo
+> root carries the full agent roster, prompt-precedence rules, face-swap pipeline
+> and data model.
+
 ---
 
 ## 1. System context
@@ -203,7 +207,25 @@ flowchart LR
 
 Media generation is **discovery-first**: list models → pick one that supports start
 frames → fetch schema/default settings → override only validated fields → submit →
-poll. Each call produces a new **attempt** (retry/regeneration), then QC runs.
+poll. Each call produces a new **attempt** (retry/regeneration). QC runs afterwards
+only when `project.qcEnabled` is set; it is off by default, being a full LLM
+round-trip per scene on the same GPU that just rendered.
+
+> A model's published "default settings" are WanGP's **saved UI state**, not the
+> model's own defaults. `activated_loras`, `batch_size`, `repeat_generation` and
+> `num_inference_steps` are therefore written explicitly on every job rather than
+> inherited.
+
+### Scene continuity
+
+`project.sceneContinuity` — `cut`, `reuse_end_frame` (default) or `continue_video`
+— is read in two places. **Planning:** `lib/agents/continuity.ts` tells the
+Cinematographer, Storyboard and Image Prompt agents whether the segments are one
+continuous take, since a segment boundary is a technical limit of the video model
+rather than a creative cut. **Rendering:** `lib/media/seam.ts` declines to inherit
+a frame across a planned cut, detected from a change of shot size or a transition
+naming one. An inherited start frame is recorded on the attempt, because the
+scene's own `startFramePrompt` is then never rendered.
 
 ```mermaid
 sequenceDiagram
@@ -224,7 +246,7 @@ sequenceDiagram
     WS->>WC: generate → getJob (poll → completed)
     MS->>WS: buildVideoManifest(imageStart, imageEnd)
     WS->>WC: generate → getJob (poll → completed)
-    MS->>QC: qcAgent(scene, attempt)
+    MS->>QC: qcAgent(scene, attempt) [only when qcEnabled]
     QC-->>MS: QCResult (pass/fail, severity, issues)
     MS->>DB: append attempt, set scene status
     API-->>UI: ProjectRecord (attempt + media paths + QC)
