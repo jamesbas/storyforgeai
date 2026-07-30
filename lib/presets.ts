@@ -397,7 +397,7 @@ export const SCENE_CONTINUITY_OPTIONS: readonly PresetOption[] = [
     value: "reuse_end_frame",
     label: "Continue from previous end frame (default)",
     description:
-      "Each scene starts from the previous scene's end frame instead of rendering a new one. The seam matches exactly, and image renders drop from 2N to N+1. Use when the action runs continuously across segments.",
+      "Each scene starts from the previous scene's end frame instead of rendering a new one. The seam matches exactly, and image renders drop from 2N to N+1. Only applied where the action actually runs on: a scene that cuts to a different shot size, or whose transition names a cut or dissolve, renders its own start frame regardless.",
   },
   {
     value: "continue_video",

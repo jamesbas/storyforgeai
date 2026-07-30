@@ -9,6 +9,7 @@ import { resolveSceneLoras } from "@/lib/services/lora-service";
 import { faceSwapSubject, swapFace } from "@/lib/services/face-swap-service";
 import { referenceImagesOf } from "@/lib/schemas/character";
 import type { Character } from "@/lib/schemas/character";
+import { seamBreak } from "@/lib/media/seam";
 import { DEFAULT_SCENE_CONTINUITY, generationStages } from "@/lib/types";
 import { resolveProjectCast } from "@/lib/services/character-service";
 import { resolveReferenceImagePath } from "@/lib/db/character-store";
@@ -168,6 +169,18 @@ function resolveContinuity(record: ProjectRecord, scene: Scene): Continuity {
   if (!attempt) return {};
 
   if (mode === "reuse_end_frame" && attempt.endImagePath) {
+    const broken = seamBreak(previous, scene);
+    if (broken) {
+      logEvent("scene.continuity", {
+        projectId: record.project.id,
+        sceneId: scene.id,
+        mode,
+        reusedStartFrame: false,
+        seamBreak: broken.reason,
+        detail: broken.detail,
+      });
+      return {};
+    }
     return { startImagePath: attempt.endImagePath };
   }
   if (mode === "continue_video" && attempt.videoPath) {
@@ -428,6 +441,8 @@ export async function generateProjectMediaPhased(
       startId?: string;
       endId?: string;
       attemptId?: string;
+      /** Start frame came from the previous scene, so this scene's prompt was not rendered. */
+      inherited?: boolean;
       /** Pre-swap renders, set when phase 2 replaces a frame. */
       startSource?: string;
       endSource?: string;
@@ -437,6 +452,7 @@ export async function generateProjectMediaPhased(
   // ---- Phase 1: every keyframe, on the image model -------------------------
   hooks.onPhase?.("keyframes", scenes.length);
   let previousEnd: string | undefined;
+  let previousScene: Scene | undefined;
   let done = 0;
 
   for (const scene of scenes) {
@@ -444,8 +460,21 @@ export async function generateProjectMediaPhased(
 
     try {
       // Reusing the previous end frame is what makes a seam match exactly; it also
-      // means most scenes render one keyframe rather than two.
-      const inherited = mode === "reuse_end_frame" ? previousEnd : undefined;
+      // means most scenes render one keyframe rather than two. It is only correct
+      // where the action is continuous — across a planned cut it would discard
+      // this scene's start-frame prompt and freeze the old framing.
+      const broken = previousScene && previousEnd ? seamBreak(previousScene, scene) : null;
+      if (broken) {
+        logEvent("scene.continuity", {
+          projectId: record.project.id,
+          sceneId: scene.id,
+          mode,
+          reusedStartFrame: false,
+          seamBreak: broken.reason,
+          detail: broken.detail,
+        });
+      }
+      const inherited = mode === "reuse_end_frame" && !broken ? previousEnd : undefined;
       let startPath = inherited;
       let startId: string | undefined;
 
@@ -474,13 +503,21 @@ export async function generateProjectMediaPhased(
         ),
       );
 
-      frames.set(scene.id, { start: startPath, end: endRender.path, startId, endId: endRender.id });
+      frames.set(scene.id, {
+        start: startPath,
+        end: endRender.path,
+        startId,
+        endId: endRender.id,
+        inherited: Boolean(inherited),
+      });
       previousEnd = endRender.path;
+      previousScene = scene;
     } catch (err) {
       // Same reasoning as the clip phase: one scene must not cost the rest. The
       // chain resets so the next scene renders its own start frame rather than
       // inheriting a frame that was never produced.
       previousEnd = undefined;
+      previousScene = undefined;
       hooks.onSceneFailed?.(
         scene.id,
         err instanceof Error ? err.message : "Keyframe generation failed",
@@ -551,6 +588,7 @@ export async function generateProjectMediaPhased(
       endImagePath: entry.end,
       startImageSourcePath: entry.startSource,
       endImageSourcePath: entry.endSource,
+      startImageInherited: entry.inherited || undefined,
       settingsIds: [entry.startId, entry.endId].filter((id): id is string => id !== undefined),
       approved: false,
       createdAt: new Date().toISOString(),
@@ -891,6 +929,7 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
     endImagePath,
     startImageSourcePath: start?.source,
     endImageSourcePath: end?.source,
+    startImageInherited: continuity.startImagePath ? true : undefined,
     videoPath: videoJob?.generatedFiles[0],
     settingsIds: [start?.id, end?.id, videoManifest?.id].filter(
       (id): id is string => id !== undefined,

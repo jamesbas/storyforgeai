@@ -264,6 +264,23 @@ export default function HelpPage() {
             If a scene&apos;s predecessor has not been generated yet, it falls back to a cut.
           </p>
           <OptionList options={SCENE_CONTINUITY_OPTIONS} />
+          <p className={p}>
+            <strong>&ldquo;Continue from previous end frame&rdquo; yields to a planned cut.</strong>{" "}
+            Inheriting a frame only makes sense where the action runs on. If a scene cuts to a
+            different shot size — a wide two-shot followed by an extreme close-up — or its{" "}
+            <em>transition in</em> names a cut, dissolve, fade or wipe, that scene renders its own
+            start frame even in this mode. Without that rule the scene&apos;s start-frame prompt was
+            never sent to the image model at all: the clip began on the previous framing while its
+            video prompt argued for a different one, and the storyboard&apos;s shot design was lost.
+            When a frame <em>is</em> inherited the scene card says so, because the Prompts panel
+            would otherwise show a start-frame prompt that had no effect on the image.
+          </p>
+          <p className={p}>
+            Most storyboards cut between scenes, so in practice this mode now behaves like
+            &ldquo;Cut between scenes&rdquo; except where the storyboard genuinely plans continuous
+            action. Choose <strong>Cut between scenes</strong> outright if you want every scene to
+            render its own frames unconditionally.
+          </p>
 
           <h3 className={h3}>Batch generation (Storyboard screen)</h3>
           <p className={p}>

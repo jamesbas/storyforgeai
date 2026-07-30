@@ -205,6 +205,16 @@ export function SceneCard({
                 </div>
               ) : null}
               <div className="truncate">start: {attempt.startImagePath ?? "—"}</div>
+              {attempt.startImageInherited && (
+                <p
+                  data-testid="scene-inherited-start"
+                  className="rounded border border-amber-500/30 bg-amber-500/5 px-2 py-1 text-amber-200/80"
+                >
+                  Start frame carried over from the previous scene, so this scene&apos;s start-frame
+                  prompt was not rendered. Switch Scene continuity to &ldquo;Cut between
+                  scenes&rdquo; if this scene is a separate shot.
+                </p>
+              )}
               <div className="truncate">end: {attempt.endImagePath ?? "—"}</div>
               <div className="truncate" data-testid="scene-video-path">
                 video: {attempt.videoPath ?? "—"}

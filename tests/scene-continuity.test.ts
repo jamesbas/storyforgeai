@@ -41,6 +41,30 @@ async function generateAndApprove(record: ProjectRecord, index: number): Promise
   return approveAttempt(record.project.id, scene.id, attempt.id);
 }
 
+/**
+ * Make every seam continuous.
+ *
+ * The deterministic storyboard builder plans a cut at each boundary and varies
+ * the shot size, and a frame may only be inherited across continuous action —
+ * so a test of the inheriting modes has to state the case it is testing.
+ */
+async function withContinuousSeams(record: ProjectRecord): Promise<ProjectRecord> {
+  const scenes = record.storyboard!.scenes.map((scene) => ({
+    ...scene,
+    transitionIn: scene.sceneNumber === 1 ? "Fade in" : "Continuous",
+    transitionOut: "Continuous",
+    visualDescription: `Medium shot, eye level. ${scene.visualDescription}`,
+    prompts: {
+      ...scene.prompts,
+      startFramePrompt: `Medium shot, eye level. ${scene.prompts.startFramePrompt}`,
+      endFramePrompt: `Medium shot, eye level. ${scene.prompts.endFramePrompt}`,
+    },
+  }));
+  const updated = { ...record, storyboard: { ...record.storyboard!, scenes } };
+  await repository.update(record.project.id, updated);
+  return updated;
+}
+
 describe("scene continuity", () => {
   beforeEach(() => {
     setWangpClient(new MockWangpClient());
@@ -63,6 +87,7 @@ describe("scene continuity", () => {
   /** An older project stored before the setting existed has no value at all. */
   it("falls back to the shared default for a project with no stored mode", async () => {
     let record = await projectWithStoryboard("reuse_end_frame");
+    record = await withContinuousSeams(record);
     record = {
       ...record,
       project: { ...record.project, sceneContinuity: undefined },
@@ -97,6 +122,7 @@ describe("scene continuity", () => {
 
   it("reuse_end_frame starts scene 2 from scene 1's end frame and skips a render", async () => {
     let record = await projectWithStoryboard("reuse_end_frame");
+    record = await withContinuousSeams(record);
     record = await generateAndApprove(record, 0);
     record = await generateAndApprove(record, 1);
 
@@ -105,8 +131,46 @@ describe("scene continuity", () => {
 
     expect(second.startImagePath).toBe(first.endImagePath);
     expect(second.endImagePath).toBeDefined();
+    expect(second.startImageInherited).toBe(true);
     // end frame + video only — the start frame render is skipped.
     expect(second.settingsIds).toHaveLength(2);
+  });
+
+  /**
+   * The Bar Dance failure: a storyboard cutting from a wide two-shot to an
+   * extreme close-up had scene 2's start-frame prompt silently discarded, so
+   * its clip began on the wide frame its own prompt argued against.
+   */
+  it("renders a scene's own start frame when the storyboard cuts to a new shot size", async () => {
+    let record = await projectWithStoryboard("reuse_end_frame");
+    const scenes = record.storyboard!.scenes.map((scene) => ({
+      ...scene,
+      transitionIn: scene.sceneNumber === 1 ? "Fade in" : "Match cut",
+      prompts: {
+        ...scene.prompts,
+        startFramePrompt:
+          scene.sceneNumber === 2
+            ? `Extreme close-up, low angle. ${scene.prompts.startFramePrompt}`
+            : `Wide shot, eye level. ${scene.prompts.startFramePrompt}`,
+        endFramePrompt:
+          scene.sceneNumber === 2
+            ? `Extreme close-up, low angle. ${scene.prompts.endFramePrompt}`
+            : `Wide shot, eye level. ${scene.prompts.endFramePrompt}`,
+      },
+    }));
+    record = { ...record, storyboard: { ...record.storyboard!, scenes } };
+    await repository.update(record.project.id, record);
+
+    record = await generateAndApprove(record, 0);
+    record = await generateAndApprove(record, 1);
+
+    const first = record.attempts![record.storyboard!.scenes[0]!.id]!.at(-1)!;
+    const second = record.attempts![record.storyboard!.scenes[1]!.id]!.at(-1)!;
+
+    expect(second.startImagePath).not.toBe(first.endImagePath);
+    expect(second.startImageInherited).toBeUndefined();
+    // start frame + end frame + video: the mode yielded to the planned cut.
+    expect(second.settingsIds).toHaveLength(3);
   });
 
   it("continue_video carries the previous clip and skips both keyframes", async () => {

@@ -115,7 +115,10 @@ export const SEGMENT_SECONDS = 20;
  *                     cut reads as a freeze, not a flow.
  * - `reuse_end_frame` Scene N+1 starts from scene N's end frame. Saves one
  *                     image render per boundary and guarantees the seam
- *                     matches, but only makes sense for continuous action.
+ *                     matches, but only makes sense for continuous action, so
+ *                     it yields to a planned cut: a scene whose shot size
+ *                     differs from its predecessor's, or whose `transitionIn`
+ *                     names a transition, renders its own start frame.
  * - `continue_video`  Scene N+1 continues from scene N's rendered clip via the
  *                     video model's own continuation support. Best motion
  *                     continuity; needs a model advertising `video.continue`.

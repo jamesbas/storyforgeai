@@ -26,6 +26,12 @@ export const sceneAttemptSchema = z.object({
    */
   startImageSourcePath: maybe(z.string()),
   endImageSourcePath: maybe(z.string()),
+  /**
+   * The start frame is the previous scene's end frame, so this scene's own
+   * start-frame prompt was never rendered. Recorded because the Prompts panel
+   * would otherwise show text that had no effect on the image.
+   */
+  startImageInherited: maybe(z.boolean()),
   videoPath: maybe(z.string()),
   audioPath: maybe(z.string()),
   settingsIds: z.array(z.string()),
