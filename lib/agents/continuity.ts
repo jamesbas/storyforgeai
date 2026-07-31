@@ -30,14 +30,24 @@ export function cameraContinuityDirective(project: Project): string {
   return (
     ` The segments of this project are one continuous take, not separate shots. They are split ` +
     `at ${project.segmentSeconds} seconds only because the video model renders that much at a ` +
-    "time, so a segment boundary is a technical join and never a cut. Do not change framing at a " +
-    "boundary: the shot size you name for a segment must be the size the previous segment's " +
-    "camera movement left the camera in, and the lens and camera height carry across unchanged. " +
-    "Change the shot size only where the concept explicitly asks for a cut. " +
-    "Get your variety from movement instead of from cutting — push-in, pull-out, orbit, arc, " +
-    "pan, tilt, tracking, crane and static are all available inside a single continuous shot, " +
-    "and each still needs its motivation stated. A push-in that ends tight is how the piece " +
-    "reaches a close-up; cutting to one is not available to you. " +
+    "time, so a segment boundary is a technical join and never a cut. " +
+    // "The size the previous segment's movement left the camera in" asked the
+    // model to carry camera state across every entry of a single response. It
+    // does not: a live 18-segment plan changed size at 12 of 17 seams, twice
+    // going wider straight after a push-in. Writing both ends of each segment
+    // makes the constraint local and checkable instead of remembered.
+    "Write each sceneShotPlan as \"STARTS <size> \u2192 ENDS <size>\" before the lens, camera height, " +
+    "movement and motivation \u2014 for example \"STARTS MWS \u2192 ENDS MCU, 35mm, eye level, slow push-in " +
+    "as she decides\". The two may be the same when the camera holds. " +
+    "The rule that matters: the size a segment ENDS on must be the size the next segment STARTS " +
+    "on, exactly. Copy it across verbatim. Work forwards from segment 1 and carry the last size " +
+    "you wrote into the next entry rather than choosing a fresh framing for each beat. " +
+    "Lens and camera height carry across unchanged unless a movement motivates the change. " +
+    "Change framing only through movement inside a segment, or where the concept explicitly asks " +
+    "for a cut. A push-in that ends tight is how the piece reaches a close-up; jumping to one at " +
+    "a boundary is not available to you, and going wider straight after a push-in is impossible. " +
+    "Push-in, pull-out, orbit, arc, pan, tilt, tracking, crane and static are all available " +
+    "inside a single continuous shot, and each still needs its motivation stated. " +
     "Set every transition to \"Continuous\"."
   );
 }

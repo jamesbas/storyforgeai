@@ -99,6 +99,51 @@ const LABELS: Record<ShotSize, string> = {
   extreme_close: "extreme close-up",
 };
 
+/**
+ * Where a per-segment shot plan cuts against itself on a continuous take.
+ *
+ * The Cinematographer writes all of a project's shot plans in one response and
+ * does not reliably carry the framing across them — a live 18-segment plan
+ * changed size at 12 of 17 seams. That is invisible until the renders come back
+ * looking like an edit, so the plan is checked and the seams reported.
+ */
+export function shotPlanBreaks(
+  sceneShotPlans: Record<string, string>,
+): { from: number; to: number; detail: string }[] {
+  const numbered = Object.keys(sceneShotPlans)
+    .map((k) => ({ n: Number(k), text: sceneShotPlans[k]! }))
+    .filter((e) => Number.isFinite(e.n))
+    .sort((a, b) => a.n - b.n);
+
+  const breaks: { from: number; to: number; detail: string }[] = [];
+  for (let i = 1; i < numbered.length; i += 1) {
+    // The plan may name a start and an end size; the seam compares the end of
+    // one segment with the start of the next.
+    const previous = endSizeOf(numbered[i - 1]!.text);
+    const next = shotSizeOf(numbered[i]!.text);
+    if (!previous || !next || previous === next) continue;
+    breaks.push({
+      from: numbered[i - 1]!.n,
+      to: numbered[i]!.n,
+      detail: `${label(previous)} to ${label(next)}`,
+    });
+  }
+  return breaks;
+}
+
+/** The last size named in a plan entry, which is where that segment leaves the camera. */
+function endSizeOf(text: string): ShotSize | undefined {
+  const lead = text.slice(0, LEAD_CHARS);
+  let best: { size: ShotSize; at: number } | undefined;
+  for (const [size, pattern] of PATTERNS) {
+    for (const m of lead.matchAll(new RegExp(pattern.source, pattern.flags + "g"))) {
+      if (m.index === undefined) continue;
+      if (!best || m.index > best.at) best = { size, at: m.index };
+    }
+  }
+  return best?.size ?? shotSizeOf(text);
+}
+
 export function label(size: ShotSize): string {
   return LABELS[size];
 }

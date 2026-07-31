@@ -106,7 +106,19 @@ describe("what the Cinematographer is told about shot size", () => {
     const directive = cameraContinuityDirective(makeProject("reuse_end_frame"));
     expect(directive).not.toMatch(/vary sizes deliberately/i);
     expect(directive).toMatch(/one continuous take/);
-    expect(directive).toMatch(/Do not change framing at a boundary/);
+  });
+
+  /**
+   * Asking for "the size the previous segment's movement left the camera in"
+   * made the model carry state across every entry of one response, and it did
+   * not: a live 18-segment plan broke at 12 of 17 seams. Naming both ends makes
+   * the constraint local.
+   */
+  it("asks for both ends of each segment so the seam is checkable", () => {
+    const directive = cameraContinuityDirective(makeProject("reuse_end_frame"));
+    expect(directive).toMatch(/STARTS .* ENDS/);
+    expect(directive).toMatch(/must be the size the next segment STARTS on/);
+    expect(directive).toMatch(/going wider straight after a push-in is impossible/);
   });
 
   /** The user asked for movement variety, only not for cuts. */

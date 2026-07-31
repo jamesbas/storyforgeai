@@ -4,6 +4,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { PlanPanel } from "@/components/agentic-canvas/plan-panel";
 import { planOn, planSpecFor } from "@/lib/agents/plan-fields";
+import { isContinuousTake } from "@/lib/agents/continuity";
+import { shotPlanBreaks } from "@/lib/media/seam";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 
 type CanvasAgent = {
@@ -240,6 +242,12 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
   /** Which card shows a spinner — this tab's run, or one recovered from the server. */
   const activeKey = busyKey ?? remoteKey;
 
+  /** Only meaningful on a continuous take: on a cut project, varied sizes are the point. */
+  const shotBreaks =
+    record && isContinuousTake(record.project) && record.cinematographyPlan
+      ? shotPlanBreaks(record.cinematographyPlan.sceneShotPlans)
+      : [];
+
   if (!record) {
     return <p className="text-sm text-slate-400">{error ?? "Loading…"}</p>;
   }
@@ -378,6 +386,18 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
                   disabled={busy}
                   onSaved={setRecord}
                 />
+              ) : null}
+              {agent.key === "cinematographer" && shotBreaks.length ? (
+                <p
+                  data-testid="shot-plan-breaks"
+                  className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200/90"
+                >
+                  This project is set to one continuous take, but the plan changes shot size at{" "}
+                  {shotBreaks.length} of {(record.project.segmentCount ?? 1) - 1} seams — for
+                  example segment {shotBreaks[0]!.from} to {shotBreaks[0]!.to} goes{" "}
+                  {shotBreaks[0]!.detail}. Each of those is a cut, so the renderer will decline to
+                  carry the frame across it. Regenerate, or edit the sizes above to match.
+                </p>
               ) : null}
             </article>
           );
