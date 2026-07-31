@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { PlanPanel } from "@/components/agentic-canvas/plan-panel";
+import { useAgentRun } from "@/components/shared/use-agent-run";
 import { planOn, planSpecFor } from "@/lib/agents/plan-fields";
 import { isContinuousTake } from "@/lib/agents/continuity";
 import { shotPlanIssues } from "@/lib/media/seam";
@@ -101,8 +102,6 @@ const CORE_AGENT_KEYS = ["world", "director", "cinematographer", "art"] as const
 export function AgenticCanvas({ projectId }: { projectId: string }) {
   const [record, setRecord] = useState<ProjectRecord | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
-  /** An agent this browser did not start, or one that outlived a navigation. */
-  const [remoteKey, setRemoteKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** Set while the sequential runner is working, so single buttons stay locked. */
   const [runningAll, setRunningAll] = useState(false);
@@ -120,42 +119,8 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
     void load();
   }, [load]);
 
-  /**
-   * Recover run state from the server.
-   *
-   * A run outlives the component that started it: navigate away mid-run and the
-   * agent keeps working, but the remounted canvas knew nothing about it and
-   * unlocked every button, inviting a second run onto a busy GPU. The server
-   * holds the truth, so poll it.
-   */
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setTimeout>;
-
-    const poll = async () => {
-      try {
-        const res = await fetch(`/api/projects/${projectId}/agent-run`, { cache: "no-store" });
-        if (!res.ok || cancelled) return;
-        const { run } = (await res.json()) as { run: { agentKey: string } | null };
-        if (cancelled) return;
-        setRemoteKey((current) => {
-          // A run that has just finished leaves output worth showing.
-          if (current && !run) void load();
-          return run?.agentKey ?? null;
-        });
-      } catch {
-        // Transient: the next tick tries again.
-      } finally {
-        if (!cancelled) timer = setTimeout(() => void poll(), 3000);
-      }
-    };
-
-    void poll();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-    };
-  }, [projectId, load]);
+  // A run started here, or before a navigation, or in another tab.
+  const { agentKey: remoteKey } = useAgentRun(projectId, () => void load());
 
   /** Run one agent. Returns the updated record, or null when it failed. */
   const runAgent = useCallback(

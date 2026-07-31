@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useAgentRun } from "@/components/shared/use-agent-run";
 import Link from "next/link";
 import { SceneCard } from "@/components/storyboard/scene-card";
 import { CreativePlansPanel } from "@/components/storyboard/creative-plans-panel";
@@ -58,6 +59,19 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * A storyboard run outlives this component.
+   *
+   * Eighteen scene cards plus their prompts is many minutes of work; leaving the
+   * page and coming back showed an idle screen with the button unlocked, which
+   * invited a second run onto the model already writing the first.
+   */
+  const { agentKey: remoteAgent, agentName: remoteAgentName } = useAgentRun(
+    projectId,
+    () => void load(),
+  );
+  const generating = busy || remoteAgent === "storyboard";
 
   /**
    * Surface what the backend actually said.
@@ -516,10 +530,10 @@ export function StoryboardView({ projectId }: { projectId: string }) {
           </Link>
           <button
             onClick={generate}
-            disabled={busy}
+            disabled={generating}
             className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
-            {busy ? "Generating…" : storyboard ? "Regenerate storyboard" : "Generate storyboard"}
+            {generating ? "Generating…" : storyboard ? "Regenerate storyboard" : "Generate storyboard"}
           </button>
           {storyboard && (
             <>
@@ -541,6 +555,18 @@ export function StoryboardView({ projectId }: { projectId: string }) {
       </div>
 
       {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+
+      {remoteAgent && !busy ? (
+        <p
+          data-testid="storyboard-remote-run"
+          className="rounded-lg border border-sky-500/30 bg-sky-500/10 px-4 py-2 text-xs text-sky-200/90"
+        >
+          {remoteAgentName ?? "An agent"} is running on the server — started before you last left
+          this page, or from somewhere else. A full storyboard is one call per batch of scene cards
+          plus two per scene for the prompts, so it takes a while. The buttons stay locked until it
+          finishes, and this page updates itself when it does.
+        </p>
+      ) : null}
 
       {storyboard?.fallbacks?.length ? (
         <section
@@ -587,10 +613,10 @@ export function StoryboardView({ projectId }: { projectId: string }) {
           <button
             type="button"
             onClick={generate}
-            disabled={busy}
+            disabled={generating}
             className="mt-3 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
           >
-            {busy ? "Regenerating…" : "Regenerate storyboard"}
+            {generating ? "Regenerating…" : "Regenerate storyboard"}
           </button>
         </section>
       ) : null}
@@ -598,7 +624,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
       <CreativePlansPanel
         record={record}
         projectId={projectId}
-        busy={busy}
+        busy={generating}
         onRegenerate={generate}
       />
 
