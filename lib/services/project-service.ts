@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { createProjectSchema, renameProjectSchema, updateProjectModelsSchema } from "@/lib/schemas/intake";
 import { computeSegmentation } from "@/lib/duration";
 import { DEFAULT_SCENE_CONTINUITY, generationStages } from "@/lib/types";
+import type { ProjectStatus } from "@/lib/types";
 import {
   pruneSceneLoras,
   pruneSelectionSet,
@@ -38,6 +39,7 @@ import type { AudioSceneRef } from "@/lib/agents/mock-audio";
 import { buildAnimaticPlan } from "@/lib/agents/mock-audio";
 import { getPlanningProvider } from "@/lib/agents/llm/provider";
 import { resolveProjectCast } from "@/lib/services/character-service";
+import { trackAgentRun } from "@/lib/services/agent-runs";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
 
@@ -285,9 +287,36 @@ function copyTitle(title: string): string {
   return `${match[1]} (copy ${Number(match[2] ?? 1) + 1})`;
 }
 
+/**
+ * What state a project is actually in, worked out from what it holds.
+ *
+ * `project.status` is written at three points and never reconciled: media
+ * generation sets it to `generating` and nothing ever sets it back, so a
+ * finished project reads as still running for the rest of its life. Deriving it
+ * from the record cannot drift, because there is nothing to keep in step.
+ */
+export function derivedStatus(record: ProjectRecord, generating: boolean): ProjectStatus {
+  if (record.project.status === "failed") return "failed";
+  if (record.assembly) return "assembled";
+  const scenes = record.storyboard?.scenes ?? [];
+  if (!scenes.length) return "draft";
+  if (generating) return "generating";
+
+  const attemptsFor = (id: string) => record.attempts?.[id] ?? [];
+  const withMedia = scenes.filter((s) => attemptsFor(s.id).length > 0);
+  if (!withMedia.length) return "storyboard_ready";
+  if (scenes.every((s) => attemptsFor(s.id).some((a) => a.approved))) return "approved";
+  return "needs_review";
+}
+
 export async function listProjects(): Promise<Project[]> {
   const records = await repository.list();
-  return records.map((r) => r.project);
+  // Lazily imported: the scene queue reads projects back through this module.
+  const { getQueue } = await import("@/lib/services/scene-queue");
+  return records.map((r) => ({
+    ...r.project,
+    status: derivedStatus(r, getQueue(r.project.id).active),
+  }));
 }
 
 export async function getProjectRecord(id: string): Promise<ProjectRecord> {
@@ -297,40 +326,42 @@ export async function getProjectRecord(id: string): Promise<ProjectRecord> {
 }
 
 export async function generateStoryboard(id: string): Promise<ProjectRecord> {
-  const record = await getProjectRecord(id);
-  const selectedVariant = record.variants?.find((v) => v.id === record.selectedVariantId);
-  // Read the cast at generation time rather than at creation time, so editing a
-  // character in the library and regenerating picks up the new description.
-  const cast = await resolveProjectCast(record.project);
-  // Whichever canvas plans have been generated and approved steer the pipeline.
-  // Each is optional: the canvas agents run on demand, so a project may have
-  // none, some, or all of them.
-  const plans = {
-    worldBible: record.worldBible,
-    directorialPlan: record.directorialPlan,
-    cinematographyPlan: record.cinematographyPlan,
-    artDirectionPlan: record.artDirectionPlan,
-  };
-  let freshStoryPlan: StoryPlan | undefined;
-  const snapshot = await runStoryboardOrchestrator(record.project, {
-    selectedVariant,
-    cast,
-    plans,
-    storyPlan: record.storyPlan,
-    onStoryPlan: (plan) => {
-      freshStoryPlan = plan;
-    },
+  return trackAgentRun(id, "storyboard", "Storyboard Artist", async () => {
+    const record = await getProjectRecord(id);
+    const selectedVariant = record.variants?.find((v) => v.id === record.selectedVariantId);
+    // Read the cast at generation time rather than at creation time, so editing a
+    // character in the library and regenerating picks up the new description.
+    const cast = await resolveProjectCast(record.project);
+    // Whichever canvas plans have been generated and approved steer the pipeline.
+    // Each is optional: the canvas agents run on demand, so a project may have
+    // none, some, or all of them.
+    const plans = {
+      worldBible: record.worldBible,
+      directorialPlan: record.directorialPlan,
+      cinematographyPlan: record.cinematographyPlan,
+      artDirectionPlan: record.artDirectionPlan,
+    };
+    let freshStoryPlan: StoryPlan | undefined;
+    const snapshot = await runStoryboardOrchestrator(record.project, {
+      selectedVariant,
+      cast,
+      plans,
+      storyPlan: record.storyPlan,
+      onStoryPlan: (plan) => {
+        freshStoryPlan = plan;
+      },
+    });
+    const updated: ProjectRecord = {
+      ...record,
+      project: { ...record.project, status: "storyboard_ready", updatedAt: new Date().toISOString() },
+      storyPlan: freshStoryPlan ?? record.storyPlan,
+      storyboard: snapshot,
+      history: appendHistory(record, "storyboard.generated", selectedVariant?.name),
+    };
+    await repository.update(id, updated);
+    await autoStartMedia(updated);
+    return updated;
   });
-  const updated: ProjectRecord = {
-    ...record,
-    project: { ...record.project, status: "storyboard_ready", updatedAt: new Date().toISOString() },
-    storyPlan: freshStoryPlan ?? record.storyPlan,
-    storyboard: snapshot,
-    history: appendHistory(record, "storyboard.generated", selectedVariant?.name),
-  };
-  await repository.update(id, updated);
-  await autoStartMedia(updated);
-  return updated;
 }
 
 /**
@@ -360,18 +391,20 @@ async function autoStartMedia(record: ProjectRecord): Promise<void> {
 }
 
 export async function generateVariants(id: string): Promise<ProjectRecord> {
-  const record = await getProjectRecord(id);
-  const provider = getPlanningProvider();
-  const variants = await variantExplorerAgent(record.project, provider);
-  const updated: ProjectRecord = {
-    ...record,
-    variants,
-    selectedVariantId: undefined,
-    history: appendHistory(record, "variants.generated", `${variants.length} directions`),
-  };
-  await repository.update(id, updated);
-  logEvent("agent.run", { projectId: id, agent: "variant_explorer", count: variants.length });
-  return updated;
+  return trackAgentRun(id, "variants", "Variant Explorer", async () => {
+    const record = await getProjectRecord(id);
+    const provider = getPlanningProvider();
+    const variants = await variantExplorerAgent(record.project, provider);
+    const updated: ProjectRecord = {
+      ...record,
+      variants,
+      selectedVariantId: undefined,
+      history: appendHistory(record, "variants.generated", `${variants.length} directions`),
+    };
+    await repository.update(id, updated);
+    logEvent("agent.run", { projectId: id, agent: "variant_explorer", count: variants.length });
+    return updated;
+  });
 }
 
 export async function selectVariant(id: string, variantId: string): Promise<ProjectRecord> {
@@ -508,69 +541,77 @@ async function canvasContext(record: ProjectRecord) {
 }
 
 export async function generateWorldBible(id: string): Promise<ProjectRecord> {
-  const record = await getProjectRecord(id);
-  const worldBible: WorldBible = await worldBuilderAgent(
-    record.project,
-    getPlanningProvider(),
-    await canvasContext(record),
-  );
-  const updated: ProjectRecord = {
-    ...record,
-    worldBible,
-    history: appendHistory(record, "world_bible.generated"),
-  };
-  await repository.update(id, updated);
-  return updated;
+  return trackAgentRun(id, "world", "World Builder", async () => {
+    const record = await getProjectRecord(id);
+    const worldBible: WorldBible = await worldBuilderAgent(
+      record.project,
+      getPlanningProvider(),
+      await canvasContext(record),
+    );
+    const updated: ProjectRecord = {
+      ...record,
+      worldBible,
+      history: appendHistory(record, "world_bible.generated"),
+    };
+    await repository.update(id, updated);
+    return updated;
+  });
 }
 
 export async function generateDirectorialPlan(id: string): Promise<ProjectRecord> {
-  // The Director is the one canvas agent whose prompt names the story arc, so
-  // it is the natural place to produce one when the project has none yet.
-  const record = await withStoryPlan(await getProjectRecord(id));
-  const directorialPlan: DirectorialPlan = await directorAgent(
-    record.project,
-    getPlanningProvider(),
-    await canvasContext(record),
-  );
-  const updated: ProjectRecord = {
-    ...record,
-    directorialPlan,
-    history: appendHistory(record, "directorial_plan.generated"),
-  };
-  await repository.update(id, updated);
-  return updated;
+  return trackAgentRun(id, "director", "Director", async () => {
+    // The Director is the one canvas agent whose prompt names the story arc, so
+    // it is the natural place to produce one when the project has none yet.
+    const record = await withStoryPlan(await getProjectRecord(id));
+    const directorialPlan: DirectorialPlan = await directorAgent(
+      record.project,
+      getPlanningProvider(),
+      await canvasContext(record),
+    );
+    const updated: ProjectRecord = {
+      ...record,
+      directorialPlan,
+      history: appendHistory(record, "directorial_plan.generated"),
+    };
+    await repository.update(id, updated);
+    return updated;
+  });
 }
 
 export async function generateCinematographyPlan(id: string): Promise<ProjectRecord> {
-  const record = await getProjectRecord(id);
-  const cinematographyPlan: CinematographyPlan = await cinematographerAgent(
-    record.project,
-    getPlanningProvider(),
-    await canvasContext(record),
-  );
-  const updated: ProjectRecord = {
-    ...record,
-    cinematographyPlan,
-    history: appendHistory(record, "cinematography_plan.generated"),
-  };
-  await repository.update(id, updated);
-  return updated;
+  return trackAgentRun(id, "cinematographer", "Cinematographer", async () => {
+    const record = await getProjectRecord(id);
+    const cinematographyPlan: CinematographyPlan = await cinematographerAgent(
+      record.project,
+      getPlanningProvider(),
+      await canvasContext(record),
+    );
+    const updated: ProjectRecord = {
+      ...record,
+      cinematographyPlan,
+      history: appendHistory(record, "cinematography_plan.generated"),
+    };
+    await repository.update(id, updated);
+    return updated;
+  });
 }
 
 export async function generateArtDirectionPlan(id: string): Promise<ProjectRecord> {
-  const record = await getProjectRecord(id);
-  const artDirectionPlan: ArtDirectionPlan = await artDirectorAgent(
-    record.project,
-    getPlanningProvider(),
-    await canvasContext(record),
-  );
-  const updated: ProjectRecord = {
-    ...record,
-    artDirectionPlan,
-    history: appendHistory(record, "art_direction_plan.generated"),
-  };
-  await repository.update(id, updated);
-  return updated;
+  return trackAgentRun(id, "art", "Art Director", async () => {
+    const record = await getProjectRecord(id);
+    const artDirectionPlan: ArtDirectionPlan = await artDirectorAgent(
+      record.project,
+      getPlanningProvider(),
+      await canvasContext(record),
+    );
+    const updated: ProjectRecord = {
+      ...record,
+      artDirectionPlan,
+      history: appendHistory(record, "art_direction_plan.generated"),
+    };
+    await repository.update(id, updated);
+    return updated;
+  });
 }
 
 export async function getVariants(id: string): Promise<CreativeVariant[]> {
@@ -603,15 +644,17 @@ function audioScenesFor(record: ProjectRecord): AudioSceneRef[] {
 }
 
 export async function generateAudioPlan(id: string): Promise<ProjectRecord> {
-  const record = await getProjectRecord(id);
-  const audioPlan = await audioDirectorAgent(record.project, audioScenesFor(record), getPlanningProvider());
-  const updated: ProjectRecord = {
-    ...record,
-    audioPlan,
-    history: appendHistory(record, "audio_plan.generated"),
-  };
-  await repository.update(id, updated);
-  return updated;
+  return trackAgentRun(id, "audio", "Audio Director", async () => {
+    const record = await getProjectRecord(id);
+    const audioPlan = await audioDirectorAgent(record.project, audioScenesFor(record), getPlanningProvider());
+    const updated: ProjectRecord = {
+      ...record,
+      audioPlan,
+      history: appendHistory(record, "audio_plan.generated"),
+    };
+    await repository.update(id, updated);
+    return updated;
+  });
 }
 
 export async function generateAnimatic(id: string): Promise<ProjectRecord> {

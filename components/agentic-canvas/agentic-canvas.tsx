@@ -97,6 +97,8 @@ const CORE_AGENT_KEYS = ["world", "director", "cinematographer", "art"] as const
 export function AgenticCanvas({ projectId }: { projectId: string }) {
   const [record, setRecord] = useState<ProjectRecord | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  /** An agent this browser did not start, or one that outlived a navigation. */
+  const [remoteKey, setRemoteKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   /** Set while the sequential runner is working, so single buttons stay locked. */
   const [runningAll, setRunningAll] = useState(false);
@@ -113,6 +115,43 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
   useEffect(() => {
     void load();
   }, [load]);
+
+  /**
+   * Recover run state from the server.
+   *
+   * A run outlives the component that started it: navigate away mid-run and the
+   * agent keeps working, but the remounted canvas knew nothing about it and
+   * unlocked every button, inviting a second run onto a busy GPU. The server
+   * holds the truth, so poll it.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/agent-run`, { cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        const { run } = (await res.json()) as { run: { agentKey: string } | null };
+        if (cancelled) return;
+        setRemoteKey((current) => {
+          // A run that has just finished leaves output worth showing.
+          if (current && !run) void load();
+          return run?.agentKey ?? null;
+        });
+      } catch {
+        // Transient: the next tick tries again.
+      } finally {
+        if (!cancelled) timer = setTimeout(() => void poll(), 3000);
+      }
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [projectId, load]);
 
   /** Run one agent. Returns the updated record, or null when it failed. */
   const runAgent = useCallback(
@@ -195,7 +234,9 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
    * Previously only the clicked agent's button disabled, so four agents could be
    * started at once and collide inside a local model that serves one at a time.
    */
-  const busy = runningAll || busyKey !== null;
+  const busy = runningAll || busyKey !== null || remoteKey !== null;
+  /** Which card shows a spinner — this tab's run, or one recovered from the server. */
+  const activeKey = busyKey ?? remoteKey;
 
   if (!record) {
     return <p className="text-sm text-slate-400">{error ?? "Loading…"}</p>;
@@ -255,6 +296,17 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
 
       {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
 
+      {remoteKey && !busyKey && !runningAll ? (
+        <p
+          data-testid="canvas-remote-run"
+          className="rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-amber-200/90"
+        >
+          {AGENTS.find((a) => a.key === remoteKey)?.name ?? "An agent"} is still running on the
+          server. It was started elsewhere or before you last left this page — the buttons stay
+          locked until it finishes, and the results appear here on their own.
+        </p>
+      ) : null}
+
       <section className="rounded-lg border border-white/10 bg-panel/40 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">
@@ -311,7 +363,7 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
                 disabled={busy}
                 className="mt-3 rounded-md border border-white/10 px-3 py-1.5 text-sm hover:border-accent disabled:opacity-50"
               >
-                {busyKey === agent.key ? "Running…" : status === "ready" ? "Regenerate" : "Generate"}
+                {activeKey === agent.key ? "Running…" : status === "ready" ? "Regenerate" : "Generate"}
               </button>
             </article>
           );

@@ -351,6 +351,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           <LoraSelector
             projectId={projectId}
             kind="image"
+            modelType={project.imageModel}
             value={loras.image}
             disabled={busy}
             onChange={(next) => setLoras((current) => ({ ...current, image: next }))}
@@ -362,6 +363,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           <LoraSelector
             projectId={projectId}
             kind="video"
+            modelType={project.videoModel}
             value={loras.video}
             disabled={busy}
             onChange={(next) => setLoras((current) => ({ ...current, video: next }))}

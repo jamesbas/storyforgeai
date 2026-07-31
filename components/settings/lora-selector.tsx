@@ -17,12 +17,19 @@ export function LoraSelector({
   value,
   onChange,
   disabled = false,
+  modelType,
 }: {
   projectId: string;
   kind: LoraKind;
   value: LoraSelection[];
   onChange: (next: LoraSelection[]) => void;
   disabled?: boolean;
+  /**
+   * The model the catalogue is filtered by. The fetch reads it from the stored
+   * project, so without it here a model change leaves the previous model's
+   * LoRAs on screen until the page is remounted.
+   */
+  modelType?: string;
 }) {
   const [catalog, setCatalog] = useState<LoraCatalog | null>(null);
   const [loading, setLoading] = useState(true);
@@ -52,7 +59,8 @@ export function LoraSelector({
 
   useEffect(() => {
     void load();
-  }, [load]);
+    // `modelType` is not read by `load` — it is here so a model change refetches.
+  }, [load, modelType]);
 
   if (loading) return <p className="text-xs text-slate-500">Loading {kind} LoRAs…</p>;
 

@@ -12,6 +12,8 @@ export type TelemetryEvent =
   | "storyboard.generated"
   | "storyboard.exported"
   | "agent.run"
+  | "agent.run_started"
+  | "agent.run_finished"
   | "agent.llm.failed"
   | "agent.fallback"
   | "llm.runtime"
