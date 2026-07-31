@@ -27,6 +27,45 @@ export default function AboutPage() {
         </div>
 
         <section className="rounded-lg border border-white/10 bg-panel/40 p-4 text-sm text-slate-300">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Who made this
+          </h2>
+          <p className="mt-2">
+            StoryForgeAI is designed and built by{" "}
+            <a
+              href="https://www.jabaisolutions.com/"
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent hover:underline"
+            >
+              JabAI Solutions
+            </a>
+            , an AI consulting and development company.
+          </p>
+        </section>
+
+        <section className="rounded-lg border border-white/10 bg-panel/40 p-4 text-sm text-slate-300">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            Using StoryForgeAI
+          </h2>
+          <p className="mt-2">
+            The source is published openly, and you are welcome to run it, study it, modify it and
+            share your changes for personal, educational and other non-commercial purposes.
+          </p>
+          <p className="mt-2">
+            <strong className="text-slate-200">Commercial use is by arrangement.</strong> If you
+            want to sell it, build a paid product or service on it, or use it inside a commercial
+            offering, please contact JabAI Solutions first. The intent is not to block you — it is
+            to have the conversation.
+          </p>
+          <p className="mt-2 text-xs text-slate-500">
+            Video you generate with StoryForgeAI is yours. This applies to the application, not to
+            its output — though the models you generate with carry their own terms; see the
+            disclosure above.
+          </p>
+        </section>
+
+        <section className="rounded-lg border border-white/10 bg-panel/40 p-4 text-sm text-slate-300">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">Disclosure</h2>
           <p className="mt-2">
             This application integrates with WanGP/Wan2GP as a local media generation backend.

@@ -1,5 +1,7 @@
 # StoryForgeAI
 
+*Designed and built by [JabAI Solutions](https://www.jabaisolutions.com/).*
+
 A **local-first agentic creative studio** that turns a single video concept into a
 complete storyboard and generation package. StoryForgeAI orchestrates a team of
 specialized AI agents to produce a creative brief, story arc, visual bible,
@@ -473,6 +475,26 @@ Only cues that are both generated and approved are mixed in.
 ---
 
 ## License & disclosure
+
+StoryForgeAI is built and maintained by
+**[JabAI Solutions](https://www.jabaisolutions.com/)**, an AI consulting and
+development company.
+
+**Personal and non-commercial use is welcome.** Run it, read it, modify it, and
+share your changes.
+
+**Commercial use is by arrangement.** If you want to sell StoryForgeAI, build a
+paid product or service on top of it, or use it inside a commercial offering,
+please talk to JabAI Solutions first. The intent is not to block anyone — it is to
+have the conversation before it happens.
+
+Video you generate with StoryForgeAI is yours; the terms above cover the
+application, not its output.
+
+> **Note:** the repository does not yet carry a `LICENSE` file, so by default all
+> rights are reserved and the paragraphs above state intent rather than grant
+> terms. A source-available licence — PolyForm Noncommercial or similar — would
+> make the non-commercial permission explicit and enforceable.
 
 StoryForgeAI integrates with WanGP/Wan2GP (by DeepBeepMeep) as a local generation
 backend, subject to its own license and terms. Review the license of each model or
