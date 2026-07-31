@@ -146,6 +146,11 @@ export function ProjectListItem({
           The storyboard, prompts, attempts and history are removed permanently. This cannot be
           undone.
         </p>
+        <p className="mt-1 text-xs text-slate-400">
+          To keep a way back, open the project and use <strong>Export JSON</strong> first. That file
+          can be imported from this screen — though it carries the scenes and prompts only, not the
+          creative plans.
+        </p>
 
         <label className="mt-2 flex items-start gap-2 text-xs text-slate-300">
           <input

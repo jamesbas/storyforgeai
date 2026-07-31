@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { access } from "node:fs/promises";
 import { createProjectSchema, renameProjectSchema, updateProjectModelsSchema } from "@/lib/schemas/intake";
 import { computeSegmentation } from "@/lib/duration";
 import { DEFAULT_SCENE_CONTINUITY, generationStages } from "@/lib/types";
@@ -11,6 +12,9 @@ import {
 } from "@/lib/services/lora-service";
 import type { Project } from "@/lib/schemas/project";
 import { sceneFramingPatchSchema, scenePromptsPatchSchema } from "@/lib/schemas/storyboard";
+import { projectRecordSchema } from "@/lib/schemas/storyboard";
+import { storyboardExportSchema } from "@/lib/schemas/exports";
+import type { SceneAttempt } from "@/lib/schemas/generation";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type {
   ArtDirectionPlan,
@@ -222,19 +226,7 @@ export async function duplicateProject(id: string): Promise<Project> {
   const now = new Date().toISOString();
   const newId = randomUUID();
 
-  const sceneIdMap = new Map<string, string>();
-  for (const scene of source.storyboard?.scenes ?? []) {
-    sceneIdMap.set(scene.id, `${newId}-scene-${String(scene.sceneNumber).padStart(3, "0")}`);
-  }
-  const remap = <T>(map: Record<string, T> | undefined): Record<string, T> | undefined => {
-    if (!map) return undefined;
-    const next: Record<string, T> = {};
-    for (const [sceneId, value] of Object.entries(map)) {
-      const mapped = sceneIdMap.get(sceneId);
-      if (mapped) next[mapped] = value;
-    }
-    return Object.keys(next).length ? next : undefined;
-  };
+  const { sceneIdMap, remap } = sceneIdRemapper(source, newId);
 
   const project: Project = {
     ...source.project,
@@ -279,6 +271,185 @@ export async function duplicateProject(id: string): Promise<Project> {
     segmentSeconds: project.segmentSeconds,
   });
   return project;
+}
+
+/**
+ * Scene ids embed the project id, so a new project id means rewriting every
+ * map keyed by them — seeds, per-scene LoRAs and attempts all break silently
+ * otherwise, because a stale key simply never matches.
+ */
+function sceneIdRemapper(record: ProjectRecord, newId: string) {
+  const sceneIdMap = new Map<string, string>();
+  for (const scene of record.storyboard?.scenes ?? []) {
+    sceneIdMap.set(scene.id, `${newId}-scene-${String(scene.sceneNumber).padStart(3, "0")}`);
+  }
+  const remap = <T>(map: Record<string, T> | undefined): Record<string, T> | undefined => {
+    if (!map) return undefined;
+    const next: Record<string, T> = {};
+    for (const [sceneId, value] of Object.entries(map)) {
+      const mapped = sceneIdMap.get(sceneId);
+      if (mapped) next[mapped] = value;
+    }
+    return Object.keys(next).length ? next : undefined;
+  };
+  return { sceneIdMap, remap };
+}
+
+/** What an import recovered, and what it could not. */
+export type ImportOutcome = {
+  project: Project;
+  /** Which file shape was recognised. */
+  source: "record" | "storyboard_export";
+  /** Canvas plans absent from the file. A storyboard export never carries any. */
+  missingPlans: string[];
+  /** Attempts kept, and how many of their media files are no longer on disk. */
+  attempts: number;
+  missingMedia: number;
+};
+
+const PLAN_LABELS = {
+  worldBible: "World Builder",
+  directorialPlan: "Director",
+  cinematographyPlan: "Cinematographer",
+  artDirectionPlan: "Art Director",
+} as const;
+
+/**
+ * Rebuild a project from a file the app exported, or from its own record.
+ *
+ * Always creates a new project rather than overwriting one, so an import can
+ * never destroy work — the cost is a duplicate if the same file is imported
+ * twice, which is cheap and obvious.
+ *
+ * Two shapes are accepted. `project.json` is the complete record and restores
+ * everything. `storyboard.json` is the export, which carries the project,
+ * brief, visual bible and scenes but no canvas plans, variants, attempts or
+ * history — so what it cannot restore is reported rather than left to be
+ * discovered later on a render that quietly lost its direction.
+ */
+export async function importProject(raw: unknown): Promise<ImportOutcome> {
+  // Export first, and not by preference: `projectRecordSchema` requires only
+  // `project` and ignores unknown keys, so an export parses as a record and
+  // loses its brief, bible and every scene without complaining. A record has
+  // no top-level `brief` or `scenes`, so it cannot match the export shape.
+  const asExport = storyboardExportSchema.safeParse(raw);
+  const asRecord = asExport.success ? null : projectRecordSchema.safeParse(raw);
+  if (!asExport.success && !asRecord?.success) {
+    throw new ValidationError(
+      "Not a StoryForgeAI project file. Expected a project.json record or a storyboard.json export.",
+    );
+  }
+
+  const now = new Date().toISOString();
+  const newId = randomUUID();
+  const source: ProjectRecord = asExport.success
+    ? {
+        project: asExport.data.project,
+        storyboard: {
+          brief: asExport.data.brief,
+          visualBible: asExport.data.visualBible,
+          scenes: asExport.data.scenes,
+        },
+      }
+    : asRecord!.data!;
+
+  const { sceneIdMap, remap } = sceneIdRemapper(source, newId);
+  const taken = new Set((await repository.list()).map((r) => r.project.title));
+  const project: Project = {
+    ...source.project,
+    id: newId,
+    title: restoredTitle(source.project.title, taken),
+    sceneSeeds: remap(source.project.sceneSeeds),
+    sceneLoras: remap(source.project.sceneLoras),
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const attempts = remap(source.attempts);
+  const attemptCount = Object.values(attempts ?? {}).reduce((n, list) => n + list.length, 0);
+  const missingMedia = await countMissingMedia(attempts);
+
+  const missingPlans = Object.entries(PLAN_LABELS)
+    .filter(([key]) => !source[key as keyof typeof PLAN_LABELS])
+    .map(([, label]) => label);
+
+  const record: ProjectRecord = {
+    ...source,
+    project,
+    attempts,
+    previews: undefined,
+    storyboard: source.storyboard
+      ? {
+          ...source.storyboard,
+          scenes: source.storyboard.scenes.map((scene) => ({
+            ...scene,
+            id: sceneIdMap.get(scene.id) ?? scene.id,
+            projectId: newId,
+          })),
+        }
+      : undefined,
+    history: [
+      ...(source.history ?? []),
+      {
+        at: now,
+        action: "project.imported",
+        detail: asExport.success ? "storyboard export" : "full record",
+      },
+    ],
+  };
+
+  await repository.create(record);
+  logEvent("project.imported", {
+    id: newId,
+    source: asExport.success ? "storyboard_export" : "record",
+    scenes: record.storyboard?.scenes.length ?? 0,
+    missingPlans: missingPlans.length,
+    missingMedia,
+  });
+
+  return {
+    project,
+    source: asExport.success ? "storyboard_export" : "record",
+    missingPlans,
+    attempts: attemptCount,
+    missingMedia,
+  };
+}
+
+/**
+ * Media is purged with a project by default, so a restore usually points at
+ * files that are gone. They are counted rather than stripped: dropping a
+ * reference the user could still recover by hand would be the destructive
+ * choice, and an import should never be that.
+ */
+async function countMissingMedia(
+  attempts: Record<string, SceneAttempt[]> | undefined,
+): Promise<number> {
+  const paths = Object.values(attempts ?? {})
+    .flat()
+    .flatMap((a) => [a.startImagePath, a.endImagePath, a.videoPath, a.audioPath])
+    .filter((p): p is string => Boolean(p));
+  if (!paths.length) return 0;
+
+  const checks = await Promise.all(
+    paths.map(async (p): Promise<number> => {
+      try {
+        await access(p);
+        return 0;
+      } catch {
+        return 1;
+      }
+    }),
+  );
+  return checks.reduce((a, b) => a + b, 0);
+}
+
+/** "Name" → "Name (restored)", counting up rather than colliding with itself. */
+function restoredTitle(title: string, taken: ReadonlySet<string>): string {
+  const base = /^(.*) \(restored(?: \d+)?\)$/.exec(title)?.[1] ?? title;
+  let candidate = `${base} (restored)`;
+  for (let n = 2; taken.has(candidate); n += 1) candidate = `${base} (restored ${n})`;
+  return candidate;
 }
 
 /** "Name" → "Name (copy)", "Name (copy)" → "Name (copy 2)". */

@@ -1000,6 +1000,30 @@ export default function HelpPage() {
           <p className={p}>
             Items appear as active links on the Assembly page once they are available.
           </p>
+
+          <h3 className="mt-4 text-sm font-semibold text-slate-200">Restoring a project</h3>
+          <p className={p}>
+            The Projects screen has an <strong>Import a project file</strong> button, for when a project
+            was deleted by accident. Import always creates a new project, so it can never overwrite an
+            existing one. Two files are accepted, and they do not restore the same amount:
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li className={li}>
+              <code>project.json</code>, from a project&apos;s folder on disk — the complete record.
+              Creative plans, variants, attempts, audio, assembly and history all come back.
+            </li>
+            <li className={li}>
+              <code>storyboard.json</code>, from the export package — the brief, visual bible, scenes
+              and prompts only. <strong>No creative plans</strong>, no attempts, no assembly. The import
+              result lists exactly which plans were missing so you can regenerate them.
+            </li>
+          </ul>
+          <p className={p}>
+            Media files are not part of either file. Deleting a project removes its media unless you tick
+            &quot;keep generated images and video&quot;, so a restore usually points at files that are
+            gone; the import result counts how many. References are kept rather than stripped, so if you
+            put the media back in place it will resolve again.
+          </p>
         </section>
 
         {/* 10. Deepy */}

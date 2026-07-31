@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/shell/app-shell";
+import { ImportProject } from "@/components/intake/import-project";
 import { ProjectList, useProjects } from "@/components/intake/project-list";
 
 export default function ProjectsPage() {
@@ -36,6 +37,8 @@ export default function ProjectsPage() {
             New project
           </Link>
         </header>
+
+        <ImportProject onImported={() => void reload()} />
 
         {projects.length > 0 && (
           <div className="flex flex-wrap items-center gap-3">
