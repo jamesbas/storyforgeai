@@ -42,10 +42,21 @@ export function cameraContinuityDirective(project: Project): string {
     "The rule that matters: the size a segment ENDS on must be the size the next segment STARTS " +
     "on, exactly. Copy it across verbatim. Work forwards from segment 1 and carry the last size " +
     "you wrote into the next entry rather than choosing a fresh framing for each beat. " +
-    "Lens and camera height carry across unchanged unless a movement motivates the change. " +
+    // Chaining the seams alone just moved the contradiction inside the
+    // segments: a live plan then produced "STARTS CU -> ENDS MWS, push-in"
+    // twice, and swapped lens and camera height mid-take. The physics has to
+    // be spelled out, because "carries across unchanged" was not enough.
+    "Within a segment the movement and the size change must agree. A push-in ends tighter than it " +
+    "starts and never wider. A pull-out ends wider and never tighter. Static, pan, tilt, tracking, " +
+    "arc and handheld hold the size, or shift it by one step at most. If a segment needs a size " +
+    "change, name the move that produces it. " +
+    "One lens for the whole piece. You cannot change lens without stopping the camera, and the " +
+    "camera never stops \u2014 so give the millimetres once, in lensAndFramingRules, and repeat that " +
+    "same figure in every segment. Camera height may change, but only because the camera physically " +
+    "travelled there: name the crane, boom, tilt or move that carried it. A static camera cannot " +
+    "be at a different height from the segment before it. " +
     "Change framing only through movement inside a segment, or where the concept explicitly asks " +
-    "for a cut. A push-in that ends tight is how the piece reaches a close-up; jumping to one at " +
-    "a boundary is not available to you, and going wider straight after a push-in is impossible. " +
+    "for a cut. " +
     "Push-in, pull-out, orbit, arc, pan, tilt, tracking, crane and static are all available " +
     "inside a single continuous shot, and each still needs its motivation stated. " +
     "Set every transition to \"Continuous\"."

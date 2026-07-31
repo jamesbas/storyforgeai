@@ -17,10 +17,24 @@ export type ShotSize =
   | "wide"
   | "full"
   | "medium_wide"
+  | "cowboy"
   | "medium"
   | "medium_close"
   | "close"
   | "extreme_close";
+
+/** Wide to tight. Adjacency is what makes a camera move plausible. */
+const SIZE_ORDER: readonly ShotSize[] = [
+  "extreme_wide",
+  "wide",
+  "full",
+  "medium_wide",
+  "cowboy",
+  "medium",
+  "medium_close",
+  "close",
+  "extreme_close",
+];
 
 /**
  * Longer phrases are listed with the shorter ones they contain, because the
@@ -32,6 +46,7 @@ const PATTERNS: readonly (readonly [ShotSize, RegExp])[] = [
   ["close", /close[-\s]?ups?|\bCU\b/i],
   ["extreme_wide", /extreme\s+(?:wide|long)\s+shots?|establishing\s+shots?|\bEWS\b|\bXWS\b/i],
   ["medium_wide", /medium\s+(?:wide|long)\s+shots?|\bMWS\b/i],
+  ["cowboy", /\bcowboy\s+shots?\b|\bcowboy\b/i],
   ["wide", /wide\s+shots?|long\s+shots?|\bWS\b/i],
   ["full", /full\s+shots?|full[-\s]body\s+shots?|\bFS\b/i],
   ["medium", /medium\s+shots?|mid\s+shots?|\bMS\b/i],
@@ -93,6 +108,7 @@ const LABELS: Record<ShotSize, string> = {
   wide: "wide",
   full: "full",
   medium_wide: "medium wide",
+  cowboy: "cowboy",
   medium: "medium",
   medium_close: "medium close-up",
   close: "close-up",
@@ -100,35 +116,93 @@ const LABELS: Record<ShotSize, string> = {
 };
 
 /**
- * Where a per-segment shot plan cuts against itself on a continuous take.
+ * Where a per-segment shot plan contradicts the take it claims to be.
  *
- * The Cinematographer writes all of a project's shot plans in one response and
- * does not reliably carry the framing across them — a live 18-segment plan
- * changed size at 12 of 17 seams. That is invisible until the renders come back
- * looking like an edit, so the plan is checked and the seams reported.
+ * Three separate faults, all found in live plans. The seam fault is a segment
+ * opening on a size the last one never reached. The move fault is a segment
+ * whose stated movement cannot produce its own size change — a push-in that
+ * ends wider. The rig fault is a lens or camera height changing partway
+ * through, which no unbroken take can do.
+ *
+ * Fixing only the seams moved the contradiction inside the segments, so all
+ * three are checked together.
  */
-export function shotPlanBreaks(
-  sceneShotPlans: Record<string, string>,
-): { from: number; to: number; detail: string }[] {
+export type ShotPlanIssue = {
+  kind: "seam" | "move" | "lens" | "height";
+  /** Segment the fault is reported against. */
+  at: number;
+  detail: string;
+};
+
+const INWARD = /push[-\s]?in|dolly\s+in|zoom\s+in|move\s+in|closer/i;
+const OUTWARD = /pull[-\s]?out|pull\s+back|dolly\s+out|zoom\s+out|widen|reveal/i;
+
+export function shotPlanIssues(sceneShotPlans: Record<string, string>): ShotPlanIssue[] {
   const numbered = Object.keys(sceneShotPlans)
     .map((k) => ({ n: Number(k), text: sceneShotPlans[k]! }))
     .filter((e) => Number.isFinite(e.n))
     .sort((a, b) => a.n - b.n);
 
-  const breaks: { from: number; to: number; detail: string }[] = [];
-  for (let i = 1; i < numbered.length; i += 1) {
-    // The plan may name a start and an end size; the seam compares the end of
-    // one segment with the start of the next.
+  const issues: ShotPlanIssue[] = [];
+  const lenses = new Map<string, number>();
+  let previousHeight: string | undefined;
+
+  for (let i = 0; i < numbered.length; i += 1) {
+    const { n, text } = numbered[i]!;
+    const from = shotSizeOf(text);
+    const to = endSizeOf(text);
+
+    // A move that goes the opposite way to the size change it claims.
+    if (from && to && from !== to) {
+      const tighter = SIZE_ORDER.indexOf(to) > SIZE_ORDER.indexOf(from);
+      const inward = INWARD.test(text);
+      const outward = OUTWARD.test(text);
+      if (tighter && outward && !inward) {
+        issues.push({ kind: "move", at: n, detail: `pulls out but ends tighter (${label(from)} to ${label(to)})` });
+      } else if (!tighter && inward && !outward) {
+        issues.push({ kind: "move", at: n, detail: `pushes in but ends wider (${label(from)} to ${label(to)})` });
+      }
+    }
+
+    const lens = text.match(/(\d{2,3})\s*mm/)?.[1];
+    if (lens) lenses.set(lens, (lenses.get(lens) ?? 0) + 1);
+
+    // Height is not like lens: an operator walks, a crane rises, so a moving
+    // camera may legitimately end up somewhere else. Only a static one cannot.
+    const height = heightOf(text);
+    if (height && previousHeight && height !== previousHeight && STATIC.test(text)) {
+      issues.push({
+        kind: "height",
+        at: n,
+        detail: `is ${height} where segment ${numbered[i - 1]!.n} was ${previousHeight}, with a static camera to carry it`,
+      });
+    }
+    if (height) previousHeight = height;
+
+    if (i === 0) continue;
     const previous = endSizeOf(numbered[i - 1]!.text);
-    const next = shotSizeOf(numbered[i]!.text);
-    if (!previous || !next || previous === next) continue;
-    breaks.push({
-      from: numbered[i - 1]!.n,
-      to: numbered[i]!.n,
-      detail: `${label(previous)} to ${label(next)}`,
-    });
+    if (previous && from && previous !== from) {
+      issues.push({
+        kind: "seam",
+        at: n,
+        detail: `opens on ${label(from)} but segment ${numbered[i - 1]!.n} ended on ${label(previous)}`,
+      });
+    }
   }
-  return breaks;
+
+  // Reported once for the plan rather than per segment: the fault is the set.
+  if (lenses.size > 1) {
+    issues.push({ kind: "lens", at: 0, detail: `${[...lenses.keys()].sort().join("mm, ")}mm` });
+  }
+  return issues;
+}
+
+const STATIC = /\bstatic\b|\blocked[-\s]?off\b|\bfixed\b/i;
+
+function heightOf(text: string): string | undefined {
+  return text
+    .match(/eye\s+level|overhead|high\s+angle|low\s+angle|\blow\b|\bhigh\b/i)?.[0]
+    .toLowerCase();
 }
 
 /** The last size named in a plan entry, which is where that segment leaves the camera. */

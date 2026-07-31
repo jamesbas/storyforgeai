@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { seamBreak, shotPlanBreaks, shotSizeOf } from "@/lib/media/seam";
+import { seamBreak, shotPlanIssues, shotSizeOf } from "@/lib/media/seam";
 import type { Scene } from "@/lib/schemas/storyboard";
 
 /** The appended cast sheet, which is full of words a loose matcher would trip on. */
@@ -124,120 +124,99 @@ describe("deciding whether a scene can inherit the previous end frame", () => {
 });
 
 /**
- * A shot plan that cuts against itself.
+ * A shot plan that contradicts the take it claims to be.
  *
- * The Cinematographer writes every segment's plan in one response and does not
- * reliably carry framing across them. A real 18-segment plan changed size at 12
- * of 17 seams, twice going wider immediately after a push-in.
+ * Three faults found in live plans on the same project. Chaining the seams
+ * alone was not enough: the model moved the contradiction inside the segments,
+ * writing "STARTS CU -> ENDS MWS, push-in" twice, and swapped lens and camera
+ * height partway through a take that cannot stop.
  */
-describe("checking a shot plan for cuts it should not contain", () => {
-  it("finds nothing when every segment holds its size", () => {
+describe("checking a shot plan against the take it claims to be", () => {
+  it("finds nothing in a plan that holds together", () => {
     expect(
-      shotPlanBreaks({
-        "1": "STARTS MWS -> ENDS MWS, 35mm, eye level, static",
-        "2": "STARTS MWS -> ENDS MWS, 35mm, eye level, slow pan",
+      shotPlanIssues({
+        "1": "STARTS WS -> ENDS WS, 35mm, eye level, static",
+        "2": "STARTS WS -> ENDS MCU, 35mm, eye level, slow push-in",
+        "3": "STARTS MCU -> ENDS MCU, 35mm, eye level, pan",
       }),
     ).toEqual([]);
   });
 
-  /** Movement inside a segment is how the piece changes framing legitimately. */
-  it("accepts a push-in when the next segment starts where it ended", () => {
-    expect(
-      shotPlanBreaks({
-        "1": "STARTS WS -> ENDS MCU, 35mm, eye level, slow push-in",
-        "2": "STARTS MCU -> ENDS MCU, 35mm, eye level, static",
-      }),
-    ).toEqual([]);
-  });
-
-  it("reports a segment that opens on a size the last one did not reach", () => {
-    const breaks = shotPlanBreaks({
+  it("reports a segment opening on a size the last one never reached", () => {
+    const issues = shotPlanIssues({
       "1": "STARTS WS -> ENDS WS, 35mm, eye level, static",
-      "2": "STARTS ECU -> ENDS ECU, 85mm, low, static",
+      "2": "STARTS ECU -> ENDS ECU, 35mm, eye level, static",
     });
-    expect(breaks).toEqual([{ from: 1, to: 2, detail: "wide to extreme close-up" }]);
+    expect(issues).toEqual([
+      { kind: "seam", at: 2, detail: "opens on extreme close-up but segment 1 ended on wide" },
+    ]);
   });
 
-  /** The exact shape of the live failure, in the wording the model used. */
-  it("catches the plan going wider straight after a push-in", () => {
-    const breaks = shotPlanBreaks({
-      "5": "CU, eye level, push-in; focuses on the texture of the silk robe",
-      "6": "FS, low, tilt up; follows her being lifted to show the full silhouette",
+  /** The exact live failure, in the model's own wording. */
+  it("catches a push-in that ends wider than it started", () => {
+    const issues = shotPlanIssues({
+      "9": "STARTS CU -> ENDS MWS, 85mm, low, push-in to capture her arched back",
     });
-    expect(breaks).toHaveLength(1);
-    expect(breaks[0]!.detail).toBe("close-up to full");
+    expect(issues).toEqual([
+      { kind: "move", at: 9, detail: "pushes in but ends wider (close-up to medium wide)" },
+    ]);
+  });
+
+  it("catches a pull-out that ends tighter", () => {
+    const issues = shotPlanIssues({ "1": "STARTS WS -> ENDS CU, 35mm, eye level, pull-out" });
+    expect(issues[0]!.kind).toBe("move");
+    expect(issues[0]!.detail).toMatch(/pulls out but ends tighter/);
+  });
+
+  /** A take that never stops cannot change lens. */
+  it("reports two lenses across one take", () => {
+    const issues = shotPlanIssues({
+      "1": "STARTS WS -> ENDS WS, 35mm, eye level, static",
+      "2": "STARTS WS -> ENDS WS, 85mm, eye level, static",
+    });
+    expect(issues.find((i) => i.kind === "lens")?.detail).toBe("35mm, 85mm");
+  });
+
+  it("reports a camera height that moves with nothing to carry it", () => {
+    const issues = shotPlanIssues({
+      "1": "STARTS MS -> ENDS MS, 35mm, eye level, static",
+      "2": "STARTS MS -> ENDS MS, 35mm, low, static",
+    });
+    expect(issues.find((i) => i.kind === "height")).toBeDefined();
+  });
+
+  /** An operator walks and a crane rises, so a moving camera may end up elsewhere. */
+  it("allows a height change when the camera is moving", () => {
+    expect(
+      shotPlanIssues({
+        "1": "STARTS MS -> ENDS MS, 35mm, eye level, static",
+        "2": "STARTS MS -> ENDS MS, 35mm, low, crane down as she kneels",
+      }),
+    ).toEqual([]);
+  });
+
+  /** "cowboy" is a real shot size; leaving it out reported a seam that was fine. */
+  it("knows a cowboy shot is a size", () => {
+    expect(shotSizeOf("STARTS cowboy -> ENDS cowboy, 35mm")).toBe("cowboy");
+    expect(
+      shotPlanIssues({
+        "10": "STARTS MWS -> ENDS cowboy, 35mm, eye level, tracking",
+        "11": "STARTS cowboy -> ENDS cowboy, 35mm, eye level, arc",
+      }),
+    ).toEqual([]);
   });
 
   it("ignores entries with no size to compare", () => {
-    expect(shotPlanBreaks({ "1": "handheld, motivated by the argument", "2": "MS, eye level" })).toEqual([]);
+    expect(shotPlanIssues({ "1": "handheld, motivated by the argument" })).toEqual([]);
   });
 
   it("reads the segments in numeric order rather than as strings", () => {
-    const breaks = shotPlanBreaks({
-      "9": "STARTS MS -> ENDS MS, 35mm",
-      "10": "STARTS MS -> ENDS MS, 35mm",
-      "2": "STARTS MS -> ENDS MS, 35mm",
-    });
-    expect(breaks).toEqual([]);
-  });
-});
-
-
-/**
- * A shot plan that cuts against itself.
- *
- * The Cinematographer writes every segment's plan in one response and does not
- * reliably carry framing across them. A real 18-segment plan changed size at 12
- * of 17 seams, twice going wider immediately after a push-in.
- */
-describe("checking a shot plan for cuts it should not contain", () => {
-  it("finds nothing when every segment holds its size", () => {
     expect(
-      shotPlanBreaks({
-        "1": "STARTS MWS -> ENDS MWS, 35mm, eye level, static",
-        "2": "STARTS MWS -> ENDS MWS, 35mm, eye level, slow pan",
+      shotPlanIssues({
+        "9": "STARTS MS -> ENDS MS, 35mm, eye level",
+        "10": "STARTS MS -> ENDS MS, 35mm, eye level",
+        "2": "STARTS MS -> ENDS MS, 35mm, eye level",
       }),
     ).toEqual([]);
-  });
-
-  /** Movement inside a segment is how the piece changes framing legitimately. */
-  it("accepts a push-in when the next segment starts where it ended", () => {
-    expect(
-      shotPlanBreaks({
-        "1": "STARTS WS -> ENDS MCU, 35mm, eye level, slow push-in",
-        "2": "STARTS MCU -> ENDS MCU, 35mm, eye level, static",
-      }),
-    ).toEqual([]);
-  });
-
-  it("reports a segment that opens on a size the last one did not reach", () => {
-    const breaks = shotPlanBreaks({
-      "1": "STARTS WS -> ENDS WS, 35mm, eye level, static",
-      "2": "STARTS ECU -> ENDS ECU, 85mm, low, static",
-    });
-    expect(breaks).toEqual([{ from: 1, to: 2, detail: "wide to extreme close-up" }]);
-  });
-
-  /** The exact shape of the live failure, in the wording the model used. */
-  it("catches the plan going wider straight after a push-in", () => {
-    const breaks = shotPlanBreaks({
-      "5": "CU, eye level, push-in; focuses on the texture of the silk robe",
-      "6": "FS, low, tilt up; follows her being lifted to show the full silhouette",
-    });
-    expect(breaks).toHaveLength(1);
-    expect(breaks[0]!.detail).toBe("close-up to full");
-  });
-
-  it("ignores entries with no size to compare", () => {
-    expect(shotPlanBreaks({ "1": "handheld, motivated by the argument", "2": "MS, eye level" })).toEqual([]);
-  });
-
-  it("reads the segments in numeric order rather than as strings", () => {
-    const breaks = shotPlanBreaks({
-      "9": "STARTS MS -> ENDS MS, 35mm",
-      "10": "STARTS MS -> ENDS MS, 35mm",
-      "2": "STARTS MS -> ENDS MS, 35mm",
-    });
-    expect(breaks).toEqual([]);
   });
 });

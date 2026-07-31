@@ -118,7 +118,19 @@ describe("what the Cinematographer is told about shot size", () => {
     const directive = cameraContinuityDirective(makeProject("reuse_end_frame"));
     expect(directive).toMatch(/STARTS .* ENDS/);
     expect(directive).toMatch(/must be the size the next segment STARTS on/);
-    expect(directive).toMatch(/going wider straight after a push-in is impossible/);
+  });
+
+  /**
+   * Chaining the seams alone moved the contradiction inside the segments: the
+   * next plan wrote "STARTS CU -> ENDS MWS, push-in" twice and swapped lens
+   * and camera height partway through a take that never stops.
+   */
+  it("states the physics a single take cannot break", () => {
+    const directive = cameraContinuityDirective(makeProject("reuse_end_frame"));
+    expect(directive).toMatch(/A push-in ends tighter than it starts and never wider/);
+    expect(directive).toMatch(/A pull-out ends wider and never tighter/);
+    expect(directive).toMatch(/One lens for the whole piece/);
+    expect(directive).toMatch(/A static camera cannot be at a different height/);
   });
 
   /** The user asked for movement variety, only not for cuts. */

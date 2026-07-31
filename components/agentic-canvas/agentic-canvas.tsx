@@ -5,7 +5,7 @@ import Link from "next/link";
 import { PlanPanel } from "@/components/agentic-canvas/plan-panel";
 import { planOn, planSpecFor } from "@/lib/agents/plan-fields";
 import { isContinuousTake } from "@/lib/agents/continuity";
-import { shotPlanBreaks } from "@/lib/media/seam";
+import { shotPlanIssues } from "@/lib/media/seam";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 
 type CanvasAgent = {
@@ -243,9 +243,9 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
   const activeKey = busyKey ?? remoteKey;
 
   /** Only meaningful on a continuous take: on a cut project, varied sizes are the point. */
-  const shotBreaks =
+  const shotIssues =
     record && isContinuousTake(record.project) && record.cinematographyPlan
-      ? shotPlanBreaks(record.cinematographyPlan.sceneShotPlans)
+      ? shotPlanIssues(record.cinematographyPlan.sceneShotPlans)
       : [];
 
   if (!record) {
@@ -387,17 +387,32 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
                   onSaved={setRecord}
                 />
               ) : null}
-              {agent.key === "cinematographer" && shotBreaks.length ? (
-                <p
+              {agent.key === "cinematographer" && shotIssues.length ? (
+                <div
                   data-testid="shot-plan-breaks"
                   className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200/90"
                 >
-                  This project is set to one continuous take, but the plan changes shot size at{" "}
-                  {shotBreaks.length} of {(record.project.segmentCount ?? 1) - 1} seams — for
-                  example segment {shotBreaks[0]!.from} to {shotBreaks[0]!.to} goes{" "}
-                  {shotBreaks[0]!.detail}. Each of those is a cut, so the renderer will decline to
-                  carry the frame across it. Regenerate, or edit the sizes above to match.
-                </p>
+                  <p>
+                    This project is one continuous take, but the plan breaks that in{" "}
+                    {shotIssues.length} place{shotIssues.length === 1 ? "" : "s"}. Each one is a cut
+                    the renderer will refuse to carry a frame across.
+                  </p>
+                  <ul className="mt-1 list-disc space-y-0.5 pl-4">
+                    {shotIssues.slice(0, 4).map((issue, i) => (
+                      <li key={`${issue.kind}-${issue.at}-${i}`}>
+                        {issue.kind === "lens"
+                          ? `Two lenses across one take (${issue.detail}) — you cannot change lens without stopping the camera.`
+                          : issue.kind === "height"
+                            ? `Camera height moves between ${issue.detail} without a crane or boom to carry it.`
+                            : issue.kind === "move"
+                              ? `Segment ${issue.at} ${issue.detail}.`
+                              : `Segment ${issue.at} ${issue.detail}.`}
+                      </li>
+                    ))}
+                    {shotIssues.length > 4 ? <li>and {shotIssues.length - 4} more.</li> : null}
+                  </ul>
+                  <p className="mt-1">Regenerate, or edit the plan above to match.</p>
+                </div>
               ) : null}
             </article>
           );
