@@ -5,6 +5,7 @@ import { useAgentRun } from "@/components/shared/use-agent-run";
 import Link from "next/link";
 import { SceneCard } from "@/components/storyboard/scene-card";
 import { CreativePlansPanel } from "@/components/storyboard/creative-plans-panel";
+import { NegativePromptRepair } from "@/components/storyboard/negative-prompt-repair";
 import { GENERATION_MODE_DOCS, SCENE_CONTINUITY_OPTIONS } from "@/lib/presets";
 import type { GenerationMode, SceneContinuityMode } from "@/lib/types";
 import { DEFAULT_SCENE_CONTINUITY, GENERATION_MODES, generationStages } from "@/lib/types";
@@ -627,6 +628,8 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         busy={generating}
         onRegenerate={generate}
       />
+
+      <NegativePromptRepair record={record} projectId={projectId} onRepaired={() => void load()} />
 
       {llm?.enabled ? (
         <section className="rounded-lg border border-white/10 bg-panel/40 p-4">

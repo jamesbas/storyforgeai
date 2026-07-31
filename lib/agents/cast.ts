@@ -111,6 +111,25 @@ export function castPromptSuffix(cast: readonly Character[]): string {
 }
 
 /**
+ * The video-prompt equivalent: names and one preservation instruction.
+ *
+ * A clip is rendered from its start frame, which already fixes every face,
+ * garment and lighting choice the sheet would describe. Repeating the sheet
+ * here spends the prompt on appearance the model can already see, at the cost
+ * of the motion description it cannot — both LTX and Wan warn against it — and
+ * a second textual description of a subject already present in the image is how
+ * a clip ends up rendering that subject twice.
+ */
+export function castContinuityClause(cast: readonly Character[]): string {
+  if (cast.length === 0) return "";
+  const names = cast.map((c) => c.name).join(", ");
+  return (
+    ` The start frame fixes how ${names} look. Keep face, hair, wardrobe and lighting ` +
+    "unchanged throughout."
+  );
+}
+
+/**
  * Character-specific traits to suppress, merged into a negative prompt.
  *
  * `existing` is the negative prompt the terms are about to be appended to.

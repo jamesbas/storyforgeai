@@ -74,9 +74,15 @@ describe("character library cast injection", () => {
     for (const scene of snapshot.scenes) {
       expect(scene.prompts.startFramePrompt).toContain(ELENA.description);
       expect(scene.prompts.endFramePrompt).toContain(ELENA.description);
-      expect(scene.prompts.videoPromptSegment).toContain(ELENA.description);
-      expect(scene.prompts.imageNegativePrompt).toContain("no glasses");
-      expect(scene.prompts.videoNegativePrompt).toContain("not elderly");
+      // The clip renders from the start frame, which already fixes the face and
+      // wardrobe, so the video prompt gets the name and a preservation clause
+      // instead of a second copy of the description competing with the motion.
+      expect(scene.prompts.videoPromptSegment).not.toContain(ELENA.description);
+      expect(scene.prompts.videoPromptSegment).toContain("The start frame fixes how Elena look");
+      // The character's exclusions arrive as terms, the negation stripped.
+      expect(scene.prompts.imageNegativePrompt).toContain("glasses");
+      expect(scene.prompts.imageNegativePrompt).not.toContain("no glasses");
+      expect(scene.prompts.videoNegativePrompt).toContain("elderly");
     }
     // Scene cards should name the character rather than an anonymous subject.
     expect(snapshot.scenes[0]!.actionDescription).toContain("Elena");
@@ -87,8 +93,9 @@ describe("character library cast injection", () => {
     const snapshot = await runStoryboardOrchestrator(makeProject(), { provider: null });
     for (const scene of snapshot.scenes) {
       expect(scene.prompts.startFramePrompt).not.toContain("Character continuity");
+      expect(scene.prompts.videoPromptSegment).not.toContain("The start frame fixes");
       expect(scene.prompts.imageNegativePrompt).toBe(
-        "no watermarks, no distorted anatomy, no text artifacts, low quality",
+        "watermark, distorted anatomy, text artifacts, low quality",
       );
     }
   });

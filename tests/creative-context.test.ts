@@ -102,8 +102,13 @@ describe("agentic canvas plans reach the render prompts", () => {
       expect(scene.prompts.promptQualityChecklist).toContain("cinematography shot plan applied");
     }
 
-    // The World Bible's forbidden contradictions become negative-prompt terms.
-    expect(scenes[0]!.prompts.videoNegativePrompt).toContain("No unexplained changes");
+    // The World Bible's forbidden contradictions become negative-prompt terms,
+    // with the leading negation stripped: a sampler steers away from the whole
+    // phrase, so "No unexplained changes" would spend a word saying nothing.
+    expect(scenes[0]!.prompts.videoNegativePrompt).toContain(
+      "unexplained changes to the subject or world",
+    );
+    expect(scenes[0]!.prompts.videoNegativePrompt).not.toContain("No unexplained");
     // Scene cards take their objective and camera from the approved plans.
     expect(scenes[0]!.sceneObjective).toContain("Intent for scene 1");
     expect(scenes[0]!.cameraMovement).toContain("lateral tracking");
@@ -120,7 +125,8 @@ describe("agentic canvas plans reach the render prompts", () => {
       expect(scene.prompts.videoPromptSegment).not.toContain("Scene intent:");
       expect(scene.prompts.startFramePrompt).not.toContain("Art direction:");
       expect(scene.prompts.videoNegativePrompt).toBe(
-        "no flicker, no warping, no duplicated subjects, no abrupt cuts",
+        "flicker, jitter, warping, duplicated subjects, abrupt cuts, identity drift, " +
+          "background deformation, unintended camera movement",
       );
     }
   });

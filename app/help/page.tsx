@@ -948,6 +948,66 @@ export default function HelpPage() {
             is what gets sent. The trade-off is that <strong>regenerating the storyboard rewrites
             them</strong>, so make hand edits after you are happy with the plans rather than before.
           </p>
+
+          <h3 className={h3}>How prompts are written for each model</h3>
+          <p className={p}>
+            The image and video models do not want the same kind of prompt, so the prompt agents are
+            told which family they are writing for. The family comes from the model pinned on the
+            project settings screen; with no pin, no family guidance is given, because a prompt
+            written for one model and rendered by another is worse than a neutral one.
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li className={li}>
+              <strong>FLUX</strong> has no negative prompt. Exclusions are written into the prompt as
+              the thing to render instead, and lighting is stated in full because it moves the render
+              further than anything else.
+            </li>
+            <li className={li}>
+              <strong>Qwen</strong> is literal about structure. Any lettering that must appear is
+              quoted exactly, with its position and size, and materials are described at two scales.
+            </li>
+            <li className={li}>
+              <strong>Wan</strong> asks for motion and camera and little else, so its clip prompts are
+              short: one dominant action with a stated pace, one camera move, nothing decorative.
+            </li>
+            <li className={li}>
+              <strong>LTX</strong> wants one flowing present-tense paragraph, feeling conveyed through
+              what the body does rather than named, and the camera&apos;s final framing stated. LTX
+              also writes its own soundtrack from that prompt, so ambience and any spoken line are
+              described there. Your audio cues still mix over the top.
+            </li>
+          </ul>
+          <p className={p}>
+            Because the model is only known for certain at render time, the exclusion is routed again
+            on the way out: if the resolved model cannot use a negative prompt, its terms are folded
+            into the positive prompt rather than dropped.
+          </p>
+
+          <h3 className={h3}>Why negative prompts have no &ldquo;no&rdquo;</h3>
+          <p className={p}>
+            A negative prompt is a weighted list of things to steer away from, not a sentence. The
+            text encoder has no operator for &ldquo;no&rdquo;, so writing{" "}
+            <code>no watermarks</code> embeds the whole phrase and the negation does nothing while the
+            noun does the work by accident. Prompts are stored as plain term lists —{" "}
+            <code>watermark, distorted anatomy, low quality</code> — and character negative terms are
+            stripped the same way, so <code>no glasses</code> becomes <code>glasses</code>.
+          </p>
+          <p className={p}>
+            Projects created before this carry the older phrasing. The Storyboard screen offers to
+            rewrite them, and the offer disappears once there is nothing left to fix. Rendering
+            normalises them either way, so the repair changes what you see rather than what you get.
+          </p>
+
+          <h3 className={h3}>Why the cast is described in stills but named in clips</h3>
+          <p className={p}>
+            A start frame has nothing but its prompt to establish a face, so the full character
+            description is appended to every image prompt. A clip is rendered <em>from</em> that
+            frame, which already fixes the face, wardrobe and lighting — so the clip prompt gets the
+            character&apos;s name and one instruction to hold them steady. Repeating the description
+            there would spend the prompt on appearance the model can already see, at the cost of the
+            motion it cannot, and a second written description of a subject already in the image is
+            one way a clip ends up rendering that subject twice.
+          </p>
         </section>
 
         {/* 8. QC */}

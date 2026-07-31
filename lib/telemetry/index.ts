@@ -24,6 +24,7 @@ export type TelemetryEvent =
   | "wangp.job.submitted"
   | "wangp.job.polled"
   | "wangp.reference_images.trimmed"
+  | "wangp.negative.folded"
   | "wangp.steps.resolved"
   | "wangp.resolution.resolved"
   | "scene.qc"

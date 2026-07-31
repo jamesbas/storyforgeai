@@ -12,6 +12,7 @@ import {
 } from "@/lib/services/lora-service";
 import type { Project } from "@/lib/schemas/project";
 import { sceneFramingPatchSchema, scenePromptsPatchSchema } from "@/lib/schemas/storyboard";
+import { normaliseNegative } from "@/lib/agents/negative-prompt";
 import { projectRecordSchema } from "@/lib/schemas/storyboard";
 import { storyboardExportSchema } from "@/lib/schemas/exports";
 import type { SceneAttempt } from "@/lib/schemas/generation";
@@ -659,6 +660,51 @@ export async function updateScenePrompts(
   await repository.update(id, updated);
   logEvent("project.updated", { id, change: "scene_prompts", sceneId });
   return updated;
+}
+
+/**
+ * Rewrite stored negative prompts as term lists.
+ *
+ * Every prompt written before the sampler's reading of a negative prompt was
+ * understood carries prose negation — "no watermarks, no distorted anatomy" —
+ * where a weighted term list belongs. The render path normalises this anyway,
+ * so this changes no output; what it changes is that the prompt panel now shows
+ * what is actually sent. Purely mechanical: terms are stripped of their
+ * negation and de-duplicated, never reworded, and no model is consulted.
+ */
+export async function repairNegativePrompts(id: string): Promise<{
+  record: ProjectRecord;
+  changed: number;
+}> {
+  const record = await getProjectRecord(id);
+  if (!record.storyboard) throw new ValidationError("Generate a storyboard before repairing prompts");
+
+  let changed = 0;
+  const scenes = record.storyboard.scenes.map((scene) => {
+    const imageNegativePrompt = normaliseNegative(scene.prompts.imageNegativePrompt);
+    const videoNegativePrompt = normaliseNegative(scene.prompts.videoNegativePrompt);
+    if (
+      imageNegativePrompt === scene.prompts.imageNegativePrompt &&
+      videoNegativePrompt === scene.prompts.videoNegativePrompt
+    ) {
+      return scene;
+    }
+    changed += 1;
+    return { ...scene, prompts: { ...scene.prompts, imageNegativePrompt, videoNegativePrompt } };
+  });
+
+  if (changed === 0) return { record, changed };
+
+  const updated: ProjectRecord = {
+    ...record,
+    storyboard: { ...record.storyboard, scenes },
+    project: { ...record.project, updatedAt: new Date().toISOString() },
+    history: appendHistory(record, "scene.prompts_edited", `Negative prompts repaired (${changed})`),
+  };
+
+  await repository.update(id, updated);
+  logEvent("project.updated", { id, change: "negative_prompts_repaired", scenes: changed });
+  return { record: updated, changed };
 }
 
 /**

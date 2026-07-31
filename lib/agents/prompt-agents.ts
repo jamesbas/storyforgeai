@@ -1,9 +1,22 @@
 import { z } from "zod";
 import { scenePromptsSchema, type Scene, type SceneDraft } from "@/lib/schemas/storyboard";
 import { buildImagePrompts, buildVideoPrompts } from "@/lib/agents/mock-agents";
-import { castNegativeSuffix, castPromptSuffix, castSystemDirective } from "@/lib/agents/cast";
+import {
+  castContinuityClause,
+  castNegativeSuffix,
+  castPromptSuffix,
+  castSystemDirective,
+} from "@/lib/agents/cast";
 import { seamDirective } from "@/lib/agents/continuity";
 import { lookPromptSuffix } from "@/lib/agents/look";
+import { normaliseNegative } from "@/lib/agents/negative-prompt";
+import {
+  hasNativeAudio,
+  imagePromptDirective,
+  videoPromptDirective,
+} from "@/lib/agents/model-directives";
+import { familyOf } from "@/lib/wangp/family";
+import { config } from "@/lib/config";
 import {
   continuityNegativeSuffix,
   precedenceDirective,
@@ -60,7 +73,22 @@ export const videoPromptSystem = (segmentSeconds: number) =>
   "already visible in it — spend the prompt on movement, and mention a fixed detail only when " +
   "it is a continuity constraint that must not drift. State what must remain consistent from " +
   "the start frame. " +
+  // Every published image-to-video guide says the same thing in different
+  // words: a clip has a finite motion budget, and each additional independent
+  // change is drawn from the same account as identity and anatomy.
+  "Give the clip one dominant action and at most one secondary movement, and qualify each with " +
+  "its direction and pace. One camera move at a time; if the camera is locked, say so " +
+  "explicitly rather than omitting it. " +
   "Include a negative prompt and generation notes. Return only valid JSON.";
+
+/** The family a project's prompts are being written for, from its model pin. */
+function imageFamilyFor(project: Project) {
+  return familyOf(project.imageModel || config.wangp.imageModel);
+}
+
+function videoFamilyFor(project: Project) {
+  return familyOf(project.videoModel || config.wangp.videoModel);
+}
 
 /** Default-length wording, retained for callers that have no project in hand. */
 export const VIDEO_PROMPT_SYSTEM = videoPromptSystem(SEGMENT_SECONDS);
@@ -94,6 +122,8 @@ export async function attachScenePrompts(
 ): Promise<Scene[]> {
   const cast = context.cast ?? [];
   const plans = context.plans;
+  const imageFamily = imageFamilyFor(project);
+  const videoFamily = videoFamilyFor(project);
   const scenes: Scene[] = [];
   // The seam can only be matched by an agent that can see what it is matching.
   let previousEndFramePrompt: string | undefined;
@@ -126,6 +156,7 @@ export async function attachScenePrompts(
       });
       const image = await provider.generateJson(
         IMAGE_PROMPT_SYSTEM +
+          imagePromptDirective(imageFamily) +
           seamDirective(project) +
           castSystemDirective(cast, true) +
           precedenceDirective(cast, plans),
@@ -135,6 +166,10 @@ export async function attachScenePrompts(
       if (image) imagePart = withCastEnforced(image, cast, plans, project);
       const video = await provider.generateJson(
         videoPromptSystem(project.segmentSeconds) +
+          videoPromptDirective(videoFamily, {
+            segmentSeconds: project.segmentSeconds,
+            nativeAudio: hasNativeAudio(videoFamily),
+          }) +
           castSystemDirective(cast, true) +
           precedenceDirective(cast, plans),
         user,
@@ -173,7 +208,7 @@ function withCastEnforced(
   return {
     startFramePrompt: `${part.startFramePrompt}${lookPromptSuffix(project, part.startFramePrompt)}${suffix}`,
     endFramePrompt: `${part.endFramePrompt}${lookPromptSuffix(project, part.endFramePrompt)}${suffix}`,
-    imageNegativePrompt: `${part.imageNegativePrompt}${negative}`,
+    imageNegativePrompt: normaliseNegative(`${part.imageNegativePrompt}${negative}`),
   };
 }
 
@@ -183,11 +218,13 @@ function withCastEnforcedVideo(
   plans: CreativePlans | undefined,
   project: Project,
 ): VideoPart {
-  const suffix = castPromptSuffix(cast);
   const negative = `${castNegativeSuffix(cast, part.videoNegativePrompt)}${continuityNegativeSuffix(plans)}`;
   return {
     ...part,
-    videoPromptSegment: `${part.videoPromptSegment}${lookPromptSuffix(project, part.videoPromptSegment)}${suffix}`,
-    videoNegativePrompt: `${part.videoNegativePrompt}${negative}`,
+    // The look is still appended — a cut drifts in grade over twenty segments
+    // otherwise — but the cast arrives as names, since the start frame already
+    // carries the appearance the sheet would spell out.
+    videoPromptSegment: `${part.videoPromptSegment}${lookPromptSuffix(project, part.videoPromptSegment)}${castContinuityClause(cast)}`,
+    videoNegativePrompt: normaliseNegative(`${part.videoNegativePrompt}${negative}`),
   };
 }

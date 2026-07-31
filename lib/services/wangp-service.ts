@@ -9,6 +9,8 @@ import {
 } from "@/lib/wangp/model-router";
 import { resolveModel } from "@/lib/wangp/resolve-model";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
+import { familyOfModel, supportsNegativePrompt } from "@/lib/wangp/family";
+import { normaliseNegative, positiveConstraintClause } from "@/lib/agents/negative-prompt";
 import { resolveSteps } from "@/lib/wangp/steps";
 import { resolveResolution, stepFloorFor } from "@/lib/wangp/resolution";
 import { appendTriggerWords, catalogForModel, reconcileLoras } from "@/lib/services/lora-service";
@@ -98,6 +100,39 @@ function withTriggerWords(prompt: string, loras: readonly ResolvedLora[]): strin
 }
 
 /**
+ * Deliver the exclusion in whatever form the chosen model can act on.
+ *
+ * The model is only known here, after resolution: a pin can be missing from the
+ * catalogue and fall through to the router, so the family a prompt was written
+ * for is not necessarily the family that renders it. On FLUX and Krea the
+ * negative prompt is discarded by the model, so it is folded into the positive
+ * prompt as the thing to render instead; everywhere else it is passed through,
+ * normalised, because prompts written before this existed still carry prose
+ * negations that a sampler cannot read.
+ */
+function routeNegative(
+  model: Pick<WangpModel, "modelType" | "metadata">,
+  prompt: string,
+  negative: string | undefined,
+  context: { sceneId: string; purpose: string },
+): { prompt: string; negativePrompt: string | undefined } {
+  const family = familyOfModel(model);
+  const terms = negative?.trim() ? normaliseNegative(negative) : "";
+  if (!terms) return { prompt, negativePrompt: negative };
+
+  if (supportsNegativePrompt(family)) return { prompt, negativePrompt: terms };
+
+  const clause = positiveConstraintClause(terms);
+  logEvent("wangp.negative.folded", {
+    ...context,
+    modelType: model.modelType,
+    family,
+    terms: terms.split(", ").length,
+  });
+  return { prompt: `${prompt}${clause}`, negativePrompt: undefined };
+}
+
+/**
  * Discovery-first manifest build: pick a video model that supports start frames,
  * fetch its schema, then override only validated fields (spec Section 11.3).
  */
@@ -133,11 +168,17 @@ export async function buildVideoManifest(args: {
   const schema = await client.getModelSchema(model.modelType);
   const loras = await lorasFor(model, args.loras, args.sceneId, "video");
   const context = { sceneId: args.sceneId, purpose: "video_segment" as const };
+  const routed = routeNegative(
+    model,
+    withTriggerWords(args.prompt, loras),
+    args.negativePrompt,
+    context,
+  );
   return buildSettingsManifest(schema, {
     sceneId: args.sceneId,
     purpose: "video_segment",
-    prompt: withTriggerWords(args.prompt, loras),
-    negativePrompt: args.negativePrompt,
+    prompt: routed.prompt,
+    negativePrompt: routed.negativePrompt,
     imageStart: args.imageStart,
     imageEnd: args.imageEnd,
     videoSource: args.videoSource,
@@ -396,8 +437,10 @@ export async function buildImageManifest(args: {
   return buildSettingsManifest(schema, {
     sceneId: args.sceneId,
     purpose: args.purpose,
-    prompt: withTriggerWords(args.prompt, loras),
-    negativePrompt: args.negativePrompt,
+    ...routeNegative(model, withTriggerWords(args.prompt, loras), args.negativePrompt, {
+      sceneId: args.sceneId,
+      purpose: args.purpose,
+    }),
     imageRefs,
     imageRefsLeadWithScene: args.imageRefsLeadWithScene,
     loras,

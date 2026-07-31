@@ -2,9 +2,10 @@ import type { Project } from "@/lib/schemas/project";
 import type { CreativeBrief, StoryPlan, VisualBible } from "@/lib/schemas/agents";
 import type { ScenePrompts, SceneDraft } from "@/lib/schemas/storyboard";
 import type { Character } from "@/lib/schemas/character";
-import { castNegativeSuffix, castPromptSuffix } from "@/lib/agents/cast";
+import { castContinuityClause, castNegativeSuffix, castPromptSuffix } from "@/lib/agents/cast";
 import { isContinuousTake } from "@/lib/agents/continuity";
 import { lookPromptSuffix } from "@/lib/agents/look";
+import { normaliseNegative } from "@/lib/agents/negative-prompt";
 import {
   continuityNegativeSuffix,
   globalStyleSuffix,
@@ -147,10 +148,10 @@ export function buildVisualBible(
     locations,
     props: [{ name: "Signature Prop", description: "Recurring motif reinforcing the concept." }],
     negativeRules: [
-      "no watermarks",
-      "no distorted anatomy",
-      "no text artifacts",
-      "no flicker or warping",
+      "watermarks",
+      "distorted anatomy",
+      "text artifacts",
+      "flicker or warping",
       ...(plans?.worldBible?.forbiddenContradictions ?? []),
     ],
   };
@@ -312,10 +313,11 @@ export function buildImagePrompts(
     startFramePrompt:
       startBody + lookPromptSuffix(project, startBody) + direction + art + castText,
     endFramePrompt: endBody + lookPromptSuffix(project, endBody) + direction + art + castText,
-    imageNegativePrompt:
-      "no watermarks, no distorted anatomy, no text artifacts, low quality" +
-      castNegativeSuffix(cast) +
-      continuityNegativeSuffix(plans),
+    imageNegativePrompt: normaliseNegative(
+      "watermark, distorted anatomy, text artifacts, low quality" +
+        castNegativeSuffix(cast) +
+        continuityNegativeSuffix(plans),
+    ),
   };
 }
 
@@ -345,11 +347,16 @@ export function buildVideoPrompts(
       lookPromptSuffix(project, body) +
       sceneDirectionSuffix(slice) +
       globalStyleSuffix(plans) +
-      castPromptSuffix(cast),
-    videoNegativePrompt:
-      "no flicker, no warping, no duplicated subjects, no abrupt cuts" +
-      castNegativeSuffix(cast) +
-      continuityNegativeSuffix(plans),
+      castContinuityClause(cast),
+    videoNegativePrompt: normaliseNegative(
+      // Image-to-video has failure modes a still cannot have: the subject drifts
+      // from the frame it started in, and the background reorganises itself
+      // behind a moving camera.
+      "flicker, jitter, warping, duplicated subjects, abrupt cuts, identity drift, " +
+        "background deformation, unintended camera movement" +
+        castNegativeSuffix(cast) +
+        continuityNegativeSuffix(plans),
+    ),
     promptQualityChecklist: [
       "continuity with visual bible",
       "clear subject and action",
