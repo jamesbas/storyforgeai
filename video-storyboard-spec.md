@@ -1,5 +1,12 @@
 # StoryForgeAI — Build Specification
 
+> **Historical — not maintained.** This is the original specification the app was
+> built from, kept as a record of intent and still cited by section number (the
+> agent prompt work refers to §9.x throughout). It is **not** a description of how
+> StoryForgeAI works today, and parts of it have been deliberately superseded.
+> For current behaviour see [architecture.md](architecture.md), the
+> [README](README.md), or the in-app Help page.
+
 ## 1. Product summary
 
 Build a local-first web application that converts a simple video concept into a complete storyboard and generation package. The application should orchestrate specialized agents that create a storyboard, keyframe prompts, video prompts, model settings, and WanGP generation jobs.
