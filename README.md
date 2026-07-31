@@ -480,23 +480,33 @@ StoryForgeAI is built and maintained by
 **[JabAI Solutions](https://www.jabaisolutions.com/)**, an AI consulting and
 development company.
 
-Licensed under the
-**[PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0)**
-— see [LICENSE](LICENSE). In short:
+Licensed under the **StoryForgeAI Community License 1.0** — see [LICENSE](LICENSE).
+It is modelled on, and deliberately aligned with, the
+[WanGP Community License 2.0](https://github.com/deepbeepmeep/Wan2GP/blob/main/LICENSE.txt),
+because StoryForgeAI exists to drive WanGP and it would be unhelpful for the two
+to grant rights on different terms.
 
-- **Noncommercial use is granted outright.** Personal use, study, experiment,
-  hobby projects, and use by charities, schools, public research bodies and
-  government institutions are all permitted. You may modify it and distribute
-  your changes, provided you pass these terms along.
-- **Commercial use is reserved.** If you want to sell StoryForgeAI, build a paid
-  product or service on it, or use it inside a commercial offering, contact JabAI
-  Solutions for a commercial licence. The intent is not to block anyone — it is
-  to have the conversation first.
+- **Free to use, including inside a company.** Personal, hobby, research,
+  educational, internal business, studio, agency and client work are all covered.
+  Modify it, deploy it privately, redistribute it free of charge.
+- **The video you make is yours.** Sell it, licence it, publish it. Credit is
+  asked for only when you sell an Output directly — *"Made with StoryForgeAI"* is
+  enough — and not for client work, internal use, or free publication.
+- **You may charge for your own labour.** Installation, customisation,
+  consulting, support, training and integration work are all fine, as long as you
+  are not charging for access to the software itself.
+- **Selling the software itself needs a conversation.** Reselling StoryForgeAI,
+  white-labelling it, embedding it in a paid product, or offering paid
+  API/SaaS/hosted access requires a separate written licence from JabAI
+  Solutions.
 
-Video you generate with StoryForgeAI is yours; the licence covers the
-application, not its output.
+> **If you commercialise a service built on this, you will likely need a
+> commercial licence from the WanGP authors too.** Exposing WanGP to third
+> parties for consideration is Restricted Commercialization under *their* terms,
+> and complying with ours does not satisfy theirs.
 
 StoryForgeAI integrates with WanGP/Wan2GP (by DeepBeepMeep) as a local generation
-backend, subject to its own license and terms. Review the license of each model or
-checkpoint used inside WanGP for commercial-use restrictions. See the in-app
-**About** page for the current disclosure and feature-flag status.
+backend, subject to its own license and terms. It is an independent project, **not
+affiliated with or endorsed by** the WanGP/Wan2GP project. Review the license of
+each model or checkpoint used inside WanGP for commercial-use restrictions. See
+the in-app **About** page for the current disclosure and feature-flag status.

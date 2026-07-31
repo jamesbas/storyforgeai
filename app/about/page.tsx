@@ -49,33 +49,46 @@ export default function AboutPage() {
             Licence
           </h2>
           <p className="mt-2">
-            StoryForgeAI is licensed under the{" "}
+            StoryForgeAI is released under the <strong>StoryForgeAI Community License 1.0</strong>,
+            modelled on and deliberately aligned with the{" "}
             <a
-              href="https://polyformproject.org/licenses/noncommercial/1.0.0"
+              href="https://github.com/deepbeepmeep/Wan2GP/blob/main/LICENSE.txt"
               target="_blank"
               rel="noreferrer"
               className="text-accent hover:underline"
             >
-              PolyForm Noncommercial License 1.0.0
+              WanGP Community License 2.0
             </a>
-            .
+            . StoryForgeAI exists to drive WanGP, so it would be unhelpful for the two to grant
+            rights on different terms.
           </p>
-          <p className="mt-2">
-            <strong className="text-slate-200">Noncommercial use is granted outright.</strong>{" "}
-            Personal use, study, experiment, hobby projects, and use by charities, schools, public
-            research bodies and government institutions are all permitted. You may modify it and
-            share your changes, as long as you pass the same terms along.
-          </p>
-          <p className="mt-2">
-            <strong className="text-slate-200">Commercial use is reserved.</strong> To sell
-            StoryForgeAI, build a paid product or service on it, or use it inside a commercial
-            offering, contact JabAI Solutions for a commercial licence. The intent is not to block
-            you — it is to have the conversation.
-          </p>
-          <p className="mt-2 text-xs text-slate-500">
-            Video you generate with StoryForgeAI is yours. The licence covers the application, not
-            its output — though the models you generate with carry their own terms; see the
-            disclosure below.
+          <ul className="mt-3 list-disc space-y-1 pl-5">
+            <li>
+              <strong className="text-slate-200">Free to use, including inside a company.</strong>{" "}
+              Personal, hobby, research, educational, internal business, studio, agency and client
+              work are all covered. Modify it, deploy it privately, share it free of charge.
+            </li>
+            <li>
+              <strong className="text-slate-200">The video you make is yours.</strong> Sell it,
+              licence it, publish it. Credit — &ldquo;Made with StoryForgeAI&rdquo; — is asked for
+              only when you sell an output directly, not for client work or free publication.
+            </li>
+            <li>
+              <strong className="text-slate-200">Charge for your own labour.</strong> Installation,
+              customisation, consulting, support and integration work are all fine, as long as you
+              are not charging for access to the software itself.
+            </li>
+            <li>
+              <strong className="text-slate-200">Selling the software needs a conversation.</strong>{" "}
+              Reselling it, white-labelling it, embedding it in a paid product, or offering paid
+              API/SaaS/hosted access requires a separate written licence from JabAI Solutions.
+            </li>
+          </ul>
+          <p className="mt-3 text-xs text-slate-500">
+            If you commercialise a service built on StoryForgeAI you will likely need a commercial
+            licence from the WanGP authors as well — exposing WanGP to third parties for
+            consideration is restricted under their terms, and complying with ours does not satisfy
+            theirs.
           </p>
         </section>
 
@@ -86,6 +99,21 @@ export default function AboutPage() {
             WanGP is developed by DeepBeepMeep and is subject to its own license and terms. Review
             the license for each model used inside WanGP, as individual models and checkpoints can
             carry separate commercial-use restrictions.
+          </p>
+          <p className="mt-2">
+            StoryForgeAI is an independent project and is{" "}
+            <strong className="text-slate-200">not affiliated with, endorsed by, or sponsored by</strong>{" "}
+            the WanGP/Wan2GP project or its authors. References to WanGP, Wan2GP and model names
+            describe compatibility only. Get WanGP from its{" "}
+            <a
+              href="https://github.com/deepbeepmeep/Wan2GP"
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent hover:underline"
+            >
+              official repository
+            </a>
+            .
           </p>
         </section>
 
