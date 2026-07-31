@@ -15,6 +15,7 @@ import type { LoraCatalog, SceneLoraOverride } from "@/lib/schemas/lora";
 import type { LlmRuntimeStatus } from "@/lib/services/llm-runtime-service";
 import type { PhaseProgress, SceneQueueEntry } from "@/lib/services/scene-queue";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
+import type { Character } from "@/lib/schemas/character";
 import type { MediaDescriptor } from "@/lib/media/refs";
 
 type QueueSnapshot = { entries: SceneQueueEntry[]; active: boolean; phase?: PhaseProgress };
@@ -114,6 +115,31 @@ export function StoryboardView({ projectId }: { projectId: string }) {
    * needed to look up trigger words, which every scene shares.
    */
   const [loraCatalogs, setLoraCatalogs] = useState<{ image?: LoraCatalog; video?: LoraCatalog }>({});
+  /** The project's pinned cast, for the per-scene wardrobe panel. */
+  const [cast, setCast] = useState<Character[]>([]);
+
+  useEffect(() => {
+    const ids = record?.project.characterIds;
+    if (!record?.project.useCharacterLibrary || !ids?.length) {
+      setCast([]);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/characters", { cache: "no-store" });
+        if (!res.ok) return;
+        const all = (await res.json()) as Character[];
+        const byId = new Map(all.map((c) => [c.id, c] as const));
+        if (!cancelled) setCast(ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : [])));
+      } catch {
+        // The wardrobe panel is optional; the storyboard works without it.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [record?.project.useCharacterLibrary, record?.project.characterIds]);
 
   const loadLlmStatus = useCallback(async () => {
     try {
@@ -883,6 +909,11 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   onLoraSave={(next) => void saveSceneLoras(scene.id, next)}
                   triggerWords={{ image: triggerWordsFor("image"), video: triggerWordsFor("video") }}
                   onPromptsSaved={(next) => setRecord(next)}
+                  cast={cast}
+                  wardrobeChanges={record.project.wardrobeChanges?.[scene.id]}
+                  continuousTake={
+                    (record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY) !== "cut"
+                  }
                   onGenerateKeyframe={
                     stages.keyframes
                       ? (purpose) => void generateSceneKeyframe(scene.id, purpose)

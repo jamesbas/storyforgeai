@@ -28,6 +28,14 @@ export const storyboardSystem = (segmentSeconds: number) =>
   "Set subjectFaceVisible to false when the shot does not show the main character's face — " +
   "close-ups of hands or objects, shots from behind, silhouettes, or any framing that crops " +
   "the head. Set it to true whenever the face is in frame, even partially. " +
+  // Costume is otherwise a constant repeated into every prompt, so a change the
+  // story requires has to be declared here or it cannot happen at all.
+  "Leave wardrobeChanges empty unless the story actually requires someone to change clothes " +
+  "in that scene. When it does, name the character exactly as the cast names them, give the " +
+  "complete new outfit as specific garments with colours and materials, and set " +
+  "depictedOnScreen to true only if the act of changing is what the scene shows. A character " +
+  "who is merely somewhere else wearing something different is not a costume change: put the " +
+  "change in the scene where it happens and leave the rest alone. " +
   "Do not write image prompts or video prompts yet. " +
   "Return only valid JSON.";
 

@@ -16,6 +16,8 @@ import {
   videoPromptDirective,
 } from "@/lib/agents/model-directives";
 import { familyOf } from "@/lib/wangp/family";
+import { wardrobeChangeClause, wardrobeTimeline } from "@/lib/agents/wardrobe";
+import type { SceneWardrobe } from "@/lib/schemas/wardrobe";
 import { config } from "@/lib/config";
 import {
   continuityNegativeSuffix,
@@ -86,6 +88,24 @@ function imageFamilyFor(project: Project) {
   return familyOf(project.imageModel || config.wangp.imageModel);
 }
 
+/**
+ * Lift the identical-wardrobe rule for the one scene that depicts a change.
+ *
+ * The standing instruction is that both frames must show the same clothing,
+ * which is right everywhere except here, where the whole point is that they do
+ * not. Stated explicitly because an unaddressed contradiction is resolved by
+ * the model rather than by us.
+ */
+function wardrobeChangeDirective(wardrobe: SceneWardrobe | undefined): string {
+  if (!wardrobe?.within.length) return "";
+  return (
+    " This scene depicts a costume change, so it is the exception to the rule that both frames " +
+    "show identical clothing: the start frame wears the outfit named for it and the end frame " +
+    "wears the one named for it. Everything else — location, lighting, time of day and every " +
+    "other character — still matches across the two."
+  );
+}
+
 function videoFamilyFor(project: Project) {
   return familyOf(project.videoModel || config.wangp.videoModel);
 }
@@ -124,6 +144,7 @@ export async function attachScenePrompts(
   const plans = context.plans;
   const imageFamily = imageFamilyFor(project);
   const videoFamily = videoFamilyFor(project);
+  const timeline = wardrobeTimeline(project, drafts, cast);
   const scenes: Scene[] = [];
   // The seam can only be matched by an agent that can see what it is matching.
   let previousEndFramePrompt: string | undefined;
@@ -131,8 +152,9 @@ export async function attachScenePrompts(
     // Only this scene's slice of the Director and Cinematographer plans travels
     // into the prompt. The full documents would crowd out the shot description.
     const slice = sceneCreativeSlice(plans, draft);
-    let imagePart = buildImagePrompts(project, draft, cast, plans);
-    let videoPart = buildVideoPrompts(project, draft, cast, plans);
+    const wardrobe = timeline.get(draft.id);
+    let imagePart = buildImagePrompts(project, draft, cast, plans, wardrobe);
+    let videoPart = buildVideoPrompts(project, draft, cast, plans, wardrobe);
 
     if (provider) {
       const user = JSON.stringify({
@@ -144,6 +166,11 @@ export async function attachScenePrompts(
         sceneIntent: slice.intent,
         shotPlan: slice.shotPlan,
         artDirection: plans?.artDirectionPlan,
+        // Only the changing scene is told about a change; every other scene
+        // sees a settled wardrobe and has no reason to write one.
+        wardrobeChange: wardrobe?.within.length
+          ? wardrobeChangeClause(wardrobe.within, cast, wardrobe.start).trim()
+          : undefined,
         cameraRules: plans?.cinematographyPlan
           ? {
               cameraLanguage: plans.cinematographyPlan.cameraLanguage,
@@ -156,6 +183,7 @@ export async function attachScenePrompts(
       });
       const image = await provider.generateJson(
         IMAGE_PROMPT_SYSTEM +
+          wardrobeChangeDirective(wardrobe) +
           imagePromptDirective(imageFamily) +
           seamDirective(project) +
           castSystemDirective(cast, true) +
@@ -163,7 +191,7 @@ export async function attachScenePrompts(
         user,
         imagePartSchema,
       );
-      if (image) imagePart = withCastEnforced(image, cast, plans, project);
+      if (image) imagePart = withCastEnforced(image, cast, plans, project, wardrobe);
       const video = await provider.generateJson(
         videoPromptSystem(project.segmentSeconds) +
           videoPromptDirective(videoFamily, {
@@ -175,7 +203,7 @@ export async function attachScenePrompts(
         user,
         videoPartSchema,
       );
-      if (video) videoPart = withCastEnforcedVideo(video, cast, plans, project);
+      if (video) videoPart = withCastEnforcedVideo(video, cast, plans, project, wardrobe);
     }
 
     scenes.push({ ...draft, prompts: { ...imagePart, ...videoPart } });
@@ -202,12 +230,12 @@ function withCastEnforced(
   cast: readonly Character[],
   plans: CreativePlans | undefined,
   project: Project,
+  wardrobe: SceneWardrobe | undefined,
 ): ImagePart {
-  const suffix = castPromptSuffix(cast);
   const negative = `${castNegativeSuffix(cast, part.imageNegativePrompt)}${continuityNegativeSuffix(plans)}`;
   return {
-    startFramePrompt: `${part.startFramePrompt}${lookPromptSuffix(project, part.startFramePrompt)}${suffix}`,
-    endFramePrompt: `${part.endFramePrompt}${lookPromptSuffix(project, part.endFramePrompt)}${suffix}`,
+    startFramePrompt: `${part.startFramePrompt}${lookPromptSuffix(project, part.startFramePrompt)}${castPromptSuffix(cast, wardrobe?.start)}`,
+    endFramePrompt: `${part.endFramePrompt}${lookPromptSuffix(project, part.endFramePrompt)}${castPromptSuffix(cast, wardrobe?.end)}`,
     imageNegativePrompt: normaliseNegative(`${part.imageNegativePrompt}${negative}`),
   };
 }
@@ -217,14 +245,16 @@ function withCastEnforcedVideo(
   cast: readonly Character[],
   plans: CreativePlans | undefined,
   project: Project,
+  wardrobe: SceneWardrobe | undefined,
 ): VideoPart {
   const negative = `${castNegativeSuffix(cast, part.videoNegativePrompt)}${continuityNegativeSuffix(plans)}`;
+  const change = wardrobeChangeClause(wardrobe?.within ?? [], cast, wardrobe?.start ?? {});
   return {
     ...part,
     // The look is still appended — a cut drifts in grade over twenty segments
     // otherwise — but the cast arrives as names, since the start frame already
     // carries the appearance the sheet would spell out.
-    videoPromptSegment: `${part.videoPromptSegment}${lookPromptSuffix(project, part.videoPromptSegment)}${castContinuityClause(cast)}`,
+    videoPromptSegment: `${part.videoPromptSegment}${lookPromptSuffix(project, part.videoPromptSegment)}${castContinuityClause(cast, change)}`,
     videoNegativePrompt: normaliseNegative(`${part.videoNegativePrompt}${negative}`),
   };
 }

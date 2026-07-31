@@ -1,6 +1,9 @@
 import { SceneLoraPanel } from "@/components/storyboard/scene-lora-panel";
 import { ScenePromptsPanel } from "@/components/storyboard/scene-prompts-panel";
+import { SceneWardrobePanel } from "@/components/storyboard/scene-wardrobe-panel";
 import type { SceneLoraOverride } from "@/lib/schemas/lora";
+import type { Character } from "@/lib/schemas/character";
+import type { WardrobeChange } from "@/lib/schemas/wardrobe";
 import type { Scene } from "@/lib/schemas/storyboard";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { SceneAttempt } from "@/lib/schemas/generation";
@@ -23,6 +26,11 @@ type SceneCardProps = {
   /** Trigger words appended automatically at generation, by prompt kind. */
   triggerWords?: { image: string[]; video: string[] };
   onPromptsSaved?: (record: ProjectRecord) => void;
+  /** The project's pinned cast, for the wardrobe panel. Empty hides it. */
+  cast?: readonly Character[];
+  /** Costume changes already set at this scene. */
+  wardrobeChanges?: readonly WardrobeChange[];
+  continuousTake?: boolean;
   /** Render a single keyframe without the other frame or the clip. */
   onGenerateKeyframe?: (purpose: "start_frame" | "end_frame") => void;
   /** Discard this scene's previews once they have been looked at. */
@@ -83,6 +91,9 @@ export function SceneCard({
   onLoraSave,
   triggerWords,
   onPromptsSaved,
+  cast = [],
+  wardrobeChanges = [],
+  continuousTake = false,
   onGenerateKeyframe,
   onClearPreviews,
   seed,
@@ -161,6 +172,17 @@ export function SceneCard({
           </div>
         </details>
       )}
+      {projectId ? (
+        <SceneWardrobePanel
+          scene={scene}
+          projectId={projectId}
+          cast={cast}
+          changes={wardrobeChanges}
+          continuousTake={continuousTake}
+          busy={busy}
+          onSaved={onPromptsSaved}
+        />
+      ) : null}
 
       {projectId && onLoraSave ? (
         <SceneLoraPanel

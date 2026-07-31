@@ -13,6 +13,8 @@ import {
 import type { Project } from "@/lib/schemas/project";
 import { sceneFramingPatchSchema, scenePromptsPatchSchema } from "@/lib/schemas/storyboard";
 import { normaliseNegative } from "@/lib/agents/negative-prompt";
+import { sceneWardrobeChangesSchema, type WardrobeChange } from "@/lib/schemas/wardrobe";
+import { continuousTakeWardrobeWarning } from "@/lib/agents/wardrobe";
 import { projectRecordSchema } from "@/lib/schemas/storyboard";
 import { storyboardExportSchema } from "@/lib/schemas/exports";
 import type { SceneAttempt } from "@/lib/schemas/generation";
@@ -237,6 +239,7 @@ export async function duplicateProject(id: string): Promise<Project> {
     // deliberately changed — which is the whole point of comparing two runs.
     sceneSeeds: remap(source.project.sceneSeeds),
     sceneLoras: remap(source.project.sceneLoras),
+    wardrobeChanges: remap(source.project.wardrobeChanges),
     status: source.storyboard ? "storyboard_ready" : "draft",
     createdAt: now,
     updatedAt: now,
@@ -362,6 +365,7 @@ export async function importProject(raw: unknown): Promise<ImportOutcome> {
     title: restoredTitle(source.project.title, taken),
     sceneSeeds: remap(source.project.sceneSeeds),
     sceneLoras: remap(source.project.sceneLoras),
+    wardrobeChanges: remap(source.project.wardrobeChanges),
     createdAt: now,
     updatedAt: now,
   };
@@ -515,6 +519,7 @@ export async function generateStoryboard(id: string): Promise<ProjectRecord> {
       artDirectionPlan: record.artDirectionPlan,
     };
     let freshStoryPlan: StoryPlan | undefined;
+    let freshWardrobe: Record<string, WardrobeChange[]> | undefined;
     const snapshot = await runStoryboardOrchestrator(record.project, {
       selectedVariant,
       cast,
@@ -523,10 +528,18 @@ export async function generateStoryboard(id: string): Promise<ProjectRecord> {
       onStoryPlan: (plan) => {
         freshStoryPlan = plan;
       },
+      onWardrobeChanges: (changes) => {
+        freshWardrobe = changes;
+      },
     });
     const updated: ProjectRecord = {
       ...record,
-      project: { ...record.project, status: "storyboard_ready", updatedAt: new Date().toISOString() },
+      project: {
+        ...record.project,
+        status: "storyboard_ready",
+        updatedAt: new Date().toISOString(),
+        ...(freshWardrobe ? { wardrobeChanges: freshWardrobe } : {}),
+      },
       storyPlan: freshStoryPlan ?? record.storyPlan,
       storyboard: snapshot,
       history: appendHistory(record, "storyboard.generated", selectedVariant?.name),
@@ -705,6 +718,50 @@ export async function repairNegativePrompts(id: string): Promise<{
   await repository.update(id, updated);
   logEvent("project.updated", { id, change: "negative_prompts_repaired", scenes: changed });
   return { record: updated, changed };
+}
+
+/**
+ * Set or clear the costume changes at one scene.
+ *
+ * A change takes effect from this scene onward, so editing one rewrites what
+ * every later scene is wearing. That only reaches a render when the scene's
+ * prompts are next written, which the caller is told so it can say so.
+ */
+export async function updateSceneWardrobe(
+  id: string,
+  sceneId: string,
+  raw: unknown,
+): Promise<{ record: ProjectRecord; warning: string | null }> {
+  const changes = sceneWardrobeChangesSchema.parse(raw);
+  const record = await getProjectRecord(id);
+  if (!record.storyboard) throw new ValidationError("Generate a storyboard before setting wardrobe");
+
+  const scene = record.storyboard.scenes.find((s) => s.id === sceneId);
+  if (!scene) throw new NotFoundError(`Scene ${sceneId} not found`);
+
+  const cast = await resolveProjectCast(record.project);
+  const known = new Set(cast.map((c) => c.id));
+  const unknown = changes.find((c) => !known.has(c.characterId));
+  if (unknown) {
+    throw new ValidationError(`${unknown.characterId} is not in this project's cast`);
+  }
+
+  const wardrobeChanges = { ...(record.project.wardrobeChanges ?? {}) };
+  if (changes.length) wardrobeChanges[sceneId] = changes;
+  else delete wardrobeChanges[sceneId];
+
+  const updated: ProjectRecord = {
+    ...record,
+    project: { ...record.project, wardrobeChanges, updatedAt: new Date().toISOString() },
+    history: appendHistory(record, "scene.wardrobe_changed", `Scene ${scene.sceneNumber}`),
+  };
+
+  await repository.update(id, updated);
+  logEvent("project.updated", { id, change: "scene_wardrobe", sceneId, changes: changes.length });
+  return {
+    record: updated,
+    warning: continuousTakeWardrobeWarning(record.project, scene.sceneNumber, changes),
+  };
 }
 
 /**

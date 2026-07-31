@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { loraSelectionSetSchema, sceneLoraMapSchema } from "@/lib/schemas/lora";
+import { sceneWardrobeChangesSchema } from "@/lib/schemas/wardrobe";
 import {
   ASPECT_RATIOS,
   CREATIVE_MODES,
@@ -74,6 +75,13 @@ export const projectSchema = z.object({
    * default the library record carries.
    */
   characterWardrobe: z.record(z.string()).optional(),
+  /**
+   * Costume changes, keyed by the scene at which each takes effect.
+   *
+   * Absent means the wardrobe above holds for the whole piece, which is what
+   * every project did before this existed.
+   */
+  wardrobeChanges: z.record(sceneWardrobeChangesSchema).optional(),
   /**
    * How each scene connects to the previous one. Optional so projects created
    * before the setting existed still parse; absent means DEFAULT_SCENE_CONTINUITY.

@@ -281,7 +281,14 @@ export async function generateSceneKeyframe(
       seeded.previews?.[sceneId]?.startFramePath ?? chosenAttempt(seeded, sceneId)?.startImagePath;
     if (existingStart) {
       extraRefs = [existingStart];
-      prompt = `${prompt} Wardrobe, hair, styling, location and lighting exactly as in the supplied reference frame; identical clothing.`;
+      // A scene that depicts a costume change is the one place the end frame is
+      // meant to differ in clothing; its own prompt already names the outfit.
+      const changing = (seeded.project.wardrobeChanges?.[sceneId] ?? []).some(
+        (c) => c.mode === "within",
+      );
+      prompt = changing
+        ? `${prompt} Hair, styling, location and lighting exactly as in the supplied reference frame.`
+        : `${prompt} Wardrobe, hair, styling, location and lighting exactly as in the supplied reference frame; identical clothing.`;
     }
   }
 

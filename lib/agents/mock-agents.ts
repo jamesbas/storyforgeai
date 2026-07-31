@@ -3,6 +3,8 @@ import type { CreativeBrief, StoryPlan, VisualBible } from "@/lib/schemas/agents
 import type { ScenePrompts, SceneDraft } from "@/lib/schemas/storyboard";
 import type { Character } from "@/lib/schemas/character";
 import { castContinuityClause, castNegativeSuffix, castPromptSuffix } from "@/lib/agents/cast";
+import { wardrobeChangeClause } from "@/lib/agents/wardrobe";
+import type { SceneWardrobe } from "@/lib/schemas/wardrobe";
 import { isContinuousTake } from "@/lib/agents/continuity";
 import { lookPromptSuffix } from "@/lib/agents/look";
 import { normaliseNegative } from "@/lib/agents/negative-prompt";
@@ -199,6 +201,7 @@ export function buildSceneDrafts(
     drafts.push({
       id: `${project.id}-scene-${String(sceneNumber).padStart(3, "0")}`,
       projectId: project.id,
+      wardrobeChanges: [],
       sceneNumber,
       startTimeSeconds,
       endTimeSeconds,
@@ -289,9 +292,9 @@ export function buildImagePrompts(
   scene: SceneDraft,
   cast: readonly Character[] = [],
   plans?: CreativePlans,
+  wardrobe?: SceneWardrobe,
 ): Pick<ScenePrompts, "startFramePrompt" | "endFramePrompt" | "imageNegativePrompt"> {
   const isLast = scene.sceneNumber === project.segmentCount;
-  const castText = castPromptSuffix(cast);
   const direction = sceneDirectionSuffix(sceneCreativeSlice(plans, scene));
   const art = globalStyleSuffix(plans);
 
@@ -307,12 +310,25 @@ export function buildImagePrompts(
     sentence(scene.actionDescription) +
     `Closing framing after ${scene.cameraMovement.toLowerCase()}, showing the result of the action` +
     `${isLast ? " on a resolving beat" : `, setting up scene ${scene.sceneNumber + 1}`}. ` +
-    `Same characters, wardrobe, and location as the start frame.`;
+    // A scene that depicts a costume change is the one place the two frames are
+    // meant to differ in wardrobe.
+    (wardrobe?.within.length
+      ? `Same characters and location as the start frame, in the changed outfit.`
+      : `Same characters, wardrobe, and location as the start frame.`);
 
   return {
     startFramePrompt:
-      startBody + lookPromptSuffix(project, startBody) + direction + art + castText,
-    endFramePrompt: endBody + lookPromptSuffix(project, endBody) + direction + art + castText,
+      startBody +
+      lookPromptSuffix(project, startBody) +
+      direction +
+      art +
+      castPromptSuffix(cast, wardrobe?.start),
+    endFramePrompt:
+      endBody +
+      lookPromptSuffix(project, endBody) +
+      direction +
+      art +
+      castPromptSuffix(cast, wardrobe?.end),
     imageNegativePrompt: normaliseNegative(
       "watermark, distorted anatomy, text artifacts, low quality" +
         castNegativeSuffix(cast) +
@@ -326,10 +342,12 @@ export function buildVideoPrompts(
   scene: SceneDraft,
   cast: readonly Character[] = [],
   plans?: CreativePlans,
+  wardrobe?: SceneWardrobe,
 ): Pick<ScenePrompts, "videoPromptSegment" | "videoNegativePrompt" | "promptQualityChecklist"> {
   const spoken = dialogueProse(scene);
   const narration = scene.narrationText ? ` Voice-over: "${scene.narrationText}"` : "";
   const slice = sceneCreativeSlice(plans, scene);
+  const change = wardrobeChangeClause(wardrobe?.within ?? [], cast, wardrobe?.start ?? {});
 
   const body =
     sentence(scene.visualDescription) +
@@ -339,7 +357,9 @@ export function buildVideoPrompts(
     `over ${scene.trimAtEndSeconds ?? scene.targetDurationSeconds} seconds.` +
     spoken +
     narration +
-    ` Preserve subject identity, wardrobe, location, and lighting throughout.`;
+    (change
+      ? ` Preserve subject identity, location, and lighting throughout.`
+      : ` Preserve subject identity, wardrobe, location, and lighting throughout.`);
 
   return {
     videoPromptSegment:
@@ -347,7 +367,7 @@ export function buildVideoPrompts(
       lookPromptSuffix(project, body) +
       sceneDirectionSuffix(slice) +
       globalStyleSuffix(plans) +
-      castContinuityClause(cast),
+      castContinuityClause(cast, change),
     videoNegativePrompt: normaliseNegative(
       // Image-to-video has failure modes a still cannot have: the subject drifts
       // from the frame it started in, and the background reorganises itself

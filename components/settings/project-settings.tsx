@@ -383,12 +383,16 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
       {usesCharacters ? (
         <section className="space-y-3 rounded-lg border border-white/10 bg-panel/40 p-4">
           <div>
-            <h2 className="font-semibold">Wardrobe for this project</h2>
+            <h2 className="font-semibold">Starting wardrobe for this project</h2>
             <p className="mt-1 text-xs text-slate-500">
               Costume belongs to the story, so it is set here rather than on the character. Name
               specific garments, colours and materials — a scene&apos;s start and end frames are
               separate renders, so an unstated outfit gets reinvented and the character changes
               clothes mid-shot. Applies to scenes generated from now on.
+            </p>
+            <p className="mt-1 text-xs text-slate-500">
+              This is what they wear at the top of the piece. To change clothes partway through, use{" "}
+              <strong>Wardrobe change</strong> on the scene card where it happens.
             </p>
           </div>
           {cast

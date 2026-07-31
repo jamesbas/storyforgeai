@@ -7,6 +7,7 @@ import { storyboardAgent } from "@/lib/agents/storyboard-agent";
 import { attachScenePrompts } from "@/lib/agents/prompt-agents";
 import { getPlanningProvider } from "@/lib/agents/llm/provider";
 import { hasCreativePlans } from "@/lib/agents/creative-context";
+import { foldWardrobeChanges } from "@/lib/agents/wardrobe";
 import type { AgentContext, OrchestratorDeps } from "@/lib/agents/types";
 import { logEvent } from "@/lib/telemetry";
 import { config } from "@/lib/config";
@@ -61,7 +62,12 @@ export async function runStoryboardOrchestrator(
   if (!deps.storyPlan) deps.onStoryPlan?.(ctx.storyPlan);
   ctx.visualBible = await visualBibleAgent(ctx, provider);
   ctx.sceneDrafts = await storyboardAgent(ctx, provider);
-  const scenes = await attachScenePrompts(project, ctx.sceneDrafts, provider, {
+  // A costume change the story called for has to reach the project before the
+  // prompts are written, or the proposal would only take effect on the next
+  // regeneration. Manual entries win: they are the ones a person chose.
+  const withWardrobe = foldWardrobeChanges(project, ctx.sceneDrafts, ctx.cast ?? []);
+  if (withWardrobe !== project) deps.onWardrobeChanges?.(withWardrobe.wardrobeChanges ?? {});
+  const scenes = await attachScenePrompts(withWardrobe, ctx.sceneDrafts, provider, {
     cast: ctx.cast,
     visualBible: ctx.visualBible,
     plans: ctx.plans,

@@ -90,6 +90,24 @@ export const sceneSchema = z.object({
    * planned before this existed behaves as it always did.
    */
   subjectFaceVisible: z.boolean().default(true),
+  /**
+   * Costume changes the story calls for in this scene, named by character
+   * rather than id because the agent writing them has never seen an id.
+   *
+   * Defaulted for the same reason as `continuityNotes`: a costume change is a
+   * detail, and no detail should be able to reject a storyboard.
+   */
+  wardrobeChanges: z
+    .array(
+      z.object({
+        character: z.string(),
+        /** What they are wearing from this scene on. */
+        newWardrobe: z.string(),
+        /** True when the change happens on screen here rather than before the scene opens. */
+        depictedOnScreen: z.boolean(),
+      }),
+    )
+    .default([]),
   narrationText: maybe(z.string()),
   dialogue: maybe(z.array(dialogueLineSchema)),
   musicNotes: maybe(z.string()),

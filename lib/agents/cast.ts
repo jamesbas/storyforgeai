@@ -36,7 +36,11 @@ function appearanceFor(character: Character, forRender: boolean): string {
  * reference photo may already be carrying the face, from text destined for a
  * planning agent, which has no photo and needs the full description.
  */
-export function castSheet(cast: readonly Character[], forRender = false): string {
+export function castSheet(
+  cast: readonly Character[],
+  forRender = false,
+  wardrobeAt?: Record<string, string>,
+): string {
   if (cast.length === 0) return "";
   return cast
     .map((c) => {
@@ -44,7 +48,11 @@ export function castSheet(cast: readonly Character[], forRender = false): string
       // Wardrobe is stated explicitly and last, so it is the most recent
       // instruction the model reads about this character. Left unstated, the
       // model invents an outfit per render and clothing changes between frames.
-      const wardrobe = c.wardrobe?.trim().replace(/\s+/g, " ");
+      //
+      // `wardrobeAt` is this scene's point on the wardrobe timeline. Without one
+      // the project constant applies, which is every project that has no
+      // costume change.
+      const wardrobe = (wardrobeAt?.[c.id] ?? c.wardrobe)?.trim().replace(/\s+/g, " ");
       return wardrobe
         ? `${c.name}: ${description} Wearing exactly: ${wardrobe}.`
         : `${c.name}: ${description}`;
@@ -80,8 +88,11 @@ export function castSystemDirective(cast: readonly Character[], forRender = fals
       locked +
       " Reuse each character's exact physical description whenever that character " +
       "appears. Where a character has a stated wardrobe, describe that exact " +
-      "clothing and never substitute or vary it. Introduce new characters only " +
-      "when the story needs someone who is not in the cast."
+      "clothing and never substitute or vary it — unless the story genuinely " +
+      "requires a costume change, in which case narrate it plainly in that " +
+      "scene's action, naming the garments removed and the garments put on, and " +
+      "keep the new outfit for every scene after it. Introduce new characters " +
+      "only when the story needs someone who is not in the cast."
     );
   }
 
@@ -105,8 +116,11 @@ export function castSystemDirective(cast: readonly Character[], forRender = fals
  * Uses the render-facing cast sheet, which withholds the facial description
  * from characters that have a reference photo.
  */
-export function castPromptSuffix(cast: readonly Character[]): string {
-  const sheet = castSheet(cast, true);
+export function castPromptSuffix(
+  cast: readonly Character[],
+  wardrobeAt?: Record<string, string>,
+): string {
+  const sheet = castSheet(cast, true, wardrobeAt);
   return sheet ? ` Character continuity — ${sheet}` : "";
 }
 
@@ -120,9 +134,20 @@ export function castPromptSuffix(cast: readonly Character[]): string {
  * a second textual description of a subject already present in the image is how
  * a clip ends up rendering that subject twice.
  */
-export function castContinuityClause(cast: readonly Character[]): string {
+export function castContinuityClause(
+  cast: readonly Character[],
+  wardrobeChange = "",
+): string {
   if (cast.length === 0) return "";
   const names = cast.map((c) => c.name).join(", ");
+  // A scene that depicts a costume change must not also be told to hold the
+  // wardrobe still; the two instructions cannot both be obeyed.
+  if (wardrobeChange) {
+    return (
+      ` The start frame fixes how ${names} look. Keep face, hair and lighting unchanged.` +
+      wardrobeChange
+    );
+  }
   return (
     ` The start frame fixes how ${names} look. Keep face, hair, wardrobe and lighting ` +
     "unchanged throughout."

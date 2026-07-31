@@ -489,6 +489,24 @@ export default function HelpPage() {
             saying nothing. The same character can wear something entirely different in your next
             project, and wardrobe stays editable afterwards from the project&apos;s Settings screen.
           </p>
+          <p className={p}>
+            That wardrobe is a <em>starting</em> outfit, not a fixed one. It is repeated into every
+            prompt, so on its own it would make a costume change impossible — the appended text would
+            contradict the scene and win. To change clothes, open a scene card on the Storyboard
+            screen and use <strong>Wardrobe change</strong>. It applies from that scene onward, so
+            you only set it once, and you can choose whether the change is already done when the
+            scene opens or happens on screen within it. The Storyboard Artist will also propose one
+            when the story clearly calls for it; anything you set by hand takes precedence and a
+            regeneration will not overwrite it.
+          </p>
+          <p className={p}>
+            <strong>Already changed</strong> is the safer setting: both frames show the new outfit
+            and nothing has to render a garment mid-transition, which video models handle badly.{" "}
+            <strong>Changes on screen</strong> puts the old outfit in the start frame and the new one
+            in the end frame so the clip shows it happening — and for that one scene the usual rules
+            about identical clothing across both frames are lifted. On a continuous take there is no
+            cut to hide an off-screen change in, so you will be warned if you ask for one.
+          </p>
 
           <h3 className={h3}>What it actually changes</h3>
           <ul className="mt-2 list-disc space-y-1 pl-5">

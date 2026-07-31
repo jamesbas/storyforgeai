@@ -3,6 +3,7 @@ import type { CreativeBrief, StoryPlan, VisualBible } from "@/lib/schemas/agents
 import type { SceneDraft } from "@/lib/schemas/storyboard";
 import type { CreativeVariant } from "@/lib/schemas/canvas";
 import type { Character } from "@/lib/schemas/character";
+import type { WardrobeChange } from "@/lib/schemas/wardrobe";
 import type { CreativePlans } from "@/lib/agents/creative-context";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 
@@ -44,4 +45,6 @@ export type OrchestratorDeps = {
   storyPlan?: StoryPlan;
   /** Reports a freshly generated arc so the caller can persist it. */
   onStoryPlan?: (plan: StoryPlan) => void;
+  /** Reports costume changes the storyboard called for, so they outlive the run. */
+  onWardrobeChanges?: (changes: Record<string, WardrobeChange[]>) => void;
 };
