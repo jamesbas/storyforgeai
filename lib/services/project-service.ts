@@ -40,6 +40,7 @@ import { buildAnimaticPlan } from "@/lib/agents/mock-audio";
 import { getPlanningProvider } from "@/lib/agents/llm/provider";
 import { resolveProjectCast } from "@/lib/services/character-service";
 import { trackAgentRun } from "@/lib/services/agent-runs";
+import { planOn, planSpecFor } from "@/lib/agents/plan-fields";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
 
@@ -486,6 +487,57 @@ export async function updateScenePrompts(
 
   await repository.update(id, updated);
   logEvent("project.updated", { id, change: "scene_prompts", sceneId });
+  return updated;
+}
+
+/**
+ * Overwrite the editable fields of one agent's plan.
+ *
+ * Only the fields the plan declares as editable are taken from the caller, and
+ * `projectId` is stamped from the record rather than accepted — the same rule
+ * that keeps a model from authoring derived values applies to a browser.
+ *
+ * The history entry matters beyond the log: the Storyboard screen decides
+ * whether a plan is "not applied yet" by comparing its last action to the last
+ * storyboard generation, so without one an edit would never reach a render
+ * while the badge still claimed the plan applied.
+ */
+export async function updatePlan(
+  id: string,
+  agentKey: string,
+  patch: unknown,
+): Promise<ProjectRecord> {
+  const spec = planSpecFor(agentKey);
+  if (!spec) throw new NotFoundError(`No editable plan for ${agentKey}`);
+
+  const record = await getProjectRecord(id);
+  const current = planOn(record, spec);
+  if (!current) throw new ValidationError(`Run the ${spec.label} agent before editing it`);
+  if (!patch || typeof patch !== "object") throw new ValidationError("Expected an object of fields");
+
+  const incoming = patch as Record<string, unknown>;
+  const editable: Record<string, unknown> = {};
+  for (const field of spec.fields) {
+    if (field.key in incoming) editable[field.key] = incoming[field.key];
+  }
+
+  const merged = { ...current, ...editable, projectId: record.project.id };
+  const parsed = spec.schema.safeParse(merged);
+  if (!parsed.success) {
+    throw new ValidationError(
+      parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
+    );
+  }
+
+  const updated: ProjectRecord = {
+    ...record,
+    [spec.recordKey]: parsed.data,
+    project: { ...record.project, updatedAt: new Date().toISOString() },
+    history: appendHistory(record, spec.historyAction, "edited by hand"),
+  };
+
+  await repository.update(id, updated);
+  logEvent("project.updated", { id, change: "plan", plan: spec.recordKey });
   return updated;
 }
 

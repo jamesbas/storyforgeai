@@ -20,24 +20,28 @@ const PLANS = [
   {
     key: "worldBible",
     action: "world_bible.generated",
+    editedAction: "world_bible.edited",
     label: "World Builder",
     effect: "Visual motifs, and forbidden contradictions as negative prompts",
   },
   {
     key: "directorialPlan",
     action: "directorial_plan.generated",
+    editedAction: "directorial_plan.edited",
     label: "Director",
     effect: "Per-scene intent, applied to that scene's prompts only",
   },
   {
     key: "cinematographyPlan",
     action: "cinematography_plan.generated",
+    editedAction: "cinematography_plan.edited",
     label: "Cinematographer",
     effect: "Per-scene shot plan, plus lens, movement and lighting rules",
   },
   {
     key: "artDirectionPlan",
     action: "art_direction_plan.generated",
+    editedAction: "art_direction_plan.edited",
     label: "Art Director",
     effect: "Production design, wardrobe, props and set dressing",
   },
@@ -45,10 +49,10 @@ const PLANS = [
 
 type PlanState = "applied" | "stale" | "missing";
 
-/** Timestamp of the most recent occurrence of a history action. */
-function lastAt(record: ProjectRecord, action: string): string | undefined {
+/** Timestamp of the most recent occurrence of any of these history actions. */
+function lastAt(record: ProjectRecord, ...actions: string[]): string | undefined {
   return (record.history ?? [])
-    .filter((entry) => entry.action === action)
+    .filter((entry) => actions.includes(entry.action))
     .map((entry) => entry.at)
     .sort()
     .pop();
@@ -68,8 +72,9 @@ export function planStates(record: ProjectRecord): {
     if (!exists) return { label: plan.label, effect: plan.effect, state: "missing" };
 
     // Without history we cannot prove staleness, so assume the plan applies
-    // rather than raising a false alarm.
-    const planAt = lastAt(record, plan.action);
+    // rather than raising a false alarm. An edit counts the same as a
+    // regeneration: both change what the storyboard would have folded in.
+    const planAt = lastAt(record, plan.action, plan.editedAction);
     const stale = Boolean(storyboardAt && planAt && planAt > storyboardAt);
     return { label: plan.label, effect: plan.effect, state: stale ? "stale" : "applied" };
   });

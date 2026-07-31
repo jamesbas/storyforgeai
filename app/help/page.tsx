@@ -688,6 +688,26 @@ export default function HelpPage() {
             Director, Cinematographer, Art Director, Audio Director, and Animatic.
           </p>
           <p className={p}>
+            <strong>View or edit what an agent wrote.</strong> Once an agent has produced something,
+            its card grows a <em>View or edit</em> panel holding the full plan — premise, rules,
+            per-scene shot plans, the lot. These documents steer every render, so being able to read
+            them matters: a wrong premise or an unwanted shot size is otherwise only visible in the
+            finished images. Click <strong>Edit</strong> to change any of it by hand.
+          </p>
+          <p className={p}>
+            Lists are edited one item per line, and per-scene entries as{" "}
+            <code>1: the text for segment 1</code>, one per line — so there is no JSON to get wrong,
+            and the server re-checks the shape before saving either way. Some fields are deliberately
+            read-only: generated audio cues carry file paths and approval state, and editing those by
+            hand would strand real media on disk.
+          </p>
+          <p className={p}>
+            <strong>An edit only reaches your renders after you regenerate the storyboard.</strong>{" "}
+            Plans are folded in when the storyboard runs and never read again, so the Storyboard
+            screen will mark an edited plan <em>not applied yet</em> until you do — the same warning
+            it gives for a plan you regenerated late.
+          </p>
+          <p className={p}>
             <strong>Run core agents</strong> does the whole sequence for you: World Builder →
             Director → Cinematographer → Art Director, one at a time, then the storyboard if you
             leave that option ticked. Order is the point — the storyboard folds in whichever plans

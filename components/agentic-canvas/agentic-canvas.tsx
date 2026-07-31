@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import { PlanPanel } from "@/components/agentic-canvas/plan-panel";
+import { planOn, planSpecFor } from "@/lib/agents/plan-fields";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 
 type CanvasAgent = {
@@ -338,6 +340,8 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
       <div className="grid gap-4 md:grid-cols-2">
         {AGENTS.map((agent) => {
           const status = agent.status(record);
+          const spec = planSpecFor(agent.key);
+          const plan = spec ? planOn(record, spec) : undefined;
           return (
             <article
               key={agent.key}
@@ -365,6 +369,16 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
               >
                 {activeKey === agent.key ? "Running…" : status === "ready" ? "Regenerate" : "Generate"}
               </button>
+              {/* Nothing to read until the agent has produced something. */}
+              {spec && plan ? (
+                <PlanPanel
+                  spec={spec}
+                  plan={plan}
+                  projectId={projectId}
+                  disabled={busy}
+                  onSaved={setRecord}
+                />
+              ) : null}
             </article>
           );
         })}
