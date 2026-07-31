@@ -12,8 +12,16 @@ import type { PlanningProvider } from "@/lib/agents/llm/provider";
 import { logEvent } from "@/lib/telemetry";
 
 export const storyboardSystem = (segmentSeconds: number) =>
-  `You are the Storyboard Agent. Create exactly one scene card per ${segmentSeconds}-second ` +
-  "segment. Each scene must include scene objective, story beat, visual description, action, " +
+  "You are the Storyboard Agent. You write a set of scene cards \u2014 one card for each " +
+  `${segmentSeconds}-second segment you are asked to cover, always more than one, returned ` +
+  "together as an array in the order they play. " +
+  // A 26B model read "create exactly one scene card per segment" as a request
+  // for one card, reasoned "create the first scene card for segment 1", and
+  // stopped with finish_reason=stop after a single entry. The count has to be
+  // stated in the instruction; leaving it implicit in the payload is not enough.
+  "Never return a single card when several segments were requested, and never stop after the " +
+  "first one. " +
+  "Each scene must include scene objective, story beat, visual description, action, " +
   "camera movement, transition in/out, continuity notes, and optional narration/dialogue/" +
   "music/SFX notes. Scope the action to what can actually happen in " +
   `${segmentSeconds} seconds. ` +
@@ -25,6 +33,28 @@ export const storyboardSystem = (segmentSeconds: number) =>
 
 /** Default-length wording, retained for callers that have no project in hand. */
 export const STORYBOARD_SYSTEM = storyboardSystem(SEGMENT_SECONDS);
+
+/**
+ * Scene cards are requested in batches rather than all at once.
+ *
+ * Asked for eighteen cards in one response, a 26B local model returned one and
+ * stopped — and the old all-or-nothing check then threw that one away too. The
+ * prompt agents never had this problem because they already run per scene, so
+ * the fix is to make this agent look more like them. Small enough that the
+ * model finishes the batch, large enough that consecutive scenes are written
+ * with each other in view.
+ */
+const CARDS_PER_CALL = 4;
+
+/** Names the slice this call owns, so the model does not try to cover the rest. */
+function batchDirective(from: number, to: number, total: number): string {
+  return (
+    ` This request covers scenes ${from} to ${to} of ${total}. Return exactly ` +
+    `${to - from + 1} scene cards, in order, one per supplied segment beat, and nothing for the ` +
+    "other segments. When a previous scene is supplied, continue from where it left off rather " +
+    "than reintroducing the setting."
+  );
+}
 
 const sceneDraftsSchema = z.object({ scenes: z.array(sceneDraftSchema) });
 
@@ -72,69 +102,80 @@ export async function storyboardAgent(
     throw new Error("storyboardAgent requires brief, storyPlan and visualBible in context");
   }
 
-  if (provider) {
-    const cast = ctx.cast ?? [];
+  const built = () =>
+    buildSceneDrafts(ctx.project, storyPlan, brief, visualBible, ctx.cast ?? [], ctx.plans);
+
+  if (!provider) return built();
+
+  const cast = ctx.cast ?? [];
+  const wanted = ctx.project.segmentCount;
+  const system =
+    storyboardSystem(ctx.project.segmentSeconds) +
+    creativeModeDirective(ctx.project) +
+    seamDirective(ctx.project) +
+    castSystemDirective(cast) +
+    precedenceDirective(cast, ctx.plans);
+
+  const fallbackDrafts = built();
+  const scenes: SceneDraft[] = [];
+  let builderFilled = 0;
+
+  for (let start = 0; start < wanted; start += CARDS_PER_CALL) {
+    const end = Math.min(start + CARDS_PER_CALL, wanted);
+    const previous = scenes[start - 1];
     const user = JSON.stringify({
       project: ctx.project,
       brief,
-      storyPlan,
       visualBible,
       cast,
       plans: planningPayload(ctx.plans),
+      // Only this batch's beats, so the model is not tempted to cover the rest.
+      segmentNumbers: Array.from({ length: end - start }, (_, i) => start + i + 1),
+      segmentBeats: storyPlan.segmentBeats.slice(start, end),
+      emotionalProgression: storyPlan.emotionalProgression.slice(start, end),
+      previousScene: previous
+        ? {
+            sceneNumber: start,
+            title: previous.title,
+            visualDescription: previous.visualDescription,
+            actionDescription: previous.actionDescription,
+            cameraMovement: previous.cameraMovement,
+          }
+        : undefined,
     });
-    const result = await provider.generateJson(
-      storyboardSystem(ctx.project.segmentSeconds) +
-        creativeModeDirective(ctx.project) +
-        seamDirective(ctx.project) +
-        castSystemDirective(cast) +
-        precedenceDirective(cast, ctx.plans),
-      user,
-      sceneDraftsSchema,
-    );
-    const wanted = ctx.project.segmentCount;
-    if (result && result.scenes.length === wanted) {
-      return withDerivedTiming(result.scenes, ctx.project);
+
+    const result = await provider.generateJson(system + batchDirective(start + 1, end, wanted), user, sceneDraftsSchema);
+    const returned = result?.scenes ?? [];
+    for (let i = 0; i < end - start; i += 1) {
+      const card = returned[i];
+      if (card) scenes.push(card);
+      else {
+        scenes.push(fallbackDrafts[start + i]!);
+        builderFilled += 1;
+      }
     }
-    if (result?.scenes.length) {
-      // Keeping what the model wrote beats discarding it. An eighteen-segment
-      // project that came back with seventeen good scene cards used to fall back
-      // wholesale to the builder, losing seventeen for the sake of one.
-      const kept = result.scenes.slice(0, wanted);
-      const reason = kept.length < wanted ? "scene_count_short" : "scene_count_over";
-      const built = buildSceneDrafts(ctx.project, storyPlan, brief, visualBible, ctx.cast ?? [], ctx.plans);
-      const merged = [...kept, ...built.slice(kept.length)];
+    if (returned.length !== end - start) {
       logEvent("agent.fallback", {
         projectId: ctx.project.id,
         agent: "storyboard",
-        reason,
-        expectedScenes: wanted,
-        returnedScenes: result.scenes.length,
+        reason: "batch_short",
+        batch: `${start + 1}-${end}`,
+        expectedScenes: end - start,
+        returnedScenes: returned.length,
       });
-      ctx.fallbacks = [
-        ...(ctx.fallbacks ?? []),
-        {
-          agent: "Storyboard Agent",
-          reason,
-          detail: `${kept.length} of ${wanted} scene cards written by the model`,
-        },
-      ];
-      return withDerivedTiming(merged, ctx.project);
     }
-    // Worth its own event: the deterministic drafts that follow are schema-valid
-    // and look like a finished storyboard, so a silent fallback is only visible
-    // as scene cards that all describe the same thing.
-    logEvent("agent.fallback", {
-      projectId: ctx.project.id,
-      agent: "storyboard",
-      reason: "no_valid_response",
-      expectedScenes: wanted,
-      returnedScenes: 0,
-    });
-    // Carried on the context so it reaches the stored snapshot, not just the log.
-    ctx.fallbacks = [
-      ...(ctx.fallbacks ?? []),
-      { agent: "Storyboard Agent", reason: "no_valid_response" },
-    ];
   }
-  return buildSceneDrafts(ctx.project, storyPlan, brief, visualBible, ctx.cast ?? [], ctx.plans);
+
+  if (builderFilled === 0) return withDerivedTiming(scenes, ctx.project);
+
+  // Carried on the context so it reaches the stored snapshot, not just the log.
+  ctx.fallbacks = [
+    ...(ctx.fallbacks ?? []),
+    {
+      agent: "Storyboard Agent",
+      reason: builderFilled === wanted ? "no_valid_response" : "scene_count_short",
+      detail: `${wanted - builderFilled} of ${wanted} scene cards written by the model`,
+    },
+  ];
+  return withDerivedTiming(scenes, ctx.project);
 }

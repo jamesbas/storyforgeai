@@ -136,7 +136,11 @@ describe("storyboard orchestrator (integration with in-memory repo)", () => {
     const snapshot = await runStoryboardOrchestrator(project, { provider });
 
     expect(snapshot.fallbacks).toEqual([
-      { agent: "Storyboard Agent", reason: "no_valid_response" },
+      {
+        agent: "Storyboard Agent",
+        reason: "no_valid_response",
+        detail: "0 of 3 scene cards written by the model",
+      },
     ]);
     // The scenes are still complete — that is exactly why it needs saying.
     expect(snapshot.scenes).toHaveLength(3);
@@ -204,7 +208,12 @@ describe("storyboard orchestrator (integration with in-memory repo)", () => {
     ]);
   });
 
-  it("drops the surplus when the model returns too many", async () => {
+  /**
+   * Cards are requested in batches, so a batch that over-delivers is simply
+   * trimmed to the segments it owns. Every card is still the model's, which is
+   * why nothing is recorded as a fallback.
+   */
+  it("trims a batch that returns more cards than it was asked for", async () => {
     const project = makeProject(60);
     const provider: PlanningProvider = {
       name: "test",
@@ -244,7 +253,7 @@ describe("storyboard orchestrator (integration with in-memory repo)", () => {
       "Model scene 2",
       "Model scene 3",
     ]);
-    expect(snapshot.fallbacks?.[0]!.reason).toBe("scene_count_over");
+    expect(snapshot.fallbacks).toBeUndefined();
   });
 
   it("round-trips through the repository", async () => {
