@@ -149,6 +149,104 @@ describe("storyboard orchestrator (integration with in-memory repo)", () => {
     expect(snapshot.fallbacks).toBeUndefined();
   });
 
+  /**
+   * An eighteen-segment project that came back with seventeen good scene cards
+   * used to fall back wholesale to the builder, losing seventeen for the sake
+   * of one.
+   */
+  it("keeps the scenes the model did write when it returns too few", async () => {
+    const project = makeProject(60);
+    const provider: PlanningProvider = {
+      name: "test",
+      generateJson: async <T,>(
+        system: string,
+        _user: string,
+        schema: ZodType<T, ZodTypeDef, unknown>,
+      ) => {
+        if (!system.startsWith("You are the Storyboard Agent")) return null;
+        // Two cards for a three-segment project.
+        const scenes = Array.from({ length: 2 }, (_, i) => ({
+          id: `${project.id}-scene-00${i + 1}`,
+          projectId: project.id,
+          sceneNumber: i + 1,
+          startTimeSeconds: i * 20,
+          endTimeSeconds: (i + 1) * 20,
+          targetDurationSeconds: 20,
+          title: `Model scene ${i + 1}`,
+          sceneObjective: "o",
+          storyBeat: "b",
+          visualDescription: "v",
+          actionDescription: "a",
+          cameraMovement: "static",
+          transitionIn: "Continuous",
+          transitionOut: "Continuous",
+          continuityNotes: [],
+          status: "planned",
+        }));
+        const parsed = schema.safeParse({ scenes });
+        return parsed.success ? parsed.data : null;
+      },
+    };
+
+    const snapshot = await runStoryboardOrchestrator(project, { provider });
+
+    expect(snapshot.scenes).toHaveLength(3);
+    expect(snapshot.scenes[0]!.title).toBe("Model scene 1");
+    expect(snapshot.scenes[1]!.title).toBe("Model scene 2");
+    // Only the gap is filled by the builder.
+    expect(snapshot.scenes[2]!.title).not.toBe("Model scene 3");
+    expect(snapshot.fallbacks).toEqual([
+      {
+        agent: "Storyboard Agent",
+        reason: "scene_count_short",
+        detail: "2 of 3 scene cards written by the model",
+      },
+    ]);
+  });
+
+  it("drops the surplus when the model returns too many", async () => {
+    const project = makeProject(60);
+    const provider: PlanningProvider = {
+      name: "test",
+      generateJson: async <T,>(
+        system: string,
+        _user: string,
+        schema: ZodType<T, ZodTypeDef, unknown>,
+      ) => {
+        if (!system.startsWith("You are the Storyboard Agent")) return null;
+        const scenes = Array.from({ length: 5 }, (_, i) => ({
+          id: `${project.id}-scene-00${i + 1}`,
+          projectId: project.id,
+          sceneNumber: i + 1,
+          startTimeSeconds: i * 20,
+          endTimeSeconds: (i + 1) * 20,
+          targetDurationSeconds: 20,
+          title: `Model scene ${i + 1}`,
+          sceneObjective: "o",
+          storyBeat: "b",
+          visualDescription: "v",
+          actionDescription: "a",
+          cameraMovement: "static",
+          transitionIn: "Continuous",
+          transitionOut: "Continuous",
+          continuityNotes: [],
+          status: "planned",
+        }));
+        const parsed = schema.safeParse({ scenes });
+        return parsed.success ? parsed.data : null;
+      },
+    };
+
+    const snapshot = await runStoryboardOrchestrator(project, { provider });
+
+    expect(snapshot.scenes.map((s) => s.title)).toEqual([
+      "Model scene 1",
+      "Model scene 2",
+      "Model scene 3",
+    ]);
+    expect(snapshot.fallbacks?.[0]!.reason).toBe("scene_count_over");
+  });
+
   it("round-trips through the repository", async () => {
     const project = makeProject(40);
     const snapshot = await runStoryboardOrchestrator(project);

@@ -548,20 +548,41 @@ export function StoryboardView({ projectId }: { projectId: string }) {
           data-testid="storyboard-fallback"
         >
           <h2 className="text-sm font-semibold text-amber-200">
-            This storyboard was not written by the planning model
+            {storyboard.fallbacks.some((f) => f.reason === "no_valid_response")
+              ? "These scene cards were not written by the planning model"
+              : "Some scene cards were not written by the planning model"}
           </h2>
-          <p className="mt-1 text-xs text-amber-200/90">
-            {storyboard.fallbacks.map((f) => f.agent).join(", ")} produced no usable output, so the
-            built-in builder filled in from the story beats. The result is structurally complete and
-            will render, but it is mechanical — scene descriptions follow the beats rather than
-            interpreting them.
-          </p>
+          {storyboard.fallbacks.map((f) => (
+            <p key={f.reason} className="mt-1 text-xs text-amber-200/90">
+              {f.reason === "no_valid_response" ? (
+                <>
+                  The {f.agent} returned nothing usable, so the built-in builder filled every scene
+                  card in from the story beats. They are structurally complete and will render, but
+                  they are mechanical — the descriptions follow the beats rather than interpreting
+                  them.
+                </>
+              ) : f.reason === "scene_count_short" ? (
+                <>
+                  The {f.agent} returned fewer scene cards than this project has segments
+                  {f.detail ? ` (${f.detail})` : ""}. Its cards were kept; the remaining ones at the
+                  end were filled in by the built-in builder and will read as mechanical.
+                </>
+              ) : (
+                <>
+                  The {f.agent} returned more scene cards than this project has segments
+                  {f.detail ? ` (${f.detail})` : ""}. The surplus was dropped, so the story may end
+                  abruptly rather than resolving.
+                </>
+              )}
+            </p>
+          ))}
           <p className="mt-2 text-[11px] text-amber-200/70">
-            Reason:{" "}
-            {storyboard.fallbacks
-              .map((f) => (f.reason === "scene_count_mismatch" ? "wrong number of scenes returned" : "no valid response"))
-              .join(", ")}
-            . Check the planning model is loaded, then regenerate the storyboard.
+            This affects the scene cards only. Each scene&apos;s image and video prompts are written
+            by separate per-scene calls and are unaffected — expand <strong>Prompts</strong> on any
+            card to see what will actually be sent to WanGP. Long storyboards are the usual cause:
+            every card is produced in one request, so a project with many segments can exceed what
+            the model will return in one go. Load the planning model and regenerate, and if it keeps
+            happening, raise <code>OPENAI_MAX_TOKENS</code> or shorten the project.
           </p>
           <button
             type="button"

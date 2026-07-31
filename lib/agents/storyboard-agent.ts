@@ -91,22 +91,50 @@ export async function storyboardAgent(
       user,
       sceneDraftsSchema,
     );
-    if (result && result.scenes.length === ctx.project.segmentCount) {
+    const wanted = ctx.project.segmentCount;
+    if (result && result.scenes.length === wanted) {
       return withDerivedTiming(result.scenes, ctx.project);
+    }
+    if (result?.scenes.length) {
+      // Keeping what the model wrote beats discarding it. An eighteen-segment
+      // project that came back with seventeen good scene cards used to fall back
+      // wholesale to the builder, losing seventeen for the sake of one.
+      const kept = result.scenes.slice(0, wanted);
+      const reason = kept.length < wanted ? "scene_count_short" : "scene_count_over";
+      const built = buildSceneDrafts(ctx.project, storyPlan, brief, visualBible, ctx.cast ?? [], ctx.plans);
+      const merged = [...kept, ...built.slice(kept.length)];
+      logEvent("agent.fallback", {
+        projectId: ctx.project.id,
+        agent: "storyboard",
+        reason,
+        expectedScenes: wanted,
+        returnedScenes: result.scenes.length,
+      });
+      ctx.fallbacks = [
+        ...(ctx.fallbacks ?? []),
+        {
+          agent: "Storyboard Agent",
+          reason,
+          detail: `${kept.length} of ${wanted} scene cards written by the model`,
+        },
+      ];
+      return withDerivedTiming(merged, ctx.project);
     }
     // Worth its own event: the deterministic drafts that follow are schema-valid
     // and look like a finished storyboard, so a silent fallback is only visible
     // as scene cards that all describe the same thing.
-    const reason = result ? "scene_count_mismatch" : "no_valid_response";
     logEvent("agent.fallback", {
       projectId: ctx.project.id,
       agent: "storyboard",
-      reason,
-      expectedScenes: ctx.project.segmentCount,
-      returnedScenes: result?.scenes.length ?? 0,
+      reason: "no_valid_response",
+      expectedScenes: wanted,
+      returnedScenes: 0,
     });
     // Carried on the context so it reaches the stored snapshot, not just the log.
-    ctx.fallbacks = [...(ctx.fallbacks ?? []), { agent: "Storyboard Agent", reason }];
+    ctx.fallbacks = [
+      ...(ctx.fallbacks ?? []),
+      { agent: "Storyboard Agent", reason: "no_valid_response" },
+    ];
   }
   return buildSceneDrafts(ctx.project, storyPlan, brief, visualBible, ctx.cast ?? [], ctx.plans);
 }

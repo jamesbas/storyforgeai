@@ -118,7 +118,9 @@ export const storyboardSnapshotSchema = z.object({
    * lot. Without this the only way to tell is reading `storyBeat` against
    * `visualDescription` in the raw JSON.
    */
-  fallbacks: maybe(z.array(z.object({ agent: z.string(), reason: z.string() }))),
+  fallbacks: maybe(
+    z.array(z.object({ agent: z.string(), reason: z.string(), detail: maybe(z.string()) })),
+  ),
 });
 export type StoryboardSnapshot = z.infer<typeof storyboardSnapshotSchema>;
 

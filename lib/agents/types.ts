@@ -28,7 +28,7 @@ export type AgentContext = {
   visualBible?: VisualBible;
   sceneDrafts?: SceneDraft[];
   /** Agents that fell back to their deterministic builder during this run. */
-  fallbacks?: { agent: string; reason: string }[];
+  fallbacks?: { agent: string; reason: string; detail?: string }[];
 };
 
 /**
