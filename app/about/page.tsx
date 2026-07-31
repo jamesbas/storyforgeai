@@ -46,22 +46,36 @@ export default function AboutPage() {
 
         <section className="rounded-lg border border-white/10 bg-panel/40 p-4 text-sm text-slate-300">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
-            Using StoryForgeAI
+            Licence
           </h2>
           <p className="mt-2">
-            The source is published openly, and you are welcome to run it, study it, modify it and
-            share your changes for personal, educational and other non-commercial purposes.
+            StoryForgeAI is licensed under the{" "}
+            <a
+              href="https://polyformproject.org/licenses/noncommercial/1.0.0"
+              target="_blank"
+              rel="noreferrer"
+              className="text-accent hover:underline"
+            >
+              PolyForm Noncommercial License 1.0.0
+            </a>
+            .
           </p>
           <p className="mt-2">
-            <strong className="text-slate-200">Commercial use is by arrangement.</strong> If you
-            want to sell it, build a paid product or service on it, or use it inside a commercial
-            offering, please contact JabAI Solutions first. The intent is not to block you — it is
-            to have the conversation.
+            <strong className="text-slate-200">Noncommercial use is granted outright.</strong>{" "}
+            Personal use, study, experiment, hobby projects, and use by charities, schools, public
+            research bodies and government institutions are all permitted. You may modify it and
+            share your changes, as long as you pass the same terms along.
+          </p>
+          <p className="mt-2">
+            <strong className="text-slate-200">Commercial use is reserved.</strong> To sell
+            StoryForgeAI, build a paid product or service on it, or use it inside a commercial
+            offering, contact JabAI Solutions for a commercial licence. The intent is not to block
+            you — it is to have the conversation.
           </p>
           <p className="mt-2 text-xs text-slate-500">
-            Video you generate with StoryForgeAI is yours. This applies to the application, not to
+            Video you generate with StoryForgeAI is yours. The licence covers the application, not
             its output — though the models you generate with carry their own terms; see the
-            disclosure above.
+            disclosure below.
           </p>
         </section>
 

@@ -2,6 +2,8 @@
   "name": "storyforgeai",
   "version": "0.1.0",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE",
+  "author": "JabAI Solutions (https://www.jabaisolutions.com/)",
   "scripts": {
     "dev": "next dev -p 3200",
     "dev:e2e": "next dev -p 3100",

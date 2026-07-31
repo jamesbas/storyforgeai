@@ -480,21 +480,21 @@ StoryForgeAI is built and maintained by
 **[JabAI Solutions](https://www.jabaisolutions.com/)**, an AI consulting and
 development company.
 
-**Personal and non-commercial use is welcome.** Run it, read it, modify it, and
-share your changes.
+Licensed under the
+**[PolyForm Noncommercial License 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0)**
+— see [LICENSE](LICENSE). In short:
 
-**Commercial use is by arrangement.** If you want to sell StoryForgeAI, build a
-paid product or service on top of it, or use it inside a commercial offering,
-please talk to JabAI Solutions first. The intent is not to block anyone — it is to
-have the conversation before it happens.
+- **Noncommercial use is granted outright.** Personal use, study, experiment,
+  hobby projects, and use by charities, schools, public research bodies and
+  government institutions are all permitted. You may modify it and distribute
+  your changes, provided you pass these terms along.
+- **Commercial use is reserved.** If you want to sell StoryForgeAI, build a paid
+  product or service on it, or use it inside a commercial offering, contact JabAI
+  Solutions for a commercial licence. The intent is not to block anyone — it is
+  to have the conversation first.
 
-Video you generate with StoryForgeAI is yours; the terms above cover the
+Video you generate with StoryForgeAI is yours; the licence covers the
 application, not its output.
-
-> **Note:** the repository does not yet carry a `LICENSE` file, so by default all
-> rights are reserved and the paragraphs above state intent rather than grant
-> terms. A source-available licence — PolyForm Noncommercial or similar — would
-> make the non-commercial permission explicit and enforceable.
 
 StoryForgeAI integrates with WanGP/Wan2GP (by DeepBeepMeep) as a local generation
 backend, subject to its own license and terms. Review the license of each model or

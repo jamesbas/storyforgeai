@@ -98,9 +98,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </a>
           </p>
           <p>
-            Free for personal and non-commercial use.{" "}
+            PolyForm Noncommercial 1.0.0 — commercial use by arrangement.{" "}
             <Link href="/about" className="hover:text-accent hover:underline">
-              Licensing
+              Licence
             </Link>
           </p>
         </div>
