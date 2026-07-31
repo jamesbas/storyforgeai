@@ -73,11 +73,30 @@ describe("creative plan staleness", () => {
   });
 
   /**
-   * Without history there is no evidence either way, and a false "not applied"
-   * warning would push users into pointless regenerations.
+   * A plan waiting for its first storyboard has not gone stale, it just has
+   * nothing to be out of step with. Saying "not applied yet" there read as an
+   * alarm on a project that had done everything right.
+   */
+  it("calls a plan ready when no storyboard has been generated", () => {
+    const record = recordWith([], { artDirectionPlan: plan });
+    expect(planStates(record).states.find((s) => s.label === "Art Director")?.state).toBe("ready");
+  });
+
+  it("does not count a waiting plan as stale", () => {
+    const record = recordWith([{ at: "2026-07-28T12:00:00Z", action: "world_bible.generated" }], {
+      worldBible: plan,
+    });
+    expect(planStates(record).staleCount).toBe(0);
+  });
+
+  /**
+   * Once a storyboard exists but history cannot prove the plan came after it,
+   * assume it applies rather than pushing users into pointless regenerations.
    */
   it("assumes a plan applies when there is no history to prove otherwise", () => {
-    const record = recordWith([], { artDirectionPlan: plan });
+    const record = recordWith([{ at: "2026-07-28T12:02:53Z", action: "storyboard.generated" }], {
+      artDirectionPlan: plan,
+    });
     expect(planStates(record).states.find((s) => s.label === "Art Director")?.state).toBe("applied");
   });
 

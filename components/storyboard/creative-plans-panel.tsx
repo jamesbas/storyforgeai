@@ -47,7 +47,13 @@ const PLANS = [
   },
 ] as const;
 
-type PlanState = "applied" | "stale" | "missing";
+/**
+ * `ready` and `stale` both mean "not in a storyboard", and conflating them read
+ * as an alarm on a project that had done nothing wrong: every plan freshly
+ * generated, no storyboard yet, and four amber "not applied yet" badges saying
+ * so. Waiting for a first storyboard is the normal state of a correct project.
+ */
+type PlanState = "applied" | "ready" | "stale" | "missing";
 
 /** Timestamp of the most recent occurrence of any of these history actions. */
 function lastAt(record: ProjectRecord, ...actions: string[]): string | undefined {
@@ -70,12 +76,14 @@ export function planStates(record: ProjectRecord): {
   const states: PlanStatus[] = PLANS.map((plan) => {
     const exists = Boolean(record[plan.key]);
     if (!exists) return { label: plan.label, effect: plan.effect, state: "missing" };
+    // Nothing to be out of step with until a storyboard exists.
+    if (!storyboardAt) return { label: plan.label, effect: plan.effect, state: "ready" };
 
     // Without history we cannot prove staleness, so assume the plan applies
     // rather than raising a false alarm. An edit counts the same as a
     // regeneration: both change what the storyboard would have folded in.
     const planAt = lastAt(record, plan.action, plan.editedAction);
-    const stale = Boolean(storyboardAt && planAt && planAt > storyboardAt);
+    const stale = Boolean(planAt && planAt > storyboardAt);
     return { label: plan.label, effect: plan.effect, state: stale ? "stale" : "applied" };
   });
 
@@ -88,6 +96,7 @@ export function planStates(record: ProjectRecord): {
 
 const BADGE: Record<PlanState, { text: string; className: string }> = {
   applied: { text: "in this storyboard", className: "bg-emerald-500/15 text-emerald-300" },
+  ready: { text: "ready to apply", className: "bg-sky-500/15 text-sky-300" },
   stale: { text: "not applied yet", className: "bg-amber-500/15 text-amber-300" },
   missing: { text: "not generated", className: "bg-white/5 text-slate-500" },
 };
@@ -136,7 +145,7 @@ export function CreativePlansPanel({
             <span
               className={`shrink-0 rounded px-2 py-0.5 text-[11px] ${BADGE[plan.state].className}`}
             >
-              {hasStoryboard ? BADGE[plan.state].text : BADGE[plan.state === "missing" ? "missing" : "stale"].text}
+              {BADGE[plan.state].text}
             </span>
           </li>
         ))}
@@ -168,6 +177,13 @@ export function CreativePlansPanel({
           You can generate a storyboard without these, but running them first is the single biggest
           quality lever in the app. Order matters: run the plans on the Agentic canvas, then
           generate the storyboard last so it picks them all up.
+        </p>
+      ) : null}
+
+      {!hasStoryboard && missingCount === 0 ? (
+        <p className="mt-3 rounded-md border border-sky-500/25 bg-sky-500/5 p-3 text-xs text-sky-200/80">
+          All four plans are written and waiting. Generating the storyboard now folds every one of
+          them into the scene prompts — which is the order that gets them into your renders.
         </p>
       ) : null}
 
