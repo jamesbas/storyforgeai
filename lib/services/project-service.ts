@@ -741,7 +741,8 @@ export async function updateSceneWardrobe(
 
   const cast = await resolveProjectCast(record.project);
   const known = new Set(cast.map((c) => c.id));
-  const unknown = changes.find((c) => !known.has(c.characterId));
+  // Only cast entries are checked; an unnamed subject is free text by design.
+  const unknown = changes.find((c) => c.characterId && !known.has(c.characterId));
   if (unknown) {
     throw new ValidationError(`${unknown.characterId} is not in this project's cast`);
   }

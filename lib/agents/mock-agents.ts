@@ -3,7 +3,7 @@ import type { CreativeBrief, StoryPlan, VisualBible } from "@/lib/schemas/agents
 import type { ScenePrompts, SceneDraft } from "@/lib/schemas/storyboard";
 import type { Character } from "@/lib/schemas/character";
 import { castContinuityClause, castNegativeSuffix, castPromptSuffix } from "@/lib/agents/cast";
-import { wardrobeChangeClause } from "@/lib/agents/wardrobe";
+import { wardrobeChangeClause, othersWardrobeSuffix } from "@/lib/agents/wardrobe";
 import type { SceneWardrobe } from "@/lib/schemas/wardrobe";
 import { isContinuousTake } from "@/lib/agents/continuity";
 import { lookPromptSuffix } from "@/lib/agents/look";
@@ -322,13 +322,15 @@ export function buildImagePrompts(
       lookPromptSuffix(project, startBody) +
       direction +
       art +
-      castPromptSuffix(cast, wardrobe?.start),
+      castPromptSuffix(cast, wardrobe?.start) +
+      othersWardrobeSuffix(wardrobe?.othersStart ?? {}),
     endFramePrompt:
       endBody +
       lookPromptSuffix(project, endBody) +
       direction +
       art +
-      castPromptSuffix(cast, wardrobe?.end),
+      castPromptSuffix(cast, wardrobe?.end) +
+      othersWardrobeSuffix(wardrobe?.othersEnd ?? {}),
     imageNegativePrompt: normaliseNegative(
       "watermark, distorted anatomy, text artifacts, low quality" +
         castNegativeSuffix(cast) +
@@ -347,7 +349,12 @@ export function buildVideoPrompts(
   const spoken = dialogueProse(scene);
   const narration = scene.narrationText ? ` Voice-over: "${scene.narrationText}"` : "";
   const slice = sceneCreativeSlice(plans, scene);
-  const change = wardrobeChangeClause(wardrobe?.within ?? [], cast, wardrobe?.start ?? {});
+  const change = wardrobeChangeClause(
+    wardrobe?.within ?? [],
+    cast,
+    wardrobe?.start ?? {},
+    wardrobe?.othersStart ?? {},
+  );
 
   const body =
     sentence(scene.visualDescription) +

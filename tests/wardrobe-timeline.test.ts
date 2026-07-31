@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   continuousTakeWardrobeWarning,
   foldWardrobeChanges,
+  othersWardrobeSuffix,
   wardrobeChangeClause,
   wardrobeTimeline,
 } from "@/lib/agents/wardrobe";
@@ -150,6 +151,72 @@ describe("telling the model what the change is", () => {
   });
 });
 
+/**
+ * People who were never pinned to the character library.
+ *
+ * They had the worst of both: locked into identical clothing across a scene's
+ * two frames with no way to declare a change, while nothing at all held their
+ * outfit steady from one scene to the next.
+ */
+describe("unnamed people", () => {
+  const SHIRTS_OFF = {
+    s2: [{ subject: "the two men", wardrobe: "bare-chested, in dark jeans", mode: "within" as const }],
+  };
+
+  it("carries an established outfit forward instead of reinventing it", () => {
+    const timeline = wardrobeTimeline(project({ wardrobeChanges: SHIRTS_OFF }), SCENES, [TRACEY]);
+
+    expect(timeline.get("s1")!.othersStart).toEqual({});
+    expect(timeline.get("s2")!.othersEnd["the two men"]).toBe("bare-chested, in dark jeans");
+    // The point of the question: scene 3 must not put the shirts back on.
+    expect(timeline.get("s3")!.othersStart["the two men"]).toBe("bare-chested, in dark jeans");
+    expect(timeline.get("s4")!.othersStart["the two men"]).toBe("bare-chested, in dark jeans");
+  });
+
+  it("keeps the old state in the start frame of the scene that depicts it", () => {
+    const established = {
+      s1: [{ subject: "the two men", wardrobe: "grey work shirts", mode: "between" as const }],
+      ...SHIRTS_OFF,
+    };
+    const timeline = wardrobeTimeline(project({ wardrobeChanges: established }), SCENES, [TRACEY]);
+
+    expect(timeline.get("s2")!.othersStart["the two men"]).toBe("grey work shirts");
+    expect(timeline.get("s2")!.othersEnd["the two men"]).toBe("bare-chested, in dark jeans");
+  });
+
+  it("names them in the change clause the way the prompt should", () => {
+    const clause = wardrobeChangeClause(
+      SHIRTS_OFF.s2,
+      [TRACEY],
+      {},
+      { "the two men": "grey work shirts" },
+    );
+    expect(clause).toContain("the two men changes out of grey work shirts");
+  });
+
+  it("reaches the prompt as its own continuity clause", () => {
+    expect(othersWardrobeSuffix({ "the two men": "bare-chested" })).toBe(
+      " Wardrobe continuity — the two men: bare-chested",
+    );
+    expect(othersWardrobeSuffix({})).toBe("");
+  });
+
+  /** Cast and unnamed subjects share a scene without colliding. */
+  it("tracks them separately from the pinned cast", () => {
+    const both = {
+      s2: [
+        { characterId: "char-tracey", wardrobe: "a red coat", mode: "between" as const },
+        { subject: "the two men", wardrobe: "bare-chested", mode: "between" as const },
+      ],
+    };
+    const timeline = wardrobeTimeline(project({ wardrobeChanges: both }), SCENES, [TRACEY]);
+
+    expect(timeline.get("s2")!.start["char-tracey"]).toBe("a red coat");
+    expect(timeline.get("s2")!.othersStart["the two men"]).toBe("bare-chested");
+    expect(timeline.get("s2")!.start).not.toHaveProperty("the two men");
+  });
+});
+
 describe("folding what the storyboard proposed", () => {
   const drafts = [
     { id: "s1", wardrobeChanges: [] },
@@ -168,12 +235,22 @@ describe("folding what the storyboard proposed", () => {
     ]);
   });
 
-  /** A name the cast does not have is a hallucination, not an instruction. */
-  it("drops a change for a character it cannot identify", () => {
+  /**
+   * A name the cast does not have is not a mistake — unnamed people are how
+   * most of a crowd is written, and they need change points too.
+   */
+  it("treats an unrecognised name as an unnamed subject", () => {
     const unknown = [
-      { id: "s2", wardrobeChanges: [{ character: "Nobody", newWardrobe: "x", depictedOnScreen: false }] },
+      {
+        id: "s2",
+        wardrobeChanges: [
+          { character: "the two men", newWardrobe: "bare-chested", depictedOnScreen: true },
+        ],
+      },
     ];
-    expect(foldWardrobeChanges(project(), unknown, [TRACEY]).wardrobeChanges).toBeUndefined();
+    expect(foldWardrobeChanges(project(), unknown, [TRACEY]).wardrobeChanges?.s2).toEqual([
+      { subject: "the two men", wardrobe: "bare-chested", mode: "within" },
+    ]);
   });
 
   /** A person set this; re-running the agent must not quietly overrule them. */

@@ -16,7 +16,7 @@ import {
   videoPromptDirective,
 } from "@/lib/agents/model-directives";
 import { familyOf } from "@/lib/wangp/family";
-import { wardrobeChangeClause, wardrobeTimeline } from "@/lib/agents/wardrobe";
+import { wardrobeChangeClause, othersWardrobeSuffix, wardrobeTimeline } from "@/lib/agents/wardrobe";
 import type { SceneWardrobe } from "@/lib/schemas/wardrobe";
 import { config } from "@/lib/config";
 import {
@@ -60,6 +60,11 @@ export const IMAGE_PROMPT_SYSTEM =
   "garments with colours and materials — never a vague placeholder such as 'casual attire', " +
   "'contemporary clothing' or 'appropriate outfit' — and repeat that same wardrobe wording " +
   "verbatim in both prompts. Only framing, pose and action may differ between them. " +
+  // Non-cast people had no persistent wardrobe at all, so an outfit established
+  // in one scene was reinvented in the next.
+  "When `otherWardrobe` names a subject and their outfit, that outfit is already established: " +
+  "use it, do not invent a different one, and do not restate it in your prompt — it is appended " +
+  "automatically, and a second copy makes the model render the person twice. " +
   // Same reasoning as the cast sheet: the look is appended verbatim, so a
   // second mention only doubles the term's weight in the render.
   "Do not restate the project's style or tone; both are appended to every prompt automatically.";
@@ -169,7 +174,17 @@ export async function attachScenePrompts(
         // Only the changing scene is told about a change; every other scene
         // sees a settled wardrobe and has no reason to write one.
         wardrobeChange: wardrobe?.within.length
-          ? wardrobeChangeClause(wardrobe.within, cast, wardrobe.start).trim()
+          ? wardrobeChangeClause(
+              wardrobe.within,
+              cast,
+              wardrobe.start,
+              wardrobe.othersStart,
+            ).trim()
+          : undefined,
+        // Established outfits for people who are not pinned cast. Without this
+        // an unnamed man's shirt drifts colour from one scene to the next.
+        otherWardrobe: Object.keys(wardrobe?.othersStart ?? {}).length
+          ? wardrobe!.othersStart
           : undefined,
         cameraRules: plans?.cinematographyPlan
           ? {
@@ -234,8 +249,8 @@ function withCastEnforced(
 ): ImagePart {
   const negative = `${castNegativeSuffix(cast, part.imageNegativePrompt)}${continuityNegativeSuffix(plans)}`;
   return {
-    startFramePrompt: `${part.startFramePrompt}${lookPromptSuffix(project, part.startFramePrompt)}${castPromptSuffix(cast, wardrobe?.start)}`,
-    endFramePrompt: `${part.endFramePrompt}${lookPromptSuffix(project, part.endFramePrompt)}${castPromptSuffix(cast, wardrobe?.end)}`,
+    startFramePrompt: `${part.startFramePrompt}${lookPromptSuffix(project, part.startFramePrompt)}${castPromptSuffix(cast, wardrobe?.start)}${othersWardrobeSuffix(wardrobe?.othersStart ?? {})}`,
+    endFramePrompt: `${part.endFramePrompt}${lookPromptSuffix(project, part.endFramePrompt)}${castPromptSuffix(cast, wardrobe?.end)}${othersWardrobeSuffix(wardrobe?.othersEnd ?? {})}`,
     imageNegativePrompt: normaliseNegative(`${part.imageNegativePrompt}${negative}`),
   };
 }
@@ -248,7 +263,12 @@ function withCastEnforcedVideo(
   wardrobe: SceneWardrobe | undefined,
 ): VideoPart {
   const negative = `${castNegativeSuffix(cast, part.videoNegativePrompt)}${continuityNegativeSuffix(plans)}`;
-  const change = wardrobeChangeClause(wardrobe?.within ?? [], cast, wardrobe?.start ?? {});
+  const change = wardrobeChangeClause(
+    wardrobe?.within ?? [],
+    cast,
+    wardrobe?.start ?? {},
+    wardrobe?.othersStart ?? {},
+  );
   return {
     ...part,
     // The look is still appended — a cut drifts in grade over twenty segments

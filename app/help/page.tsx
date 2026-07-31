@@ -507,6 +507,16 @@ export default function HelpPage() {
             about identical clothing across both frames are lifted. On a continuous take there is no
             cut to hide an off-screen change in, so you will be warned if you ask for one.
           </p>
+          <p className={p}>
+            The same panel handles <strong>people who are not in the character library</strong>.
+            Describe them the way a prompt should — &quot;the two men&quot;, &quot;the
+            bartender&quot; — and give what they are left wearing. This matters in both directions:
+            unnamed people had no way to change clothes at all, because a scene&apos;s two frames are
+            held to identical wardrobe and only pinned characters could declare an exception; and
+            nothing carried their outfit between scenes, so a grey shirt could quietly become a blue
+            one. Establishing an outfit here fixes both — it holds until something changes it, and
+            a change applies from that scene on rather than being undone by the next render.
+          </p>
 
           <h3 className={h3}>What it actually changes</h3>
           <ul className="mt-2 list-disc space-y-1 pl-5">

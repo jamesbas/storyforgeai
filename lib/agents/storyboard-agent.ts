@@ -31,11 +31,14 @@ export const storyboardSystem = (segmentSeconds: number) =>
   // Costume is otherwise a constant repeated into every prompt, so a change the
   // story requires has to be declared here or it cannot happen at all.
   "Leave wardrobeChanges empty unless the story actually requires someone to change clothes " +
-  "in that scene. When it does, name the character exactly as the cast names them, give the " +
-  "complete new outfit as specific garments with colours and materials, and set " +
-  "depictedOnScreen to true only if the act of changing is what the scene shows. A character " +
-  "who is merely somewhere else wearing something different is not a costume change: put the " +
-  "change in the scene where it happens and leave the rest alone. " +
+  "in that scene. When it does, name the character exactly as the cast names them, or describe " +
+  "anyone not in the cast the way a prompt should refer to them — 'the two men', 'the " +
+  "bartender' — give the complete resulting outfit as specific garments with colours and " +
+  "materials, and set depictedOnScreen to true only if the act of changing is what the scene " +
+  "shows. State what they are left wearing, not what was removed: 'bare-chested, in dark jeans' " +
+  "rather than 'takes his shirt off'. A character who is merely somewhere else wearing " +
+  "something different is not a costume change: put the change in the scene where it happens " +
+  "and leave the rest alone. " +
   "Do not write image prompts or video prompts yet. " +
   "Return only valid JSON.";
 

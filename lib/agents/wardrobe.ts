@@ -26,31 +26,61 @@ export function wardrobeTimeline(
     const wardrobe = wardrobeOf(project, character);
     if (wardrobe) current[character.id] = wardrobe;
   }
+  // Unnamed people start with nothing established: whatever the first scene
+  // they appear in decides. From then on it is carried like anyone else's.
+  const others: Record<string, string> = {};
 
   const byId = new Map(cast.map((c) => [c.id, c] as const));
   const timeline = new Map<string, SceneWardrobe>();
 
   for (const scene of scenes) {
-    const changes = (project.wardrobeChanges?.[scene.id] ?? []).filter((c) => byId.has(c.characterId));
+    const changes = (project.wardrobeChanges?.[scene.id] ?? []).filter(
+      (c) => !c.characterId || byId.has(c.characterId),
+    );
     const start = { ...current };
+    const othersStart = { ...others };
     const within: WardrobeChange[] = [];
 
     for (const change of changes) {
       const wardrobe = change.wardrobe.trim();
       if (!wardrobe) continue;
+      const target = change.characterId ? current : others;
+      const opening = change.characterId ? start : othersStart;
+      const key = change.characterId ?? change.subject!.trim();
+
       if (change.mode === "within") {
         within.push(change);
       } else {
         // Already changed by the time the scene opens, so both frames wear it.
-        start[change.characterId] = wardrobe;
+        opening[key] = wardrobe;
       }
-      current[change.characterId] = wardrobe;
+      target[key] = wardrobe;
     }
 
-    timeline.set(scene.id, { start, end: { ...current }, within });
+    timeline.set(scene.id, {
+      start,
+      end: { ...current },
+      othersStart,
+      othersEnd: { ...others },
+      within,
+    });
   }
 
   return timeline;
+}
+
+/**
+ * The clause carrying non-cast wardrobe into a prompt.
+ *
+ * Pinned characters get the cast sheet; everyone else had nothing at all, so
+ * an unnamed man's shirt could drift from grey to blue between scenes with
+ * nothing to stop it. Empty when no unnamed subject has an established outfit.
+ */
+export function othersWardrobeSuffix(others: Record<string, string>): string {
+  const entries = Object.entries(others).filter(([, outfit]) => outfit.trim());
+  if (entries.length === 0) return "";
+  const sheet = entries.map(([subject, outfit]) => `${subject}: ${outfit}`).join(" ");
+  return ` Wardrobe continuity — ${sheet}`;
 }
 
 /** The project's wardrobe for a character, falling back to the library default. */
@@ -62,10 +92,11 @@ export function wardrobeOf(project: Project, character: Character): string | und
 /**
  * Merge costume changes the Storyboard Artist wrote into the project's map.
  *
- * The agent names characters, having never seen an id, so a change that does
- * not match a cast member by name is dropped rather than guessed at. Existing
- * entries for a scene are left alone: those were set by a person, and an agent
- * re-run should not quietly overrule them.
+ * A name the cast recognises becomes a change for that character; anything else
+ * becomes a change for an unnamed subject rather than being discarded, since
+ * "the two men" is a perfectly good way to refer to people who were never
+ * pinned. Existing entries for a scene are left alone: those were set by a
+ * person, and an agent re-run should not quietly overrule them.
  */
 export function foldWardrobeChanges(
   project: Project,
@@ -78,16 +109,16 @@ export function foldWardrobeChanges(
 
   for (const draft of drafts) {
     if (merged[draft.id]?.length) continue;
-    const changes = (draft.wardrobeChanges ?? []).flatMap((proposed) => {
-      const character = byName.get(proposed.character.trim().toLocaleLowerCase());
+    const changes = (draft.wardrobeChanges ?? []).flatMap<WardrobeChange>((proposed) => {
+      const subject = proposed.character.trim();
       const wardrobe = proposed.newWardrobe.trim();
-      if (!character || !wardrobe) return [];
+      if (!subject || !wardrobe) return [];
+      const character = byName.get(subject.toLocaleLowerCase());
+      const mode = proposed.depictedOnScreen ? ("within" as const) : ("between" as const);
       return [
-        {
-          characterId: character.id,
-          wardrobe,
-          mode: proposed.depictedOnScreen ? ("within" as const) : ("between" as const),
-        },
+        character
+          ? { characterId: character.id, wardrobe, mode }
+          : { subject, wardrobe, mode },
       ];
     });
     if (changes.length) {
@@ -116,13 +147,16 @@ export function wardrobeChangeClause(
   within: readonly WardrobeChange[],
   cast: readonly Character[],
   startWardrobe: Record<string, string>,
+  othersStart: Record<string, string> = {},
 ): string {
   if (within.length === 0) return "";
   const byId = new Map(cast.map((c) => [c.id, c] as const));
   const sentences = within.flatMap((change) => {
-    const name = byId.get(change.characterId)?.name;
+    const name = change.characterId ? byId.get(change.characterId)?.name : change.subject?.trim();
     if (!name) return [];
-    const from = startWardrobe[change.characterId];
+    const from = change.characterId
+      ? startWardrobe[change.characterId]
+      : othersStart[change.subject!.trim()];
     return [
       from
         ? `${name} changes out of ${from} and into ${change.wardrobe} during this segment.`
