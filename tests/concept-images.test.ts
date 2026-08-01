@@ -274,4 +274,32 @@ describe("concept reader", () => {
     expect(result.fromImages).toBe(true);
     expect(result.contradictions).toHaveLength(1);
   });
+
+  /**
+   * Images are an optional addition to the written concept, never a
+   * requirement. Reading none would still write a "visual reference" derived
+   * from no visuals, which is a worse artefact than having none at all.
+   */
+  it("refuses to read a project that has no concept images", async () => {
+    const { projects } = await isolated();
+    const project = await draft(projects);
+
+    await expect(projects.readConceptImages(project.id)).rejects.toThrow(
+      /at least one concept image/i,
+    );
+  });
+
+  it("leaves a project with no images completely unchanged", async () => {
+    const { projects } = await isolated();
+    const project = await draft(projects);
+    const before = await projects.getProjectRecord(project.id);
+
+    expect(before.project.conceptImages).toBeUndefined();
+    expect(before.conceptVisuals).toBeUndefined();
+
+    // The storyboard path must not require any of this to exist.
+    const record = await projects.generateStoryboard(project.id);
+    expect(record.storyboard?.scenes.length).toBeGreaterThan(0);
+    expect(record.conceptVisuals).toBeUndefined();
+  });
 });

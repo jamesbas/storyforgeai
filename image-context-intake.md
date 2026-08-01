@@ -54,6 +54,22 @@ re-deriving it.
 
 ## 3. Scope
 
+### Images are optional, and the typed concept leads
+
+The written concept is the project. Images are an addition for the things a
+sentence carries badly — a palette, a particular room, a particular jacket — and
+a project with none behaves exactly as it does today: no extra call, no extra
+artefact, nothing on the record.
+
+That is enforced rather than implied:
+
+- `conceptImages` and `conceptVisuals` are both optional and absent by default.
+- The Concept Reader is **only** reachable on demand, and refuses a project with
+  no images rather than writing a "visual reference" derived from no visuals.
+- Where an image contradicts the typed concept, the reader records the
+  disagreement instead of resolving it, and phase 5's directive makes the typed
+  concept authoritative: a photograph is evidence, not instruction.
+
 ### In
 
 - Upload, store, view and delete concept images on a project.

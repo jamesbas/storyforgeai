@@ -918,6 +918,12 @@ export async function readConceptImages(id: string): Promise<ProjectRecord> {
     const { conceptImageFiles } = await import("@/lib/services/concept-image-service");
     const paths = await conceptImageFiles(id);
 
+    // Reading nothing would still produce an artefact — a "visual reference"
+    // derived from no visuals, which is worse than not having one.
+    if (paths.length === 0) {
+      throw new ValidationError("Add at least one concept image before reading them.");
+    }
+
     const conceptVisuals = await conceptReaderAgent(record.project, paths, getPlanningProvider());
     const updated: ProjectRecord = {
       ...record,

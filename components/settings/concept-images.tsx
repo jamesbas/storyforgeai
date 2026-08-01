@@ -108,7 +108,9 @@ export function ConceptImages({
   return (
     <section className="space-y-4 rounded-lg border border-white/10 bg-panel/40 p-4">
       <div className="flex items-baseline justify-between">
-        <h2 className="font-semibold">Concept images</h2>
+        <h2 className="font-semibold">
+          Concept images <span className="text-xs font-normal text-slate-500">— optional</span>
+        </h2>
         <span className="text-[11px] text-slate-500">
           {images.length} of {MAX_CONCEPT_IMAGES}
         </span>
@@ -117,6 +119,11 @@ export function ConceptImages({
         Reference photographs of the setting, wardrobe, lighting or mood. They are read once into a
         written description that the planning agents use — the images themselves are never sent to
         the image generator.
+      </p>
+      <p className="text-xs text-slate-500">
+        The project&apos;s written concept leads and always will. These add detail a sentence carries
+        badly — a palette, a room, a particular jacket. Add none and nothing changes: the pipeline
+        runs exactly as it does today.
       </p>
 
       {error ? (
