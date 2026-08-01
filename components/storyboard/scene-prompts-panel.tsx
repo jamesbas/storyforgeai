@@ -48,13 +48,23 @@ export function ScenePromptsPanel({
   onSaved?: (record: ProjectRecord) => void;
 }) {
   const [draft, setDraft] = useState<Draft>(() => draftFrom(scene));
+  const [synced, setSynced] = useState<Draft>(() => draftFrom(scene));
   const [saving, setSaving] = useState(false);
   const [rewriting, setRewriting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const original = draftFrom(scene);
-  const dirty = FIELDS.some((f) => draft[f.key] !== original[f.key]);
+  const stored = draftFrom(scene);
+  const dirty = FIELDS.some((f) => draft[f.key] !== synced[f.key]);
+
+  // These prompts can be rewritten while the panel is open — editing the scene
+  // card offers to rewrite them, and so does regenerating the storyboard. The
+  // draft is seeded once at mount, so without this it keeps showing the old
+  // text until the page is reloaded. Unsaved edits are never discarded.
+  if (FIELDS.some((f) => stored[f.key] !== synced[f.key])) {
+    setSynced(stored);
+    if (!dirty) setDraft(stored);
+  }
 
   const save = async () => {
     setSaving(true);
@@ -94,7 +104,12 @@ export function ScenePromptsPanel({
       }
       const record = (await res.json()) as ProjectRecord;
       const next = record.storyboard?.scenes.find((s) => s.id === scene.id);
-      if (next) setDraft(draftFrom(next));
+      // An explicit rewrite is meant to replace what is on screen, including
+      // unsaved edits, so both are set rather than leaving it to the sync.
+      if (next) {
+        setDraft(draftFrom(next));
+        setSynced(draftFrom(next));
+      }
       onSaved?.(record);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to rewrite prompts");
@@ -158,7 +173,7 @@ export function ScenePromptsPanel({
           <button
             type="button"
             disabled={disabled || !dirty}
-            onClick={() => setDraft(draftFrom(scene))}
+            onClick={() => setDraft(stored)}
             className="rounded-md border border-white/15 px-3 py-1.5 text-xs text-slate-300 hover:border-accent disabled:opacity-50"
           >
             Revert

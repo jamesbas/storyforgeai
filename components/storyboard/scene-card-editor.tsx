@@ -47,12 +47,21 @@ export function SceneCardEditor({
   onSaved?: (record: ProjectRecord) => void;
 }) {
   const [draft, setDraft] = useState<Draft>(() => draftFrom(scene));
+  const [synced, setSynced] = useState<Draft>(() => draftFrom(scene));
   const [saving, setSaving] = useState<null | "card" | "prompts">(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
-  const original = draftFrom(scene);
-  const dirty = FIELDS.some((f) => draft[f.key] !== original[f.key]);
+  const stored = draftFrom(scene);
+  const dirty = FIELDS.some((f) => draft[f.key] !== synced[f.key]);
+
+  // Regenerating the storyboard replaces this card while the panel may be open.
+  // The draft is seeded once at mount, so without this it keeps showing the
+  // card that was replaced. Unsaved edits are never discarded.
+  if (FIELDS.some((f) => stored[f.key] !== synced[f.key])) {
+    setSynced(stored);
+    if (!dirty) setDraft(stored);
+  }
 
   const save = async (thenRewrite: boolean) => {
     setSaving(thenRewrite ? "prompts" : "card");
@@ -147,7 +156,7 @@ export function SceneCardEditor({
             disabled={disabled || !dirty}
             onClick={() => {
               setDone(null);
-              setDraft(draftFrom(scene));
+              setDraft(stored);
             }}
             className="rounded-md border border-white/15 px-3 py-1.5 text-xs text-slate-300 hover:border-accent disabled:opacity-50"
           >
