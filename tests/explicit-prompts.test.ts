@@ -67,6 +67,28 @@ describe("telling the agent the work is explicit", () => {
   it("asks the clip prompt for movement rather than a held frame", () => {
     expect(explicitnessDirective(project(), "video")).toMatch(/rhythm, direction, depth and pace/);
   });
+
+  /**
+   * The planning agents write the card the render prompt is built from, so an
+   * act described obliquely there cannot be recovered downstream.
+   */
+  it("tells the planning agents to describe the act, not the mood around it", () => {
+    const directive = explicitnessDirective(project(), "plan");
+    expect(directive).toMatch(/must describe the act/);
+    expect(directive).toMatch(/fade out, cut away/);
+    expect(directive).toContain("they come together");
+  });
+
+  it("does not tell a planning agent to write a still frame", () => {
+    expect(explicitnessDirective(project(), "plan")).not.toMatch(/one still frame/);
+  });
+
+  it("stays silent for tame work whatever the caller asks for", () => {
+    const tame = project({ audience: "families", tone: "inspirational" });
+    for (const kind of ["image", "video", "plan"] as const) {
+      expect(explicitnessDirective(tame, kind)).toBe("");
+    }
+  });
 });
 
 describe("nudity as a wardrobe state", () => {

@@ -20,6 +20,7 @@ import {
   buildWorldBible,
 } from "@/lib/agents/mock-canvas";
 import { castSystemDirective } from "@/lib/agents/cast";
+import { explicitnessDirective } from "@/lib/agents/explicitness";
 import { cameraContinuityDirective } from "@/lib/agents/continuity";
 import { planningPayload, precedenceDirective, type CreativePlans } from "@/lib/agents/creative-context";
 import type { StoryPlan } from "@/lib/schemas/agents";
@@ -225,6 +226,7 @@ export async function directorAgent(
     });
     const result = await provider.generateJson(
       DIRECTOR_SYSTEM +
+        explicitnessDirective(project, "plan") +
         castSystemDirective(ctx.cast ?? []) +
         precedenceDirective(ctx.cast ?? [], ctx.plans),
       user,

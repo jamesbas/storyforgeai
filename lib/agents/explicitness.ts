@@ -30,7 +30,10 @@ export function isExplicitProject(project: Project): boolean {
   );
 }
 
-export function explicitnessDirective(project: Project, kind: "image" | "video"): string {
+export function explicitnessDirective(
+  project: Project,
+  kind: "image" | "video" | "plan",
+): string {
   if (!isExplicitProject(project)) return "";
 
   // The preset descriptions are the wording the user chose from, so the model
@@ -42,10 +45,28 @@ export function explicitnessDirective(project: Project, kind: "image" | "video")
     .filter(Boolean)
     .join(" ");
 
-  const shared =
+  const intent =
     " This project is made for adults and its sexual content is meant to be shown rather than " +
     "suggested." +
-    (context ? ` ${context}` : "") +
+    (context ? ` ${context}` : "");
+
+  // Planning agents write the card a render prompt is later built from, so an
+  // act described obliquely here cannot be recovered downstream: the prompt
+  // agent can only make explicit what the card says happens.
+  if (kind === "plan") {
+    return (
+      intent +
+      " Say plainly what happens. A scene that reaches a sexual act must describe the act, the " +
+      "positions and what the bodies are doing, in the same physical, observable terms you would " +
+      "use for any other action. Do not fade out, cut away, end a scene at the moment it becomes " +
+      "explicit, or replace the act with the mood surrounding it. Literary indirection — " +
+      "\"they come together\", \"the moment takes them\" — reads as an event that was never " +
+      "described, and a render built from it shows two people standing near each other."
+    );
+  }
+
+  const shared =
+    intent +
     " Write the bodies plainly. Name the anatomy, state which parts are in contact, whose body " +
     "is where, and what is visible from this angle. Phrases like \"the point of contact\", " +
     "\"their union\" or \"he takes her\" name an idea rather than a thing, and an image model " +

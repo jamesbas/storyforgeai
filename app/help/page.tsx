@@ -555,6 +555,13 @@ export default function HelpPage() {
             say what is in contact and what is visible.
           </p>
           <p className={p}>
+            The <strong>Director</strong> and <strong>Storyboard Artist</strong> get the same
+            instruction in a form suited to planning: say plainly what happens, and do not end a
+            scene at the moment it becomes explicit. They write the card the render prompt is built
+            from, so an act described obliquely there cannot be recovered later — a prompt agent can
+            only make explicit what the card says happened.
+          </p>
+          <p className={p}>
             <strong>Nudity is a wardrobe state.</strong> Set a wardrobe change to{" "}
             <code>nude</code> (there is a shortcut on the panel) and the prompt says so plainly
             rather than ending with an instruction to keep the clothes on — which is what a stated

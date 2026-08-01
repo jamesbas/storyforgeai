@@ -4,6 +4,7 @@ import { buildSceneDrafts } from "@/lib/agents/mock-agents";
 import { castSystemDirective } from "@/lib/agents/cast";
 import { seamDirective } from "@/lib/agents/continuity";
 import { creativeModeDirective } from "@/lib/agents/look";
+import { explicitnessDirective } from "@/lib/agents/explicitness";
 import { planningPayload, precedenceDirective } from "@/lib/agents/creative-context";
 import { SEGMENT_SECONDS } from "@/lib/types";
 import type { Project } from "@/lib/schemas/project";
@@ -128,6 +129,7 @@ export async function storyboardAgent(
   const system =
     storyboardSystem(ctx.project.segmentSeconds) +
     creativeModeDirective(ctx.project) +
+    explicitnessDirective(ctx.project, "plan") +
     seamDirective(ctx.project) +
     castSystemDirective(cast) +
     precedenceDirective(cast, ctx.plans);
