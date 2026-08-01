@@ -1,8 +1,24 @@
 import { NextResponse } from "next/server";
-import { updateScenePrompts } from "@/lib/services/project-service";
+import { regenerateScenePrompts, updateScenePrompts } from "@/lib/services/project-service";
 import { toErrorResponse } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * Rewrite this scene's prompts from its card, leaving the card and every other
+ * scene untouched.
+ */
+export async function POST(
+  _request: Request,
+  { params }: { params: { projectId: string; sceneId: string } },
+) {
+  try {
+    const record = await regenerateScenePrompts(params.projectId, params.sceneId);
+    return NextResponse.json(record, { headers: { "Cache-Control": "no-store" } });
+  } catch (err) {
+    return toErrorResponse(err);
+  }
+}
 
 /**
  * Hand-edit a scene's prompts.

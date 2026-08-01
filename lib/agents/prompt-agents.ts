@@ -1,5 +1,10 @@
 import { z } from "zod";
-import { scenePromptsSchema, type Scene, type SceneDraft } from "@/lib/schemas/storyboard";
+import {
+  scenePromptsSchema,
+  type Scene,
+  type SceneDraft,
+  type ScenePrompts,
+} from "@/lib/schemas/storyboard";
 import { buildImagePrompts, buildVideoPrompts } from "@/lib/agents/mock-agents";
 import {
   castContinuityClause,
@@ -39,6 +44,15 @@ export type ScenePromptContext = {
   cast?: readonly Character[];
   visualBible?: VisualBible;
   plans?: CreativePlans;
+  /**
+   * Rewrite only these scenes, keeping every other scene's stored prompts.
+   *
+   * The whole run still walks every scene: wardrobe carries forward, and a
+   * seam can only be matched against the prompt that precedes it, so a single
+   * scene cannot be rebuilt in isolation from the ones before it.
+   */
+  only?: ReadonlySet<string>;
+  existing?: Record<string, ScenePrompts>;
 };
 
 export const IMAGE_PROMPT_SYSTEM =
@@ -165,6 +179,16 @@ export async function attachScenePrompts(
     // character carried into a scene they are absent from is a description of
     // someone the model will then try to put in the picture.
     const sceneCast = charactersInScene(draft, cast);
+
+    // Kept scenes still advance the seam and the wardrobe walk; they just cost
+    // nothing and keep whatever was written or hand-edited before.
+    const kept = context.only && !context.only.has(draft.id) ? context.existing?.[draft.id] : undefined;
+    if (kept) {
+      scenes.push({ ...draft, prompts: kept });
+      previousEndFramePrompt = kept.endFramePrompt;
+      continue;
+    }
+
     let imagePart = buildImagePrompts(project, draft, sceneCast, plans, wardrobe);
     let videoPart = buildVideoPrompts(project, draft, sceneCast, plans, wardrobe);
 

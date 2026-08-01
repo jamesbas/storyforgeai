@@ -49,6 +49,7 @@ export function ScenePromptsPanel({
 }) {
   const [draft, setDraft] = useState<Draft>(() => draftFrom(scene));
   const [saving, setSaving] = useState(false);
+  const [rewriting, setRewriting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -79,7 +80,30 @@ export function ScenePromptsPanel({
     }
   };
 
-  const disabled = busy || saving;
+  const rewrite = async () => {
+    setRewriting(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/scenes/${scene.id}/prompts`, {
+        method: "POST",
+      });
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(detail?.error ?? `Failed to rewrite prompts (HTTP ${res.status})`);
+      }
+      const record = (await res.json()) as ProjectRecord;
+      const next = record.storyboard?.scenes.find((s) => s.id === scene.id);
+      if (next) setDraft(draftFrom(next));
+      onSaved?.(record);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to rewrite prompts");
+    } finally {
+      setRewriting(false);
+    }
+  };
+
+  const disabled = busy || saving || rewriting;
 
   return (
     <details className="mt-3 text-sm">
@@ -139,13 +163,24 @@ export function ScenePromptsPanel({
           >
             Revert
           </button>
+          <button
+            type="button"
+            disabled={disabled || rewriting}
+            onClick={() => void rewrite()}
+            className="rounded-md border border-white/15 px-3 py-1.5 text-xs text-slate-300 hover:border-accent disabled:opacity-50"
+            title="Ask the prompt agents to write this scene's prompts again from its card"
+          >
+            {rewriting ? "Rewriting…" : "Regenerate these prompts"}
+          </button>
           {saved && !dirty ? <span className="text-xs text-emerald-400">Saved.</span> : null}
           {error ? <span className="text-xs text-red-300">{error}</span> : null}
         </div>
 
         <p className="text-[10px] text-slate-600">
           Edits apply to this scene only and take effect on the next generation. Regenerating the
-          storyboard rewrites them.
+          storyboard rewrites them. <strong>Regenerate these prompts</strong> rewrites this scene
+          alone, from its existing card — the card, the other scenes and their hand edits are left
+          as they are.
         </p>
 
         {scene.prompts.promptQualityChecklist.length ? (

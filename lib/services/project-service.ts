@@ -55,6 +55,7 @@ import { audioDirectorAgent } from "@/lib/agents/audio-agents";
 import type { AudioSceneRef } from "@/lib/agents/mock-audio";
 import { buildAnimaticPlan } from "@/lib/agents/mock-audio";
 import { getPlanningProvider } from "@/lib/agents/llm/provider";
+import { attachScenePrompts } from "@/lib/agents/prompt-agents";
 import { resolveProjectCast } from "@/lib/services/character-service";
 import { trackAgentRun } from "@/lib/services/agent-runs";
 import { planOn, planSpecFor } from "@/lib/agents/plan-fields";
@@ -842,6 +843,59 @@ function withVideoCastClause(
     if (cut >= 0) body = body.slice(0, cut);
   }
   return `${body}${castContinuityClause(sceneCast, change)}`;
+}
+
+/**
+ * Rewrite one scene's prompts, leaving its card and every other scene alone.
+ *
+ * Two model calls rather than the whole storyboard, and nothing else moves —
+ * useful when one shot reads badly and regenerating everything would discard
+ * seventeen scenes that are fine, along with any hand edits.
+ *
+ * The run still walks every scene: wardrobe carries forward and a seam is
+ * matched against the prompt before it, so the scenes ahead of this one have to
+ * be traversed even though they are not rewritten.
+ */
+export async function regenerateScenePrompts(
+  id: string,
+  sceneId: string,
+): Promise<ProjectRecord> {
+  return trackAgentRun(id, "storyboard", "Image & Video Prompt Agents", async () => {
+    const record = await getProjectRecord(id);
+    if (!record.storyboard) throw new ValidationError("Generate a storyboard before writing prompts");
+    const scene = record.storyboard.scenes.find((s) => s.id === sceneId);
+    if (!scene) throw new NotFoundError(`Scene ${sceneId} not found`);
+
+    const cast = await resolveProjectCast(record.project);
+    const existing = Object.fromEntries(
+      record.storyboard.scenes.map((s) => [s.id, s.prompts] as const),
+    );
+    const drafts = record.storyboard.scenes.map(({ prompts: _prompts, ...draft }) => draft);
+
+    const rebuilt = await attachScenePrompts(record.project, drafts, getPlanningProvider(), {
+      cast,
+      visualBible: record.storyboard.visualBible,
+      plans: {
+        worldBible: record.worldBible,
+        directorialPlan: record.directorialPlan,
+        cinematographyPlan: record.cinematographyPlan,
+        artDirectionPlan: record.artDirectionPlan,
+      },
+      only: new Set([sceneId]),
+      existing,
+    });
+
+    const updated: ProjectRecord = {
+      ...record,
+      storyboard: { ...record.storyboard, scenes: rebuilt },
+      project: { ...record.project, updatedAt: new Date().toISOString() },
+      history: appendHistory(record, "scene.prompts_rewritten", `Scene ${scene.sceneNumber}`),
+    };
+
+    await repository.update(id, updated);
+    logEvent("project.updated", { id, change: "scene_prompts_rewritten", sceneId });
+    return updated;
+  });
 }
 
 /**

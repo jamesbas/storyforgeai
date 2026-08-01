@@ -1042,6 +1042,17 @@ export default function HelpPage() {
             You will be told how many scenes are affected before a regeneration runs, and can back
             out or export first — but if you go ahead, the wording is gone.
           </p>
+          <p className={p}>
+            To fix one clumsy shot without that cost, use{" "}
+            <strong>Regenerate these prompts</strong> in the same panel. It asks the prompt agents to
+            write that scene&apos;s start frame, end frame and motion prompt again from its existing
+            card — two model calls rather than the whole storyboard. The card itself is untouched, as
+            are every other scene and any hand edits you have made to them.
+          </p>
+          <p className={p}>
+            It still reads the scenes before it, because wardrobe carries forward and a seam is
+            matched against the prompt that precedes it. What it does not do is rewrite them.
+          </p>
 
           <h3 className={h3}>How prompts are written for each model</h3>
           <p className={p}>
