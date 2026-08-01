@@ -161,15 +161,15 @@ media path.
 |---|---|---|---|---|---|---|
 | 1 | **Variant Explorer** | `canvas-agents.ts` | `Project` | 3 creative directions, each on a different `variantType` axis | `creativeVariantSchema[]` | `POST /generate-variants` |
 | 2 | **World Builder** | `canvas-agents.ts` | `Project` + variant + cast + story plan | World Bible | `worldBibleSchema` | `POST /generate-world-bible` |
-| 3 | **Director** | `canvas-agents.ts` | `Project` + variant + cast + story plan + plans | Directorial plan | `directorialPlanSchema` | `POST /generate-directorial-plan` |
+| 3 | **Director** | `canvas-agents.ts` | `Project` + variant + cast + story plan + plans (+ explicitness directive) | Directorial plan | `directorialPlanSchema` | `POST /generate-directorial-plan` |
 | 4 | **Cinematographer** | `canvas-agents.ts` | `Project` (incl. continuity mode) + variant + story plan + plans | Camera plan | `cinematographyPlanSchema` | `POST /generate-cinematography-plan` |
 | 5 | **Art Director** | `canvas-agents.ts` | `Project` + variant + cast + story plan + plans | Art direction plan | `artDirectionPlanSchema` | `POST /generate-art-direction-plan` |
 | 6 | **Intake Producer** | `intake-agent.ts` | `Project` (+ selected variant) | Creative brief | `creativeBriefSchema` | Orchestrator, step 1 |
 | 7 | **Story Architect** | `story-architect-agent.ts` | `Project` + brief | Story plan, 1 beat per segment | `storyPlanSchema` | Orchestrator, step 2 |
 | 8 | **Visual Bible** | `visual-bible-agent.ts` | `Project` + brief | Continuity guide | `visualBibleSchema` | Orchestrator, step 3 |
-| 9 | **Storyboard Artist** | `storyboard-agent.ts` | `Project` + brief + story plan + visual bible | Scene drafts | `sceneDraftSchema[]` | Orchestrator, step 4 |
-| 10 | **Image Prompt Engineer** | `prompt-agents.ts` | `Project` + scene draft + **previous scene's end-frame prompt** | Start/end frame prompts + negative | subset of `scenePromptsSchema` | Orchestrator, step 5 |
-| 11 | **Video Prompt Engineer** | `prompt-agents.ts` | `Project` + each scene draft | Motion prompt + negative + checklist | subset of `scenePromptsSchema` | Orchestrator, step 5 |
+| 9 | **Storyboard Artist** | `storyboard-agent.ts` | `Project` + brief + story plan + visual bible (+ explicitness directive) | Scene drafts, incl. `charactersPresent` and `wardrobeChanges` | `sceneDraftSchema[]` | Orchestrator, step 4 |
+| 10 | **Image Prompt Engineer** | `prompt-agents.ts` | `Project` + scene draft + **previous end-frame prompt** + visual bible + **this scene's cast** + plan slices + wardrobe state | Start/end frame prompts + negative | subset of `scenePromptsSchema` | Orchestrator, step 5 |
+| 11 | **Video Prompt Engineer** | `prompt-agents.ts` | as above, but the cast arrives as **names only** — the start frame already carries the likeness | Motion prompt + negative + checklist | subset of `scenePromptsSchema` | Orchestrator, step 5 |
 | 12 | **Audio Director** | `audio-agents.ts` | `Project` + scene refs | Audio plan, music/SFX cues | `audioPlanSchema` | `POST /generate-audio-plan` |
 | 13 | **Creative Critic (QC)** | `qc-agent.ts` | `Scene` + `SceneAttempt` (+ keyframes when `OPENAI_VISION_MODEL` is set) | Pass/fail, severity, regen notes | `qcResultSchema` | `media-service`, only when `project.qcEnabled` |
 | — | **Deepy assistant** | `deepy/deepy.ts` | Media path + action | Inspection/suggestion text | — | `POST /scenes/{id}/deepy` |
@@ -387,10 +387,14 @@ sequenceDiagram
     Note right of SB: rejected unless<br/>scenes.length === segmentCount
     SB-->>OR: ctx.sceneDrafts
 
+    OR->>OR: foldWardrobeChanges(project, drafts, cast)
+    Note right of OR: costume changes the story called for<br/>reach the project before prompts are written
+
     loop for each scene draft
-        OR->>PR: attachScenePrompts(project, draft, provider)
-        PR->>LLM: generateJson(IMAGE_PROMPT_SYSTEM, {project, scene})
-        PR->>LLM: generateJson(videoPromptSystem, {project, scene})
+        OR->>PR: attachScenePrompts(project, drafts, provider, {cast, plans, only?, existing?})
+        PR->>PR: charactersInScene(draft, cast) · wardrobeTimeline.get(draft.id)
+        PR->>LLM: generateJson(composed system, {project, scene, sceneCast, wardrobe, plan slices})
+        PR->>LLM: generateJson(composed video system, same payload)
         PR-->>OR: Scene = draft + prompts
     end
 
@@ -408,8 +412,8 @@ sequenceDiagram
 | Story Architect | `storyArchitectSystem(segmentSeconds)` | parses **and** `segmentBeats.length === segmentCount` | `buildStoryPlan` |
 | Visual Bible | `VISUAL_BIBLE_SYSTEM` | parses as `visualBibleSchema` | `buildVisualBible` |
 | Storyboard Artist | `storyboardSystem(segmentSeconds)` | parses **and** `scenes.length === segmentCount` | `buildSceneDrafts` |
-| Image Prompt | `IMAGE_PROMPT_SYSTEM` | parses the picked subset of `scenePromptsSchema` | `buildImagePrompts` |
-| Video Prompt | `videoPromptSystem(segmentSeconds)` | parses the picked subset | `buildVideoPrompts` |
+| Image Prompt | `IMAGE_PROMPT_SYSTEM` + directives † | parses the picked subset of `scenePromptsSchema` | `buildImagePrompts` |
+| Video Prompt | `videoPromptSystem(segmentSeconds)` + directives † | parses the picked subset | `buildVideoPrompts` |
 | Variant Explorer | `VARIANT_EXPLORER_SYSTEM` | parses **and** `variants.length >= 3` | `buildVariants` |
 | World Builder | `WORLD_BUILDER_SYSTEM` | parses as `worldBibleSchema` | `buildWorldBible` |
 | Director | `DIRECTOR_SYSTEM` | parses as `directorialPlanSchema` | `buildDirectorialPlan` |
@@ -417,6 +421,12 @@ sequenceDiagram
 | Art Director | `ART_DIRECTOR_SYSTEM` | parses as `artDirectionPlanSchema` | `buildArtDirectionPlan` |
 | Audio Director | `AUDIO_DIRECTOR_SYSTEM` | parses **and** `sceneAudioCues.length === scenes.length` | `buildAudioPlan` |
 | QC | `QC_SYSTEM` | parses as `qcResultSchema` | `evaluateQc` |
+
+† The prompt agents no longer have a single system constant. Theirs is composed at
+call time from the base prompt plus `explicitnessDirective`, `wardrobeChangeDirective`,
+`imagePromptDirective`/`videoPromptDirective` (which depend on the *pinned model
+family*), `seamDirective`, `castSystemDirective` and `precedenceDirective`. Two
+projects therefore send materially different system prompts to the same agent.
 
 Segment length is **interpolated into the prompt** rather than hard-coded, because
 telling a model "20-second segments" for an 8-second project produces beats with
@@ -593,19 +603,37 @@ correcting the Storyboard Agent's read of a shot without regenerating the plan.
 
 ### 4.2 Character identity conditioning
 
-Four mechanisms, ordered by where they act in the pipeline.
+Several mechanisms, ordered by where they act in the pipeline.
+
+**Scoping to the scene** (`lib/agents/scene-cast.ts` → `charactersInScene`) decides
+who a shot carries. A declared `scene.charactersPresent` wins; without one — every
+storyboard written before the field existed — presence is read from the card by
+matching names in its title, objective, beat, visual, action and dialogue. An empty
+result is a real answer, not a detection failure. The description, the photograph
+and the face swap are all gated on it, because each is an instruction to put that
+person in the picture.
 
 **Reference images** (`lib/services/media-service.ts` → `resolveCastReferenceImages`)
-resolve up to two files per character into absolute paths, sent as `image_refs`
-with `video_prompt_type` set to the activating letter. `buildSettingsManifest`
-also sets `remove_background_images_ref` when references are present: with the
-background intact the whole photo acts as the reference and the identity signal
-is diluted.
+resolve up to two files per character **in that scene** into absolute paths, sent as
+`image_refs` with `video_prompt_type` set to the activating letter.
+`buildSettingsManifest` also sets `remove_background_images_ref` when references are
+present: with the background intact the whole photo acts as the reference and the
+identity signal is diluted.
 
-**Withholding the written face** (`lib/agents/cast.ts`). `castSheet(cast, forRender)`
-takes a flag distinguishing render prompts from planning payloads. When
-`forRender` is true *and* the character has a reference image, `facialDescription`
-is dropped from the prompt.
+A photograph conditions the whole frame rather than one figure in it, so on a shot
+with several people the likeness lands on more than one. `project.useCharacterReferenceImages`
+(absent = true) declines it. That also lifts the model-substitution rule in §4.1:
+the constraint that the image model must accept references only binds while
+`imageRefs` is non-empty, so opting out frees the pin for free.
+
+**Withholding the written face** (`lib/agents/cast.ts`).
+`castSheet(cast, forRender, wardrobeAt, options)` takes a flag distinguishing render
+prompts from planning payloads, this scene's point on the wardrobe timeline, and
+`SheetOptions { faceVisible, tightShot }`. `facialDescription` is dropped when the
+character has a reference image **or** the shot shows no face. On a close-up with a
+photograph the sheet collapses to name and wardrobe, since a head-to-toe inventory
+is out of frame and pushes the model to widen until it can show it — but never
+without a photograph, because then text is the only identity signal there is.
 
 This inverts the module's original premise — that identical text is the only thing
 holding a face together. That held while text was the sole identity signal. Once a
@@ -614,6 +642,21 @@ the base (non-distilled) Flux variant, with real CFG, produced *worse* likeness
 than the distilled one precisely because it followed the written face harder.
 Empirically confirmed: removing those sentences tracked the photo far more
 closely. Planning agents keep the full description, having no photo.
+
+**Stills get the sheet, clips get names** (`castContinuityClause`). A clip renders
+from its start frame, which already fixes the face, wardrobe and lighting, so
+repeating the sheet spends the prompt on appearance the model can see at the cost
+of the motion it cannot — and a second written description of a subject already in
+the image is one way a clip renders that subject twice.
+
+**Wardrobe** (`lib/agents/wardrobe.ts` → `wardrobeTimeline`) is a timeline rather
+than a constant: the effective outfit for a scene is the last change at or before
+it. A `within` change splits the scene's two frames, which is the one place they are
+meant to differ in clothing and lifts the identical-clothing rule for that scene
+alone. The clause is appended **last**, the strongest position in the prompt, which
+is why nudity had to become a state rather than an outfit — a stated garment there
+overrides an explicit act. Non-cast subjects are tracked by free-text label and
+delivered by `othersWardrobeSuffix`.
 
 **Face swap** (`lib/services/face-swap-service.ts`, `lib/wangp/face-swap-preset.ts`)
 is a Qwen Image Edit post-process: `image_guide` is the generated frame,
@@ -634,15 +677,18 @@ Three properties this encodes:
 2. **Degrades rather than propagates.** `swapFace` returns null on any failure —
    model absent, no output, request failed — and the caller keeps the original
    frame. An enhancement failing must not fail the scene.
-3. **Single subject only.** `faceSwapSubject()` returns a character only when
-   exactly one has opted in, because the preset's prompt names "the woman" in each
-   picture. Two opted-in characters is ambiguous, and swapping the wrong face is
-   worse than not swapping, so it is skipped and logged.
-4. **Gated on the planned shot.** The pass never declines on its own: told to
-   replace a head in a frame that has none, it invents somewhere to put one. The
-   Storyboard Agent sets `scene.subjectFaceVisible`, and `renderKeyframe` skips
-   the swap when it is false. In the batch phase a frame shared by two scenes
-   (`reuse_end_frame`) is swapped if either shows the face.
+3. **Single subject only.** `sceneFaceSwapSubject()` returns a character only when
+   exactly one of those *in that scene* has opted in, because the preset's prompt
+   names "the woman" in each picture. Two opted-in characters is ambiguous, and
+   swapping the wrong face is worse than not swapping, so it is skipped and logged.
+4. **Gated on presence and on the planned shot.** The pass never declines on its
+   own: told to replace a head in a frame that has none, it invents somewhere to
+   put one. Two gates therefore apply — whether the subject is in the scene at all,
+   and `scene.subjectFaceVisible`, which the Storyboard Agent sets from the framing
+   it planned. In the batch phase a frame shared by two scenes (`reuse_end_frame`)
+   is swapped if either shows the face, and scenes the subject is absent from are
+   skipped entirely. `swapAttemptFrame()` is deliberately ungated, being an
+   explicit instruction rather than an inference.
 
 `swapAttemptFrame()` is the escape hatch: it applies the swap to one stored frame
 of the latest attempt, for when the plan and the render disagree. Attempts carry
@@ -823,6 +869,8 @@ classDiagram
         string modelStrategy
         string imageModel
         string videoModel
+        bool useCharacterReferenceImages
+        map~sceneId,WardrobeChange[]~ wardrobeChanges
         ProjectStatus status
     }
     class StoryboardSnapshot {
@@ -838,6 +886,8 @@ classDiagram
         int trimAtEndSeconds
         string storyBeat
         string cameraMovement
+        bool subjectFaceVisible
+        string[] charactersPresent
         SceneStatus status
         ScenePrompts prompts
     }
@@ -887,8 +937,11 @@ classDiagram
     SceneAttempt --> QCResult
 ```
 
-`SceneDraft` is literally `Scene` minus `prompts` — the type system encodes the
-hand-off from the Storyboard Artist to the prompt agents.
+`SceneDraft` is `Scene` minus `prompts` — the type system encodes the hand-off from
+the Storyboard Artist to the prompt agents. The draft also carries the
+`wardrobeChanges` the Storyboard Artist declared, which `foldWardrobeChanges` lifts
+onto the project before any prompt is written; they live on the project rather than
+the scene because a change carries forward to every scene after it.
 
 ### 7.1 Where data actually lives
 
@@ -968,8 +1021,9 @@ renders this as the project's decision log.
 flowchart LR
     subgraph proj["/api/projects"]
         p1["POST / · GET /"]
-        p2["GET · DELETE /:projectId"]
+        p2["GET · PATCH · DELETE /:projectId"]
         p3["PATCH /:projectId/models"]
+        p4["POST /import · POST /:projectId/duplicate"]
     end
     subgraph agentsapi["Agent triggers — /api/projects/:projectId"]
         a1["POST generate-variants"]
@@ -981,6 +1035,14 @@ flowchart LR
         a7["POST generate-storyboard"]
         a8["POST generate-audio-plan"]
         a9["POST generate-animatic"]
+        a10["PATCH plans/:agentKey"]
+    end
+    subgraph scene["Scene authoring — /api/projects/:projectId"]
+        s1["PATCH scenes/:sceneId/card"]
+        s2["PATCH · POST scenes/:sceneId/prompts"]
+        s3["PUT scenes/:sceneId/wardrobe"]
+        s4["POST repair-prompts"]
+        s5["POST undressed-scenes"]
     end
     subgraph gen["Generation & media"]
         g1["POST scenes/:sceneId/generate"]
@@ -989,6 +1051,8 @@ flowchart LR
         g4["GET media · GET media/:assetId"]
         g5["PATCH scenes/:sceneId/framing"]
         g6["POST · DELETE scenes/:sceneId/face-swap"]
+        g7["POST · DELETE scenes/:sceneId/keyframe"]
+        g8["GET · POST · DELETE queue"]
     end
     subgraph audio["Audio cues"]
         c1["GET · POST audio-cues"]

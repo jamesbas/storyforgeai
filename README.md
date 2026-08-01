@@ -37,13 +37,31 @@ so nothing cloud is required to run, test, or demo the app.
   with retry/regeneration, QC results, and human approval.
 - **Character library** — reusable cast with up to two reference images each,
   a separable facial description that steps aside for a photo, and an optional
-  face-swap pass over generated keyframes.
+  face-swap pass over generated keyframes. Description, photograph and face swap
+  apply only to the scenes a character is actually in, and a project can decline
+  the photograph entirely and let the description and face swap carry the likeness.
+- **Wardrobe timeline** — costume is a starting outfit rather than a constant.
+  Changes are declared at the scene where they happen and carry forward, nudity is
+  a wardrobe state rather than an outfit, and people who were never pinned to the
+  library can be dressed by name ("the two men").
+- **Model-aware prompting** — prompts are written for the family that will render
+  them (FLUX, Qwen, Krea, Wan, LTX). Exclusions are routed at render time, so a
+  model with no negative prompt gets them folded into the positive prompt instead
+  of silently discarding them.
+- **Explicit-content directives** — when the audience or tone calls for it, the
+  planning and prompt agents are told so plainly, using the same wording the
+  settings screen shows.
 - **LoRA selection** — pick LoRAs for the whole storyboard or override them per
   scene, filtered to those installed for the pinned image/video model, with
   per-LoRA strengths. Trigger words are read from WanGP's sidecar metadata and
   appended to prompts automatically when missing.
-- **Editable prompts** — every scene's start-frame, end-frame, motion and negative
-  prompts can be hand-corrected without regenerating the storyboard.
+- **Editable scene cards and prompts** — correct a scene's objective, beat, visual,
+  action or camera, then rewrite just that scene's prompts. Two model calls rather
+  than the whole storyboard, with every other scene and its hand edits untouched.
+  You are warned before a regeneration overwrites hand-edited scenes.
+- **Project import** — restore a deleted project from its `project.json` record or
+  a `storyboard.json` export. Import always creates a new project, so it can never
+  overwrite one.
 - **Project deletion** — remove a project and, optionally, its generated media,
   behind an explicit confirmation.
 - **Assembly** — final-cut plan from approved clips, ffmpeg rough-cut, and an export
@@ -222,6 +240,45 @@ audio reaches the clip; nothing is synthesized separately.
 Deterministic builders always produce a complete prompt. When `AI_PLANNING_ENABLED`
 is set, an LLM refines each artifact and falls back to the builder on any failure.
 
+### Written for the model that renders it
+
+The image and video families disagree about what a good prompt is, so the prompt
+agents are told which one they are writing for. The family comes from the model
+pinned on the project's Settings screen; with no pin, no family guidance is given,
+because a prompt written for one model and rendered by another is worse than a
+neutral one.
+
+- **FLUX** has no negative prompt. Exclusions are written into the prompt as the
+  thing to render instead, and lighting is stated in full.
+- **Qwen** is literal about structure: lettering is quoted exactly, materials are
+  described at two scales.
+- **Wan** asks for motion and camera and little else, so its clip prompts are short.
+- **LTX** wants one flowing present-tense paragraph, and writes its own soundtrack
+  from that prompt, so ambience and dialogue belong in it.
+
+Because the model is only known for certain at render time — a pin can be missing
+and fall through to the router — the exclusion is routed again on the way out. If
+the resolved model cannot use a negative prompt, its terms are folded into the
+positive prompt rather than dropped.
+
+### Negative prompts are term lists
+
+A negative prompt is a weighted list of things to steer away from, not a sentence.
+The text encoder has no operator for "no", so `no watermarks` embeds the whole
+phrase and the negation does nothing while the noun does the work by accident.
+Prompts are stored as plain term lists — `watermark, distorted anatomy, low
+quality` — and character negative terms are stripped the same way. Projects written
+before this can be repaired in place from the Storyboard screen.
+
+### Adult content
+
+When the audience is *Adults only (explicit)* or the tone is erotic or raw/carnal,
+the Director, Storyboard Artist and both prompt agents are told so directly, using
+the same wording the settings screen showed. Without it they write euphemism, and
+an image model has nothing to draw from an implication — it renders nouns. The app
+applies no content filtering of its own; what you can actually produce depends on
+your planning model and the licence of each WanGP model you generate with.
+
 ### One take or an edit
 
 A segment boundary exists because the video model renders about 20 seconds at a
@@ -286,7 +343,15 @@ have no such limit and are left to run in parallel.
 ## Character identity
 
 Holding one face across independently rendered scenes is the hardest part of the
-pipeline, and the app uses four mechanisms that compound.
+pipeline, and the app uses several mechanisms that compound.
+
+**Only the scenes they are in.** The description, the photograph and the face swap
+all instruct the image model to put that person in the picture, so each applies
+only to the scenes the character actually appears in. The Storyboard Artist records
+who is visible in each shot; where it has not, presence is read from the scene card
+by name. A scene naming nobody from the cast gets no description, no reference
+image and no face swap — which is the right answer for a table of four men in a
+story whose pinned character is elsewhere.
 
 **Reference images.** Up to two per character, sent to the image model as
 `image_refs` with the activating prompt-type letter. A second angle measurably
@@ -295,14 +360,37 @@ behind the subject is stripped (`remove_background_images_ref`), so the setting 
 the photo does not become part of the reference — disable with
 `WANGP_REMOVE_REFERENCE_BACKGROUND=false`.
 
+A photograph conditions the **whole frame** rather than one figure in it, so on a
+shot with several people the model can apply the likeness to more than one of them.
+The project's Settings screen therefore offers the alternative: **description and
+face swap only**, which sends no photograph, lets any image model be pinned, and
+leaves the likeness to the written description corrected afterwards by the swap.
+A swap targets one face in a finished frame; a reference image conditions the
+entire generation, which is exactly the difference. Projects created before this
+setting existed keep sending the photograph.
+
 **Withholding the written face.** A character has an optional `facialDescription`
-separate from its main description, and that field is **withheld from image and
-video prompts whenever a reference image exists**. A written face and a photograph
+separate from its main description, withheld from a render prompt when a reference
+image exists or when the shot does not show a face. A written face and a photograph
 are competing conditioning signals, and under classifier-free guidance the text
 wins — backwards, when the photo was supplied to fix the likeness. Removing those
 sentences measurably improved identity in testing. Planning agents still receive
 it, having no photo to work from, and the main description keeps carrying build,
 hair and anything a headshot cannot show.
+
+**Scaled to the shot.** On a close-up or tighter, a head-to-toe description is
+mostly out of frame, and naming hair, jewellery and nails on a shot that cannot
+show them pushes the model to widen the framing until it can. Where a character has
+a reference photograph, the sheet is cut to their name and wardrobe for those shots.
+Where there is none it stays whole, because then text is the only thing holding the
+face together.
+
+**Clips get names, stills get the sheet.** A start frame has nothing but its prompt
+to establish a face, so the full description is appended to every image prompt. A
+clip is rendered *from* that frame, which already fixes the face, wardrobe and
+lighting — so the clip prompt gets the character's name and one instruction to hold
+them steady. Repeating the description there spends the prompt on appearance the
+model can already see, at the cost of the motion it cannot.
 
 **Face swap.** Optional per character. After each keyframe renders, a Qwen Image
 Edit pass replaces the head in the generated frame with the head from the
@@ -321,16 +409,18 @@ meant to correct. A failed swap keeps the original frame rather than failing the
 scene.
 
 Requires a reference image, a Qwen Image Edit model, and both face-swap LoRAs in
-WanGP's `loras/qwen` folder. Only runs when exactly one character in the project
+WanGP's `loras/qwen` folder. Only runs when exactly one character in a given scene
 has it enabled — the recipe is written around a single subject, so with two there
 is no way to say which face belongs where. Disable globally with
 `FACE_SWAP_ENABLED=false`; change the model with `FACE_SWAP_MODEL`.
 
 **Which shots get swapped.** The pass is unconditional once it runs: its prompt
 says to replace "the head of the woman", so on a close-up of hands it grafts one
-on rather than declining. Each scene therefore carries `subjectFaceVisible`, set
-by the Storyboard Agent from the shot it planned and shown as a **Face in frame**
-tick box. Clear it and that scene's frames keep their originals.
+on rather than declining. Two things gate it: whether the subject is in the scene
+at all, and `subjectFaceVisible` — set by the Storyboard Agent from the framing it
+planned and shown as a **Face in frame** tick box. Clear it and that scene's frames
+keep their originals. The manual **Swap face on** buttons are deliberately not
+gated, being an explicit instruction rather than an inference.
 
 **Repairing one frame.** The flag is decided before anything is drawn, and a
 render does not always match its prompt. `POST /scenes/{id}/face-swap` with
@@ -421,15 +511,62 @@ client that copies them — which a complete settings payload requires — other
 inherits whichever LoRAs were last selected in the WanGP window, and the same
 project renders differently for no visible reason.
 
-## Editing prompts
+## Editing a scene
 
-The prompts on each scene card are editable: start frame, end frame, motion, and
-both negative prompts. Edits apply to that scene only and take effect on its next
-generation — useful for adding a trigger word by hand or fixing one clumsy shot.
+Each scene card exposes two panels.
 
-Edits are stored in the storyboard, so what the Prompts panel shows is exactly what
-is sent to WanGP. Regenerating the storyboard rewrites them, so make hand edits
-once the canvas plans are settled.
+**Scene card** — objective, story beat, visual description, action and camera. This
+is the text every prompt for that scene is written from, so it is where you change
+*what the shot contains*. Rewriting the prompts of a card that describes the wrong
+thing produces the wrong shot again, however many times you ask. **Save and rewrite
+prompts** does both in one step.
+
+**Prompts** — start frame, end frame, motion, and both negative prompts, exactly as
+sent to WanGP. Edits apply to that scene only. **Regenerate these prompts** asks the
+prompt agents to write that one scene again from its existing card: two model calls
+rather than the whole storyboard, with the card, the other scenes and their hand
+edits untouched. It still reads the scenes before it, because wardrobe carries
+forward and a seam is matched against the prompt that precedes it.
+
+Regenerating the whole storyboard rewrites every prompt. You are told how many
+scenes carry hand edits before it runs, and can back out or export first.
+
+Two mechanical repairs are offered on the Storyboard screen when they apply, and
+neither runs a model: rewriting negative prompts as term lists, and rebuilding cast
+sheets for scenes describing a character who is not in them. They are recorded under
+their own history action, so they do not count as hand edits.
+
+## Wardrobe
+
+Costume is set per project rather than per character, since the same character
+wears different clothes in different stories. It is a **starting** outfit, not a
+constant: a change is declared on the scene where it happens and carries forward,
+so you set it once.
+
+A change can be **already done** when the scene opens — both frames show the new
+outfit, and no render has to depict a garment mid-transition — or **on screen**,
+which puts the old outfit in the start frame and the new one in the end frame so
+the clip shows it happening. On a continuous take there is no cut for an off-screen
+change to hide in, and you are warned.
+
+Nudity is a wardrobe state rather than an outfit, because `Wearing exactly: nude`
+is a sentence a model has to reconcile and the "wearing" is the part it acts on.
+The Storyboard Artist records undressing as a change on its own; for storyboards
+written before that, the Storyboard screen lists any scene whose action is only
+possible undressed while the wardrobe still says otherwise.
+
+People who were never pinned to the library can be dressed the same way, by the
+name a prompt would use them under — "the two men". Without that they were locked
+into identical clothing across a scene's two frames with no way to declare a
+change, while nothing at all held their outfit steady between scenes.
+
+## Importing a project
+
+`Import a project file` on the Projects screen restores from a `project.json`
+record, which carries everything, or a `storyboard.json` export, which carries the
+scenes and prompts but no creative plans. Import always creates a new project, so
+it can never overwrite one, and the result reports which plans it could not carry
+and how many media files no longer exist.
 
 ## Repointing mocks at real systems
 
