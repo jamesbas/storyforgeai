@@ -515,11 +515,17 @@ project renders differently for no visible reason.
 
 Each scene card exposes two panels.
 
-**Scene card** — objective, story beat, visual description, action and camera. This
-is the text every prompt for that scene is written from, so it is where you change
-*what the shot contains*. Rewriting the prompts of a card that describes the wrong
-thing produces the wrong shot again, however many times you ask. **Save and rewrite
-prompts** does both in one step.
+**Scene card** — objective, story beat, visual description, action, camera and
+**dialogue**. This is the text every prompt for that scene is written from, so it is
+where you change *what the shot contains*. Rewriting the prompts of a card that
+describes the wrong thing produces the wrong shot again, however many times you ask.
+**Save and rewrite prompts** does both in one step.
+
+Dialogue is the only source of speech in a clip: LTX speaks it word for word out of
+the prompt, quoted inline in the prose the way its own model defaults do, and
+nothing is synthesised separately. Roughly two words per second fills a segment at a
+natural pace — about forty words for a 20-second scene — and the editor counts them
+for you.
 
 **Prompts** — start frame, end frame, motion, and both negative prompts, exactly as
 sent to WanGP. Edits apply to that scene only. **Regenerate these prompts** asks the

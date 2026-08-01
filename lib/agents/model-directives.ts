@@ -78,9 +78,11 @@ export function videoPromptDirective(
         "to finish. Avoid signs, logos and readable text: this model does not hold them steady." +
         (nativeAudio
           ? " LTX writes the soundtrack from this same prompt. Describe the ambience and any " +
-            "Foley, and put spoken lines in quotation marks with the delivery named. Keep speech " +
-            `short enough to land inside ${segmentSeconds} seconds — a line that cannot fit is ` +
-            "rushed or dropped."
+            "Foley, and put every spoken line in quotation marks with the delivery named. " +
+            `About ${Math.round(segmentSeconds * 2)} words of speech fill ${segmentSeconds} ` +
+            "seconds at a natural pace, so use that budget rather than reducing an exchange to " +
+            "a single remark — a clip with two words in it wastes the model's one real " +
+            "advantage. Only trim when the scene genuinely carries more than will fit."
           : "")
       );
     case "flux":

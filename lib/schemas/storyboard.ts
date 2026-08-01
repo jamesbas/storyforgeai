@@ -76,6 +76,9 @@ export const sceneCardPatchSchema = z
     visualDescription: z.string().max(4000),
     actionDescription: z.string().max(4000),
     cameraMovement: z.string().max(500),
+    /** What the characters say aloud. The video model speaks it verbatim. */
+    dialogue: z.array(dialogueLineSchema).max(24),
+    narrationText: z.string().max(2000),
   })
   .partial()
   .refine((patch) => Object.keys(patch).length > 0, {

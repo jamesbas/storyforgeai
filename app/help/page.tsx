@@ -1062,6 +1062,14 @@ export default function HelpPage() {
             still describe the old shot until rewritten. Either way, regenerating the whole storyboard
             replaces the card.
           </p>
+          <p className={p}>
+            The card also holds the scene&apos;s <strong>dialogue</strong>, which is the only source
+            of speech in a clip — LTX speaks it word for word from the prompt, and nothing is
+            synthesised separately. Roughly two words per second fills a segment at a natural pace,
+            so a 20-second scene carries about forty. The word count beside the field tells you where
+            you are. A wordless scene is a legitimate choice; a scene that should have people talking
+            and does not is silence you did not ask for.
+          </p>
 
           <h3 className={h3}>Editing prompts by hand</h3>
           <p className={p}>

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { ProjectRecord, Scene } from "@/lib/schemas/storyboard";
+import type { DialogueLine } from "@/lib/schemas/audio";
 
 /** The story content a person may correct. Timing and identity are derived. */
 const FIELDS = [
@@ -11,6 +12,7 @@ const FIELDS = [
   { key: "visualDescription", label: "Visual", rows: 3 },
   { key: "actionDescription", label: "Action", rows: 3 },
   { key: "cameraMovement", label: "Camera", rows: 1 },
+  { key: "narrationText", label: "Voice-over (from outside the scene)", rows: 2 },
 ] as const;
 
 type FieldKey = (typeof FIELDS)[number]["key"];
@@ -24,8 +26,15 @@ function draftFrom(scene: Scene): Draft {
     visualDescription: scene.visualDescription,
     actionDescription: scene.actionDescription,
     cameraMovement: scene.cameraMovement,
+    narrationText: scene.narrationText ?? "",
   };
 }
+
+const linesFrom = (scene: Scene): DialogueLine[] =>
+  (scene.dialogue ?? []).map((d) => ({ character: d.character, line: d.line }));
+
+const sameLines = (a: DialogueLine[], b: DialogueLine[]) =>
+  a.length === b.length && a.every((l, i) => l.character === b[i]!.character && l.line === b[i]!.line);
 
 /**
  * The scene card, editable in place.
@@ -48,20 +57,32 @@ export function SceneCardEditor({
 }) {
   const [draft, setDraft] = useState<Draft>(() => draftFrom(scene));
   const [synced, setSynced] = useState<Draft>(() => draftFrom(scene));
+  const [lines, setLines] = useState<DialogueLine[]>(() => linesFrom(scene));
+  const [syncedLines, setSyncedLines] = useState<DialogueLine[]>(() => linesFrom(scene));
   const [saving, setSaving] = useState<null | "card" | "prompts">(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
   const stored = draftFrom(scene);
-  const dirty = FIELDS.some((f) => draft[f.key] !== synced[f.key]);
+  const storedLines = linesFrom(scene);
+  const dirty =
+    FIELDS.some((f) => draft[f.key] !== synced[f.key]) || !sameLines(lines, syncedLines);
 
   // Regenerating the storyboard replaces this card while the panel may be open.
   // The draft is seeded once at mount, so without this it keeps showing the
   // card that was replaced. Unsaved edits are never discarded.
-  if (FIELDS.some((f) => stored[f.key] !== synced[f.key])) {
+  if (FIELDS.some((f) => stored[f.key] !== synced[f.key]) || !sameLines(storedLines, syncedLines)) {
     setSynced(stored);
-    if (!dirty) setDraft(stored);
+    setSyncedLines(storedLines);
+    if (!dirty) {
+      setDraft(stored);
+      setLines(storedLines);
+    }
   }
+
+  const spokenWords = lines
+    .flatMap((l) => l.line.trim().split(/\s+/))
+    .filter(Boolean).length;
 
   const save = async (thenRewrite: boolean) => {
     setSaving(thenRewrite ? "prompts" : "card");
@@ -71,7 +92,10 @@ export function SceneCardEditor({
       const res = await fetch(`/api/projects/${projectId}/scenes/${scene.id}/card`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(draft),
+        body: JSON.stringify({
+          ...draft,
+          dialogue: lines.filter((l) => l.character.trim() && l.line.trim()),
+        }),
       });
       if (!res.ok) {
         const detail = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -134,6 +158,75 @@ export function SceneCardEditor({
           </label>
         ))}
 
+        <div className="space-y-2">
+          <span className="text-[11px] uppercase tracking-wide text-slate-500">
+            Dialogue
+            <span className="ml-2 normal-case tracking-normal text-slate-600">
+              {spokenWords} words · about {Math.round(scene.targetDurationSeconds * 2)} fills{" "}
+              {scene.targetDurationSeconds}s
+            </span>
+          </span>
+          <p className="text-xs text-slate-500">
+            Spoken aloud by the video model, word for word. This is the only source of speech in
+            the clip.
+          </p>
+          {lines.map((line, index) => (
+            <div key={index} className="flex gap-2">
+              <input
+                type="text"
+                value={line.character}
+                disabled={disabled}
+                placeholder="Who"
+                aria-label={`Speaker ${index + 1}`}
+                onChange={(e) => {
+                  setDone(null);
+                  setLines((rows) =>
+                    rows.map((r, i) => (i === index ? { ...r, character: e.target.value } : r)),
+                  );
+                }}
+                className="w-1/4 rounded-md border border-white/10 bg-canvas px-2 py-1 text-sm"
+              />
+              <textarea
+                rows={2}
+                value={line.line}
+                disabled={disabled}
+                placeholder="What they say"
+                aria-label={`Line ${index + 1}`}
+                onChange={(e) => {
+                  setDone(null);
+                  setLines((rows) =>
+                    rows.map((r, i) => (i === index ? { ...r, line: e.target.value } : r)),
+                  );
+                }}
+                className="flex-1 rounded-md border border-white/10 bg-canvas px-2 py-1 text-sm"
+              />
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => {
+                  setDone(null);
+                  setLines((rows) => rows.filter((_, i) => i !== index));
+                }}
+                className="rounded-md border border-white/10 px-2 text-xs text-slate-400 hover:border-red-500/50 hover:text-red-300"
+                aria-label={`Remove line ${index + 1}`}
+              >
+                Remove
+              </button>
+            </div>
+          ))}
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => {
+              setDone(null);
+              setLines((rows) => [...rows, { character: "", line: "" }]);
+            }}
+            className="rounded-md border border-white/15 px-2 py-1 text-xs hover:border-accent disabled:opacity-50"
+          >
+            Add a line
+          </button>
+        </div>
+
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
@@ -157,6 +250,7 @@ export function SceneCardEditor({
             onClick={() => {
               setDone(null);
               setDraft(stored);
+              setLines(storedLines);
             }}
             className="rounded-md border border-white/15 px-3 py-1.5 text-xs text-slate-300 hover:border-accent disabled:opacity-50"
           >

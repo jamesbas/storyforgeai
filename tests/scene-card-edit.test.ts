@@ -92,6 +92,41 @@ describe("editing a scene card", () => {
     ).rejects.toThrow();
   });
 
+  /**
+   * Dialogue is the only source of speech in a clip: the video model speaks it
+   * word for word. It was written as an "optional note" and the planning model
+   * dropped it, so being able to put it back by hand matters.
+   */
+  it("stores dialogue and narration", async () => {
+    const record = await seeded();
+    const scene = record.storyboard!.scenes[0]!;
+
+    const after = await updateSceneCard(record.project.id, scene.id, {
+      dialogue: [
+        { character: "Mike", line: "You in or out? Clock's running." },
+        { character: "Dave", line: "Give me a second. I'm thinking." },
+      ],
+      narrationText: "Every Thursday, the same four men.",
+    });
+
+    const edited = after.storyboard!.scenes.find((s) => s.id === scene.id)!;
+    expect(edited.dialogue).toHaveLength(2);
+    expect(edited.dialogue?.[1]?.character).toBe("Dave");
+    expect(edited.narrationText).toContain("Every Thursday");
+  });
+
+  it("can clear dialogue for a deliberately wordless scene", async () => {
+    const record = await seeded();
+    const scene = record.storyboard!.scenes[0]!;
+
+    await updateSceneCard(record.project.id, scene.id, {
+      dialogue: [{ character: "Mike", line: "Deal." }],
+    });
+    const after = await updateSceneCard(record.project.id, scene.id, { dialogue: [] });
+
+    expect(after.storyboard!.scenes.find((s) => s.id === scene.id)!.dialogue).toEqual([]);
+  });
+
   it("refuses a scene that does not exist", async () => {
     const record = await seeded();
     await expect(

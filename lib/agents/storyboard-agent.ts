@@ -23,9 +23,21 @@ export const storyboardSystem = (segmentSeconds: number) =>
   "Never return a single card when several segments were requested, and never stop after the " +
   "first one. " +
   "Each scene must include scene objective, story beat, visual description, action, " +
-  "camera movement, transition in/out, continuity notes, and optional narration/dialogue/" +
-  "music/SFX notes. Scope the action to what can actually happen in " +
+  "camera movement, transition in/out, continuity notes, and any music or SFX notes. " +
+  "Scope the action to what can actually happen in " +
   `${segmentSeconds} seconds. ` +
+  // Dialogue was listed as an "optional note" and the model dropped it: eleven
+  // of eighteen cards came back silent and the rest averaged five words, which
+  // is what the video model then had to speak. It is script, not annotation.
+  "Write the dialogue. It is not an annotation \u2014 it is what the characters say out loud, and " +
+  "the video model speaks it, so a card with no dialogue is a silent scene. Any scene with " +
+  `people in it who would plausibly speak gets dialogue, and roughly ${Math.round(segmentSeconds * 2)} ` +
+  `words of it fills ${segmentSeconds} seconds at a natural pace. Write whole lines that sound ` +
+  "like people talking, exchanges between characters where more than one is present, and give " +
+  "each line to the character who says it by their exact name. Leave dialogue empty only when " +
+  "nobody is on screen, nobody would speak, or the moment is deliberately wordless \u2014 not " +
+  "because it was easier to omit. Use narrationText only for a voice-over from outside the " +
+  "scene, never as a substitute for people speaking. " +
   // This gates the face swap and nothing else. It once said "the main
   // character's face", which a model reasonably read as false for any scene
   // that character is absent from — and then wrote the shot to match its own

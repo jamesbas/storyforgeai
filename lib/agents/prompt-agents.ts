@@ -97,6 +97,13 @@ export const videoPromptSystem = (segmentSeconds: number) =>
   "already visible in it — spend the prompt on movement, and mention a fixed detail only when " +
   "it is a continuity constraint that must not drift. State what must remain consistent from " +
   "the start frame. " +
+  // The scene's dialogue is the only place spoken audio comes from. Left to the
+  // agent's judgement it was summarised away, so a card carrying a real
+  // exchange rendered as a clip with a two-word bark in it.
+  "Carry the scene's dialogue into the prompt in full and word for word, in quotation marks, " +
+  "attributed to whoever says it — it is what the video model speaks, so anything you shorten " +
+  "or leave out is not heard. Do not paraphrase it, summarise it, or reduce an exchange to one " +
+  "line. Where the scene has no dialogue, do not invent any. " +
   // Every published image-to-video guide says the same thing in different
   // words: a clip has a finite motion budget, and each additional independent
   // change is drawn from the same account as identity and anatomy.
