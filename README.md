@@ -427,6 +427,12 @@ start frame, so a shared frame is swapped only when **every** scene using it wan
 the swap. A missing correction can be applied by hand afterwards; a face invented
 in a frame nobody asked for cannot be taken back out.
 
+A character arriving does **not** break the seam. Someone walking into shot is not
+a cut, and rendering a fresh start frame with them already standing in it would be
+a teleport. The seam working normally is what depicts an entrance: the start frame
+is the frame before they arrive, the clip carries them in, and the end frame has
+them settled — which is what the agents are told to write.
+
 **Repairing one frame.** The flag is decided before anything is drawn, and a
 render does not always match its prompt. `POST /scenes/{id}/face-swap` with
 `{ "purpose": "start_frame" | "end_frame" }` — the **Swap face on** buttons on the

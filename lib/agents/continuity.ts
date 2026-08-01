@@ -82,6 +82,14 @@ export function seamDirective(project: Project): string {
     "The camera may move within the segment, so the end frame may be tighter or wider than the " +
     "start — that movement is where the visual variety comes from, and the next segment picks " +
     "the camera up wherever this one leaves it. " +
+    // A character who is simply present in a start frame they were absent from
+    // at the end of the previous segment has teleported, which reads as a cut in
+    // a take that is not supposed to contain one.
+    "Nobody appears between segments. A character who was not in the previous segment's end " +
+    "frame is not in this segment's start frame either — they arrive during it. Write the start " +
+    "frame without them, put their entrance in the action and the motion prompt, walking in, " +
+    "leaning into shot, or revealed by the camera moving, and have the end frame show them " +
+    "settled. Someone leaving works the same way in reverse. " +
     "Set transitionIn and transitionOut to \"Continuous\"."
   );
 }

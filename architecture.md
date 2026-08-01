@@ -754,10 +754,12 @@ Three properties this encodes:
    subject is absent from are skipped entirely. `swapAttemptFrame()` is
    deliberately ungated, being an explicit instruction rather than an inference.
 
-   `seamBreak` refuses to share a frame across a change of cast or of face
-   visibility for the same reason: two scenes that disagree about who is in the
-   picture are not describing one frame, and inheriting across the join renders
-   the wrong people while never sending the prompt that would have introduced them.
+   `seamBreak` deliberately does *not* break on a change of cast or of face
+   visibility. Someone walking into shot is not a cut, and breaking there would
+   render a start frame with them already standing in it — a teleport, and the
+   very cut the continuity setting exists to avoid. The seam working normally is
+   what depicts an arrival: the start frame is the frame before they enter, the
+   clip carries them in, the end frame has them settled.
 
 `swapAttemptFrame()` is the escape hatch: it applies the swap to one stored frame
 of the latest attempt, for when the plan and the render disagree. Attempts carry

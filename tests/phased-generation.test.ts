@@ -235,25 +235,36 @@ describe("running a phased batch", () => {
   });
 
   /**
-   * Under `reuse_end_frame` one file is two scenes' frame. A scene that hides
-   * the face cannot veto it for the neighbour that shows one, so the rule is
-   * "swap when any scene using it shows the face".
+   * Under `reuse_end_frame` one file is two scenes' frame, and the two scenes
+   * can disagree about whether a face is in it. They cannot both be right about
+   * one picture, so the question is which way to fail.
+   *
+   * The rule used to be "swap when any scene using it shows the face", on the
+   * grounds that a faceless scene should not veto its neighbour's correction.
+   * That produced a shot of four men, planned faceless with the box cleared,
+   * coming back with a woman's face grafted into it — the frame was swept in on
+   * the next scene's behalf. It is now "swap only when every scene using it
+   * wants it": a correction that does not happen can be applied afterwards from
+   * the Swap face button, and a face invented in a frame nobody asked for
+   * cannot be taken back out.
    */
-  it("still swaps a frame shared with a scene that does show the face", async () => {
+  it("leaves a shared frame alone when either scene hides the face", async () => {
     const seeded = await project({ faceSwap: true, continuity: "reuse_end_frame" });
+    const scenes = sceneIdsOf(seeded);
     await updateSceneFraming(seeded.project.id, seeded.storyboard!.scenes[1]!.id, {
       subjectFaceVisible: false,
     });
 
     let swapTotal = 0;
-    await generateProjectMediaPhased(seeded.project.id, sceneIdsOf(seeded), {
+    await generateProjectMediaPhased(seeded.project.id, scenes, {
       onPhase: (phase, total) => {
         if (phase === "face_swap") swapTotal = total;
       },
     });
 
-    // Both of the middle scene's frames belong to a neighbour as well.
-    expect(swapTotal).toBe(sceneIdsOf(seeded).length + 1);
+    // N scenes share N+1 frames; the faceless middle scene withdraws both of
+    // its own, each of which a neighbour would otherwise have swapped.
+    expect(swapTotal).toBe(scenes.length + 1 - 2);
   });
 
   /**
