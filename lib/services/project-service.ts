@@ -17,9 +17,10 @@ import { sceneWardrobeChangesSchema, type WardrobeChange } from "@/lib/schemas/w
 import {
   continuousTakeWardrobeWarning,
   othersWardrobeSuffix,
+  wardrobeChangeClause,
   wardrobeTimeline,
 } from "@/lib/agents/wardrobe";
-import { castPromptSuffix } from "@/lib/agents/cast";
+import { castContinuityClause, castPromptSuffix } from "@/lib/agents/cast";
 import { charactersInScene } from "@/lib/agents/scene-cast";
 import type { Character } from "@/lib/schemas/character";
 import { projectRecordSchema } from "@/lib/schemas/storyboard";
@@ -723,13 +724,24 @@ export async function repairNegativePrompts(id: string): Promise<{
       wardrobe?.end,
       wardrobe?.othersEnd,
     );
+    const videoPromptSegment = withVideoCastClause(
+      scene.prompts.videoPromptSegment,
+      sceneCast,
+      wardrobeChangeClause(
+        wardrobe?.within ?? [],
+        sceneCast,
+        wardrobe?.start ?? {},
+        wardrobe?.othersStart ?? {},
+      ),
+    );
 
     const negativesStale =
       imageNegativePrompt !== scene.prompts.imageNegativePrompt ||
       videoNegativePrompt !== scene.prompts.videoNegativePrompt;
     const castStale =
       startFramePrompt !== scene.prompts.startFramePrompt ||
-      endFramePrompt !== scene.prompts.endFramePrompt;
+      endFramePrompt !== scene.prompts.endFramePrompt ||
+      videoPromptSegment !== scene.prompts.videoPromptSegment;
 
     if (!negativesStale && !castStale) return scene;
     if (negativesStale) changed += 1;
@@ -742,6 +754,7 @@ export async function repairNegativePrompts(id: string): Promise<{
         ...scene.prompts,
         startFramePrompt,
         endFramePrompt,
+        videoPromptSegment,
         imageNegativePrompt,
         videoNegativePrompt,
       },
@@ -799,6 +812,27 @@ function stripOthers(prompt: string): string {
   const marker = " Wardrobe continuity — ";
   const cut = prompt.indexOf(marker);
   return cut >= 0 ? prompt.slice(0, cut) : prompt;
+}
+
+/**
+ * The same repair for the clip prompt, which carries names rather than a sheet.
+ *
+ * Two markers because the format changed: prompts written before the clip
+ * stopped re-describing the cast end with the full sheet, later ones with the
+ * short preservation clause.
+ */
+function withVideoCastClause(
+  prompt: string,
+  sceneCast: readonly Character[],
+  change: string,
+): string {
+  const markers = [" Character continuity — ", " The start frame fixes how "];
+  let body = prompt;
+  for (const marker of markers) {
+    const cut = body.indexOf(marker);
+    if (cut >= 0) body = body.slice(0, cut);
+  }
+  return `${body}${castContinuityClause(sceneCast, change)}`;
 }
 
 /**

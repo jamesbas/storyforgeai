@@ -38,7 +38,10 @@ export function NegativePromptRepair({
   const staleCast = scenes.filter((scene) => {
     const present = new Set(charactersInScene(scene, cast).map((c) => c.id));
     return cast.some(
-      (c) => !present.has(c.id) && scene.prompts.startFramePrompt.includes(`${c.name}:`),
+      (c) =>
+        !present.has(c.id) &&
+        (scene.prompts.startFramePrompt.includes(`${c.name}:`) ||
+          scene.prompts.videoPromptSegment.includes(`${c.name}:`)),
     );
   }).length;
 
