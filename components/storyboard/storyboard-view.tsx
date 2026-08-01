@@ -6,6 +6,7 @@ import Link from "next/link";
 import { SceneCard } from "@/components/storyboard/scene-card";
 import { CreativePlansPanel } from "@/components/storyboard/creative-plans-panel";
 import { NegativePromptRepair } from "@/components/storyboard/negative-prompt-repair";
+import { WardrobeCheck } from "@/components/storyboard/wardrobe-check";
 import { GENERATION_MODE_DOCS, SCENE_CONTINUITY_OPTIONS } from "@/lib/presets";
 import type { GenerationMode, SceneContinuityMode } from "@/lib/types";
 import { DEFAULT_SCENE_CONTINUITY, GENERATION_MODES, generationStages } from "@/lib/types";
@@ -725,6 +726,13 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         projectId={projectId}
         cast={cast}
         onRepaired={() => void load()}
+      />
+
+      <WardrobeCheck
+        record={record}
+        projectId={projectId}
+        cast={cast}
+        onApplied={() => void load()}
       />
 
       {llm?.enabled ? (

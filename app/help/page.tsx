@@ -569,6 +569,14 @@ export default function HelpPage() {
             still read as outfits: &quot;black silk robe, open&quot; works as written.
           </p>
           <p className={p}>
+            You should rarely have to set that by hand. The Storyboard Artist is told that
+            undressing is a wardrobe change and records it on the scene where it happens. For
+            storyboards written before that, the Storyboard screen reads the scene cards and lists
+            any whose action is only possible undressed while the wardrobe still says otherwise,
+            with one click to set them. It reports rather than decides — which scenes those are is a
+            judgement, and the list shows exactly what will change before you press it.
+          </p>
+          <p className={p}>
             On a <strong>close-up or tighter</strong>, a head-to-toe character description is mostly
             out of frame, and describing hair, jewellery and nails on a shot that cannot show them
             pushes the model to widen the framing until it can. Where a character has a reference

@@ -34,6 +34,15 @@ export const storyboardSystem = (segmentSeconds: number) =>
   "List in charactersPresent exactly which of the supplied cast are visible in that shot, by " +
   "their cast name. Leave it empty for a shot none of them are in. Do not list a character " +
   "who is merely mentioned, referred to, or elsewhere at the time. " +
+  // Undressing is a wardrobe change like any other, and the one most often left
+  // undeclared: without it the appended outfit is the last thing the render
+  // reads and the clothes stay on.
+  "Undressing is a wardrobe change. When a scene reaches a point where someone is no longer " +
+  "dressed, record it in wardrobeChanges with the new state — \"nude\" when they are wearing " +
+  "nothing, or the specific remaining garments when they are partly dressed — and set " +
+  "depictedOnScreen to true if the undressing itself is what the scene shows. Declare it once, " +
+  "in the scene where it happens: it carries forward on its own, and the scene where they dress " +
+  "again is its own change. " +
   // Costume is otherwise a constant repeated into every prompt, so a change the
   // story requires has to be declared here or it cannot happen at all.
   "Leave wardrobeChanges empty unless the story actually requires someone to change clothes " +

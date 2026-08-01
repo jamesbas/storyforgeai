@@ -83,6 +83,72 @@ export function othersWardrobeSuffix(others: Record<string, string>): string {
   return ` Wardrobe continuity — ${sheet}`;
 }
 
+/**
+ * Vocabulary that only appears when someone is already out of their clothes.
+ *
+ * Deliberately narrow. Kissing, undressing and stripping are excluded because
+ * a scene can contain all three with the clothes still on at the end of it; a
+ * false positive here would put someone in the wrong state for every scene
+ * after, since a change carries forward.
+ */
+const UNDRESSED_ACT =
+  /\b(?:nude|naked|undressed|topless|bare[-\s](?:breasts?|chest|skin|body)|penetrat\w*|thrust\w*|straddl\w*|riding\s+him|intercourse|fellati\w*|cunnilingus|oral\s+sex|going\s+down\s+on|climax\w*|orgasm\w*|fucking|cock|pussy|nipples?|genital\w*)\b/i;
+
+/**
+ * Scenes whose action reads as already undressed while the wardrobe still says
+ * otherwise.
+ *
+ * Advisory only. A stated outfit is appended last and is the strongest single
+ * instruction in the prompt, so a sex scene with a robe on the sheet renders
+ * the robe — but which scenes those are is a judgement, so this reports rather
+ * than decides.
+ */
+export function wardrobeContradictions(
+  project: Project,
+  scenes: readonly SceneLike[],
+  cast: readonly Character[],
+): { sceneId: string; sceneNumber: number; title: string; characters: string[] }[] {
+  if (cast.length === 0) return [];
+  const timeline = wardrobeTimeline(project, scenes, cast);
+
+  return scenes.flatMap((scene) => {
+    const text = `${scene.visualDescription} ${scene.actionDescription} ${scene.storyBeat}`;
+    if (!UNDRESSED_ACT.test(text)) return [];
+
+    const wardrobe = timeline.get(scene.id);
+    const dressed = cast.filter((c) => {
+      const outfit = wardrobe?.end[c.id];
+      return Boolean(outfit) && !isUndressed(outfit!);
+    });
+    if (dressed.length === 0) return [];
+
+    return [
+      {
+        sceneId: scene.id,
+        sceneNumber: scene.sceneNumber,
+        title: scene.title,
+        characters: dressed.map((c) => c.name),
+      },
+    ];
+  });
+}
+
+type SceneLike = {
+  id: string;
+  sceneNumber: number;
+  title: string;
+  visualDescription: string;
+  actionDescription: string;
+  storyBeat: string;
+};
+
+/** Matches the wardrobe states the cast sheet renders as nudity. */
+export function isUndressed(wardrobe: string): boolean {
+  return /^(?:fully\s+|completely\s+|entirely\s+)?(?:nude|naked|undressed|bare|nothing|none|no\s+clothes|no\s+clothing)\.?$/i.test(
+    wardrobe.trim(),
+  );
+}
+
 /** The project's wardrobe for a character, falling back to the library default. */
 export function wardrobeOf(project: Project, character: Character): string | undefined {
   const override = project.characterWardrobe?.[character.id]?.trim();

@@ -890,6 +890,53 @@ export async function updateSceneWardrobe(
 }
 
 /**
+ * Set the named scenes' present cast to nude, from the storyboard screen's
+ * contradiction check.
+ *
+ * Each scene gets a change point rather than one global edit, because the state
+ * carries forward: the earliest scene is the one that matters and the rest are
+ * harmless repetitions that keep the intent visible on each card.
+ */
+export async function markScenesUndressed(
+  id: string,
+  sceneIds: readonly string[],
+): Promise<{ record: ProjectRecord; changed: number }> {
+  const record = await getProjectRecord(id);
+  if (!record.storyboard) throw new ValidationError("Generate a storyboard before setting wardrobe");
+
+  const cast = await resolveProjectCast(record.project);
+  const wardrobeChanges = { ...(record.project.wardrobeChanges ?? {}) };
+  let changed = 0;
+
+  for (const sceneId of sceneIds) {
+    const scene = record.storyboard.scenes.find((s) => s.id === sceneId);
+    if (!scene) continue;
+    const present = charactersInScene(scene, cast);
+    if (present.length === 0) continue;
+    // An existing change was set deliberately; this is a bulk convenience.
+    if (wardrobeChanges[sceneId]?.length) continue;
+    wardrobeChanges[sceneId] = present.map((c) => ({
+      characterId: c.id,
+      wardrobe: "nude",
+      mode: "between" as const,
+    }));
+    changed += 1;
+  }
+
+  if (changed === 0) return { record, changed };
+
+  const updated: ProjectRecord = {
+    ...record,
+    project: { ...record.project, wardrobeChanges, updatedAt: new Date().toISOString() },
+    history: appendHistory(record, "scene.wardrobe_changed", `Set nude (${changed} scenes)`),
+  };
+
+  await repository.update(id, updated);
+  logEvent("project.updated", { id, change: "scenes_undressed", scenes: changed });
+  return { record: updated, changed };
+}
+
+/**
  * Overwrite the editable fields of one agent's plan.
  *
  * Only the fields the plan declares as editable are taken from the caller, and
