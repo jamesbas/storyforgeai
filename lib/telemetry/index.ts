@@ -6,6 +6,9 @@
 export type TelemetryEvent =
   | "project.created"
   | "project.imported"
+  | "project.concept_image_added"
+  | "project.concept_image_removed"
+  | "project.concept_visuals"
   | "project.updated"
   | "project.deleted"
   | "project.restored"
@@ -30,6 +33,8 @@ export type TelemetryEvent =
   | "scene.qc"
   | "qc.mode"
   | "qc.image_skipped"
+  | "image.skipped"
+  | "agent.llm.images_dropped"
   | "scene.continuity"
   | "scene.keyframe_preview"
   | "scene.keyframe_preview_cleared"

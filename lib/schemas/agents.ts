@@ -22,6 +22,36 @@ export const creativeBriefSchema = z.object({
 });
 export type CreativeBrief = z.infer<typeof creativeBriefSchema>;
 
+/**
+ * What the project's concept images show, read once and reused as text.
+ *
+ * A photograph carries palette, lighting, wardrobe and set dressing far more
+ * economically than a sentence. Distilling it here means no downstream agent
+ * needs a vision model, and the images are turned into tokens once rather than
+ * on every one of a storyboard's calls.
+ */
+export const conceptVisualsSchema = z.object({
+  projectId: z.string(),
+  /** The place, written the way a shot description would put it. */
+  setting: z.string(),
+  subjects: z.array(z.string()).default([]),
+  palette: z.array(z.string()).default([]),
+  lighting: z.string(),
+  wardrobe: z.array(z.string()).default([]),
+  mood: z.string(),
+  notableDetails: z.array(z.string()).default([]),
+  /**
+   * Where the images and the typed concept disagree. Surfaced rather than
+   * resolved: a night interior against a concept that says "sunlit morning" is
+   * a decision for the person who wrote both, and a model that quietly picks
+   * one produces a project nobody asked for.
+   */
+  contradictions: z.array(z.string()).default([]),
+  /** False when no vision model was configured, so this was inferred from text. */
+  fromImages: z.boolean().default(true),
+});
+export type ConceptVisuals = z.infer<typeof conceptVisualsSchema>;
+
 export const visualBibleSchema = z.object({
   projectId: z.string(),
   artDirection: z.string(),

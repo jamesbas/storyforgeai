@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { LoraSelector } from "@/components/settings/lora-selector";
+import { ConceptImages } from "@/components/settings/concept-images";
 import type { LoraSelectionSet } from "@/lib/schemas/lora";
 import type { WangpModel } from "@/lib/schemas/wangp";
 import type { Character } from "@/lib/schemas/character";
@@ -188,6 +189,12 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           {error}
         </p>
       ) : null}
+
+      <ConceptImages
+        projectId={projectId}
+        initial={project.conceptImages ?? []}
+        initialVisuals={record.conceptVisuals}
+      />
 
       <section className="space-y-4 rounded-lg border border-white/10 bg-panel/40 p-4">
         <div className="flex items-baseline justify-between">

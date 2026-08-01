@@ -80,6 +80,13 @@ export const projectSchema = z.object({
    */
   useCharacterReferenceImages: z.boolean().optional(),
   /**
+   * Filenames under this project's `concept-images` folder.
+   *
+   * Images that describe the piece rather than a character in it. Read once by
+   * the Concept Reader into `conceptVisuals`; the agents read that text.
+   */
+  conceptImages: z.array(z.string()).max(6).optional(),
+  /**
    * Wardrobe for this project, keyed by character id.
    *
    * Costume is a property of the story, not the person: the same character

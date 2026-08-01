@@ -1,8 +1,7 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { qcResultSchema, type QCResult, type SceneAttempt } from "@/lib/schemas/generation";
 import type { Scene } from "@/lib/schemas/storyboard";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
+import { loadImagesAsDataUrls } from "@/lib/media/data-url";
 import { config } from "@/lib/config";
 import { logEvent } from "@/lib/telemetry";
 
@@ -42,42 +41,9 @@ export const QC_SYSTEM = VISUAL_SYSTEM;
 /** What the project's generation mode asked for, so QC judges against that. */
 export type QcExpectations = { expectVideo: boolean };
 
-/** Images a vision model can accept. WanGP writes png and jpeg. */
-const MIME: Readonly<Record<string, string>> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".webp": "image/webp",
-};
-
-/**
- * The largest frame worth sending. A local vision model turns pixels into
- * tokens, and a full 1920x1088 frame can cost more prompt budget than the whole
- * scene card — for a judgement a smaller copy supports just as well.
- */
-const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
-
 /** Read keyframes as data URLs, skipping any that cannot be sent. */
-export async function loadQcImages(paths: readonly (string | undefined)[]): Promise<string[]> {
-  const urls: string[] = [];
-  for (const file of paths) {
-    if (!file) continue;
-    const mime = MIME[path.extname(file).toLowerCase()];
-    if (!mime) continue;
-    try {
-      const bytes = await readFile(file);
-      if (bytes.byteLength > MAX_IMAGE_BYTES) {
-        logEvent("qc.image_skipped", { path: file, reason: "too_large", bytes: bytes.byteLength });
-        continue;
-      }
-      urls.push(`data:${mime};base64,${bytes.toString("base64")}`);
-    } catch {
-      // A frame WanGP wrote where this host cannot read it is not a QC failure.
-      logEvent("qc.image_skipped", { path: file, reason: "unreadable" });
-    }
-  }
-  return urls;
-}
+export const loadQcImages = (paths: readonly (string | undefined)[]): Promise<string[]> =>
+  loadImagesAsDataUrls(paths, "qc");
 
 /**
  * Deterministic QC. Fails when required media is missing; otherwise passes with

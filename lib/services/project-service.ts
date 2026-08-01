@@ -41,6 +41,7 @@ import { repository } from "@/lib/db/store";
 import { runStoryboardOrchestrator } from "@/lib/agents/orchestrator";
 import { intakeAgent } from "@/lib/agents/intake-agent";
 import { storyArchitectAgent } from "@/lib/agents/story-architect-agent";
+import { conceptReaderAgent } from "@/lib/agents/concept-reader";
 import type { AgentContext } from "@/lib/agents/types";
 import type { StoryPlan } from "@/lib/schemas/agents";
 import { deriveTitle } from "@/lib/agents/mock-agents";
@@ -244,10 +245,17 @@ export async function duplicateProject(id: string): Promise<Project> {
 
   const { sceneIdMap, remap } = sceneIdRemapper(source, newId);
 
+  // Concept images live in a folder keyed by project id, so the copy needs its
+  // own bytes. Anything missing from disk drops out of the list rather than
+  // leaving the copy pointing at files it does not have.
+  const { copyConceptImages } = await import("@/lib/services/concept-image-service");
+  const conceptImages = await copyConceptImages(id, newId, source.project.conceptImages ?? []);
+
   const project: Project = {
     ...source.project,
     id: newId,
     title: copyTitle(source.project.title),
+    conceptImages: conceptImages.length ? conceptImages : undefined,
     // Seeds carry over so the copy renders the same images unless something is
     // deliberately changed — which is the whole point of comparing two runs.
     sceneSeeds: remap(source.project.sceneSeeds),
@@ -263,6 +271,7 @@ export async function duplicateProject(id: string): Promise<Project> {
     variants: source.variants,
     selectedVariantId: source.selectedVariantId,
     worldBible: source.worldBible,
+    conceptVisuals: source.conceptVisuals,
     directorialPlan: source.directorialPlan,
     cinematographyPlan: source.cinematographyPlan,
     artDirectionPlan: source.artDirectionPlan,
@@ -376,6 +385,11 @@ export async function importProject(raw: unknown): Promise<ImportOutcome> {
     ...source.project,
     id: newId,
     title: restoredTitle(source.project.title, taken),
+    // An export carries JSON, not image bytes, so the concept images cannot come
+    // with it. Keeping the names would leave every thumbnail broken and the
+    // Concept Reader reading nothing; the written reading in `conceptVisuals`
+    // does survive, which is the part the pipeline actually uses.
+    conceptImages: undefined,
     sceneSeeds: remap(source.project.sceneSeeds),
     sceneLoras: remap(source.project.sceneLoras),
     wardrobeChanges: remap(source.project.wardrobeChanges),
@@ -892,6 +906,49 @@ export async function updateSceneCard(
 }
 
 /**
+ * Read the project's concept images into text.
+ *
+ * Run on demand rather than as part of the storyboard: the images change far
+ * less often than the story does, and a vision pass against a local server is
+ * slow enough that repeating it on every regeneration would be felt.
+ */
+export async function readConceptImages(id: string): Promise<ProjectRecord> {
+  return trackAgentRun(id, "concept_reader", "Concept Reader", async () => {
+    const record = await getProjectRecord(id);
+    const { conceptImageFiles } = await import("@/lib/services/concept-image-service");
+    const paths = await conceptImageFiles(id);
+
+    const conceptVisuals = await conceptReaderAgent(record.project, paths, getPlanningProvider());
+    const updated: ProjectRecord = {
+      ...record,
+      conceptVisuals,
+      project: { ...record.project, updatedAt: new Date().toISOString() },
+      history: appendHistory(record, "concept_visuals.generated", `${paths.length} images`),
+    };
+
+    await repository.update(id, updated);
+    return updated;
+  });
+}
+
+/**
+ * Record which concept images a project holds.
+ */
+export async function saveConceptImages(id: string, filenames: string[]): Promise<ProjectRecord> {
+  const record = await getProjectRecord(id);
+  const updated: ProjectRecord = {
+    ...record,
+    project: {
+      ...record.project,
+      conceptImages: filenames.length ? filenames : undefined,
+      updatedAt: new Date().toISOString(),
+    },
+  };
+  await repository.update(id, updated);
+  return updated;
+}
+
+/**
  * Rewrite one scene's prompts, leaving its card and every other scene alone.
  *
  * Two model calls rather than the whole storyboard, and nothing else moves —
@@ -1298,6 +1355,14 @@ export async function deleteProject(
 
   const ok = options.keepMedia ? await repository.delete(id) : await repository.purge(id);
   if (!ok) throw new NotFoundError(`Project ${id} not found`);
+
+  // Concept images are written to disk whatever the persistence mode, so the
+  // repository's purge does not always reach them. Said explicitly here rather
+  // than left to depend on which store is configured.
+  if (!options.keepMedia) {
+    const { deleteConceptImages } = await import("@/lib/services/concept-image-service");
+    await deleteConceptImages(id);
+  }
 
   logEvent("project.deleted", { id, keptMedia: Boolean(options.keepMedia), cancelledScenes: cancelled });
 }

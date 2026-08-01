@@ -29,6 +29,17 @@ export type GenerateOptions = {
 };
 
 /**
+ * Whether images sent with a call would actually be looked at.
+ *
+ * A vision model is a separate deployment, so without one the provider drops
+ * images and answers from the text alone. Callers ask here rather than
+ * discovering it from output that reads as though the pictures were seen.
+ */
+export function visionAvailable(): boolean {
+  return Boolean(config.openai.visionModel);
+}
+
+/**
  * OpenAI-compatible provider. Works against the OpenAI API or any compatible
  * local server (LM Studio, Ollama, llama.cpp) by pointing OPENAI_BASE_URL at it.
  *
@@ -196,6 +207,16 @@ function createOpenAiProvider(): PlanningProvider {
         const images = options.images ?? [];
         const useVision = images.length > 0 && Boolean(config.openai.visionModel);
         const model = useVision ? config.openai.visionModel : config.openai.model;
+        // Silently answering from the text alone is the worst outcome here: the
+        // caller's prompt usually says "the attached images show", and a model
+        // asked about attachments it never received describes them anyway.
+        if (images.length > 0 && !useVision) {
+          logEvent("agent.llm.images_dropped", {
+            provider: label,
+            images: images.length,
+            reason: "no_vision_model",
+          });
+        }
 
         const messages: ChatMessage[] = [
           // Agent prompts name a schema the model has never seen, so spell out
