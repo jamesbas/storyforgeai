@@ -28,6 +28,11 @@ export const storyboardSystem = (segmentSeconds: number) =>
   "Set subjectFaceVisible to false when the shot does not show the main character's face — " +
   "close-ups of hands or objects, shots from behind, silhouettes, or any framing that crops " +
   "the head. Set it to true whenever the face is in frame, even partially. " +
+  // Decides who gets a description, a reference photo and a face swap. Listing
+  // someone absent puts them in the picture.
+  "List in charactersPresent exactly which of the supplied cast are visible in that shot, by " +
+  "their cast name. Leave it empty for a shot none of them are in. Do not list a character " +
+  "who is merely mentioned, referred to, or elsewhere at the time. " +
   // Costume is otherwise a constant repeated into every prompt, so a change the
   // story requires has to be declared here or it cannot happen at all.
   "Leave wardrobeChanges empty unless the story actually requires someone to change clothes " +

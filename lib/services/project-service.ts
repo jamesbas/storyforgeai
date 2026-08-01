@@ -14,7 +14,14 @@ import type { Project } from "@/lib/schemas/project";
 import { sceneFramingPatchSchema, scenePromptsPatchSchema } from "@/lib/schemas/storyboard";
 import { normaliseNegative } from "@/lib/agents/negative-prompt";
 import { sceneWardrobeChangesSchema, type WardrobeChange } from "@/lib/schemas/wardrobe";
-import { continuousTakeWardrobeWarning } from "@/lib/agents/wardrobe";
+import {
+  continuousTakeWardrobeWarning,
+  othersWardrobeSuffix,
+  wardrobeTimeline,
+} from "@/lib/agents/wardrobe";
+import { castPromptSuffix } from "@/lib/agents/cast";
+import { charactersInScene } from "@/lib/agents/scene-cast";
+import type { Character } from "@/lib/schemas/character";
 import { projectRecordSchema } from "@/lib/schemas/storyboard";
 import { storyboardExportSchema } from "@/lib/schemas/exports";
 import type { SceneAttempt } from "@/lib/schemas/generation";
@@ -688,36 +695,110 @@ export async function updateScenePrompts(
 export async function repairNegativePrompts(id: string): Promise<{
   record: ProjectRecord;
   changed: number;
+  castScenes: number;
 }> {
   const record = await getProjectRecord(id);
   if (!record.storyboard) throw new ValidationError("Generate a storyboard before repairing prompts");
 
+  const cast = await resolveProjectCast(record.project);
+  const timeline = wardrobeTimeline(record.project, record.storyboard.scenes, cast);
+
   let changed = 0;
+  let castScenes = 0;
   const scenes = record.storyboard.scenes.map((scene) => {
     const imageNegativePrompt = normaliseNegative(scene.prompts.imageNegativePrompt);
     const videoNegativePrompt = normaliseNegative(scene.prompts.videoNegativePrompt);
-    if (
-      imageNegativePrompt === scene.prompts.imageNegativePrompt &&
-      videoNegativePrompt === scene.prompts.videoNegativePrompt
-    ) {
-      return scene;
-    }
-    changed += 1;
-    return { ...scene, prompts: { ...scene.prompts, imageNegativePrompt, videoNegativePrompt } };
+
+    const sceneCast = charactersInScene(scene, cast);
+    const wardrobe = timeline.get(scene.id);
+    const startFramePrompt = withCastSheet(
+      scene.prompts.startFramePrompt,
+      sceneCast,
+      wardrobe?.start,
+      wardrobe?.othersStart,
+    );
+    const endFramePrompt = withCastSheet(
+      scene.prompts.endFramePrompt,
+      sceneCast,
+      wardrobe?.end,
+      wardrobe?.othersEnd,
+    );
+
+    const negativesStale =
+      imageNegativePrompt !== scene.prompts.imageNegativePrompt ||
+      videoNegativePrompt !== scene.prompts.videoNegativePrompt;
+    const castStale =
+      startFramePrompt !== scene.prompts.startFramePrompt ||
+      endFramePrompt !== scene.prompts.endFramePrompt;
+
+    if (!negativesStale && !castStale) return scene;
+    if (negativesStale) changed += 1;
+    if (castStale) castScenes += 1;
+
+    return {
+      ...scene,
+      charactersPresent: sceneCast.map((c) => c.name),
+      prompts: {
+        ...scene.prompts,
+        startFramePrompt,
+        endFramePrompt,
+        imageNegativePrompt,
+        videoNegativePrompt,
+      },
+    };
   });
 
-  if (changed === 0) return { record, changed };
+  if (changed === 0 && castScenes === 0) return { record, changed, castScenes };
+
+  const detail = [
+    changed ? `negative prompts ${changed}` : "",
+    castScenes ? `cast sheets ${castScenes}` : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
 
   const updated: ProjectRecord = {
     ...record,
     storyboard: { ...record.storyboard, scenes },
     project: { ...record.project, updatedAt: new Date().toISOString() },
-    history: appendHistory(record, "scene.prompts_edited", `Negative prompts repaired (${changed})`),
+    history: appendHistory(record, "scene.prompts_edited", `Prompts repaired (${detail})`),
   };
 
   await repository.update(id, updated);
-  logEvent("project.updated", { id, change: "negative_prompts_repaired", scenes: changed });
-  return { record: updated, changed };
+  logEvent("project.updated", {
+    id,
+    change: "prompts_repaired",
+    negatives: changed,
+    castSheets: castScenes,
+  });
+  return { record: updated, changed, castScenes };
+}
+
+/**
+ * Rebuild the appended cast sheet from the characters actually in the shot.
+ *
+ * The sheet and the clause that follows it are produced deterministically from
+ * the cast and the wardrobe timeline, so the model-authored body can be
+ * recovered by cutting at the marker and the correct suffixes re-appended. That
+ * removes a character who was never in the scene without touching a word the
+ * agent wrote, and without a regeneration.
+ */
+function withCastSheet(
+  prompt: string,
+  sceneCast: readonly Character[],
+  wardrobeAt: Record<string, string> | undefined,
+  others: Record<string, string> | undefined,
+): string {
+  const marker = " Character continuity — ";
+  const cut = prompt.indexOf(marker);
+  const body = cut >= 0 ? prompt.slice(0, cut) : stripOthers(prompt);
+  return `${body}${castPromptSuffix(sceneCast, wardrobeAt)}${othersWardrobeSuffix(others ?? {})}`;
+}
+
+function stripOthers(prompt: string): string {
+  const marker = " Wardrobe continuity — ";
+  const cut = prompt.indexOf(marker);
+  return cut >= 0 ? prompt.slice(0, cut) : prompt;
 }
 
 /**

@@ -655,7 +655,12 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         onRegenerate={generate}
       />
 
-      <NegativePromptRepair record={record} projectId={projectId} onRepaired={() => void load()} />
+      <NegativePromptRepair
+        record={record}
+        projectId={projectId}
+        cast={cast}
+        onRepaired={() => void load()}
+      />
 
       {llm?.enabled ? (
         <section className="rounded-lg border border-white/10 bg-panel/40 p-4">

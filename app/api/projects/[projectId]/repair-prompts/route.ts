@@ -12,9 +12,9 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(_request: Request, { params }: { params: { projectId: string } }) {
   try {
-    const { record, changed } = await repairNegativePrompts(params.projectId);
+    const { record, changed, castScenes } = await repairNegativePrompts(params.projectId);
     return NextResponse.json(
-      { changed, scenes: record.storyboard?.scenes.length ?? 0 },
+      { changed, castScenes, scenes: record.storyboard?.scenes.length ?? 0 },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (err) {

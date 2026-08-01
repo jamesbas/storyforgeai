@@ -530,18 +530,41 @@ export default function HelpPage() {
             </li>
             <li className={li}>
               The <strong>Image and Video Prompt agents</strong> append the canonical description to
-              every start frame, end frame and motion prompt, and merge the character&apos;s negative
-              terms into the negative prompt.
+              the start frame, end frame and motion prompt <em>of the scenes that character is
+              in</em>, and merge their negative terms into the negative prompt.
             </li>
             <li className={li}>
               Any <strong>reference images</strong> are sent to the image model when rendering the two
-              keyframes. The video clip is generated from those frames, so the likeness carries into
-              the motion without a second reference pass.
+              keyframes of the scenes they appear in. The video clip is generated from those frames,
+              so the likeness carries into the motion without a second reference pass.
             </li>
           </ul>
           <p className={p}>
             Descriptions are read at generation time, not at project creation. Editing a character and
             regenerating the storyboard picks up the new wording.
+          </p>
+
+          <h3 className={h3}>Who counts as being in a scene</h3>
+          <p className={p}>
+            A description, a reference photograph and a face swap all instruct the image model to put
+            that person in the picture, so they are applied only to the scenes the character is
+            actually in. The Storyboard Artist records who is visible in each shot; where it has not
+            (any storyboard generated before this existed), presence is read from the scene card —
+            a character is in the shot if the card names them in its title, objective, beat, visual
+            description, action or dialogue.
+          </p>
+          <p className={p}>
+            A scene naming nobody from the cast gets no character description, no reference image and
+            no face swap. That is the intended answer for, say, a table of four men in a story whose
+            pinned character is elsewhere — previously she was described in full on every one of
+            those prompts, with her photograph attached, which is a reliable way to get her into a
+            shot she was never written into.
+          </p>
+          <p className={p}>
+            If a scene loses a character it should have, name them in the scene card and regenerate,
+            or edit the prompt by hand. The manual <strong>Swap face</strong> button on a rendered
+            frame is unaffected and still works anywhere — it is an explicit instruction rather than
+            an inference.
           </p>
 
           <h3 className={h3}>Keeping a scene consistent with itself</h3>

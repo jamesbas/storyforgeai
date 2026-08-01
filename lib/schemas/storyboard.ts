@@ -91,6 +91,14 @@ export const sceneSchema = z.object({
    */
   subjectFaceVisible: z.boolean().default(true),
   /**
+   * Which pinned characters are in this shot, by name.
+   *
+   * Decides who gets a description, a reference photograph and a face swap.
+   * Defaulted empty so storyboards written before the field existed still
+   * parse; presence is then read from the scene card instead.
+   */
+  charactersPresent: z.array(z.string()).default([]),
+  /**
    * Costume changes the story calls for in this scene, named by character
    * rather than id because the agent writing them has never seen an id.
    *

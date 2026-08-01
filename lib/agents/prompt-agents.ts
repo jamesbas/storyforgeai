@@ -16,6 +16,7 @@ import {
   videoPromptDirective,
 } from "@/lib/agents/model-directives";
 import { familyOf } from "@/lib/wangp/family";
+import { charactersInScene } from "@/lib/agents/scene-cast";
 import { wardrobeChangeClause, othersWardrobeSuffix, wardrobeTimeline } from "@/lib/agents/wardrobe";
 import type { SceneWardrobe } from "@/lib/schemas/wardrobe";
 import { config } from "@/lib/config";
@@ -158,8 +159,12 @@ export async function attachScenePrompts(
     // into the prompt. The full documents would crowd out the shot description.
     const slice = sceneCreativeSlice(plans, draft);
     const wardrobe = timeline.get(draft.id);
-    let imagePart = buildImagePrompts(project, draft, cast, plans, wardrobe);
-    let videoPart = buildVideoPrompts(project, draft, cast, plans, wardrobe);
+    // Only the people in this shot. The sheet is appended verbatim, so a
+    // character carried into a scene they are absent from is a description of
+    // someone the model will then try to put in the picture.
+    const sceneCast = charactersInScene(draft, cast);
+    let imagePart = buildImagePrompts(project, draft, sceneCast, plans, wardrobe);
+    let videoPart = buildVideoPrompts(project, draft, sceneCast, plans, wardrobe);
 
     if (provider) {
       const user = JSON.stringify({
@@ -167,7 +172,7 @@ export async function attachScenePrompts(
         scene: draft,
         previousEndFramePrompt,
         visualBible: context.visualBible,
-        cast,
+        cast: sceneCast,
         sceneIntent: slice.intent,
         shotPlan: slice.shotPlan,
         artDirection: plans?.artDirectionPlan,
@@ -201,27 +206,31 @@ export async function attachScenePrompts(
           wardrobeChangeDirective(wardrobe) +
           imagePromptDirective(imageFamily) +
           seamDirective(project) +
-          castSystemDirective(cast, true) +
-          precedenceDirective(cast, plans),
+          castSystemDirective(sceneCast, true) +
+          precedenceDirective(sceneCast, plans),
         user,
         imagePartSchema,
       );
-      if (image) imagePart = withCastEnforced(image, cast, plans, project, wardrobe);
+      if (image) imagePart = withCastEnforced(image, sceneCast, plans, project, wardrobe);
       const video = await provider.generateJson(
         videoPromptSystem(project.segmentSeconds) +
           videoPromptDirective(videoFamily, {
             segmentSeconds: project.segmentSeconds,
             nativeAudio: hasNativeAudio(videoFamily),
           }) +
-          castSystemDirective(cast, true) +
-          precedenceDirective(cast, plans),
+          castSystemDirective(sceneCast, true) +
+          precedenceDirective(sceneCast, plans),
         user,
         videoPartSchema,
       );
-      if (video) videoPart = withCastEnforcedVideo(video, cast, plans, project, wardrobe);
+      if (video) videoPart = withCastEnforcedVideo(video, sceneCast, plans, project, wardrobe);
     }
 
-    scenes.push({ ...draft, prompts: { ...imagePart, ...videoPart } });
+    scenes.push({
+      ...draft,
+      charactersPresent: sceneCast.map((c) => c.name),
+      prompts: { ...imagePart, ...videoPart },
+    });
     previousEndFramePrompt = imagePart.endFramePrompt;
   }
   return scenes;

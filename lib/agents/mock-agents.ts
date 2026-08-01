@@ -202,6 +202,7 @@ export function buildSceneDrafts(
       id: `${project.id}-scene-${String(sceneNumber).padStart(3, "0")}`,
       projectId: project.id,
       wardrobeChanges: [],
+      charactersPresent: cast.map((c) => c.name),
       sceneNumber,
       startTimeSeconds,
       endTimeSeconds,

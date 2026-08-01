@@ -12,6 +12,7 @@ import type { Character } from "@/lib/schemas/character";
 import { seamBreak } from "@/lib/media/seam";
 import { DEFAULT_SCENE_CONTINUITY, generationStages } from "@/lib/types";
 import { resolveProjectCast } from "@/lib/services/character-service";
+import { charactersInScene } from "@/lib/agents/scene-cast";
 import { resolveReferenceImagePath } from "@/lib/db/character-store";
 import { config } from "@/lib/config";
 import { qcAgent } from "@/lib/agents/qc-agent";
@@ -64,12 +65,29 @@ function withSceneStatus(record: ProjectRecord, sceneId: string, status: Scene["
  * Image" check. Resolved fresh each run so replacing a character's photo takes
  * effect on the next generation.
  */
-async function resolveCastReferenceImages(record: ProjectRecord): Promise<string[]> {
+async function resolveCastReferenceImages(
+  record: ProjectRecord,
+  scene?: Scene,
+): Promise<string[]> {
   const cast = await resolveProjectCast(record.project);
+  // A reference photo outranks the prompt text, so one belonging to a character
+  // who is not in this shot is the strongest possible instruction to put them
+  // in it. Without a scene the whole cast applies, which is only right for
+  // callers that have no single shot in hand.
+  return referenceImagePathsOf(scene ? charactersInScene(scene, cast) : cast);
+}
+
+function referenceImagePathsOf(cast: readonly Character[]): string[] {
   return cast
     .flatMap((character) => referenceImagesOf(character))
     .map((filename) => resolveReferenceImagePath(filename))
     .filter((filePath): filePath is string => filePath !== null);
+}
+
+/** The face-swap target for one shot, or null when its subject is not in it. */
+async function sceneFaceSwapSubject(record: ProjectRecord, scene: Scene) {
+  const cast = await resolveProjectCast(record.project);
+  return faceSwapSubject(charactersInScene(scene, cast));
 }
 
 /**
@@ -266,8 +284,8 @@ export async function generateSceneKeyframe(
   const scene = findScene(record, sceneId);
 
   const seeded = await ensureSceneSeeds(projectId, record, [sceneId]);
-  const castRefs = await resolveCastReferenceImages(seeded);
-  const swapSubject = faceSwapSubject(await resolveProjectCast(seeded.project));
+  const castRefs = await resolveCastReferenceImages(seeded, scene);
+  const swapSubject = await sceneFaceSwapSubject(seeded, scene);
 
   // The end frame is normally shown the start frame to match. Reuse whichever
   // start frame already exists so the preview is conditioned the same way the
@@ -436,8 +454,12 @@ export async function generateProjectMediaPhased(
 
   const mode = record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY;
   record = await ensureSceneSeeds(projectId, record, scenes.map((scene) => scene.id));
-  const castRefs = await resolveCastReferenceImages(record);
-  const swapSubject = faceSwapSubject(await resolveProjectCast(record.project));
+  const projectCast = await resolveProjectCast(record.project);
+  const castRefsFor = (scene: Scene) =>
+    referenceImagePathsOf(charactersInScene(scene, projectCast));
+  const swapSubject = faceSwapSubject(projectCast);
+  const inScene = (scene: Scene) =>
+    !swapSubject || charactersInScene(scene, projectCast).some((c) => c.id === swapSubject.id);
 
   /** Rendered frame paths per scene, rewritten in place as phases progress. */
   const frames = new Map<
@@ -487,7 +509,7 @@ export async function generateProjectMediaPhased(
 
       if (!startPath) {
         const rendered = await run(() =>
-          renderKeyframe(record, scene, "start_frame", scene.prompts.startFramePrompt, castRefs, [], null),
+          renderKeyframe(record, scene, "start_frame", scene.prompts.startFramePrompt, castRefsFor(scene), [], null),
         );
         startPath = rendered.path;
         startId = rendered.id;
@@ -504,7 +526,7 @@ export async function generateProjectMediaPhased(
           scene,
           "end_frame",
           conditionOnStart ? `${scene.prompts.endFramePrompt}${matchInstruction}` : scene.prompts.endFramePrompt,
-          castRefs,
+          castRefsFor(scene),
           conditionOnStart ? [startPath!] : [],
           null,
         ),
@@ -543,7 +565,11 @@ export async function generateProjectMediaPhased(
     // that a face scene depends on still needs correcting.
     const distinct = new Set<string>();
     for (const [sceneId, entry] of frames) {
-      if (scenes.find((s) => s.id === sceneId)?.subjectFaceVisible === false) continue;
+      const scene = scenes.find((s) => s.id === sceneId);
+      if (!scene) continue;
+      if (scene.subjectFaceVisible === false) continue;
+      // Swapping a face into a shot the subject is not in puts them in it.
+      if (!inScene(scene)) continue;
       if (entry.start) distinct.add(entry.start);
       if (entry.end) distinct.add(entry.end);
     }
@@ -832,10 +858,10 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
   // Character reference images condition the two keyframes. The video model
   // then inherits that identity for free through image_start / image_end, so
   // references are deliberately not sent on the video job as well.
-  const imageRefs = await resolveCastReferenceImages(record);
+  const imageRefs = await resolveCastReferenceImages(record, scene);
   // One subject per scene: the preset's prompt names "the woman", so a second
   // opted-in character has no unambiguous place to go.
-  const swapSubject = faceSwapSubject(await resolveProjectCast(record.project));
+  const swapSubject = await sceneFaceSwapSubject(record, scene);
 
   const continuity = resolveContinuity(record, scene);
   const continuing = Boolean(continuity.videoSource);
