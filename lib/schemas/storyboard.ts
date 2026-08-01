@@ -60,6 +60,29 @@ export const sceneFramingPatchSchema = z.object({
 });
 export type SceneFramingPatch = z.infer<typeof sceneFramingPatchSchema>;
 
+/**
+ * The story content of a scene card, editable by hand.
+ *
+ * Prompts were editable and the card that produces them was not, so a card that
+ * described the wrong thing could only be corrected by regenerating the whole
+ * storyboard — and a prompt agent faithfully rewriting a wrong card produces
+ * the same wrong prompt again.
+ */
+export const sceneCardPatchSchema = z
+  .object({
+    title: z.string().max(200),
+    sceneObjective: z.string().max(2000),
+    storyBeat: z.string().max(2000),
+    visualDescription: z.string().max(4000),
+    actionDescription: z.string().max(4000),
+    cameraMovement: z.string().max(500),
+  })
+  .partial()
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: "Provide at least one field to update.",
+  });
+export type SceneCardPatch = z.infer<typeof sceneCardPatchSchema>;
+
 export const sceneSchema = z.object({
   id: z.string(),
   projectId: z.string(),

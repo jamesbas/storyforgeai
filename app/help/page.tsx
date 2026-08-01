@@ -1048,6 +1048,21 @@ export default function HelpPage() {
             documentation and add the word to the prompt yourself.
           </p>
 
+          <h3 className={h3}>Editing the scene card</h3>
+          <p className={p}>
+            Expand <strong>Scene card</strong> on any scene to correct its objective, story beat,
+            visual description, action or camera. This is the text every prompt for that scene is
+            written from, so it is where you change <em>what the shot contains</em> — rewriting the
+            prompts of a card that describes the wrong thing produces the wrong shot again, however
+            many times you ask.
+          </p>
+          <p className={p}>
+            <strong>Save and rewrite prompts</strong> does both in one step, which is usually what you
+            want. <strong>Save card only</strong> leaves the existing prompts in place, so they will
+            still describe the old shot until rewritten. Either way, regenerating the whole storyboard
+            replaces the card.
+          </p>
+
           <h3 className={h3}>Editing prompts by hand</h3>
           <p className={p}>
             The prompts on a scene card are editable. Expand <strong>Prompts</strong> on any scene to

@@ -11,7 +11,7 @@ import {
   validateSelectionSet,
 } from "@/lib/services/lora-service";
 import type { Project } from "@/lib/schemas/project";
-import { sceneFramingPatchSchema, scenePromptsPatchSchema } from "@/lib/schemas/storyboard";
+import { sceneFramingPatchSchema, scenePromptsPatchSchema, sceneCardPatchSchema } from "@/lib/schemas/storyboard";
 import { normaliseNegative } from "@/lib/agents/negative-prompt";
 import { sceneWardrobeChangesSchema, type WardrobeChange } from "@/lib/schemas/wardrobe";
 import {
@@ -845,6 +845,50 @@ function withVideoCastClause(
     if (cut >= 0) body = body.slice(0, cut);
   }
   return `${body}${castContinuityClause(sceneCast, change)}`;
+}
+
+/**
+ * Correct a scene card by hand.
+ *
+ * The card is what every prompt is written from, so a card describing the wrong
+ * thing cannot be fixed downstream: a prompt agent given "the men's hands are
+ * seen" will faithfully write a shot of hands however many times it is asked.
+ *
+ * `charactersPresent` is recomputed, because adding or removing a name from the
+ * card is precisely how someone says who is in the shot.
+ */
+export async function updateSceneCard(
+  id: string,
+  sceneId: string,
+  raw: unknown,
+): Promise<ProjectRecord> {
+  const patch = sceneCardPatchSchema.parse(raw);
+  const record = await getProjectRecord(id);
+  if (!record.storyboard) throw new ValidationError("Generate a storyboard before editing a scene");
+
+  const scene = record.storyboard.scenes.find((s) => s.id === sceneId);
+  if (!scene) throw new NotFoundError(`Scene ${sceneId} not found`);
+
+  const cast = await resolveProjectCast(record.project);
+  const edited = { ...scene, ...patch };
+
+  const updated: ProjectRecord = {
+    ...record,
+    storyboard: {
+      ...record.storyboard,
+      scenes: record.storyboard.scenes.map((s) =>
+        s.id === sceneId
+          ? { ...edited, charactersPresent: charactersInScene(edited, cast).map((c) => c.name) }
+          : s,
+      ),
+    },
+    project: { ...record.project, updatedAt: new Date().toISOString() },
+    history: appendHistory(record, "scene.card_edited", `Scene ${scene.sceneNumber}`),
+  };
+
+  await repository.update(id, updated);
+  logEvent("project.updated", { id, change: "scene_card", sceneId });
+  return updated;
 }
 
 /**

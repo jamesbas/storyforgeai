@@ -1,5 +1,6 @@
 import { SceneLoraPanel } from "@/components/storyboard/scene-lora-panel";
 import { ScenePromptsPanel } from "@/components/storyboard/scene-prompts-panel";
+import { SceneCardEditor } from "@/components/storyboard/scene-card-editor";
 import { SceneWardrobePanel } from "@/components/storyboard/scene-wardrobe-panel";
 import type { SceneLoraOverride } from "@/lib/schemas/lora";
 import type { Character } from "@/lib/schemas/character";
@@ -147,6 +148,14 @@ export function SceneCard({
             </span>
           </span>
         </label>
+      ) : null}
+      {projectId ? (
+        <SceneCardEditor
+          scene={scene}
+          projectId={projectId}
+          busy={busy}
+          onSaved={onPromptsSaved}
+        />
       ) : null}
       {projectId ? (
         <ScenePromptsPanel
