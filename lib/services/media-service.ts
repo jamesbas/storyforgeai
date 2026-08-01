@@ -566,17 +566,30 @@ export async function generateProjectMediaPhased(
     // scene's start frame. Swapping per scene would run it twice, wasting a
     // render and producing two subtly different images for the same moment.
     //
-    // A frame is swapped when any scene using it shows the face: a shared frame
-    // that a face scene depends on still needs correcting.
-    const distinct = new Set<string>();
+    // A shared frame is swapped only when *every* scene using it wants the
+    // swap. The rule used to be "any", which let a scene that needed a face
+    // pull its neighbour's frame into the swap set — and a shot of four men
+    // that the plan called faceless came back with a woman's face grafted into
+    // it. A missing correction is recoverable from the Swap face button; an
+    // invented face in a frame nobody asked for is not.
+    const wanted = new Set<string>();
+    const refused = new Set<string>();
     for (const [sceneId, entry] of frames) {
       const scene = scenes.find((s) => s.id === sceneId);
       if (!scene) continue;
-      if (scene.subjectFaceVisible === false) continue;
       // Swapping a face into a shot the subject is not in puts them in it.
-      if (!inScene(scene)) continue;
-      if (entry.start) distinct.add(entry.start);
-      if (entry.end) distinct.add(entry.end);
+      const allowed = scene.subjectFaceVisible !== false && inScene(scene);
+      for (const path of [entry.start, entry.end]) {
+        if (!path) continue;
+        (allowed ? wanted : refused).add(path);
+      }
+    }
+
+    const distinct = new Set([...wanted].filter((path) => !refused.has(path)));
+    for (const path of wanted) {
+      if (refused.has(path)) {
+        logEvent("face_swap.skipped", { reason: "frame_shared_with_faceless_scene", path });
+      }
     }
 
     hooks.onPhase?.("face_swap", distinct.size);

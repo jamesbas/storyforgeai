@@ -422,6 +422,11 @@ planned and shown as a **Face in frame** tick box. Clear it and that scene's fra
 keep their originals. The manual **Swap face on** buttons are deliberately not
 gated, being an explicit instruction rather than an inference.
 
+Under `reuse_end_frame` one file is both a scene's end frame and the next scene's
+start frame, so a shared frame is swapped only when **every** scene using it wants
+the swap. A missing correction can be applied by hand afterwards; a face invented
+in a frame nobody asked for cannot be taken back out.
+
 **Repairing one frame.** The flag is decided before anything is drawn, and a
 render does not always match its prompt. `POST /scenes/{id}/face-swap` with
 `{ "purpose": "start_frame" | "end_frame" }` — the **Swap face on** buttons on the

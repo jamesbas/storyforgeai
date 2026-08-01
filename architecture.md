@@ -750,9 +750,14 @@ Three properties this encodes:
    put one. Two gates therefore apply — whether the subject is in the scene at all,
    and `scene.subjectFaceVisible`, which the Storyboard Agent sets from the framing
    it planned. In the batch phase a frame shared by two scenes (`reuse_end_frame`)
-   is swapped if either shows the face, and scenes the subject is absent from are
-   skipped entirely. `swapAttemptFrame()` is deliberately ungated, being an
-   explicit instruction rather than an inference.
+   is swapped only when *every* scene using it wants the swap, and scenes the
+   subject is absent from are skipped entirely. `swapAttemptFrame()` is
+   deliberately ungated, being an explicit instruction rather than an inference.
+
+   `seamBreak` refuses to share a frame across a change of cast or of face
+   visibility for the same reason: two scenes that disagree about who is in the
+   picture are not describing one frame, and inheriting across the join renders
+   the wrong people while never sending the prompt that would have introduced them.
 
 `swapAttemptFrame()` is the escape hatch: it applies the swap to one stored frame
 of the latest attempt, for when the plan and the render disagree. Attempts carry

@@ -88,7 +88,7 @@ export function isTightShot(text: string | undefined): boolean {
 const NEW_SHOT_TRANSITION = /\b(?:cut|dissolve|fade|wipe|smash|jump)\b/i;
 
 export type SeamBreak = {
-  reason: "shot_size_change" | "transition";
+  reason: "shot_size_change" | "transition" | "cast_change" | "face_visibility_change";
   detail: string;
 };
 
@@ -106,10 +106,40 @@ export function seamBreak(previous: Scene, scene: Scene): SeamBreak | null {
   if (from && to && from !== to) {
     return { reason: "shot_size_change", detail: `${label(from)} to ${label(to)}` };
   }
+  // Someone arriving or leaving is a different framing whatever the sizes say,
+  // and inheriting across it renders the wrong people: this scene's start-frame
+  // prompt, the one that introduces them, is never sent.
+  const cast = castChange(previous, scene);
+  if (cast) return { reason: "cast_change", detail: cast };
+  // The two scenes disagree about whether a face is in shot, so they cannot be
+  // the same frame. Left inherited, the frame is swept into the face swap on
+  // behalf of whichever scene wants it and a face is grafted into a shot the
+  // plan called faceless.
+  if (previous.subjectFaceVisible !== scene.subjectFaceVisible) {
+    return {
+      reason: "face_visibility_change",
+      detail: scene.subjectFaceVisible === false ? "face leaves frame" : "face enters frame",
+    };
+  }
   if (scene.transitionIn && NEW_SHOT_TRANSITION.test(scene.transitionIn)) {
     return { reason: "transition", detail: scene.transitionIn };
   }
   return null;
+}
+
+/** Characters present in one scene and not the other, as a readable list. */
+function castChange(previous: Scene, scene: Scene): string | null {
+  const before = new Set(previous.charactersPresent ?? []);
+  const after = new Set(scene.charactersPresent ?? []);
+  const arrived = [...after].filter((name) => !before.has(name));
+  const left = [...before].filter((name) => !after.has(name));
+  if (arrived.length === 0 && left.length === 0) return null;
+  return [
+    arrived.length ? `${arrived.join(", ")} enters` : "",
+    left.length ? `${left.join(", ")} leaves` : "",
+  ]
+    .filter(Boolean)
+    .join("; ");
 }
 
 const LABELS: Record<ShotSize, string> = {
