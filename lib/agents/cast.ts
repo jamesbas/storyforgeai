@@ -119,7 +119,17 @@ export function castSheet(
  * duplicate or a fused, deformed subject.
  */
 export function castSystemDirective(cast: readonly Character[], forRender = false): string {
-  if (cast.length === 0) return "";
+  // Everyone in a shot needs describing; only the pinned ones have that done
+  // for them. Returning nothing here once meant a scene with no pinned cast
+  // lost the instruction to describe anybody, and four men at a table became
+  // a pair of hands.
+  const describeOthers =
+    " Any person in the shot who is not in the pinned cast must be described in full in your " +
+    "own prompt — age, build, hair, face and specific named garments with colours and materials " +
+    "— because nothing is appended for them and an undescribed person is reinvented on every " +
+    "render.";
+
+  if (cast.length === 0) return forRender ? describeOthers : "";
   const names = cast.map((c) => c.name).join(", ");
   const locked =
     " A fixed cast is supplied in the `cast` field of the user message: " +
@@ -146,9 +156,8 @@ export function castSystemDirective(cast: readonly Character[], forRender = fals
     "negative terms — the canonical text is appended to every prompt " +
     "automatically, and a second copy makes the image model render the " +
     "character twice. Name a cast character only in the prompts for shots they " +
-    "actually appear in. Introduce new characters only when the story needs " +
-    "someone who is not in the cast; describe those in full, since nothing is " +
-    "appended for them."
+    "actually appear in." +
+    describeOthers
   );
 }
 

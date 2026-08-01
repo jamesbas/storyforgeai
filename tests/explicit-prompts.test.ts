@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { castPromptSuffix, castSheet } from "@/lib/agents/cast";
+import { castPromptSuffix, castSheet, castSystemDirective } from "@/lib/agents/cast";
 import { explicitnessDirective, isExplicitProject } from "@/lib/agents/explicitness";
 import { isTightShot } from "@/lib/media/seam";
 import type { Character } from "@/lib/schemas/character";
@@ -168,5 +168,28 @@ describe("the doubled name", () => {
   it("does not write the name twice", () => {
     expect(castPromptSuffix([TRACEY])).toContain("Tracey: A woman in her fifties");
     expect(castPromptSuffix([TRACEY])).not.toContain("Tracey: Tracey:");
+  });
+});
+
+/**
+ * Scoping the cast sheet to the scene made the render directive vanish along
+ * with it: a scene the pinned cast is absent from got an empty directive, so
+ * nothing told the agent to describe the people who *were* there. Four men at a
+ * poker table came back as a pair of hands.
+ */
+describe("people who are not in the pinned cast", () => {
+  it("still asks for a full description when the scene has no pinned cast", () => {
+    const directive = castSystemDirective([], true);
+    expect(directive).toMatch(/described in full/);
+    expect(directive).toMatch(/specific named garments/);
+  });
+
+  it("asks for it alongside the cast rules when there is a cast", () => {
+    expect(castSystemDirective([TRACEY], true)).toMatch(/described in full/);
+  });
+
+  /** Planning agents describe everyone anyway; this is a render-prompt rule. */
+  it("says nothing to a planning agent with no cast", () => {
+    expect(castSystemDirective([])).toBe("");
   });
 });

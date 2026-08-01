@@ -26,9 +26,21 @@ export const storyboardSystem = (segmentSeconds: number) =>
   "camera movement, transition in/out, continuity notes, and optional narration/dialogue/" +
   "music/SFX notes. Scope the action to what can actually happen in " +
   `${segmentSeconds} seconds. ` +
-  "Set subjectFaceVisible to false when the shot does not show the main character's face — " +
-  "close-ups of hands or objects, shots from behind, silhouettes, or any framing that crops " +
-  "the head. Set it to true whenever the face is in frame, even partially. " +
+  // This gates the face swap and nothing else. It once said "the main
+  // character's face", which a model reasonably read as false for any scene
+  // that character is absent from — and then wrote the shot to match its own
+  // flag, reducing a wide shot of four men to a shot of their hands.
+  "Set subjectFaceVisible according to the framing you have already chosen, and never let it " +
+  "change what the shot contains. It is true whenever any person's face is in frame, even " +
+  "partially, and whoever they are. Set it false only when the framing itself excludes every " +
+  "face: a close-up of hands or an object, a shot from behind, a silhouette, or a crop above " +
+  "the neck. A scene that none of the pinned cast appear in is not a reason to set it false — " +
+  "other people are still people, and a wide or medium shot of a room with people in it shows " +
+  "their faces. " +
+  // A wide shot whose only human content is a pair of hands is not a shot.
+  "Keep the people in the shot consistent with its size: do not describe a wide or medium shot " +
+  "in terms of hands or fragments alone. If the shot is wide, say who is in the room and what " +
+  "they look like. " +
   // Decides who gets a description, a reference photo and a face swap. Listing
   // someone absent puts them in the picture.
   "List in charactersPresent exactly which of the supplied cast are visible in that shot, by " +
