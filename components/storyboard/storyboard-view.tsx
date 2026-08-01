@@ -16,6 +16,7 @@ import type { LlmRuntimeStatus } from "@/lib/services/llm-runtime-service";
 import type { PhaseProgress, SceneQueueEntry } from "@/lib/services/scene-queue";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { Character } from "@/lib/schemas/character";
+import { handEditedSinceGeneration } from "@/lib/history";
 import type { MediaDescriptor } from "@/lib/media/refs";
 
 type QueueSnapshot = { entries: SceneQueueEntry[]; active: boolean; phase?: PhaseProgress };
@@ -104,6 +105,22 @@ export function StoryboardView({ projectId }: { projectId: string }) {
       setBusy(false);
     }
   }, [projectId, failureMessage]);
+
+  /** Scenes whose hand-written prompts a regeneration would discard. */
+  const handEdits = record ? handEditedSinceGeneration(record) : [];
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
+
+  /**
+   * Every regenerate button routes through here, so the guard sits in one place
+   * rather than on each of them.
+   */
+  const requestGenerate = useCallback(() => {
+    if (handEdits.length) {
+      setConfirmRegenerate(true);
+      return;
+    }
+    void generate();
+  }, [handEdits.length, generate]);
 
   const [sceneBusy, setSceneBusy] = useState<string | null>(null);
   const [llm, setLlm] = useState<LlmRuntimeStatus | null>(null);
@@ -556,7 +573,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
             Settings
           </Link>
           <button
-            onClick={generate}
+            onClick={requestGenerate}
             disabled={generating}
             className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
@@ -593,6 +610,54 @@ export function StoryboardView({ projectId }: { projectId: string }) {
           plus two per scene for the prompts, so it takes a while. The buttons stay locked until it
           finishes, and this page updates itself when it does.
         </p>
+      ) : null}
+
+      {confirmRegenerate ? (
+        <section
+          className="rounded-lg border border-red-500/40 bg-red-500/10 p-4"
+          data-testid="regenerate-confirm"
+        >
+          <h2 className="text-sm font-semibold">
+            Regenerating rewrites {handEdits.length} hand-edited{" "}
+            {handEdits.length === 1 ? "scene" : "scenes"}
+          </h2>
+          <p className="mt-1 text-sm text-slate-300">
+            Every prompt is written afresh, so the wording you typed on{" "}
+            {handEdits.slice(0, 6).join(", ")}
+            {handEdits.length > 6 ? ` and ${handEdits.length - 6} more` : ""} is replaced. This
+            cannot be undone.
+          </p>
+          <p className="mt-1 text-xs text-slate-400">
+            <strong>Export JSON</strong> first if you want a copy to read them back from. It will not
+            restore them automatically, but the text will still be there.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                setConfirmRegenerate(false);
+                void generate();
+              }}
+              disabled={generating}
+              className="rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+            >
+              Regenerate anyway
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfirmRegenerate(false)}
+              className="rounded-md border border-white/15 px-3 py-1.5 text-xs font-semibold hover:border-accent"
+            >
+              Keep my edits
+            </button>
+            <a
+              href={`/api/projects/${projectId}/export?format=json`}
+              className="rounded-md border border-white/15 px-3 py-1.5 text-xs hover:border-accent"
+            >
+              Export JSON
+            </a>
+          </div>
+        </section>
       ) : null}
 
       {storyboard?.fallbacks?.length ? (
@@ -639,7 +704,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
           </p>
           <button
             type="button"
-            onClick={generate}
+            onClick={requestGenerate}
             disabled={generating}
             className="mt-3 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
           >
@@ -652,7 +717,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         record={record}
         projectId={projectId}
         busy={generating}
-        onRegenerate={generate}
+        onRegenerate={requestGenerate}
       />
 
       <NegativePromptRepair

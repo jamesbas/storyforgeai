@@ -998,6 +998,8 @@ export default function HelpPage() {
             Edits live in the storyboard, which keeps a useful guarantee: what the Prompts panel shows
             is what gets sent. The trade-off is that <strong>regenerating the storyboard rewrites
             them</strong>, so make hand edits after you are happy with the plans rather than before.
+            You will be told how many scenes are affected before a regeneration runs, and can back
+            out or export first — but if you go ahead, the wording is gone.
           </p>
 
           <h3 className={h3}>How prompts are written for each model</h3>

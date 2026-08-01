@@ -774,7 +774,7 @@ export async function repairNegativePrompts(id: string): Promise<{
     ...record,
     storyboard: { ...record.storyboard, scenes },
     project: { ...record.project, updatedAt: new Date().toISOString() },
-    history: appendHistory(record, "scene.prompts_edited", `Prompts repaired (${detail})`),
+    history: appendHistory(record, "scene.prompts_repaired", `Prompts repaired (${detail})`),
   };
 
   await repository.update(id, updated);
