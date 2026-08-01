@@ -69,6 +69,10 @@ async function resolveCastReferenceImages(
   record: ProjectRecord,
   scene?: Scene,
 ): Promise<string[]> {
+  // Off means off everywhere: the constraint that the image model must accept
+  // references only applies while references are being sent, so opting out here
+  // also frees the model choice.
+  if (record.project.useCharacterReferenceImages === false) return [];
   const cast = await resolveProjectCast(record.project);
   // A reference photo outranks the prompt text, so one belonging to a character
   // who is not in this shot is the strongest possible instruction to put them
@@ -455,8 +459,9 @@ export async function generateProjectMediaPhased(
   const mode = record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY;
   record = await ensureSceneSeeds(projectId, record, scenes.map((scene) => scene.id));
   const projectCast = await resolveProjectCast(record.project);
+  const useRefs = record.project.useCharacterReferenceImages !== false;
   const castRefsFor = (scene: Scene) =>
-    referenceImagePathsOf(charactersInScene(scene, projectCast));
+    useRefs ? referenceImagePathsOf(charactersInScene(scene, projectCast)) : [];
   const swapSubject = faceSwapSubject(projectCast);
   const inScene = (scene: Scene) =>
     !swapSubject || charactersInScene(scene, projectCast).some((c) => c.id === swapSubject.id);

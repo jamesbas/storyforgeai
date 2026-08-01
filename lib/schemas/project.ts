@@ -68,6 +68,18 @@ export const projectSchema = z.object({
   useCharacterLibrary: z.boolean().optional(),
   characterIds: z.array(z.string()).optional(),
   /**
+   * Whether a pinned character's reference photograph conditions the keyframe.
+   *
+   * A photograph is the strongest identity signal available, and it conditions
+   * the whole image rather than one figure in it: on a shot with several people
+   * the model applies the likeness to more than one of them. Turning it off
+   * leaves identity to the written description and the face swap, and lifts the
+   * constraint that the image model must accept reference images.
+   *
+   * Optional so projects created before it existed keep the old behaviour.
+   */
+  useCharacterReferenceImages: z.boolean().optional(),
+  /**
    * Wardrobe for this project, keyed by character id.
    *
    * Costume is a property of the story, not the person: the same character

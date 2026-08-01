@@ -539,6 +539,27 @@ export default function HelpPage() {
               so the likeness carries into the motion without a second reference pass.
             </li>
           </ul>
+
+          <h3 className={h3}>Reference photograph, or description and face swap</h3>
+          <p className={p}>
+            A photograph is the strongest likeness available, but it conditions the{" "}
+            <em>whole frame</em> rather than one figure in it. On a shot with several people the
+            model can apply that likeness to more than one of them — a woman&apos;s face arriving on
+            the men sitting beside her. It also constrains model choice, since only some image models
+            accept references at all.
+          </p>
+          <p className={p}>
+            The project&apos;s Settings screen offers the alternative:{" "}
+            <strong>description and face swap only</strong>. No photograph is sent, so nothing can
+            bleed onto anyone else and any image model can be pinned. The likeness comes from the
+            written description and is corrected afterwards by the face swap, so it needs a character
+            with face swap enabled to hold up — the swap targets one face in a frame rather than
+            conditioning all of it, which is exactly the difference.
+          </p>
+          <p className={p}>
+            Projects created before this setting existed keep sending the photograph, which is what
+            they always did.
+          </p>
           <p className={p}>
             Descriptions are read at generation time, not at project creation. Editing a character and
             regenerating the storyboard picks up the new wording.

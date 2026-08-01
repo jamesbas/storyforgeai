@@ -179,6 +179,8 @@ export async function updateProjectModels(id: string, raw: unknown): Promise<Pro
       resolutionPreset: patch.resolutionPreset ?? record.project.resolutionPreset,
       sceneContinuity: patch.sceneContinuity ?? record.project.sceneContinuity,
       characterWardrobe: patch.characterWardrobe ?? record.project.characterWardrobe,
+      useCharacterReferenceImages:
+        patch.useCharacterReferenceImages ?? record.project.useCharacterReferenceImages,
       loras,
       sceneLoras: pruneSceneLoras(
         patch.sceneLoras ?? record.project.sceneLoras,

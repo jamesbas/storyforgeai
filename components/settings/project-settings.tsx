@@ -87,6 +87,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
       resolutionPreset?: ResolutionPreset;
       qcEnabled?: boolean;
       characterWardrobe?: Record<string, string>;
+      useCharacterReferenceImages?: boolean;
       loras?: LoraSelectionSet;
     }) => {
       setBusy(true);
@@ -218,11 +219,47 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
         )}
 
         {usesCharacters ? (
-          <p className="text-xs text-amber-300/90">
-            This project pins characters from the library, so the image model must accept reference
-            images (marked <span className="font-semibold">✓ refs</span>). If the pinned model cannot,
-            StoryForgeAI substitutes one that can rather than dropping the characters silently.
-          </p>
+          <div className="space-y-2 rounded-md border border-white/10 bg-canvas/40 p-3">
+            <h4 className="text-sm font-semibold">How a character&apos;s likeness reaches the frame</h4>
+            <label className="flex items-start gap-2 text-xs text-slate-300">
+              <input
+                type="radio"
+                name="character-references"
+                className="mt-0.5 accent-accent"
+                disabled={busy}
+                checked={project.useCharacterReferenceImages !== false}
+                onChange={() => save({ useCharacterReferenceImages: true })}
+              />
+              <span>
+                <strong>Reference photograph</strong> — strongest likeness.
+                <span className="block text-slate-500">
+                  The photo conditions the whole frame rather than one figure in it, so on a shot
+                  with several people the model can apply the likeness to more than one of them. The
+                  image model must accept reference images (marked{" "}
+                  <span className="font-semibold">✓ refs</span>); if the pinned one cannot,
+                  StoryForgeAI substitutes one that can rather than dropping the characters silently.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-xs text-slate-300">
+              <input
+                type="radio"
+                name="character-references"
+                className="mt-0.5 accent-accent"
+                disabled={busy}
+                checked={project.useCharacterReferenceImages === false}
+                onChange={() => save({ useCharacterReferenceImages: false })}
+              />
+              <span>
+                <strong>Description and face swap only</strong> — no photograph is sent.
+                <span className="block text-slate-500">
+                  Nothing bleeds onto other people in the shot, and any image model can be used. The
+                  likeness comes from the written description and is corrected afterwards by the face
+                  swap, so it needs a character with face swap enabled to hold up.
+                </span>
+              </span>
+            </label>
+          </div>
         ) : null}
 
         <div className="space-y-2 border-t border-white/10 pt-4">

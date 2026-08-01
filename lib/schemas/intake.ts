@@ -87,6 +87,8 @@ export const updateProjectModelsSchema = z.object({
   sceneContinuity: z.enum(SCENE_CONTINUITY_MODES).optional(),
   /** Costume changes between projects, so it stays editable after creation. */
   characterWardrobe: z.record(z.string()).optional(),
+  /** Whether a character's reference photograph conditions the keyframes. */
+  useCharacterReferenceImages: z.boolean().optional(),
   /**
    * Storyboard-wide LoRA stack. Like the model pins it only affects future
    * generations, so it stays editable for the life of the project.
