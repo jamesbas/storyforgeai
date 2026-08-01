@@ -1,0 +1,150 @@
+import { describe, it, expect } from "vitest";
+import { castPromptSuffix, castSheet } from "@/lib/agents/cast";
+import { explicitnessDirective, isExplicitProject } from "@/lib/agents/explicitness";
+import { isTightShot } from "@/lib/media/seam";
+import type { Character } from "@/lib/schemas/character";
+import type { Project } from "@/lib/schemas/project";
+
+/**
+ * Prompts for explicit work.
+ *
+ * A scene written as a sexual act produced a prompt that named no anatomy, and
+ * ended with an instruction to keep her clothes on. Three separate causes: the
+ * agent was never told the piece was explicit, wardrobe had no way to express
+ * its own absence, and a head-to-toe description was appended to a close-up.
+ */
+
+const TRACEY: Character = {
+  id: "char-tracey",
+  name: "Tracey",
+  description: "Tracey: A woman in her fifties with honey-blonde hair.",
+  facialDescription: "Green eyes and a broad mouth.",
+  wardrobe: "short black silk robe",
+  createdAt: "2026-01-01T00:00:00.000Z",
+  updatedAt: "2026-01-01T00:00:00.000Z",
+};
+
+function project(overrides: Partial<Project> = {}): Project {
+  return {
+    id: "p1",
+    title: "T",
+    concept: "c",
+    style: "erotic art film",
+    tone: "erotic",
+    audience: "adults only, explicit content",
+    ...overrides,
+  } as Project;
+}
+
+describe("telling the agent the work is explicit", () => {
+  it("recognises an explicit audience", () => {
+    expect(isExplicitProject(project())).toBe(true);
+  });
+
+  it("recognises an explicit tone even with a general audience", () => {
+    expect(isExplicitProject(project({ audience: "adults", tone: "raw and carnal" }))).toBe(true);
+  });
+
+  it("says nothing for work that is not explicit", () => {
+    const tame = project({ audience: "families", tone: "inspirational" });
+    expect(isExplicitProject(tame)).toBe(false);
+    expect(explicitnessDirective(tame, "image")).toBe("");
+  });
+
+  /** The preset descriptions existed and reached no model. */
+  it("carries the preset's own wording to the model", () => {
+    expect(explicitnessDirective(project(), "image")).toContain(
+      "Nothing is softened, implied or cut away from",
+    );
+  });
+
+  it("names euphemism as the failure to avoid", () => {
+    const directive = explicitnessDirective(project(), "image");
+    expect(directive).toContain("the point of contact");
+    expect(directive).toMatch(/renders nouns/);
+  });
+
+  it("asks the clip prompt for movement rather than a held frame", () => {
+    expect(explicitnessDirective(project(), "video")).toMatch(/rhythm, direction, depth and pace/);
+  });
+});
+
+describe("nudity as a wardrobe state", () => {
+  /** The defect: the last line of an explicit prompt put her clothes back on. */
+  it("states the absence instead of wearing it", () => {
+    const sheet = castSheet([TRACEY], true, { "char-tracey": "nude" });
+    expect(sheet).toContain("Fully nude, wearing nothing.");
+    expect(sheet).not.toContain("Wearing exactly");
+  });
+
+  it("accepts the other ways of saying it", () => {
+    for (const word of ["naked", "Fully nude", "undressed", "no clothing"]) {
+      expect(castSheet([TRACEY], true, { "char-tracey": word })).toContain("Fully nude");
+    }
+  });
+
+  it("leaves a real outfit alone", () => {
+    expect(castSheet([TRACEY], true)).toContain("Wearing exactly: short black silk robe.");
+  });
+
+  /** "Robe open" is not nudity, and reads correctly as an outfit. */
+  it("does not mistake a partial state for nudity", () => {
+    const sheet = castSheet([TRACEY], true, { "char-tracey": "black silk robe, open" });
+    expect(sheet).toContain("Wearing exactly: black silk robe, open.");
+  });
+});
+
+describe("scaling the sheet to the shot", () => {
+  const photographed = { ...TRACEY, referenceImages: ["tracey.png"] };
+
+  it("keeps the full description when text is the only identity signal", () => {
+    const sheet = castSheet([TRACEY], true, undefined, { tightShot: true });
+    expect(sheet).toContain("honey-blonde hair");
+  });
+
+  /** With a photograph carrying the likeness, the inventory is out of frame. */
+  it("trims to name and wardrobe on a close-up with a reference photo", () => {
+    const sheet = castSheet([photographed], true, undefined, { tightShot: true });
+    expect(sheet).not.toContain("honey-blonde hair");
+    expect(sheet).toContain("Tracey.");
+    expect(sheet).toContain("Wearing exactly: short black silk robe.");
+  });
+
+  it("keeps the description on a wider shot", () => {
+    const sheet = castSheet([photographed], true, undefined, { tightShot: false });
+    expect(sheet).toContain("honey-blonde hair");
+  });
+
+  /** A written face competes with a framing that crops the head. */
+  it("withholds the face when the shot does not show one", () => {
+    const noFace = { ...TRACEY, referenceImages: undefined };
+    expect(castSheet([noFace], true, undefined, { faceVisible: false })).not.toContain("Green eyes");
+    expect(castSheet([noFace], true, undefined, { faceVisible: true })).toContain("Green eyes");
+  });
+
+  it("still gives planning agents the whole description", () => {
+    expect(castSheet([photographed], false, undefined, { tightShot: true })).toContain(
+      "honey-blonde hair",
+    );
+  });
+});
+
+describe("reading the shot size of a prompt", () => {
+  it("treats a close-up and tighter as tight", () => {
+    expect(isTightShot("Close-up, low angle. A tight shot of...")).toBe(true);
+    expect(isTightShot("Extreme close-up of her hands.")).toBe(true);
+  });
+
+  it("does not treat a medium or wider as tight", () => {
+    expect(isTightShot("Wide shot, eye level. Four men at a table.")).toBe(false);
+    expect(isTightShot("Medium shot of the pair.")).toBe(false);
+  });
+});
+
+describe("the doubled name", () => {
+  /** The stored description opened with the name, and the sheet added it again. */
+  it("does not write the name twice", () => {
+    expect(castPromptSuffix([TRACEY])).toContain("Tracey: A woman in her fifties");
+    expect(castPromptSuffix([TRACEY])).not.toContain("Tracey: Tracey:");
+  });
+});

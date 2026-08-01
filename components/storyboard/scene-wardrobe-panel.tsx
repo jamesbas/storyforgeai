@@ -177,6 +177,14 @@ export function SceneWardrobePanel({
                   onChange={(e) => setCast(character.id, { wardrobe: e.target.value })}
                   className="w-full rounded-md border border-white/10 bg-canvas px-2 py-1 text-sm"
                 />
+                <button
+                  type="button"
+                  onClick={() => setCast(character.id, { wardrobe: "nude" })}
+                  disabled={busy || saving}
+                  className="text-[11px] text-slate-500 underline hover:text-accent disabled:opacity-50"
+                >
+                  Nude
+                </button>
                 {entry?.wardrobe.trim()
                   ? modeChoice(`wardrobe-mode-${scene.id}-${character.id}`, entry.mode, (next) =>
                       setCast(character.id, { mode: next }),

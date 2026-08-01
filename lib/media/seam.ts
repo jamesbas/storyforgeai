@@ -75,6 +75,15 @@ export function shotSizeOf(text: string | undefined): ShotSize | undefined {
   return best?.size;
 }
 
+/**
+ * Close-up or tighter, where a head-to-toe character description is out of
+ * frame and competes with the framing the prompt just asked for.
+ */
+export function isTightShot(text: string | undefined): boolean {
+  const size = shotSizeOf(text);
+  return size === "close" || size === "extreme_close";
+}
+
 /** Any named transition marks a new shot; continuous action is not "cut to". */
 const NEW_SHOT_TRANSITION = /\b(?:cut|dissolve|fade|wipe|smash|jump)\b/i;
 

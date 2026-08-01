@@ -22,11 +22,13 @@ import {
 } from "@/lib/agents/wardrobe";
 import { castContinuityClause, castPromptSuffix } from "@/lib/agents/cast";
 import { charactersInScene } from "@/lib/agents/scene-cast";
+import { isTightShot } from "@/lib/media/seam";
 import type { Character } from "@/lib/schemas/character";
 import { projectRecordSchema } from "@/lib/schemas/storyboard";
 import { storyboardExportSchema } from "@/lib/schemas/exports";
 import type { SceneAttempt } from "@/lib/schemas/generation";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
+import type { Scene } from "@/lib/schemas/storyboard";
 import type {
   ArtDirectionPlan,
   CinematographyPlan,
@@ -717,12 +719,14 @@ export async function repairNegativePrompts(id: string): Promise<{
       sceneCast,
       wardrobe?.start,
       wardrobe?.othersStart,
+      scene,
     );
     const endFramePrompt = withCastSheet(
       scene.prompts.endFramePrompt,
       sceneCast,
       wardrobe?.end,
       wardrobe?.othersEnd,
+      scene,
     );
     const videoPromptSegment = withVideoCastClause(
       scene.prompts.videoPromptSegment,
@@ -801,11 +805,16 @@ function withCastSheet(
   sceneCast: readonly Character[],
   wardrobeAt: Record<string, string> | undefined,
   others: Record<string, string> | undefined,
+  scene: Scene,
 ): string {
   const marker = " Character continuity — ";
   const cut = prompt.indexOf(marker);
   const body = cut >= 0 ? prompt.slice(0, cut) : stripOthers(prompt);
-  return `${body}${castPromptSuffix(sceneCast, wardrobeAt)}${othersWardrobeSuffix(others ?? {})}`;
+  const options = {
+    faceVisible: scene.subjectFaceVisible !== false,
+    tightShot: isTightShot(body),
+  };
+  return `${body}${castPromptSuffix(sceneCast, wardrobeAt, options)}${othersWardrobeSuffix(others ?? {})}`;
 }
 
 function stripOthers(prompt: string): string {

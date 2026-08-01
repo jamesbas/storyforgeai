@@ -18,16 +18,49 @@ import type { Character } from "@/lib/schemas/character";
  */
 
 /** The description text a render prompt should carry for one character. */
-function appearanceFor(character: Character, forRender: boolean): string {
-  const description = character.description.trim().replace(/\s+/g, " ");
+function appearanceFor(character: Character, forRender: boolean, faceVisible: boolean): string {
+  const description = stripLeadingName(character.description, character.name);
   const facial = character.facialDescription?.trim().replace(/\s+/g, " ");
   if (!facial) return description;
 
   // Planning agents still see the face: they write prose, not pixels, and the
   // Visual Bible should record what the character looks like either way.
-  const suppress = forRender && referenceImagesOf(character).length > 0;
+  //
+  // A shot with no face in it is the other reason to withhold it: a written
+  // face competes with the framing, and the model resolves the contradiction by
+  // widening the shot until there is a face to show.
+  const suppress = forRender && (referenceImagesOf(character).length > 0 || !faceVisible);
   return suppress ? description : `${description} ${facial}`;
 }
+
+/** Character descriptions often open with the name, which the sheet adds again. */
+function stripLeadingName(description: string, name: string): string {
+  const text = description.trim().replace(/\s+/g, " ");
+  const escaped = name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return text.replace(new RegExp(`^${escaped}\\s*[:\\-–—]\\s*`, "i"), "");
+}
+
+/**
+ * Nudity is a wardrobe state, not an outfit.
+ *
+ * `Wearing exactly: nude` is a sentence a model has to reconcile, and the
+ * "wearing" is the part it acts on. Stating the absence directly removes the
+ * contradiction — and without a way to say it at all, the last line of a
+ * prompt for an explicit scene was an instruction to put her clothes back on.
+ */
+const NUDE = /^(?:fully\s+|completely\s+|entirely\s+)?(?:nude|naked|undressed|bare|nothing|none|no\s+clothes|no\s+clothing)\.?$/i;
+
+function wardrobeClause(wardrobe: string): string {
+  return NUDE.test(wardrobe) ? "Fully nude, wearing nothing." : `Wearing exactly: ${wardrobe}.`;
+}
+
+/** How much of a character's sheet a shot can actually use. */
+export type SheetOptions = {
+  /** False when the shot crops the head, so a written face only misleads. */
+  faceVisible?: boolean;
+  /** True for a close-up or tighter, where a full-body inventory fights the framing. */
+  tightShot?: boolean;
+};
 
 /**
  * Compact, prompt-ready cast sheet. Empty string when no cast is pinned.
@@ -40,11 +73,12 @@ export function castSheet(
   cast: readonly Character[],
   forRender = false,
   wardrobeAt?: Record<string, string>,
+  options: SheetOptions = {},
 ): string {
   if (cast.length === 0) return "";
+  const faceVisible = options.faceVisible !== false;
   return cast
     .map((c) => {
-      const description = appearanceFor(c, forRender);
       // Wardrobe is stated explicitly and last, so it is the most recent
       // instruction the model reads about this character. Left unstated, the
       // model invents an outfit per render and clothing changes between frames.
@@ -53,9 +87,18 @@ export function castSheet(
       // the project constant applies, which is every project that has no
       // costume change.
       const wardrobe = (wardrobeAt?.[c.id] ?? c.wardrobe)?.trim().replace(/\s+/g, " ");
-      return wardrobe
-        ? `${c.name}: ${description} Wearing exactly: ${wardrobe}.`
-        : `${c.name}: ${description}`;
+      const clause = wardrobe ? ` ${wardrobeClause(wardrobe)}` : "";
+
+      // On a tight shot the photograph is already carrying the likeness, so a
+      // head-to-toe inventory of hair, nails and jewellery describes things
+      // outside the frame and crowds out the shot itself. Only when there is a
+      // photograph: with text as the sole identity signal, trimming it is how
+      // faces start drifting between scenes.
+      if (forRender && options.tightShot && referenceImagesOf(c).length > 0) {
+        return `${c.name}.${clause}`;
+      }
+
+      return `${c.name}: ${appearanceFor(c, forRender, faceVisible)}${clause}`;
     })
     .join(" ");
 }
@@ -119,8 +162,9 @@ export function castSystemDirective(cast: readonly Character[], forRender = fals
 export function castPromptSuffix(
   cast: readonly Character[],
   wardrobeAt?: Record<string, string>,
+  options: SheetOptions = {},
 ): string {
-  const sheet = castSheet(cast, true, wardrobeAt);
+  const sheet = castSheet(cast, true, wardrobeAt, options);
   return sheet ? ` Character continuity — ${sheet}` : "";
 }
 

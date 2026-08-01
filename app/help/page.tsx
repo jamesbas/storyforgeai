@@ -544,6 +544,32 @@ export default function HelpPage() {
             regenerating the storyboard picks up the new wording.
           </p>
 
+          <h3 className={h3}>Explicit work</h3>
+          <p className={p}>
+            When the audience is <strong>Adults only (explicit)</strong> or the tone is erotic or
+            raw/carnal, the Image and Video Prompt agents are told so directly, using the same
+            wording the settings screen showed you. Without it they wrote euphemism — &quot;the point
+            of contact&quot;, &quot;drives into her&quot; — because the only signal was a style label
+            stapled on after they had finished writing. An image model has nothing to draw from an
+            implication; it renders nouns, so the agents are now instructed to name the anatomy and
+            say what is in contact and what is visible.
+          </p>
+          <p className={p}>
+            <strong>Nudity is a wardrobe state.</strong> Set a wardrobe change to{" "}
+            <code>nude</code> (there is a shortcut on the panel) and the prompt says so plainly
+            rather than ending with an instruction to keep the clothes on — which is what a stated
+            outfit is, and it sits in the last and strongest position in the prompt. Partial states
+            still read as outfits: &quot;black silk robe, open&quot; works as written.
+          </p>
+          <p className={p}>
+            On a <strong>close-up or tighter</strong>, a head-to-toe character description is mostly
+            out of frame, and describing hair, jewellery and nails on a shot that cannot show them
+            pushes the model to widen the framing until it can. Where a character has a reference
+            photograph, the sheet is cut to their name and wardrobe for those shots and the
+            photograph carries the likeness. Where there is no photograph the full description
+            stays, because then text is the only thing holding the face together.
+          </p>
+
           <h3 className={h3}>Who counts as being in a scene</h3>
           <p className={p}>
             A description, a reference photograph and a face swap all instruct the image model to put

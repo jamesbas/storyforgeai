@@ -4,6 +4,8 @@ import type { ScenePrompts, SceneDraft } from "@/lib/schemas/storyboard";
 import type { Character } from "@/lib/schemas/character";
 import { castContinuityClause, castNegativeSuffix, castPromptSuffix } from "@/lib/agents/cast";
 import { wardrobeChangeClause, othersWardrobeSuffix } from "@/lib/agents/wardrobe";
+import { isTightShot } from "@/lib/media/seam";
+import type { SheetOptions } from "@/lib/agents/cast";
 import type { SceneWardrobe } from "@/lib/schemas/wardrobe";
 import { isContinuousTake } from "@/lib/agents/continuity";
 import { lookPromptSuffix } from "@/lib/agents/look";
@@ -288,6 +290,10 @@ function sentence(text: string | undefined): string {
   return /[.!?]$/.test(trimmed) ? `${trimmed} ` : `${trimmed}. `;
 }
 
+function sheetOptions(scene: SceneDraft, prompt: string): SheetOptions {
+  return { faceVisible: scene.subjectFaceVisible !== false, tightShot: isTightShot(prompt) };
+}
+
 export function buildImagePrompts(
   project: Project,
   scene: SceneDraft,
@@ -323,14 +329,14 @@ export function buildImagePrompts(
       lookPromptSuffix(project, startBody) +
       direction +
       art +
-      castPromptSuffix(cast, wardrobe?.start) +
+      castPromptSuffix(cast, wardrobe?.start, sheetOptions(scene, startBody)) +
       othersWardrobeSuffix(wardrobe?.othersStart ?? {}),
     endFramePrompt:
       endBody +
       lookPromptSuffix(project, endBody) +
       direction +
       art +
-      castPromptSuffix(cast, wardrobe?.end) +
+      castPromptSuffix(cast, wardrobe?.end, sheetOptions(scene, endBody)) +
       othersWardrobeSuffix(wardrobe?.othersEnd ?? {}),
     imageNegativePrompt: normaliseNegative(
       "watermark, distorted anatomy, text artifacts, low quality" +

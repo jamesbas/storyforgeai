@@ -17,6 +17,8 @@ import {
 } from "@/lib/agents/model-directives";
 import { familyOf } from "@/lib/wangp/family";
 import { charactersInScene } from "@/lib/agents/scene-cast";
+import { explicitnessDirective } from "@/lib/agents/explicitness";
+import { isTightShot } from "@/lib/media/seam";
 import { wardrobeChangeClause, othersWardrobeSuffix, wardrobeTimeline } from "@/lib/agents/wardrobe";
 import type { SceneWardrobe } from "@/lib/schemas/wardrobe";
 import { config } from "@/lib/config";
@@ -203,6 +205,7 @@ export async function attachScenePrompts(
       });
       const image = await provider.generateJson(
         IMAGE_PROMPT_SYSTEM +
+          explicitnessDirective(project, "image") +
           wardrobeChangeDirective(wardrobe) +
           imagePromptDirective(imageFamily) +
           seamDirective(project) +
@@ -211,9 +214,10 @@ export async function attachScenePrompts(
         user,
         imagePartSchema,
       );
-      if (image) imagePart = withCastEnforced(image, sceneCast, plans, project, wardrobe);
+      if (image) imagePart = withCastEnforced(image, sceneCast, plans, project, wardrobe, draft);
       const video = await provider.generateJson(
         videoPromptSystem(project.segmentSeconds) +
+          explicitnessDirective(project, "video") +
           videoPromptDirective(videoFamily, {
             segmentSeconds: project.segmentSeconds,
             nativeAudio: hasNativeAudio(videoFamily),
@@ -255,11 +259,18 @@ function withCastEnforced(
   plans: CreativePlans | undefined,
   project: Project,
   wardrobe: SceneWardrobe | undefined,
+  draft: SceneDraft,
 ): ImagePart {
   const negative = `${castNegativeSuffix(cast, part.imageNegativePrompt)}${continuityNegativeSuffix(plans)}`;
+  // Each frame is read for its own shot size: a scene can push from a medium
+  // into a close-up, and only the tighter end needs the sheet trimming.
+  const sheetFor = (prompt: string) => ({
+    faceVisible: draft.subjectFaceVisible !== false,
+    tightShot: isTightShot(prompt),
+  });
   return {
-    startFramePrompt: `${part.startFramePrompt}${lookPromptSuffix(project, part.startFramePrompt)}${castPromptSuffix(cast, wardrobe?.start)}${othersWardrobeSuffix(wardrobe?.othersStart ?? {})}`,
-    endFramePrompt: `${part.endFramePrompt}${lookPromptSuffix(project, part.endFramePrompt)}${castPromptSuffix(cast, wardrobe?.end)}${othersWardrobeSuffix(wardrobe?.othersEnd ?? {})}`,
+    startFramePrompt: `${part.startFramePrompt}${lookPromptSuffix(project, part.startFramePrompt)}${castPromptSuffix(cast, wardrobe?.start, sheetFor(part.startFramePrompt))}${othersWardrobeSuffix(wardrobe?.othersStart ?? {})}`,
+    endFramePrompt: `${part.endFramePrompt}${lookPromptSuffix(project, part.endFramePrompt)}${castPromptSuffix(cast, wardrobe?.end, sheetFor(part.endFramePrompt))}${othersWardrobeSuffix(wardrobe?.othersEnd ?? {})}`,
     imageNegativePrompt: normaliseNegative(`${part.imageNegativePrompt}${negative}`),
   };
 }
