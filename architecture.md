@@ -183,14 +183,22 @@ rather than as a standalone agent module.
 ### 3.2 Full agent interconnection map
 
 This is the complete picture of who feeds whom. Solid edges are **artifact
-dependencies enforced in code**. The canvas plans were originally advisory
-(read by a creator, never threaded into a callee's payload); they are now
-threaded into the storyboard pipeline, whole for the planning agents and sliced
-per scene for the prompt agents.
+dependencies enforced in code**; dotted edges carry a *gate* rather than content —
+the thing at the arrowhead is withheld unless the source says otherwise. The canvas
+plans were originally advisory (read by a creator, never threaded into a callee's
+payload); they are now threaded into the storyboard pipeline, whole for the planning
+agents and sliced per scene for the prompt agents.
+
+The **amber band** is the part that most often surprises people: by the time a
+prompt agent runs, a good deal of its input has been resolved *for that one scene*
+— who is in it, what they are wearing at each end of it, and which model family the
+prompt is being written for. None of that is visible in the agent roster, because
+none of it is an agent.
 
 ```mermaid
 flowchart TB
-    P["Project record<br/>concept · duration · style · tone ·<br/>segmentCount · flags"]
+    P["Project record<br/>concept · duration · style · tone · audience ·<br/>segmentCount · model pins · flags"]
+    CAST["Character library<br/>pinned cast · descriptions ·<br/>reference photos · face-swap opt-in"]
 
     subgraph CANVAS["Agentic Canvas — independent, project-scoped, re-runnable"]
         VE["1 Variant Explorer<br/>→ CreativeVariant[]"]
@@ -205,10 +213,18 @@ flowchart TB
         IN["6 Intake Producer<br/>→ CreativeBrief"]
         SA["7 Story Architect<br/>→ StoryPlan"]
         VB["8 Visual Bible<br/>→ VisualBible"]
-        SB["9 Storyboard Artist<br/>→ SceneDraft[]"]
+        SB["9 Storyboard Artist<br/>→ SceneDraft[]<br/>incl. charactersPresent · wardrobeChanges"]
+        FOLD["foldWardrobeChanges<br/>→ project.wardrobeChanges"]
         IP["10 Image Prompt Engineer<br/>→ start/end frame prompts"]
         VP["11 Video Prompt Engineer<br/>→ motion prompt + checklist"]
         SNAP["storyboardSnapshotSchema.parse<br/>brief + visualBible + scenes"]
+    end
+
+    subgraph PER["Per-scene context — resolved inside attachScenePrompts"]
+        SC["charactersInScene()<br/>→ who is in THIS shot"]
+        WT["wardrobeTimeline()<br/>→ outfit at each frame"]
+        FAM["familyOf(model pin)<br/>→ per-family directive"]
+        EXP["explicitnessDirective()<br/>→ from audience + tone"]
     end
 
     subgraph POST["Downstream consumers"]
@@ -224,6 +240,9 @@ flowchart TB
     P --> DIR
     P --> CIN
     P --> ART
+    CAST -->|"locked descriptions"| WB
+    CAST --> DIR
+    CAST --> ART
 
     SEL -->|"selectedVariant.name appended<br/>to brief.constraints"| IN
     P --> IN
@@ -232,10 +251,30 @@ flowchart TB
     P --> SA
     P --> VB
     IN --> SB
+    CAST -->|"full cast sheet"| SB
     SA -->|"segmentBeats[i] → scene.storyBeat<br/>emotionalProgression[i]"| SB
     VB -->|"continuity + negative rules"| SB
+    SB --> FOLD
+    FOLD -->|"declared changes persisted<br/>before any prompt is written"| WT
+    SB -->|SceneDraft| SC
+    CAST --> SC
+    P -->|"audience · tone"| EXP
+    P -->|"imageModel · videoModel"| FAM
+    P -->|"characterWardrobe"| WT
+
+    SC -->|"this scene's cast only"| IP
+    SC -->|"names only"| VP
+    WT -->|"wardrobeAt.start / .end<br/>appended last"| IP
+    WT -->|"change clause, if depicted"| VP
+    FAM --> IP
+    FAM --> VP
+    EXP --> DIR
+    EXP --> SB
+    EXP --> IP
+    EXP --> VP
     SB -->|SceneDraft| IP
     SB -->|SceneDraft| VP
+
     IP --> SNAP
     VP --> SNAP
     IN --> SNAP
@@ -244,6 +283,8 @@ flowchart TB
     SNAP -->|"scene ids + durations"| AD
     SNAP -->|"prompts + transitions"| AN
     SNAP -->|"scene.prompts"| GEN
+    SC -.->|"gates reference photos<br/>and the face swap"| GEN
+    CAST -.->|"image_refs, unless<br/>useCharacterReferenceImages is false"| GEN
     GEN -->|"attempt paths"| QC
     QC -->|"pass → generated<br/>fail → needs_review"| GEN
     GEN -->|"approved clips"| ASM
@@ -263,8 +304,10 @@ flowchart TB
     classDef canvas fill:#12202e,stroke:#38bdf8,color:#e2e8f0;
     classDef pipe fill:#1f2937,stroke:#6366f1,color:#e5e7eb;
     classDef post fill:#1e1b2e,stroke:#a78bfa,color:#e5e7eb;
+    classDef per fill:#2a1f12,stroke:#f59e0b,color:#f5f5f4;
     class VE,WB,DIR,CIN,ART canvas;
-    class IN,SA,VB,SB,IP,VP,SNAP pipe;
+    class IN,SA,VB,SB,FOLD,IP,VP,SNAP pipe;
+    class SC,WT,FAM,EXP per;
     class AD,AN,GEN,QC,ASM post;
 ```
 
@@ -275,11 +318,12 @@ flowchart TB
    `brief`, `storyPlan`, `visualBible`, `sceneDrafts` and is mutated in place as
    each agent completes. Later agents read what earlier agents wrote.
 2. **Canvas agents are deliberately independent to *produce*, but their output is
-   consumed.** World Builder, Director, Cinematographer, and Art Director each
-   receive only `{ project }`, so they can be run in any order, any number of
-   times, and never block one another. Whatever exists on the `ProjectRecord` at
-   `generateStoryboard` time is then threaded into the pipeline by
-   `lib/agents/creative-context.ts`.
+   consumed.** World Builder, Director, Cinematographer, and Art Director can be
+   run in any order, any number of times, and never block one another — none of
+   them reads another's output directly. They do receive the pinned cast, the
+   selected variant and whatever plans already exist, so a later run sees more
+   than an earlier one. Whatever is on the `ProjectRecord` at `generateStoryboard`
+   time is threaded into the pipeline by `lib/agents/creative-context.ts`.
 3. **Plan context is budgeted, not dumped.** Planning agents (Visual Bible,
    Storyboard Artist) receive the plan documents whole — they run once and emit
    prose. Prompt agents receive only `sceneIntent[n]` and `sceneShotPlans[n]` for
@@ -287,22 +331,39 @@ flowchart TB
    that buries the subject and action behind pages of world-building loses
    adherence. This is what the per-scene maps in `directorialPlanSchema` and
    `cinematographyPlanSchema` exist for.
-4. **Conflicts resolve by stated precedence.** Pinned character library entries
+4. **The prompt agents work per scene, not per project.** The amber band is the
+   part most easily missed: what a prompt agent receives is resolved *for that one
+   scene* before the call. `charactersInScene` decides whose description is
+   appended — and gates the reference photograph and the face swap downstream, so
+   a scene the pinned cast is absent from carries none of them. `wardrobeTimeline`
+   supplies the outfit at each frame, appended last and therefore the strongest
+   single instruction in the prompt. `familyOf` makes the system prompt depend on
+   the *pinned model*, so two projects send different instructions to the same
+   agent. Only the image prompt gets the full cast sheet; the clip prompt gets
+   names, because it renders from a frame that already carries the likeness.
+5. **Some state flows backwards.** `foldWardrobeChanges` lifts costume changes the
+   Storyboard Artist declared onto the project *before* any prompt is written,
+   because a change carries forward to every later scene and so cannot live on the
+   scene that declared it. Anything already set by hand wins.
+6. **Conflicts resolve by stated precedence.** Pinned character library entries
    beat the Visual Bible, which beats the Art Direction, Cinematography and World
    Bible plans. `precedenceDirective()` states this in the system prompt and the
    deterministic builders apply the same order, so the resolution does not vary
    scene to scene.
-5. **The selected variant carries its substance.** `selectVariant` sets
+7. **The selected variant carries its substance.** `selectVariant` sets
    `selectedVariantId`; `generateStoryboard` looks the variant up and the
    orchestrator appends its name, summary, hook, story angle, visual style and
    risks to `brief.constraints`. Every later agent reads the brief, so the chosen
    direction propagates throughout.
-6. **Prompt agents fan out per scene.** `attachScenePrompts` loops the drafts and
+8. **Prompt agents fan out per scene.** `attachScenePrompts` loops the drafts and
    makes *two* provider calls per scene — image then video — so a project with
-   N segments issues up to `4 + 2N` LLM calls for one storyboard run.
-7. **QC forms the only feedback loop.** Its verdict sets scene status, which gates
+   N segments issues up to `4 + 2N` LLM calls for one storyboard run. A single
+   scene can be rewritten on its own (`regenerateScenePrompts`) for two calls: the
+   loop still walks every scene, because wardrobe carries forward and a seam is
+   matched against the prompt before it, but only the named scene is rewritten.
+9. **QC forms the only feedback loop.** Its verdict sets scene status, which gates
    whether the creator regenerates or approves; approval gates assembly.
-8. **Plan influence is bound at storyboard-generation time, not at render time.**
+10. **Plan influence is bound at storyboard-generation time, not at render time.**
    This is the most important temporal property in the system and the easiest to
    miss. `generateStoryboard` reads `record.worldBible`, `record.directorialPlan`,
    `record.cinematographyPlan` and `record.artDirectionPlan` *once*, and their
@@ -321,12 +382,15 @@ flowchart TB
    the storyboard as *not applied yet*, with a regenerate action. Scene ids are
    deterministic (`<projectId>-scene-NNN`), so regenerating preserves attempts,
    media and per-scene LoRA overrides when the scene count is unchanged.
-9. **Not every canvas agent reaches a rendered frame.** Audio Director feeds the
-   audio plan, cues and assembly only. The Animatic builder consumes stills that
-   already exist. Variant Explorer influences rendering only indirectly, via the
-   brief constraints of a storyboard generated after selection. Only World Builder,
-   Director, Cinematographer and Art Director alter image and video prompts.
-10. **Planning calls are serialized against a local provider.** `getPlanningProvider()`
+11. **Not every canvas agent reaches a rendered frame.** Audio Director feeds the
+    audio plan, cues and assembly only. The Animatic builder consumes stills that
+    already exist. Variant Explorer influences rendering only indirectly, via the
+    brief constraints of a storyboard generated after selection. Among the canvas
+    agents only World Builder, Director, Cinematographer and Art Director alter
+    image and video prompts — though the character library, the wardrobe timeline,
+    the audience and tone, and the pinned model all do so as well, without being
+    agents at all.
+12. **Planning calls are serialized against a local provider.** `getPlanningProvider()`
     wraps every call in a process-wide promise chain when `OPENAI_BASE_URL` is set.
     A local model serves one request at a time, so overlapping calls are slower at
     best and exhaust VRAM at worst — and the canvas previously disabled only the
