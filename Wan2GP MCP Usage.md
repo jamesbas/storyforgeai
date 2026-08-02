@@ -549,6 +549,23 @@ Reassuringly, this is safe to overwrite: genuine *system* LoRAs (a distilled mod
 acceleration LoRA, HDR or control adapters) are declared separately in the model definition as
 download URLs and load independently of `activated_loras`.
 
+### 9.7 It is not only the LoRAs
+
+`activated_loras` is the most-discussed instance, but it is not a special case — **every** field in
+the published defaults is saved UI state. Two more cost real time:
+
+- **`batch_size`.** A `2` left over from a previous session turned ten queued jobs into twenty-one
+  output files and doubled the wall clock of an unattended run. Every job succeeded; the count was
+  simply wrong.
+- **`num_inference_steps`.** Returned as `4` — correct for the Lightning LoRA selected in the window
+  when those settings were saved, and a smeared mess once the client stripped that LoRA out per
+  §9.6. The output was plausible rather than absent, which sent the investigation into prompt
+  construction instead.
+
+Treat the published defaults as **a starting point contaminated by another process**, not as
+defaults. Pin every field that is genuinely yours — at minimum `batch_size`, `repeat_generation`,
+`num_inference_steps` and `activated_loras`.
+
 ---
 
 ## 10. Output files and path security
@@ -590,6 +607,7 @@ the server handed you.
 | 9 | Job status is an event log | No status string to read; derive it |
 | 10 | No LoRA tools exist | Filesystem discovery is mandatory |
 | 11 | `activated_loras` defaults are saved UI state | Non-deterministic renders unless written explicitly |
+| 11a | So are `batch_size` and `num_inference_steps` | Duplicate output files; a 4-step render with no Lightning LoRA |
 | 12 | `.lset` files are presets, not weights | Must be excluded from LoRA listings |
 | 13 | LoRA filenames are often opaque hashes | Sidecar metadata is effectively required |
 | 14 | Outputs are host paths, not bytes | Containment checks required before serving |
