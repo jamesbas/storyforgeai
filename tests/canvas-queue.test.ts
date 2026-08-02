@@ -151,3 +151,74 @@ describe("canvas run queue", () => {
     expect(getCanvasQueue("p1").total).toBe(4);
   });
 });
+
+/**
+ * What a browser can tell from a snapshot alone.
+ *
+ * The client reconciles on the set of terminal entries rather than on an
+ * observed active → inactive transition, because a deterministic run is over
+ * before the first poll. These pin the snapshot properties that makes that
+ * deduplication safe without a persisted queue revision (SPEC-008 owns that).
+ */
+describe("canvas queue snapshots a client can reconcile", () => {
+  it("reports a run that finished before any poll as terminal and stamped", async () => {
+    const { enqueueCanvasRun, getCanvasQueue } = await queue();
+    enqueueCanvasRun("p1", { includeStoryboard: false });
+    await settle();
+
+    const state = getCanvasQueue("p1");
+    expect(state.active).toBe(false);
+    expect(state.done).toBe(state.total);
+    // `finishedAt` is what separates this terminal set from the next run's.
+    expect(state.entries.every((e) => Boolean(e.finishedAt))).toBe(true);
+  });
+
+  it("makes a repeated run's terminal set distinguishable from the last one", async () => {
+    const { enqueueCanvasRun, getCanvasQueue } = await queue();
+    const signature = (projectId: string) =>
+      getCanvasQueue(projectId)
+        .entries.filter((e) => e.state === "completed")
+        .map((e) => `${e.agentKey}:${e.state}:${e.finishedAt}`)
+        .join(",");
+
+    enqueueCanvasRun("p1", { includeStoryboard: false });
+    await settle();
+    const first = signature("p1");
+
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    enqueueCanvasRun("p1", { includeStoryboard: false });
+    await settle();
+    const second = signature("p1");
+
+    // Enqueue clears the finished entries, so the second run cannot be mistaken
+    // for the first even though both end all-completed.
+    expect(getCanvasQueue("p1").total).toBe(4);
+    expect(second).not.toBe(first);
+  });
+
+  it("reports a cancelled run as terminal with stamped entries", async () => {
+    const { enqueueCanvasRun, cancelCanvasRun, getCanvasQueue } = await queue();
+    enqueueCanvasRun("p1", { includeStoryboard: true });
+    await settle();
+    // Cancel after the run is over: nothing left to abandon, still terminal.
+    cancelCanvasRun("p1");
+
+    const state = getCanvasQueue("p1");
+    expect(state.active).toBe(false);
+    expect(state.entries.every((e) => Boolean(e.finishedAt))).toBe(true);
+  });
+
+  it("reports a failed run as terminal with the failed agent named", async () => {
+    const { enqueueCanvasRun, getCanvasQueue } = await queue();
+    failOn = "cinematographer";
+    enqueueCanvasRun("p1", { includeStoryboard: true });
+    await settle();
+
+    const state = getCanvasQueue("p1");
+    expect(state.active).toBe(false);
+    const failed = state.entries.find((e) => e.state === "failed");
+    expect(failed?.agentName).toBe("Cinematographer");
+    expect(failed?.error).toMatch(/exploded/);
+    expect(state.entries.every((e) => Boolean(e.finishedAt))).toBe(true);
+  });
+});

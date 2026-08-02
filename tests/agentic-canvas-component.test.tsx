@@ -1,9 +1,11 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { act, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { VariantReview } from "@/components/agentic-canvas/variant-review";
 import { AgenticCanvas } from "@/components/agentic-canvas/agentic-canvas";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { CreativeVariant } from "@/lib/schemas/canvas";
+import type { CanvasRunEntry, CanvasRunState } from "@/lib/services/canvas-queue";
 
 function jsonResponse(data: unknown): Response {
   return { ok: true, status: 200, json: async () => data } as unknown as Response;
@@ -77,5 +79,217 @@ describe("AgenticCanvas component", () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(baseRecord)));
     render(<AgenticCanvas projectId="p1" />);
     await waitFor(() => expect(screen.getAllByTestId("agent-card")).toHaveLength(8));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Canvas queue reconciliation (SPEC-002)
+// ---------------------------------------------------------------------------
+
+type QueueSnapshot = { entries: CanvasRunEntry[]; active: boolean; done: number; total: number };
+
+const CORE = [
+  ["world", "World Builder"],
+  ["director", "Director"],
+  ["cinematographer", "Cinematographer"],
+  ["art", "Art Director"],
+] as const;
+
+function entry(
+  index: number,
+  state: CanvasRunState,
+  finishedAt = `2026-08-02T10:00:0${index}.000Z`,
+): CanvasRunEntry {
+  return {
+    projectId: "p1",
+    agentKey: CORE[index]![0],
+    agentName: CORE[index]![1],
+    state,
+    ...(state === "pending" || state === "running" ? {} : { finishedAt }),
+  };
+}
+
+function snapshot(states: CanvasRunState[], finishedAtSuffix = ""): QueueSnapshot {
+  const entries = states.map((state, i) =>
+    entry(i, state, `2026-08-02T10:00:0${i}.00${finishedAtSuffix || "0"}Z`),
+  );
+  return {
+    entries,
+    active: entries.some((e) => e.state === "pending" || e.state === "running"),
+    done: entries.filter((e) => e.state === "completed").length,
+    total: entries.length,
+  };
+}
+
+const IDLE: QueueSnapshot = { entries: [], active: false, done: 0, total: 0 };
+
+/** A record whose four core plans exist, so the cards read "ready". */
+const plannedRecord: ProjectRecord = {
+  ...baseRecord,
+  worldBible: { premise: "A drowned city keeps its lights on." },
+  directorialPlan: { creativeThesis: "Hold on faces." },
+  cinematographyPlan: { cameraLanguage: "Long lenses, slow moves.", sceneShotPlans: {} },
+  artDirectionPlan: { productionDesign: "Wet concrete and sodium light." },
+} as unknown as ProjectRecord;
+
+/**
+ * A fake server for the three endpoints the canvas polls. `projectFetches`
+ * counts reconciliations, which is what deduplication is measured on.
+ */
+function server(initial: { record: ProjectRecord; queue: QueueSnapshot }) {
+  const state = {
+    record: initial.record,
+    queue: initial.queue,
+    projectFetches: 0,
+    onPost: undefined as undefined | (() => void),
+  };
+  const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+    if (url.endsWith("/canvas-run")) {
+      if (init?.method === "POST") state.onPost?.();
+      return jsonResponse(state.queue);
+    }
+    if (url.endsWith("/agent-run")) return jsonResponse({ run: null });
+    state.projectFetches += 1;
+    return jsonResponse(state.record);
+  });
+  vi.stubGlobal("fetch", fetchMock);
+  return state;
+}
+
+describe("AgenticCanvas queue reconciliation", () => {
+  beforeEach(() => vi.restoreAllMocks());
+  afterEach(() => vi.useRealTimers());
+
+  it("reloads once when the enqueue response is already terminal", async () => {
+    const state = server({ record: baseRecord, queue: IDLE });
+    // The deterministic queue finishes inside the POST, before any poll runs.
+    state.onPost = () => {
+      state.queue = snapshot(["completed", "completed", "completed", "completed"]);
+      state.record = plannedRecord;
+    };
+
+    render(<AgenticCanvas projectId="p1" />);
+    await waitFor(() => expect(screen.getAllByTestId("agent-card")).toHaveLength(8));
+    expect(state.projectFetches).toBe(1);
+    expect(screen.queryAllByText("ready")).toHaveLength(0);
+
+    await userEvent.click(screen.getByRole("button", { name: /run core agents/i }));
+
+    // No refresh, no further poll: the cards converge from the POST response.
+    await waitFor(() => expect(screen.getAllByText("ready")).toHaveLength(4));
+    expect(state.projectFetches).toBe(2);
+    expect(screen.getByTestId("canvas-queue-complete")).toHaveTextContent(
+      "Run complete — 4 of 4 agents finished.",
+    );
+    expect(screen.getByRole("button", { name: /run core agents/i })).toBeEnabled();
+  });
+
+  it("keeps slow-run progress and reconciles each snapshot exactly once", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const state = server({
+      record: baseRecord,
+      queue: snapshot(["running", "pending", "pending", "pending"]),
+    });
+
+    render(<AgenticCanvas projectId="p1" />);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByTestId("canvas-queue-running")).toBeInTheDocument();
+    expect(state.projectFetches).toBe(1);
+
+    // One agent finishes: one reload.
+    state.queue = snapshot(["completed", "running", "pending", "pending"]);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(state.projectFetches).toBe(2);
+
+    // The same snapshot polled again must not reconcile a second time.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(state.projectFetches).toBe(2);
+
+    // The run ends: exactly one final reload.
+    state.queue = snapshot(["completed", "completed", "completed", "completed"]);
+    state.record = plannedRecord;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(3000);
+    });
+    expect(state.projectFetches).toBe(3);
+    await waitFor(() => expect(screen.getAllByText("ready")).toHaveLength(4));
+    expect(screen.queryByTestId("canvas-queue-running")).toBeNull();
+
+    // Idle cadence backs off and nothing reloads on repeat terminal polls.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30000);
+    });
+    expect(state.projectFetches).toBe(3);
+  });
+
+  it("names the failed agent and keeps completed predecessors", async () => {
+    const state = server({ record: baseRecord, queue: IDLE });
+    state.onPost = () => {
+      const failing = snapshot(["completed", "failed", "cancelled", "cancelled"]);
+      failing.entries[1]!.error = "director exploded";
+      state.queue = failing;
+      state.record = { ...baseRecord, worldBible: plannedRecord.worldBible } as ProjectRecord;
+    };
+
+    render(<AgenticCanvas projectId="p1" />);
+    await waitFor(() => expect(screen.getAllByTestId("agent-card")).toHaveLength(8));
+    await userEvent.click(screen.getByRole("button", { name: /run core agents/i }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("canvas-queue-failed")).toHaveTextContent(/director exploded/i),
+    );
+    expect(screen.getByTestId("canvas-queue-failed")).toHaveTextContent(/Director failed/);
+    // The predecessor's artifact survived the failed run.
+    expect(screen.getAllByText("ready")).toHaveLength(1);
+    expect(screen.queryByTestId("canvas-queue-complete")).toBeNull();
+    expect(state.projectFetches).toBe(2);
+  });
+
+  it("reports a cancelled run as a completion state", async () => {
+    const state = server({ record: baseRecord, queue: IDLE });
+    state.onPost = () => {
+      state.queue = snapshot(["completed", "cancelled", "cancelled", "cancelled"]);
+      state.record = { ...baseRecord, worldBible: plannedRecord.worldBible } as ProjectRecord;
+    };
+
+    render(<AgenticCanvas projectId="p1" />);
+    await waitFor(() => expect(screen.getAllByTestId("agent-card")).toHaveLength(8));
+    await userEvent.click(screen.getByRole("button", { name: /run core agents/i }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("canvas-queue-complete")).toHaveTextContent(
+        "Stopped after World Builder; 3 remaining cancelled.",
+      ),
+    );
+  });
+
+  it("clears the previous terminal display when a second run starts", async () => {
+    const state = server({ record: baseRecord, queue: IDLE });
+    state.onPost = () => {
+      state.queue = snapshot(["completed", "completed", "completed", "completed"]);
+      state.record = plannedRecord;
+    };
+
+    render(<AgenticCanvas projectId="p1" />);
+    await waitFor(() => expect(screen.getAllByTestId("agent-card")).toHaveLength(8));
+    await userEvent.click(screen.getByRole("button", { name: /run core agents/i }));
+    await waitFor(() => expect(screen.getByTestId("canvas-queue-complete")).toBeInTheDocument());
+
+    // Second run: the queue is cleared and re-enqueued server-side.
+    state.onPost = () => {
+      state.queue = snapshot(["running", "pending", "pending", "pending"]);
+    };
+    await userEvent.click(screen.getByRole("button", { name: /run core agents/i }));
+
+    await waitFor(() => expect(screen.getByTestId("canvas-queue-running")).toBeInTheDocument());
+    expect(screen.queryByTestId("canvas-queue-complete")).toBeNull();
+    // Artifacts from the first run are still on screen.
+    expect(screen.getAllByText("ready")).toHaveLength(4);
   });
 });

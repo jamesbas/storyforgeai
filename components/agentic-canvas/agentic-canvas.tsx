@@ -17,6 +17,25 @@ type CanvasQueue = {
   total: number;
 };
 
+const ACTIVE_POLL_MS = 3000;
+const IDLE_POLL_MS = 10000;
+
+const TERMINAL_STATES = new Set(["completed", "failed", "cancelled"]);
+
+/**
+ * What has finished, as far as two snapshots can be told apart.
+ *
+ * `finishedAt` is what separates a repeated run's terminal set from the
+ * previous run's, so reconciliation deduplicates without the server having to
+ * keep a revision.
+ */
+function terminalSignature(queue: CanvasQueue): string {
+  return queue.entries
+    .filter((entry) => TERMINAL_STATES.has(entry.state))
+    .map((entry) => `${entry.agentKey}:${entry.state}:${entry.finishedAt ?? ""}`)
+    .join(",");
+}
+
 type CanvasAgent = {
   key: string;
   name: string;
@@ -127,32 +146,63 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
   // A run started here, or before a navigation, or in another tab.
   const { agentKey: remoteKey } = useAgentRun(projectId, () => void load());
 
+  const seenTerminalRef = useRef<string | null>(null);
+  const wasActiveRef = useRef(false);
+
+  /**
+   * Fold a queue snapshot into the page, reloading the project when it says
+   * work has finished.
+   *
+   * Watching for an `active → inactive` transition was not enough: a
+   * deterministic run starts and finishes between two polls, so the transition
+   * never happened and the cards sat stale until a manual refresh. The terminal
+   * set is compared instead, which also covers failure and cancellation, and
+   * `onEnqueue` covers a run that was already over when the POST returned.
+   */
+  const reconcileQueue = useCallback(
+    (next: CanvasQueue, options: { onEnqueue?: boolean } = {}) => {
+      setQueue(next.total > 0 ? next : null);
+
+      const signature = terminalSignature(next);
+      const firstSnapshot = seenTerminalRef.current === null;
+      const finishedSomething = !firstSnapshot && signature !== seenTerminalRef.current;
+      const runEnded = wasActiveRef.current && !next.active;
+      const finishedBeforeFirstPoll = Boolean(options.onEnqueue) && !next.active;
+      seenTerminalRef.current = signature;
+      wasActiveRef.current = next.active;
+
+      if (next.total > 0 && (finishedSomething || runEnded || finishedBeforeFirstPoll)) {
+        void load();
+      }
+    },
+    [load],
+  );
+
   /**
    * The server's view of the crew run.
    *
    * Polled unconditionally rather than only while this page believes a run is
    * going: the run belongs to the server, and arriving mid-run is the case that
-   * has to work.
+   * has to work. The cadence drops when nothing is active so an idle page is
+   * not asking every three seconds forever.
    */
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout>;
-    let wasActive = false;
 
     const poll = async () => {
+      let interval = IDLE_POLL_MS;
       try {
         const res = await fetch(`/api/projects/${projectId}/canvas-run`, { cache: "no-store" });
         if (!res.ok || cancelled) return;
         const next = (await res.json()) as CanvasQueue;
         if (cancelled) return;
-        setQueue(next.total > 0 ? next : null);
-        // Each finished agent has new output worth showing straight away.
-        if (wasActive) void load();
-        wasActive = next.active;
+        interval = next.active ? ACTIVE_POLL_MS : IDLE_POLL_MS;
+        reconcileQueue(next);
       } catch {
         // Transient: the next tick tries again.
       } finally {
-        if (!cancelled) timer = setTimeout(() => void poll(), 3000);
+        if (!cancelled) timer = setTimeout(() => void poll(), interval);
       }
     };
 
@@ -161,7 +211,7 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [projectId, load]);
+  }, [projectId, reconcileQueue]);
 
   /** Run one agent. Returns the updated record, or null when it failed. */
   const runAgent = useCallback(
@@ -212,20 +262,20 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
       });
       const body = (await res.json().catch(() => null)) as (CanvasQueue & { error?: string }) | null;
       if (!res.ok) throw new Error(body?.error ?? "Failed to start the crew");
-      if (body) setQueue(body);
+      if (body) reconcileQueue(body, { onEnqueue: true });
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to start the crew");
     }
-  }, [alsoStoryboard, projectId]);
+  }, [alsoStoryboard, projectId, reconcileQueue]);
 
   const stopCore = useCallback(async () => {
     try {
       const res = await fetch(`/api/projects/${projectId}/canvas-run`, { method: "DELETE" });
-      if (res.ok) setQueue((await res.json()) as CanvasQueue);
+      if (res.ok) reconcileQueue((await res.json()) as CanvasQueue);
     } catch {
       setError("Failed to stop the run");
     }
-  }, [projectId]);
+  }, [projectId, reconcileQueue]);
 
   const history = useMemo(() => record?.history ?? [], [record]);
 
@@ -240,6 +290,10 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
   /** Which card shows a spinner — this tab's run, or one recovered from the server. */
   const activeKey = busyKey ?? remoteKey;
   const failed = queue?.entries.find((entry) => entry.state === "failed");
+  const cancelledCount = queue?.entries.filter((entry) => entry.state === "cancelled").length ?? 0;
+  const lastCompleted = queue?.entries.filter((entry) => entry.state === "completed").at(-1);
+  /** A finished run, including one that was over before the first poll saw it. */
+  const finishedRun = queue && !queue.active && queue.total > 0 && !failed ? queue : null;
 
   /** Only meaningful on a continuous take: on a cut project, varied sizes are the point. */
   const shotIssues =
@@ -322,6 +376,18 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
         >
           {failed.agentName} failed, so the rest of the run was stopped: {failed.error}. A later
           plan written against a missing earlier one is not what you asked for.
+        </p>
+      ) : null}
+
+      {finishedRun ? (
+        <p
+          role="status"
+          data-testid="canvas-queue-complete"
+          className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300"
+        >
+          {cancelledCount
+            ? `Stopped after ${lastCompleted?.agentName ?? "the first agent"}; ${cancelledCount} remaining cancelled.`
+            : `Run complete — ${finishedRun.done} of ${finishedRun.total} agents finished.`}
         </p>
       ) : null}
 

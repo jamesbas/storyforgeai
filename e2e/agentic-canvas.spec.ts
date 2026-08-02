@@ -25,3 +25,38 @@ test("generate 3 variants, select one, then generate a storyboard", async ({ pag
   await page.getByRole("button", { name: /generate storyboard/i }).click();
   await expect(page.getByTestId("scene-card")).toHaveCount(3);
 });
+
+test("run core agents converges without a manual refresh", async ({ page }) => {
+  await page.goto("/projects/new");
+  await page.getByLabel(/concept/i).fill("A night ferry crosses a flooded city.");
+  await page.getByLabel(/duration/i).fill("60");
+  await page.getByRole("button", { name: /create storyboard/i }).click();
+  await expect(page).toHaveURL(/\/storyboard\//);
+
+  await page.getByRole("link", { name: "Agentic canvas", exact: true }).click();
+  await expect(page).toHaveURL(/\/agentic-canvas\//);
+  await expect(page.getByTestId("agent-card")).toHaveCount(8);
+  await expect(page.getByRole("button", { name: "Regenerate" })).toHaveCount(0);
+
+  // A marker that only survives if the page is never reloaded or navigated.
+  await page.evaluate(() => {
+    (window as unknown as { __noReload?: boolean }).__noReload = true;
+  });
+
+  await page.getByRole("button", { name: /run core agents/i }).click();
+
+  // Whether the run ends inside the POST or a later poll, the page must
+  // converge on its own. Generous timeout: the dev server compiles the route on
+  // first use, which dominates the deterministic run itself.
+  await expect(page.getByTestId("canvas-queue-complete")).toContainText(
+    "Run complete — 5 of 5 agents finished.",
+    { timeout: 30000 },
+  );
+  await expect(page.getByRole("button", { name: "Regenerate" })).toHaveCount(5);
+  await expect(page.getByTestId("canvas-queue-running")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /run core agents/i })).toBeEnabled();
+
+  expect(
+    await page.evaluate(() => (window as unknown as { __noReload?: boolean }).__noReload),
+  ).toBe(true);
+});
