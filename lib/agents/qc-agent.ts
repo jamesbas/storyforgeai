@@ -43,7 +43,7 @@ export type QcExpectations = { expectVideo: boolean };
 
 /** Read keyframes as data URLs, skipping any that cannot be sent. */
 export const loadQcImages = (paths: readonly (string | undefined)[]): Promise<string[]> =>
-  loadImagesAsDataUrls(paths, "qc");
+  loadImagesAsDataUrls(paths, "qc").then((images) => images.map((image) => image.url));
 
 /**
  * Deterministic QC. Fails when required media is missing; otherwise passes with

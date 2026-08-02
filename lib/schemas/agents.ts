@@ -52,6 +52,35 @@ export const conceptVisualsSchema = z.object({
 });
 export type ConceptVisuals = z.infer<typeof conceptVisualsSchema>;
 
+/**
+ * What the project's own renders got wrong, measured against the typed concept.
+ *
+ * Deliberately findings and nothing else. A render is evidence of what the
+ * pipeline did, not a statement of what it should do, and a description of one
+ * — its palette, its wardrobe, its mood — is a description of the compromises
+ * it made. Feeding that back would teach each generation the last one's
+ * timidity, so this schema gives it nowhere to go but the screen.
+ */
+export const renderAuditSchema = z.object({
+  projectId: z.string(),
+  findings: z
+    .array(
+      z.object({
+        /** The label the image was given in the prompt, not its position. */
+        image: z.string(),
+        /** What the typed concept asks for. */
+        concept: z.string(),
+        /** What the render actually shows. */
+        shows: z.string(),
+      }),
+    )
+    .default([]),
+  /** The images that were actually looked at, in the order they were labelled. */
+  images: z.array(z.string()).default([]),
+  checkedAt: z.string().default(""),
+});
+export type RenderAudit = z.infer<typeof renderAuditSchema>;
+
 export const visualBibleSchema = z.object({
   projectId: z.string(),
   artDirection: z.string(),

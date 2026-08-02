@@ -6,8 +6,14 @@ import { loadImagesAsDataUrls } from "@/lib/media/data-url";
 import { logEvent } from "@/lib/telemetry";
 
 /**
- * Reads a project's concept images once, into text the rest of the pipeline can
- * use without any of it needing a vision model.
+ * Reads a project's reference images once, into text the rest of the pipeline
+ * can use without any of it needing a vision model.
+ *
+ * References only. A frame this pipeline produced is not a reference — it is a
+ * record of what the pipeline managed, complete with whatever it failed to
+ * deliver — and describing one back into the Visual Bible would make each
+ * generation inherit the last one's compromises. Renders go to the Render
+ * Auditor, whose output has no route into a prompt.
  *
  * Sending images with a call also changes which model answers it — the provider
  * switches to `OPENAI_VISION_MODEL` whenever images are present — so confining
@@ -25,14 +31,16 @@ import { logEvent } from "@/lib/telemetry";
  * invented one.
  */
 export const CONCEPT_READER_VISUAL_SYSTEM =
-  "You are the Concept Reader. Reference images for this project are attached. Describe what " +
+  "You are the Concept Reader. Reference images for this project are attached, labelled in the " +
+  "user message. Describe what " +
   "they actually show, as a cinematographer would note it down before a shoot: the setting and " +
   "its materials, who is in them and how they are dressed, the colour palette, how the place is " +
   "lit, and the details that give it its character. " +
   "Report only what is visible. Do not invent a story, do not guess at what happens next, and " +
   "do not describe anything the pictures do not contain — an accurate short answer is worth more " +
   "than a rich invented one. " +
-  "Where several images disagree, describe the common ground and note the difference. " +
+  "Where several images disagree, describe the common ground and note the difference, naming the " +
+  "images by their labels. " +
   "Where an image contradicts the typed concept in the user message, record it in " +
   "`contradictions` rather than choosing between them: say what the concept states and what the " +
   "image shows. Leave `contradictions` empty when they agree. " +
@@ -67,11 +75,12 @@ function firstSentence(text: string): string {
 }
 
 /**
- * Read the supplied images, or fall back to the text.
+ * Read the supplied reference images, or fall back to the text.
  *
  * `imagePaths` are absolute paths on this host; unreadable ones are skipped
- * rather than failing the run. When no vision model is configured the images are
- * not loaded at all, and the text prompt is used so the answer does not claim to
+ * rather than failing the run, and the labels are built from what survived so
+ * they cannot drift. When no vision model is configured the images are not
+ * loaded at all, and the text prompt is used so the answer does not claim to
  * have seen anything.
  */
 export async function conceptReaderAgent(
@@ -81,8 +90,9 @@ export async function conceptReaderAgent(
 ): Promise<ConceptVisuals> {
   if (!provider) return buildConceptVisuals(project);
 
-  const images = visionAvailable() ? await loadImagesAsDataUrls(imagePaths, "concept") : [];
-  const visual = images.length > 0;
+  const loaded = visionAvailable() ? await loadImagesAsDataUrls(imagePaths, "concept") : [];
+  const visual = loaded.length > 0;
+  const images = loaded.map((image) => image.url);
 
   logEvent("project.concept_visuals", {
     projectId: project.id,
@@ -100,7 +110,8 @@ export async function conceptReaderAgent(
       audience: project.audience,
       creativeMode: project.creativeMode,
     },
-    imagesAttached: images.length,
+    // Labels for the images that loaded, in the order they were attached.
+    images: loaded.map((_, index) => `Reference ${index + 1}`),
   });
 
   const result = await provider.generateJson(

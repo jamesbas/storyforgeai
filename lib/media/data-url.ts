@@ -29,11 +29,20 @@ const MIME: Readonly<Record<string, string>> = {
  */
 const MAX_IMAGE_BYTES = 6 * 1024 * 1024;
 
+/**
+ * A loaded image and the file it came from.
+ *
+ * The path travels with the URL because skipping is silent by design: a caller
+ * that labelled images by their position in the input would, after one skip,
+ * name every remaining image as its neighbour.
+ */
+export type LoadedImage = { path: string; url: string };
+
 export async function loadImagesAsDataUrls(
   paths: readonly (string | undefined)[],
   purpose: string,
-): Promise<string[]> {
-  const urls: string[] = [];
+): Promise<LoadedImage[]> {
+  const urls: LoadedImage[] = [];
   for (const file of paths) {
     if (!file) continue;
     const mime = MIME[path.extname(file).toLowerCase()];
@@ -47,7 +56,7 @@ export async function loadImagesAsDataUrls(
         logEvent("image.skipped", { purpose, path: file, reason: "too_large", bytes: bytes.byteLength });
         continue;
       }
-      urls.push(`data:${mime};base64,${bytes.toString("base64")}`);
+      urls.push({ path: file, url: `data:${mime};base64,${bytes.toString("base64")}` });
     } catch {
       logEvent("image.skipped", { purpose, path: file, reason: "unreadable" });
     }

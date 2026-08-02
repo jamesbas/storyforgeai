@@ -15,6 +15,27 @@ import {
 
 export const projectStatusSchema = z.enum(PROJECT_STATUSES);
 
+/**
+ * Where a concept image came from, which decides what it is allowed to do.
+ *
+ * A reference is aspiration: something from outside the project whose look we
+ * want, so it may inform the Visual Bible and the Art Director. A render is
+ * evidence: a frame this pipeline produced, so it may only be audited against
+ * the concept. Nothing in the pixels tells the two apart, so it is recorded at
+ * upload and never inferred.
+ */
+export const CONCEPT_IMAGE_KINDS = ["reference", "render"] as const;
+export const conceptImageKindSchema = z.enum(CONCEPT_IMAGE_KINDS);
+export type ConceptImageKind = z.infer<typeof conceptImageKindSchema>;
+
+export const conceptImageSchema = z
+  .union([z.string(), z.object({ name: z.string(), kind: conceptImageKindSchema })])
+  // Entries written before provenance existed were renders. Defaulting the
+  // other way would let a render's compromises inform the look, and that is the
+  // failure this field exists to prevent.
+  .transform((entry) => (typeof entry === "string" ? { name: entry, kind: "render" as const } : entry));
+export type ConceptImage = z.infer<typeof conceptImageSchema>;
+
 export const projectSchema = z.object({
   id: z.string(),
   title: z.string(),
@@ -80,12 +101,13 @@ export const projectSchema = z.object({
    */
   useCharacterReferenceImages: z.boolean().optional(),
   /**
-   * Filenames under this project's `concept-images` folder.
+   * Images under this project's `concept-images` folder, with their provenance.
    *
-   * Images that describe the piece rather than a character in it. Read once by
-   * the Concept Reader into `conceptVisuals`; the agents read that text.
+   * Images that describe the piece rather than a character in it. What an image
+   * is allowed to do depends entirely on where it came from, so the two kinds
+   * are read by different agents and only one of them reaches the pipeline.
    */
-  conceptImages: z.array(z.string()).max(6).optional(),
+  conceptImages: z.array(conceptImageSchema).max(6).optional(),
   /**
    * Wardrobe for this project, keyed by character id.
    *

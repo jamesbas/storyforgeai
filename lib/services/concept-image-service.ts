@@ -4,6 +4,7 @@ import { config } from "@/lib/config";
 import { ValidationError, NotFoundError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
 import { getProjectRecord, saveConceptImages } from "@/lib/services/project-service";
+import type { ConceptImage, ConceptImageKind } from "@/lib/schemas/project";
 
 /**
  * Images that describe the project itself, rather than a character in it.
@@ -11,6 +12,10 @@ import { getProjectRecord, saveConceptImages } from "@/lib/services/project-serv
  * A photograph carries palette, lighting, wardrobe and set dressing far more
  * economically than a sentence, and those are exactly the things the Visual
  * Bible and Art Director otherwise invent from one line of typed concept.
+ *
+ * Every image carries the kind it was uploaded as. Filenames stay neutral so
+ * that a mislabelled upload can be corrected in the record without moving bytes
+ * around on disk.
  *
  * Storage copies the character library's rules, which were written against the
  * same threats: the extension comes from the MIME type rather than the uploaded
@@ -59,7 +64,11 @@ export function conceptImageContentType(filename: string): string {
   return Object.entries(IMAGE_TYPES).find(([, value]) => value === ext)?.[0] ?? "application/octet-stream";
 }
 
-export async function addConceptImage(projectId: string, file: File): Promise<string[]> {
+export async function addConceptImage(
+  projectId: string,
+  file: File,
+  kind: ConceptImageKind,
+): Promise<ConceptImage[]> {
   const record = await getProjectRecord(projectId);
   const current = record.project.conceptImages ?? [];
 
@@ -81,7 +90,7 @@ export async function addConceptImage(projectId: string, file: File): Promise<st
 
   // Slot-based rather than sequential, so removing the middle image and adding
   // another cannot collide with a name still in use.
-  const used = new Set(current);
+  const used = new Set(current.map((entry) => entry.name));
   let slot = 0;
   while (used.has(`concept-${slot}${extension}`)) slot += 1;
   const filename = `concept-${slot}${extension}`;
@@ -91,41 +100,64 @@ export async function addConceptImage(projectId: string, file: File): Promise<st
   await fs.mkdir(conceptImageDir(projectId), { recursive: true });
   await fs.writeFile(target, bytes);
 
-  const next = [...current, filename];
+  const next: ConceptImage[] = [...current, { name: filename, kind }];
   await saveConceptImages(projectId, next);
-  logEvent("project.concept_image_added", { id: projectId, bytes: bytes.byteLength, total: next.length });
+  logEvent("project.concept_image_added", {
+    id: projectId,
+    kind,
+    bytes: bytes.byteLength,
+    total: next.length,
+  });
   return next;
 }
 
 /** Remove one image, or all of them when no filename is given. */
-export async function removeConceptImage(projectId: string, filename?: string): Promise<string[]> {
+export async function removeConceptImage(
+  projectId: string,
+  filename?: string,
+): Promise<ConceptImage[]> {
   const record = await getProjectRecord(projectId);
   const current = record.project.conceptImages ?? [];
-  const removing = filename ? current.filter((name) => name === filename) : current;
+  const removing = filename ? current.filter((entry) => entry.name === filename) : current;
   if (filename && removing.length === 0) throw new NotFoundError("No such concept image");
 
-  for (const name of removing) {
-    const target = conceptImagePath(projectId, name);
+  for (const entry of removing) {
+    const target = conceptImagePath(projectId, entry.name);
     if (target) await fs.rm(target, { force: true });
   }
 
-  const next = current.filter((name) => !removing.includes(name));
+  const gone = new Set(removing.map((entry) => entry.name));
+  const next = current.filter((entry) => !gone.has(entry.name));
   await saveConceptImages(projectId, next);
   logEvent("project.concept_image_removed", { id: projectId, removed: removing.length });
   return next;
 }
 
-/** Absolute paths of the images that are actually readable on this host. */
-export async function conceptImageFiles(projectId: string): Promise<string[]> {
+/** One stored image that exists on this host. */
+export type ConceptImageFile = ConceptImage & { path: string };
+
+/**
+ * The images of one kind that are actually readable on this host.
+ *
+ * The kind is required rather than optional: the two kinds are read by
+ * different agents for opposite purposes, and a caller that forgot to filter
+ * would hand a render to the agent whose output informs the pipeline.
+ */
+export async function conceptImageFiles(
+  projectId: string,
+  kind: ConceptImageKind,
+): Promise<ConceptImageFile[]> {
   const record = await getProjectRecord(projectId);
-  const names = record.project.conceptImages ?? [];
-  const paths: string[] = [];
-  for (const name of names) {
-    const resolved = conceptImagePath(projectId, name);
+  const entries = (record.project.conceptImages ?? []).filter((entry) => entry.kind === kind);
+  const files: ConceptImageFile[] = [];
+  for (const entry of entries) {
+    const resolved = conceptImagePath(projectId, entry.name);
     if (!resolved) continue;
-    if (await fs.access(resolved).then(() => true).catch(() => false)) paths.push(resolved);
+    if (await fs.access(resolved).then(() => true).catch(() => false)) {
+      files.push({ ...entry, path: resolved });
+    }
   }
-  return paths;
+  return files;
 }
 
 /**
@@ -142,20 +174,20 @@ export async function conceptImageFiles(projectId: string): Promise<string[]> {
 export async function copyConceptImages(
   fromId: string,
   toId: string,
-  names: readonly string[],
-): Promise<string[]> {
-  if (names.length === 0) return [];
+  entries: readonly ConceptImage[],
+): Promise<ConceptImage[]> {
+  if (entries.length === 0) return [];
   const target = conceptImageDir(toId);
   await fs.mkdir(target, { recursive: true });
 
-  const copied: string[] = [];
-  for (const name of names) {
-    const source = conceptImagePath(fromId, name);
-    const destination = conceptImagePath(toId, name);
+  const copied: ConceptImage[] = [];
+  for (const entry of entries) {
+    const source = conceptImagePath(fromId, entry.name);
+    const destination = conceptImagePath(toId, entry.name);
     if (!source || !destination) continue;
     try {
       await fs.copyFile(source, destination);
-      copied.push(name);
+      copied.push(entry);
     } catch {
       // A missing source is not worth failing the duplicate over; the copy just
       // has one fewer reference than the original did.

@@ -56,6 +56,36 @@ re-deriving it.
 
 ### Images are optional, and the typed concept leads
 
+### Two kinds of image, and only one of them informs anything
+
+Testing against real output changed this design. Pointed at frames the pipeline
+had itself produced, the reader wrote back `mood: "Intimate"` for a concept that
+asks for something considerably stronger, and `wardrobe: "short black silk robe
+or dress"` for a robe the concept says barely covers anything.
+
+Both were accurate. That is the problem. A render records what the pipeline
+settled for, not what was asked for, so feeding a description of one into the
+Visual Bible starts the next generation from the last one's retreat — each step
+small, defensible and invisible, and the drift always in the direction of less.
+
+So provenance is recorded at upload and decides what an image may do:
+
+| Kind | Meaning | Read by | Reaches a prompt |
+|---|---|---|---|
+| `reference` | From outside the project; a look to aim at | Concept Reader | Yes, via `conceptVisuals` |
+| `render` | A frame this pipeline produced | Render Auditor | **No** |
+
+Nothing in the pixels tells the two apart, so the kind is never inferred, and a
+bare filename left over from before this split is read as a `render` — the
+conservative direction, since the cost of that being wrong is a missing detail
+rather than a corrupted look.
+
+`renderAuditSchema` has no `palette`, `wardrobe`, `mood`, `lighting`, `setting`
+or `subjects`. Not because a directive forbids passing them, but because they do
+not exist to be passed.
+
+### Images are optional, and the typed concept leads
+
 The written concept is the project. Images are an addition for the things a
 sentence carries badly — a palette, a particular room, a particular jacket — and
 a project with none behaves exactly as it does today: no extra call, no extra
@@ -63,19 +93,22 @@ artefact, nothing on the record.
 
 That is enforced rather than implied:
 
-- `conceptImages` and `conceptVisuals` are both optional and absent by default.
-- The Concept Reader is **only** reachable on demand, and refuses a project with
-  no images rather than writing a "visual reference" derived from no visuals.
-- Where an image contradicts the typed concept, the reader records the
+- `conceptImages`, `conceptVisuals` and `renderAudit` are all optional and
+  absent by default.
+- Both agents are **only** reachable on demand, and each refuses a project with
+  no images of its kind rather than writing a "visual reference" derived from no
+  visuals, or an empty audit that reads like a pass.
+- Where a reference contradicts the typed concept, the reader records the
   disagreement instead of resolving it, and phase 5's directive makes the typed
   concept authoritative: a photograph is evidence, not instruction.
 
 ### In
 
-- Upload, store, view and delete concept images on a project.
-- One vision pass producing a structured, persisted artefact.
-- That artefact threaded into Intake, Visual Bible, World Builder, Art Director
-  and the Storyboard Artist.
+- Upload, store, view and delete concept images on a project, by kind.
+- One vision pass per kind, producing a structured, persisted artefact.
+- The **reference** artefact threaded into Intake, Visual Bible, World Builder,
+  Art Director and the Storyboard Artist.
+- The **render** artefact shown on the settings screen and nowhere else.
 - Honest degradation when no vision model is configured.
 
 ### Out — deliberately
@@ -96,8 +129,8 @@ That is enforced rather than implied:
 
 ```ts
 // lib/schemas/project.ts
-/** Filenames under the project's concept-images folder. */
-conceptImages: z.array(z.string()).max(6).optional(),
+/** Images under the project's concept-images folder, with their provenance. */
+conceptImages: z.array(conceptImageSchema).max(6).optional(),
 ```
 
 Optional, so every existing project parses unchanged.
