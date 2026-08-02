@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
  * Scenes that already carry a wardrobe change are left alone: those were set
  * deliberately, and this is a bulk convenience.
  */
-export async function POST(request: Request, { params }: { params: { projectId: string } }) {
+export async function POST(request: Request, props: { params: Promise<{ projectId: string }> }) {
+  const params = await props.params;
   try {
     const body = (await request.json()) as { sceneIds?: unknown };
     const sceneIds = Array.isArray(body?.sceneIds)

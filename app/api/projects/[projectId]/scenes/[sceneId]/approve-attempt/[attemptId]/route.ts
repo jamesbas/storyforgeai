@@ -4,9 +4,10 @@ import { toErrorResponse } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { projectId: string; sceneId: string; attemptId: string } };
+type Params = { params: Promise<{ projectId: string; sceneId: string; attemptId: string }> };
 
-export async function POST(_request: Request, { params }: Params) {
+export async function POST(_request: Request, props: Params) {
+  const params = await props.params;
   try {
     const record = await approveAttempt(params.projectId, params.sceneId, params.attemptId);
     return NextResponse.json(record);

@@ -11,6 +11,10 @@ const nextConfig = {
   // requests them until the render finishes.
   distDir: process.env.NEXT_DIST_DIR || ".next",
   reactStrictMode: true,
+  // Next 14 warned about cross-origin dev requests; Next 16 blocks them, which
+  // stops the client bundle loading when the browser uses a different host name
+  // than the dev server bound to. Dev-only — `next start` ignores it.
+  allowedDevOrigins: ["127.0.0.1", "localhost"],
 };
 
 export default nextConfig;

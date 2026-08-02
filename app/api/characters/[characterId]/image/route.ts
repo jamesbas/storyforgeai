@@ -13,7 +13,7 @@ import { ValidationError } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { characterId: string } };
+type Params = { params: Promise<{ characterId: string }> };
 
 /**
  * Serve a character's reference image.
@@ -21,7 +21,8 @@ type Params = { params: { characterId: string } };
  * The URL carries the character id, never a path: the filename comes from the
  * stored record and is re-validated against the library root before any read.
  */
-export async function GET(request: Request, { params }: Params) {
+export async function GET(request: Request, props: Params) {
+  const params = await props.params;
   try {
     const character = await getCharacter(params.characterId);
     const images = referenceImagesOf(character);
@@ -52,7 +53,8 @@ export async function GET(request: Request, { params }: Params) {
   }
 }
 
-export async function POST(request: Request, { params }: Params) {
+export async function POST(request: Request, props: Params) {
+  const params = await props.params;
   try {
     const form = await request.formData();
     const file = form.get("file");
@@ -65,7 +67,8 @@ export async function POST(request: Request, { params }: Params) {
 }
 
 /** Remove one reference image by `?index=`, or all of them when omitted. */
-export async function DELETE(request: Request, { params }: Params) {
+export async function DELETE(request: Request, props: Params) {
+  const params = await props.params;
   try {
     const raw = new URL(request.url).searchParams.get("index");
     if (raw === null) {

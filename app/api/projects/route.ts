@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export async function GET() {
   try {
     const projects = await listProjects();
-    return NextResponse.json({ projects });
+    return NextResponse.json({ projects }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     return toErrorResponse(err);
   }

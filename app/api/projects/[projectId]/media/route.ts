@@ -5,7 +5,8 @@ import { toErrorResponse } from "@/lib/http";
 export const dynamic = "force-dynamic";
 
 /** Servable media descriptors for a project, with per-asset availability. */
-export async function GET(_request: Request, { params }: { params: { projectId: string } }) {
+export async function GET(_request: Request, props: { params: Promise<{ projectId: string }> }) {
+  const params = await props.params;
   try {
     return NextResponse.json({ media: await listMedia(params.projectId) });
   } catch (err) {

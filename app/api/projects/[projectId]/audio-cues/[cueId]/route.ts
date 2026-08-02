@@ -10,7 +10,7 @@ import { toErrorResponse } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { projectId: string; cueId: string } };
+type Params = { params: Promise<{ projectId: string; cueId: string }> };
 
 const patchSchema = z.object({
   prompt: z.string().min(1).optional(),
@@ -26,7 +26,8 @@ const actionSchema = z.object({
   action: z.enum(["generate", "approve", "unapprove"]),
 });
 
-export async function PATCH(request: Request, { params }: Params) {
+export async function PATCH(request: Request, props: Params) {
+  const params = await props.params;
   try {
     const body = patchSchema.parse(await request.json());
     return NextResponse.json(await updateAudioCue(params.projectId, params.cueId, body));
@@ -35,7 +36,8 @@ export async function PATCH(request: Request, { params }: Params) {
   }
 }
 
-export async function POST(request: Request, { params }: Params) {
+export async function POST(request: Request, props: Params) {
+  const params = await props.params;
   try {
     const { action } = actionSchema.parse(await request.json());
     const record =
@@ -48,7 +50,8 @@ export async function POST(request: Request, { params }: Params) {
   }
 }
 
-export async function DELETE(_request: Request, { params }: Params) {
+export async function DELETE(_request: Request, props: Params) {
+  const params = await props.params;
   try {
     return NextResponse.json(await removeAudioCue(params.projectId, params.cueId));
   } catch (err) {

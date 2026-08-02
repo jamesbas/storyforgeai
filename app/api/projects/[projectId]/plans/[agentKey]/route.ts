@@ -6,8 +6,9 @@ export const dynamic = "force-dynamic";
 
 export async function PATCH(
   request: Request,
-  { params }: { params: { projectId: string; agentKey: string } },
+  props: { params: Promise<{ projectId: string; agentKey: string }> }
 ) {
+  const params = await props.params;
   try {
     const body = await request.json();
     const record = await updatePlan(params.projectId, params.agentKey, body);

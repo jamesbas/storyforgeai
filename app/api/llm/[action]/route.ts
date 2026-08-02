@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
  * the GPU. The action is taken from the path, and the model comes from
  * configuration, so no model identifier is ever accepted from the caller.
  */
-export async function POST(_request: Request, { params }: { params: { action: string } }) {
+export async function POST(_request: Request, props: { params: Promise<{ action: string }> }) {
+  const params = await props.params;
   try {
     if (params.action === "load") return NextResponse.json(await loadPlanningModel());
     if (params.action === "unload") return NextResponse.json(await unloadPlanningModel());

@@ -10,8 +10,9 @@ export const dynamic = "force-dynamic";
  */
 export async function POST(
   _request: Request,
-  { params }: { params: { projectId: string; sceneId: string } },
+  props: { params: Promise<{ projectId: string; sceneId: string }> }
 ) {
+  const params = await props.params;
   try {
     const record = await regenerateScenePrompts(params.projectId, params.sceneId);
     return NextResponse.json(record, { headers: { "Cache-Control": "no-store" } });
@@ -28,8 +29,9 @@ export async function POST(
  */
 export async function PATCH(
   request: Request,
-  { params }: { params: { projectId: string; sceneId: string } },
+  props: { params: Promise<{ projectId: string; sceneId: string }> }
 ) {
+  const params = await props.params;
   try {
     const body = await request.json();
     const record = await updateScenePrompts(params.projectId, params.sceneId, body);

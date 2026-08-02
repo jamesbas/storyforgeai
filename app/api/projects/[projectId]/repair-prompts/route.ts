@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
  * Mechanical and idempotent: no model runs, no prompt is reworded, and running
  * it twice changes nothing the second time.
  */
-export async function POST(_request: Request, { params }: { params: { projectId: string } }) {
+export async function POST(_request: Request, props: { params: Promise<{ projectId: string }> }) {
+  const params = await props.params;
   try {
     const { record, changed, castScenes } = await repairNegativePrompts(params.projectId);
     return NextResponse.json(

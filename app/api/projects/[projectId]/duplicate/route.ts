@@ -5,10 +5,8 @@ import { toErrorResponse } from "@/lib/http";
 export const dynamic = "force-dynamic";
 
 /** Copy a project's plan into a new project. Generated media is not copied. */
-export async function POST(
-  _request: Request,
-  { params }: { params: { projectId: string } },
-) {
+export async function POST(_request: Request, props: { params: Promise<{ projectId: string }> }) {
+  const params = await props.params;
   try {
     const project = await duplicateProject(params.projectId);
     return NextResponse.json({ project }, { status: 201 });

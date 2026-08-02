@@ -4,9 +4,10 @@ import { toErrorResponse } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { modelType: string } };
+type Params = { params: Promise<{ modelType: string }> };
 
-export async function GET(_request: Request, { params }: Params) {
+export async function GET(_request: Request, props: Params) {
+  const params = await props.params;
   try {
     const schema = await getWangpModelSchema(params.modelType);
     return NextResponse.json(schema);

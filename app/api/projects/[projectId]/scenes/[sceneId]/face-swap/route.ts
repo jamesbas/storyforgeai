@@ -16,8 +16,9 @@ function framePurpose(value: unknown): "start_frame" | "end_frame" | null {
  */
 export async function POST(
   request: Request,
-  { params }: { params: { projectId: string; sceneId: string } },
+  props: { params: Promise<{ projectId: string; sceneId: string }> }
 ) {
+  const params = await props.params;
   try {
     const body = (await request.json()) as { purpose?: unknown };
     const purpose = framePurpose(body.purpose);
@@ -37,8 +38,9 @@ export async function POST(
 /** Undo a swap, restoring the frame as it was rendered. */
 export async function DELETE(
   request: Request,
-  { params }: { params: { projectId: string; sceneId: string } },
+  props: { params: Promise<{ projectId: string; sceneId: string }> }
 ) {
+  const params = await props.params;
   try {
     const purpose = framePurpose(new URL(request.url).searchParams.get("purpose"));
     if (!purpose) {

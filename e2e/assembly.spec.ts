@@ -12,7 +12,11 @@ test("approve scene media then assemble a rough cut with Deepy inspection", asyn
 
   await page.getByRole("button", { name: /generate media/i }).click();
   await expect(page.getByTestId("scene-video-path")).toContainText(/\.wangp-mock/);
-  await page.getByRole("button", { name: /approve attempt/i }).click();
+  const approve = page.getByRole("button", { name: /approve attempt/i });
+  await approve.click();
+  // The button goes once the attempt is approved; navigating before the POST
+  // lands loses the approval and assembly is then correctly refused.
+  await expect(approve).toHaveCount(0);
 
   // Assemble.
   await page.getByRole("link", { name: /^assembly$/i }).click();

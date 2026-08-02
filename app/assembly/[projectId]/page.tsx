@@ -1,7 +1,8 @@
 import { AppShell } from "@/components/shell/app-shell";
 import { AssemblyView } from "@/components/assembly/assembly-view";
 
-export default function AssemblyPage({ params }: { params: { projectId: string } }) {
+export default async function AssemblyPage(props: { params: Promise<{ projectId: string }> }) {
+  const params = await props.params;
   return (
     <AppShell>
       <AssemblyView projectId={params.projectId} />

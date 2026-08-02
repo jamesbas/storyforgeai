@@ -4,9 +4,10 @@ import { toErrorResponse } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { characterId: string } };
+type Params = { params: Promise<{ characterId: string }> };
 
-export async function GET(_request: Request, { params }: Params) {
+export async function GET(_request: Request, props: Params) {
+  const params = await props.params;
   try {
     return NextResponse.json({ character: await getCharacter(params.characterId) });
   } catch (err) {
@@ -14,7 +15,8 @@ export async function GET(_request: Request, { params }: Params) {
   }
 }
 
-export async function PATCH(request: Request, { params }: Params) {
+export async function PATCH(request: Request, props: Params) {
+  const params = await props.params;
   try {
     const character = await updateCharacter(params.characterId, await request.json());
     return NextResponse.json({ character });
@@ -23,7 +25,8 @@ export async function PATCH(request: Request, { params }: Params) {
   }
 }
 
-export async function DELETE(_request: Request, { params }: Params) {
+export async function DELETE(_request: Request, props: Params) {
+  const params = await props.params;
   try {
     await deleteCharacter(params.characterId);
     return NextResponse.json({ ok: true });

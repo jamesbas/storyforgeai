@@ -93,7 +93,7 @@ so nothing cloud is required to run, test, or demo the app.
 
 ### Prerequisites
 
-- Node.js 20+ (built and verified on Node 24)
+- Node.js 20.9+ (enforced by `engines`; built and verified on Node 24)
 - npm 10+
 
 ### Install & run
@@ -135,10 +135,12 @@ PLATFORM_DERIVATIVES_ENABLED=false
 | `npm run build` | Production build (standalone output) |
 | `npm run start` | Run the production build on **port 3200** |
 | `npm run typecheck` | `tsc --noEmit` |
-| `npm run lint` | ESLint (`next lint`) |
+| `npm run lint` | ESLint flat config (`eslint .`) |
 | `npm test` | Vitest unit + integration + component |
 | `npm run test:e2e` | Playwright E2E (boots its own dev server on 3100) |
 | `npm run smoke` | `tsx` full-pipeline smoke (create → storyboard → media → assemble) |
+| `npm run audit:prod` | Dependency audit, runtime only, fails on high/critical |
+| `npm run audit:all` | Dependency audit across the whole graph |
 | `npm run prisma:generate` | Generate the Prisma client |
 | `npm run prisma:seed` | Idempotent demo seed |
 
@@ -239,6 +241,51 @@ npm run typecheck && npm run lint && npm test && npm run test:e2e && npm run smo
 - Every external dependency has a deterministic mock injected via dependency
   injection — no test needs cloud credentials or a running WanGP server.
 - `/api/health` returns `200 ok`.
+
+---
+
+## Security
+
+### Dependency audit policy
+
+```bash
+npm run audit:prod   # runtime dependencies only — must stay clean
+npm run audit:all    # whole graph, including build and test tooling
+```
+
+- **`npm run audit:prod` must pass.** It audits runtime dependencies only and
+  exits non-zero on any high or critical advisory. Treat a failure as a release
+  blocker, not a warning.
+- **`npm run audit:all` is expected to pass too**, and does today, but a build or
+  test-only advisory is a lower priority than a runtime one — a vulnerable test
+  runner is not reachable by a request.
+- Run both after any dependency change and before cutting a release.
+
+### Fixing an advisory
+
+1. Prefer upgrading the direct dependency to the fixed version.
+2. If the vulnerable package is transitive, check whether its parent already
+   allows the fixed range. Several do, and npm simply picked the lowest
+   satisfying version — an `overrides` entry then resolves it properly rather
+   than needing an exception. The `overrides` block in `package.json` exists for
+   exactly this and every entry is compatible with what its parent declares.
+3. Only if neither works, record an exception with the advisory ID, why the code
+   path is unreachable, the mitigation, an owner and an expiry date.
+4. **Do not run `npm audit fix --force`.** It performs unreviewed major upgrades
+   across the graph. Stage upgrades by blast radius instead — tooling first,
+   framework last — and validate the gates after each group.
+
+### Deployment
+
+- The app has **no authentication**. It is built to run on a machine you control,
+  bound to localhost. Do not expose it to a network you do not trust.
+- There is **no rate limiting** on the API. A reverse proxy should provide it if
+  the app is ever reachable beyond localhost.
+- There is **no content moderation** anywhere in the pipeline.
+- Secrets live in `.env.local`, which is gitignored. Nothing is logged from it —
+  telemetry records event names and IDs, never prompts or credentials.
+- API responses that reflect mutable state send `Cache-Control: no-store`, so a
+  browser cannot serve stale project state after a change.
 
 ---
 

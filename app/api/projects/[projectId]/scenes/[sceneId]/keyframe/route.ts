@@ -21,8 +21,9 @@ const bodySchema = z.object({
  */
 export async function POST(
   request: Request,
-  { params }: { params: { projectId: string; sceneId: string } },
+  props: { params: Promise<{ projectId: string; sceneId: string }> }
 ) {
+  const params = await props.params;
   try {
     const { purpose } = bodySchema.parse(await request.json());
     const record = await generateSceneKeyframe(params.projectId, params.sceneId, purpose);
@@ -35,8 +36,9 @@ export async function POST(
 /** Discard a scene's previews once they have served their purpose. */
 export async function DELETE(
   _request: Request,
-  { params }: { params: { projectId: string; sceneId: string } },
+  props: { params: Promise<{ projectId: string; sceneId: string }> }
 ) {
+  const params = await props.params;
   try {
     const record = await clearSceneKeyframePreview(params.projectId, params.sceneId);
     return NextResponse.json(record, { headers: { "Cache-Control": "no-store" } });

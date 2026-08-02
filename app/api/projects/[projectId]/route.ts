@@ -4,19 +4,24 @@ import { toErrorResponse } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { projectId: string } };
+type Params = { params: Promise<{ projectId: string }> };
 
-export async function GET(_request: Request, { params }: Params) {
+export async function GET(_request: Request, props: Params) {
+  const params = await props.params;
   try {
     const record = await getProjectRecord(params.projectId);
-    return NextResponse.json(record);
+    // Next 14 sent `no-store` for a force-dynamic route; Next 16 sends no
+    // cache header at all, so the browser heuristically caches this read and
+    // a screen can show state from before the last mutation.
+    return NextResponse.json(record, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     return toErrorResponse(err);
   }
 }
 
 /** Rename a project. Metadata only — nothing downstream reads the title. */
-export async function PATCH(request: Request, { params }: Params) {
+export async function PATCH(request: Request, props: Params) {
+  const params = await props.params;
   try {
     const record = await renameProject(params.projectId, await request.json());
     return NextResponse.json(record);
@@ -31,7 +36,8 @@ export async function PATCH(request: Request, { params }: Params) {
  * Generated media goes with it unless `?keepMedia=1` is passed — an orphaned
  * media folder is unreachable from the UI, so keeping it has to be deliberate.
  */
-export async function DELETE(request: Request, { params }: Params) {
+export async function DELETE(request: Request, props: Params) {
+  const params = await props.params;
   try {
     const keepMedia = new URL(request.url).searchParams.get("keepMedia") === "1";
     await deleteProject(params.projectId, { keepMedia });

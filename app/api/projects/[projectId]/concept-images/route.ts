@@ -13,7 +13,7 @@ import { ValidationError } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { projectId: string } };
+type Params = { params: Promise<{ projectId: string }> };
 
 /**
  * Serve one of a project's concept images.
@@ -22,7 +22,8 @@ type Params = { params: { projectId: string } };
  * record before any path is built — a name that is not in the record is a 404
  * whatever it points at.
  */
-export async function GET(request: Request, { params }: Params) {
+export async function GET(request: Request, props: Params) {
+  const params = await props.params;
   try {
     const record = await getProjectRecord(params.projectId);
     const stored = record.project.conceptImages ?? [];
@@ -49,7 +50,8 @@ export async function GET(request: Request, { params }: Params) {
   }
 }
 
-export async function POST(request: Request, { params }: Params) {
+export async function POST(request: Request, props: Params) {
+  const params = await props.params;
   try {
     const form = await request.formData();
     const file = form.get("file");
@@ -66,7 +68,8 @@ export async function POST(request: Request, { params }: Params) {
   }
 }
 
-export async function DELETE(request: Request, { params }: Params) {
+export async function DELETE(request: Request, props: Params) {
+  const params = await props.params;
   try {
     const name = new URL(request.url).searchParams.get("name") ?? undefined;
     const conceptImages = await removeConceptImage(params.projectId, name);

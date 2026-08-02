@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
  * On demand rather than automatic: reading images is the slowest planning call
  * in the app, and they change far less often than the story does.
  */
-export async function POST(_request: Request, { params }: { params: { projectId: string } }) {
+export async function POST(_request: Request, props: { params: Promise<{ projectId: string }> }) {
+  const params = await props.params;
   try {
     const record = await readConceptImages(params.projectId);
     return NextResponse.json(

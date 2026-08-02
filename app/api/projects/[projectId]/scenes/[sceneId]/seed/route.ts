@@ -13,8 +13,9 @@ export const dynamic = "force-dynamic";
  */
 export async function DELETE(
   _request: Request,
-  { params }: { params: { projectId: string; sceneId: string } },
+  props: { params: Promise<{ projectId: string; sceneId: string }> }
 ) {
+  const params = await props.params;
   try {
     const record = await clearSceneSeed(params.projectId, params.sceneId);
     return NextResponse.json(record, { headers: { "Cache-Control": "no-store" } });

@@ -5,10 +5,8 @@ import { toErrorResponse } from "@/lib/http";
 export const dynamic = "force-dynamic";
 
 /** Change the WanGP model pins for a project. */
-export async function PATCH(
-  request: Request,
-  { params }: { params: { projectId: string } },
-) {
+export async function PATCH(request: Request, props: { params: Promise<{ projectId: string }> }) {
+  const params = await props.params;
   try {
     const body = await request.json();
     const record = await updateProjectModels(params.projectId, body);

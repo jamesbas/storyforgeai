@@ -7,7 +7,7 @@ import { toErrorResponse } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { projectId: string } };
+type Params = { params: Promise<{ projectId: string }> };
 
 const createSchema = z.object({
   sceneId: z.string().min(1),
@@ -21,7 +21,8 @@ const createSchema = z.object({
   duckNativeDb: z.number().max(0).optional(),
 });
 
-export async function GET(_request: Request, { params }: Params) {
+export async function GET(_request: Request, props: Params) {
+  const params = await props.params;
   try {
     const record = await getProjectRecord(params.projectId);
     return NextResponse.json({ cues: record.audioPlan?.cues ?? [] });
@@ -30,7 +31,8 @@ export async function GET(_request: Request, { params }: Params) {
   }
 }
 
-export async function POST(request: Request, { params }: Params) {
+export async function POST(request: Request, props: Params) {
+  const params = await props.params;
   try {
     const body = createSchema.parse(await request.json());
     return NextResponse.json(await addAudioCue(params.projectId, body));

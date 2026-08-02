@@ -4,9 +4,10 @@ import { toErrorResponse } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { jobId: string } };
+type Params = { params: Promise<{ jobId: string }> };
 
-export async function GET(_request: Request, { params }: Params) {
+export async function GET(_request: Request, props: Params) {
+  const params = await props.params;
   try {
     const job = await getJob(params.jobId);
     return NextResponse.json({ job });

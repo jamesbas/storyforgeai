@@ -5,14 +5,15 @@ import { toErrorResponse } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { projectId: string; sceneId: string } };
+type Params = { params: Promise<{ projectId: string; sceneId: string }> };
 
 const bodySchema = z.object({
   action: z.enum(DEEPY_ACTIONS),
   target: z.string().optional(),
 });
 
-export async function POST(request: Request, { params }: Params) {
+export async function POST(request: Request, props: Params) {
+  const params = await props.params;
   try {
     const body = bodySchema.parse(await request.json());
     const result = runDeepy(body.action, body.target ?? params.sceneId);

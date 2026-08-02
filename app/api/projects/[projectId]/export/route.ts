@@ -10,9 +10,10 @@ import { logEvent } from "@/lib/telemetry";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { projectId: string } };
+type Params = { params: Promise<{ projectId: string }> };
 
-export async function GET(request: Request, { params }: Params) {
+export async function GET(request: Request, props: Params) {
+  const params = await props.params;
   try {
     const record = await getProjectRecord(params.projectId);
     const format = new URL(request.url).searchParams.get("format") ?? "json";

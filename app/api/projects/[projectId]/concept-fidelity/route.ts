@@ -10,7 +10,8 @@ export const dynamic = "force-dynamic";
  * Returns findings only. Nothing from this route reaches the storyboard agents,
  * by design — see `lib/agents/concept-fidelity.ts`.
  */
-export async function POST(_request: Request, { params }: { params: { projectId: string } }) {
+export async function POST(_request: Request, props: { params: Promise<{ projectId: string }> }) {
+  const params = await props.params;
   try {
     const record = await checkConceptFidelity(params.projectId);
     return NextResponse.json(

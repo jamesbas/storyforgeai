@@ -14,8 +14,9 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(
   request: Request,
-  { params }: { params: { projectId: string; assetId: string } },
+  props: { params: Promise<{ projectId: string; assetId: string }> }
 ) {
+  const params = await props.params;
   const ref = parseMediaRef(decodeURIComponent(params.assetId));
   if (!ref) return new Response("Unknown media reference.", { status: 400 });
 

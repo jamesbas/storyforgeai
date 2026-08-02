@@ -211,7 +211,7 @@ function Group({
   kind: ConceptImageKind;
   images: readonly ConceptImage[];
   projectId: string;
-  inputRef: React.RefObject<HTMLInputElement>;
+  inputRef: React.RefObject<HTMLInputElement | null>;
   busy: boolean;
   full: boolean;
   running: ConceptImageKind | null;

@@ -10,10 +10,11 @@ import { toErrorResponse } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: { projectId: string } };
+type Params = { params: Promise<{ projectId: string }> };
 
 /** Progress of the scene generation queue. Polled by the storyboard screen. */
-export async function GET(_request: Request, { params }: Params) {
+export async function GET(_request: Request, props: Params) {
+  const params = await props.params;
   try {
     return NextResponse.json(getQueue(params.projectId), {
       headers: { "cache-control": "no-store, max-age=0" },
@@ -32,7 +33,8 @@ export async function GET(_request: Request, { params }: Params) {
  * Returns as soon as the work is queued: a full project is many minutes of GPU
  * time, far longer than a request should be held open.
  */
-export async function POST(request: Request, { params }: Params) {
+export async function POST(request: Request, props: Params) {
+  const params = await props.params;
   try {
     const url = new URL(request.url);
     if (url.searchParams.get("video") === "1") {
@@ -56,7 +58,8 @@ export async function POST(request: Request, { params }: Params) {
 }
 
 /** Abandon the scenes that have not started yet. */
-export async function DELETE(_request: Request, { params }: Params) {
+export async function DELETE(_request: Request, props: Params) {
+  const params = await props.params;
   try {
     const cancelled = cancelQueue(params.projectId);
     return NextResponse.json({ cancelled, ...getQueue(params.projectId) });
