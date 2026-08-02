@@ -40,6 +40,17 @@ export type ExecuteOptions<T> = {
   attempted?: { total: number; fromLlm: number };
   /** Force the recorded source, for sets that were partly repaired. */
   source?: ExecutionSource;
+  /**
+   * Provenance that is only knowable once the model has answered, such as how
+   * much of a repaired set survived. Applied when the model produced a usable
+   * value, so a caller never has to rewrite the record afterwards.
+   */
+  outcome?: (value: T) => {
+    source?: ExecutionSource;
+    fallbackReason?: FailureReason;
+    detail?: string;
+    attempted?: { total: number; fromLlm: number };
+  };
 };
 
 export type ExecutionResult<T> = {
@@ -72,6 +83,7 @@ export async function executeArtifact<T>(options: ExecuteOptions<T>): Promise<Ex
   let model: string | undefined;
   let format: string | undefined;
   let value: T | undefined;
+  let attempted = options.attempted;
 
   if (!provider || !llm) {
     reason = "provider_disabled";
@@ -89,6 +101,13 @@ export async function executeArtifact<T>(options: ExecuteOptions<T>): Promise<Ex
         else {
           value = result.value;
           source = options.source ?? "llm";
+          const outcome = options.outcome?.(result.value);
+          if (outcome) {
+            source = outcome.source ?? source;
+            reason = outcome.fallbackReason ?? reason;
+            detail = outcome.detail ?? detail;
+            attempted = outcome.attempted ?? attempted;
+          }
         }
       }
     } catch (err) {
@@ -118,7 +137,7 @@ export async function executeArtifact<T>(options: ExecuteOptions<T>): Promise<Ex
     fallbackReason: reason,
     detail: redactDetail(detail),
     evidence: options.evidence,
-    attempted: options.attempted,
+    attempted,
     startedAt: startedAt.toISOString(),
     finishedAt: finishedAt.toISOString(),
     durationMs: Math.max(0, finishedAt.getTime() - startedAt.getTime()),

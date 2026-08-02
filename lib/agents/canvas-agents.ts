@@ -20,7 +20,7 @@ import {
   buildWorldBible,
 } from "@/lib/agents/mock-canvas";
 import { castSystemDirective } from "@/lib/agents/cast";
-import { repairVariantSet } from "@/lib/agents/variant-set";
+import { repairVariantSet, type VariantSetRepair } from "@/lib/agents/variant-set";
 import { executeArtifact, providerCall, type ExecutionCollector } from "@/lib/agents/provenance";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import { conceptVisualsDirective, conceptVisualsPayload } from "@/lib/agents/concept-visuals";
@@ -193,7 +193,7 @@ export async function variantExplorerAgent(
   ctx: CanvasContext = {},
 ): Promise<CreativeVariant[]> {
   const user = JSON.stringify({ project });
-  let repaired = 0;
+  let repair: VariantSetRepair | undefined;
 
   const { value } = await executeArtifact<CreativeVariant[]>({
     artifact: "variants",
@@ -202,19 +202,7 @@ export async function variantExplorerAgent(
     promptVersion: PROMPT_VERSIONS.variants,
     builderVersion: BUILDER_VERSION,
     provider,
-    onExecution: (execution) =>
-      ctx.onExecution?.(
-        // A partly repaired set is neither the model's work nor the builder's.
-        repaired > 0 && execution.source === "llm"
-          ? {
-              ...execution,
-              source: "hybrid",
-              status: "degraded",
-              fallbackReason: "invalid_set",
-              attempted: { total: 3, fromLlm: 3 - repaired },
-            }
-          : execution,
-      ),
+    onExecution: ctx.onExecution,
     llm: provider
       ? async () => {
           const result = await providerCall(
@@ -229,11 +217,10 @@ export async function variantExplorerAgent(
           }
           // The schema validates one variant at a time, so three directions that
           // all claim the same axis parse cleanly. Repair before storing.
-          const repair = repairVariantSet(
+          repair = repairVariantSet(
             project,
             result.value.variants.map((v) => ({ ...v, projectId: project.id })),
           );
-          repaired = repair.replaced.length;
           if (repair.issues.length) {
             logEvent("variant_set.repaired", {
               projectId: project.id,
@@ -241,11 +228,29 @@ export async function variantExplorerAgent(
               returned: result.value.variants.length,
               replaced: repair.replaced.length,
               axes: repair.variants.map((v) => v.variantType),
+              // Lets duplicate-axis rate be tracked per model.
+              provider: result.provider,
+              model: result.model,
             });
           }
           return { ...result, value: repair.variants };
         }
       : undefined,
+    // A set the builder had to patch is neither the model's work nor the
+    // builder's, and calling it either would misreport what the user is seeing.
+    outcome: (variants) => {
+      const replaced = repair?.replaced.length ?? 0;
+      if (!replaced) return {};
+      const fromLlm = variants.length - replaced;
+      return {
+        source: fromLlm > 0 ? "hybrid" : "deterministic",
+        fallbackReason: repair?.issues.includes("duplicate_axis")
+          ? "invalid_set"
+          : "short_collection",
+        detail: `${fromLlm} of ${variants.length} directions kept from the model`,
+        attempted: { total: variants.length, fromLlm },
+      };
+    },
     fallback: () => buildVariants(project),
   });
   return value;

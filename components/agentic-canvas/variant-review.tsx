@@ -3,6 +3,8 @@
 import { useCallback, useState } from "react";
 import Link from "next/link";
 import { useLoadEffect } from "@/components/shared/use-load-effect";
+import { ExecutionBadge } from "@/components/shared/execution-badge";
+import { latestExecution } from "@/lib/schemas/provenance";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { CreativeVariant } from "@/lib/schemas/canvas";
 
@@ -76,6 +78,7 @@ export function VariantReview({ projectId }: { projectId: string }) {
   );
 
   const variants: CreativeVariant[] = record?.variants ?? [];
+  const variantExecution = latestExecution(record?.executions, "variants");
 
   return (
     <div className="space-y-6">
@@ -114,8 +117,18 @@ export function VariantReview({ projectId }: { projectId: string }) {
       {variants.length === 0 ? (
         <p className="text-sm text-slate-400">No variants yet. Generate 3 creative directions.</p>
       ) : (
-        <div className="grid gap-4 md:grid-cols-3">
-          {variants.map((v) => (
+        <>
+          <div className="flex flex-wrap items-center gap-2" data-testid="variant-provenance">
+            <ExecutionBadge execution={variantExecution} />
+            {variantExecution?.source === "hybrid" ? (
+              <span className="text-xs text-slate-500">
+                The model repeated an axis, so the missing directions were filled from the
+                deterministic templates.
+              </span>
+            ) : null}
+          </div>
+          <div className="grid gap-4 md:grid-cols-3">
+            {variants.map((v) => (
             <article
               key={v.id}
               data-testid="variant-card"
@@ -153,7 +166,8 @@ export function VariantReview({ projectId }: { projectId: string }) {
               </button>
             </article>
           ))}
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

@@ -103,6 +103,79 @@ describe("VariantReview component", () => {
     await waitFor(() => expect(screen.getAllByTestId("variant-card")).toHaveLength(3));
     expect(screen.getAllByText("different premise")).toHaveLength(3);
   });
+
+  it("says a legacy set has no provenance rather than implying a model wrote it", async () => {
+    const record: ProjectRecord = {
+      ...baseRecord,
+      variants: [variant("1"), variant("2"), variant("3")],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(record)));
+
+    render(<VariantReview projectId="p1" />);
+    await waitFor(() => expect(screen.getByTestId("variant-provenance")).toBeInTheDocument());
+    expect(screen.getByTestId("execution-badge")).toHaveTextContent(
+      "No provenance (legacy project)",
+    );
+  });
+
+  it("shows a repaired set as hybrid and explains what was filled in", async () => {
+    const record: ProjectRecord = {
+      ...baseRecord,
+      variants: [
+        { ...variant("1"), variantType: "story" },
+        { ...variant("2"), variantType: "hook" },
+        { ...variant("3"), variantType: "visual_style" },
+      ],
+      executions: [
+        {
+          executionId: "x1",
+          artifact: "variants",
+          source: "hybrid",
+          status: "degraded",
+          fallbackReason: "invalid_set",
+          attempted: { total: 3, fromLlm: 1 },
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          durationMs: 5,
+        },
+      ],
+    } as unknown as ProjectRecord;
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(record)));
+
+    render(<VariantReview projectId="p1" />);
+    await waitFor(() =>
+      expect(screen.getByTestId("execution-badge")).toHaveTextContent("Hybrid · 1/3 from the model"),
+    );
+    expect(screen.getByTestId("variant-provenance")).toHaveTextContent(/repeated an axis/i);
+  });
+
+  it("does not call demo mode a failure", async () => {
+    const record: ProjectRecord = {
+      ...baseRecord,
+      variants: [variant("1"), variant("2"), variant("3")],
+      executions: [
+        {
+          executionId: "x2",
+          artifact: "variants",
+          source: "deterministic",
+          status: "ok",
+          fallbackReason: "provider_disabled",
+          startedAt: new Date().toISOString(),
+          finishedAt: new Date().toISOString(),
+          durationMs: 5,
+        },
+      ],
+    } as unknown as ProjectRecord;
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(record)));
+
+    render(<VariantReview projectId="p1" />);
+    await waitFor(() =>
+      expect(screen.getByTestId("execution-badge")).toHaveTextContent("Deterministic"),
+    );
+    expect(screen.getByTestId("variant-provenance").textContent).not.toMatch(
+      /failed|could not|wrong shape/i,
+    );
+  });
 });
 
 describe("AgenticCanvas component", () => {

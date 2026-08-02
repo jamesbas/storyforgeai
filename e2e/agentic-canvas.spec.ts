@@ -22,6 +22,11 @@ test("generate 3 variants, select one, then generate a storyboard", async ({ pag
   const changes = await page.getByTestId("variant-changes").allTextContents();
   expect(new Set(changes).size).toBe(3);
 
+  // Demo mode says it built these itself, and does not read as a failure.
+  const provenance = page.getByTestId("variant-provenance");
+  await expect(provenance).toContainText("Deterministic");
+  await expect(provenance).not.toContainText(/could not|wrong shape|returned nothing/i);
+
   // Select the first direction.
   await page.getByTestId("variant-card").first().getByRole("button", { name: /select direction/i }).click();
   await expect(page.getByRole("button", { name: /selected/i })).toBeVisible();
