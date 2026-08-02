@@ -187,7 +187,7 @@ export function PlanPanel({
                 type="button"
                 onClick={() => void save()}
                 disabled={saving || !dirty}
-                className="rounded bg-accent px-3 py-1 font-semibold text-white disabled:opacity-50"
+                className="rounded bg-accent-solid px-3 py-1 font-semibold text-white disabled:opacity-50"
               >
                 {saving ? "Saving…" : "Save"}
               </button>

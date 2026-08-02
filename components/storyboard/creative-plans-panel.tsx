@@ -165,7 +165,7 @@ export function CreativePlansPanel({
             type="button"
             onClick={onRegenerate}
             disabled={busy}
-            className="mt-2 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+            className="mt-2 rounded-md bg-accent-solid px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
           >
             {busy ? "Regenerating…" : "Regenerate storyboard to apply"}
           </button>

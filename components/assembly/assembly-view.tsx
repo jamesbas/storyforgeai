@@ -113,7 +113,7 @@ export function AssemblyView({ projectId }: { projectId: string }) {
             disabled={busy || !canAssemble || !approvalsMet}
             aria-describedby="assembly-readiness"
             data-testid="assemble-button"
-            className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            className="rounded-md bg-accent-solid px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
             {busy ? "Assembling…" : "Assemble rough cut"}
           </button>

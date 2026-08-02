@@ -419,7 +419,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           type="button"
           disabled={busy}
           onClick={() => void save({ loras })}
-          className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+          className="rounded-md bg-accent-solid px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
         >
           Save LoRAs
         </button>
@@ -471,7 +471,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
                 ),
               })
             }
-            className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            className="rounded-md bg-accent-solid px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
             Save wardrobe
           </button>

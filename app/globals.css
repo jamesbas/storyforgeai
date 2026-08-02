@@ -9,3 +9,56 @@
 body {
   @apply bg-canvas text-slate-100 antialiased;
 }
+
+/*
+ * One focus ring for the whole app.
+ *
+ * Several controls set `outline-none` to style their own border, which left
+ * keyboard users with no visible focus at all on those. `:focus-visible` keeps
+ * it off for pointer users, so nothing gains a ring it did not have on click.
+ */
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid theme("colors.accent.DEFAULT");
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* The dialog's own backdrop, so the page behind it is clearly inert. */
+dialog::backdrop {
+  background: rgb(2 6 23 / 0.7);
+}
+
+dialog[open] {
+  @apply bg-panel text-slate-100;
+}
+
+/*
+ * Honour a reduced-motion preference.
+ *
+ * Status here is carried by text, so removing transitions costs nothing: the
+ * only thing animation was doing was drawing the eye.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Off-screen until focused, then pinned over the header. */
+.skip-link {
+  position: absolute;
+  left: 0.75rem;
+  top: -3rem;
+  z-index: 50;
+  transition: top 150ms ease;
+  @apply rounded-md bg-accent-solid px-3 py-2 text-sm font-semibold text-white;
+}
+
+.skip-link:focus {
+  top: 0.75rem;
+}

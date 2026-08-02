@@ -36,7 +36,7 @@ export default function AboutPage() {
               href="https://www.jabaisolutions.com/"
               target="_blank"
               rel="noreferrer"
-              className="text-accent hover:underline"
+              className="text-accent underline underline-offset-2"
             >
               JabAI Solutions
             </a>

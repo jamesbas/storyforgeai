@@ -618,7 +618,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
           <button
             onClick={requestGenerate}
             disabled={generating}
-            className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            className="rounded-md bg-accent-solid px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
             {generating ? "Generating…" : storyboard ? "Regenerate storyboard" : "Generate storyboard"}
           </button>
@@ -682,7 +682,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                 void generate();
               }}
               disabled={generating}
-              className="rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+              className="rounded-md bg-accent-solid px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
             >
               Regenerate anyway
             </button>
@@ -749,7 +749,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
             type="button"
             onClick={requestGenerate}
             disabled={generating}
-            className="mt-3 rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+            className="mt-3 rounded-md bg-accent-solid px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
           >
             {generating ? "Regenerating…" : "Regenerate storyboard"}
           </button>
@@ -929,7 +929,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                 <button
                   onClick={() => void generateAll(false)}
                   disabled={queueBusy || queue?.active || !stages.keyframes}
-                  className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                  className="rounded-md bg-accent-solid px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >
                   {queue?.active ? "Generating…" : "Generate all media"}
                 </button>

@@ -32,7 +32,7 @@ export default function ProjectsPage() {
           </div>
           <Link
             href="/projects/new"
-            className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent/80"
+            className="rounded-md bg-accent-solid px-4 py-2 text-sm font-semibold text-white hover:bg-accent/80"
           >
             New project
           </Link>
@@ -70,7 +70,7 @@ export default function ProjectsPage() {
             </p>
             <Link
               href="/projects/new"
-              className="mt-4 inline-block rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent/80"
+              className="mt-4 inline-block rounded-md bg-accent-solid px-4 py-2 text-sm font-semibold text-white hover:bg-accent/80"
             >
               Create your first project
             </Link>

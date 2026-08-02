@@ -49,7 +49,7 @@ export default function HomePage() {
           <div className="mt-6 flex flex-wrap gap-3">
             <Link
               href="/projects/new"
-              className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white hover:bg-accent/80"
+              className="rounded-md bg-accent-solid px-4 py-2 text-sm font-semibold text-white hover:bg-accent/80"
             >
               Start a new project
             </Link>

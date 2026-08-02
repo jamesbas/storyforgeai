@@ -333,7 +333,7 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
             type="button"
             onClick={() => void runCore()}
             disabled={busy}
-            className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+            className="rounded-md bg-accent-solid px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
             {runningAll && queue
               ? `Running ${Math.min(queue.done + 1, queue.total)} of ${queue.total}…`

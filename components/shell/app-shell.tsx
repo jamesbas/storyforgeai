@@ -57,6 +57,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="flex min-h-screen flex-col">
+      <a href="#main" className="skip-link">
+        Skip to main content
+      </a>
       <header className="border-b border-white/10 bg-panel/60 backdrop-blur">
         <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-6 gap-y-3 px-6 py-4">
           <Link href="/" className="text-lg font-semibold tracking-tight">
@@ -83,16 +86,18 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </nav>
         </div>
       </header>
-      <main className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">{children}</main>
+      <main id="main" tabIndex={-1} className="mx-auto w-full max-w-5xl flex-1 px-6 py-8">
+        {children}
+      </main>
       <footer className="mt-8 border-t border-white/10 bg-panel/40">
-        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-6 py-4 text-xs text-slate-500">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-6 py-4 text-xs text-slate-400">
           <p>
             Designed and built by{" "}
             <a
               href="https://www.jabaisolutions.com/"
               target="_blank"
               rel="noreferrer"
-              className="text-slate-400 hover:text-accent hover:underline"
+              className="text-slate-300 underline underline-offset-2 hover:text-accent"
             >
               JabAI Solutions
             </a>

@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import type { Project } from "@/lib/schemas/project";
 
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
@@ -77,6 +78,34 @@ export function ProjectListItem({
   const [error, setError] = useState<string | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [title, setTitle] = useState(project.title);
+  const deleteRef = useRef<HTMLButtonElement | null>(null);
+  const renameRef = useRef<HTMLButtonElement | null>(null);
+  const restoreTo = useRef<"delete" | "rename" | null>(null);
+
+  /**
+   * Leaving a panel must put focus back on the button that opened it.
+   *
+   * It cannot be done in the click handler: both panels replace the whole row,
+   * so the trigger is unmounted and its ref is still null at that point. This
+   * waits for the row to come back.
+   */
+  useEffect(() => {
+    if (confirming || renaming || !restoreTo.current) return;
+    const target = restoreTo.current;
+    restoreTo.current = null;
+    (target === "delete" ? deleteRef : renameRef).current?.focus();
+  }, [confirming, renaming]);
+
+  const closeConfirm = () => {
+    restoreTo.current = "delete";
+    setConfirming(false);
+  };
+
+  const closeRename = () => {
+    restoreTo.current = "rename";
+    setTitle(project.title);
+    setRenaming(false);
+  };
 
   const rename = async () => {
     const next = title.trim();
@@ -140,52 +169,42 @@ export function ProjectListItem({
 
   if (confirming) {
     return (
-      <li className="rounded-md border border-red-500/40 bg-red-500/10 px-3 py-2">
-        <p className="text-sm font-medium">Delete &ldquo;{project.title}&rdquo;?</p>
-        <p className="mt-1 text-xs text-slate-400">
-          The storyboard, prompts, attempts and history are removed permanently. This cannot be
-          undone.
-        </p>
-        <p className="mt-1 text-xs text-slate-400">
-          To keep a way back, open the project and use <strong>Export JSON</strong> first. That file
-          can be imported from this screen — though it carries the scenes and prompts only, not the
-          creative plans.
-        </p>
-
-        <label className="mt-2 flex items-start gap-2 text-xs text-slate-300">
-          <input
-            type="checkbox"
-            checked={keepMedia}
-            disabled={busy}
-            onChange={(e) => setKeepMedia(e.target.checked)}
-            className="mt-0.5"
-          />
-          <span>
-            Keep generated images and video on disk
-            <span className="block text-[11px] text-slate-500">
-              They will no longer be reachable from the app.
+      <li className="group relative h-full">
+        <ConfirmDialog
+          open
+          title={`Delete “${project.title}”?`}
+          confirmLabel="Delete permanently"
+          busyLabel="Deleting…"
+          busy={busy}
+          onCancel={closeConfirm}
+          onConfirm={() => void remove()}
+        >
+          <p>
+            The storyboard, prompts, attempts and history are removed permanently. This cannot be
+            undone.
+          </p>
+          <p>
+            To keep a way back, open the project and use <strong>Export JSON</strong> first. That
+            file can be imported from this screen — though it carries the scenes and prompts only,
+            not the creative plans.
+          </p>
+          <label className="flex items-start gap-2 pt-1 text-xs text-slate-300">
+            <input
+              type="checkbox"
+              checked={keepMedia}
+              disabled={busy}
+              onChange={(e) => setKeepMedia(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              Keep generated images and video on disk
+              <span className="block text-[11px] text-slate-500">
+                They will no longer be reachable from the app.
+              </span>
             </span>
-          </span>
-        </label>
-
-        <div className="mt-2 flex gap-2">
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => void remove()}
-            className="rounded-md bg-red-500/80 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-500 disabled:opacity-50"
-          >
-            {busy ? "Deleting…" : "Delete permanently"}
-          </button>
-          <button
-            type="button"
-            disabled={busy}
-            onClick={() => setConfirming(false)}
-            className="rounded-md border border-white/15 px-3 py-1.5 text-xs text-slate-300 hover:border-accent disabled:opacity-50"
-          >
-            Cancel
-          </button>
-        </div>
+          </label>
+        </ConfirmDialog>
+        {error ? <p className="mt-1 text-xs text-red-300">{error}</p> : null}
       </li>
     );
   }
@@ -205,10 +224,7 @@ export function ProjectListItem({
             onChange={(e) => setTitle(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Enter") void rename();
-              if (e.key === "Escape") {
-                setTitle(project.title);
-                setRenaming(false);
-              }
+              if (e.key === "Escape") closeRename();
             }}
             className="mt-1 w-full rounded border border-white/10 bg-canvas px-2 py-1 text-sm outline-none focus:border-accent"
           />
@@ -217,17 +233,14 @@ export function ProjectListItem({
               type="button"
               disabled={busy}
               onClick={() => void rename()}
-              className="rounded-md bg-accent px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
+              className="rounded-md bg-accent-solid px-3 py-1 text-xs font-semibold text-white disabled:opacity-50"
             >
               Save
             </button>
             <button
               type="button"
               disabled={busy}
-              onClick={() => {
-                setTitle(project.title);
-                setRenaming(false);
-              }}
+              onClick={closeRename}
               className="rounded-md border border-white/15 px-3 py-1 text-xs text-slate-300"
             >
               Cancel
@@ -238,24 +251,29 @@ export function ProjectListItem({
         <>
           <Link
             href={`/storyboard/${project.id}`}
-            className="block h-full rounded-md border border-white/10 bg-panel/40 px-3 py-2 pr-24 text-sm hover:border-accent"
+            className="block h-full rounded-md border border-white/10 bg-panel/40 px-3 py-2 pr-32 text-sm hover:border-accent"
           >
             <span className="block truncate font-medium">{project.title}</span>
-            <span className="text-xs text-slate-500">
+            <span className="text-xs text-slate-400">
               {project.segmentCount} scenes · {project.status}
             </span>
-            <span className="mt-0.5 block text-xs text-slate-600">
+            <span className="mt-0.5 block text-xs text-slate-400">
               Updated {relativeTime(project.updatedAt)}
             </span>
           </Link>
-          <div className="absolute right-1.5 top-1.5 flex gap-0.5 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+          {/*
+            Always visible on touch: there is no hover there, so hiding these
+            until hover made rename, copy and delete unreachable on a phone.
+          */}
+          <div className="absolute right-1.5 top-1.5 flex gap-1 transition md:opacity-0 md:focus-within:opacity-100 md:group-hover:opacity-100">
             <button
+              ref={renameRef}
               type="button"
               disabled={busy}
               onClick={() => setRenaming(true)}
               aria-label={`Rename ${project.title}`}
               title="Rename project"
-              className="rounded p-1.5 text-slate-500 hover:bg-white/10 hover:text-slate-200 disabled:opacity-50"
+              className="flex h-9 w-9 items-center justify-center rounded text-slate-500 hover:bg-white/10 hover:text-slate-200 disabled:opacity-50"
             >
               <PencilIcon />
             </button>
@@ -265,17 +283,18 @@ export function ProjectListItem({
               onClick={() => void duplicate()}
               aria-label={`Copy ${project.title}`}
               title="Copy project (settings, plans and storyboard; not generated media)"
-              className="rounded p-1.5 text-slate-500 hover:bg-white/10 hover:text-slate-200 disabled:opacity-50"
+              className="flex h-9 w-9 items-center justify-center rounded text-slate-500 hover:bg-white/10 hover:text-slate-200 disabled:opacity-50"
             >
               <CopyIcon />
             </button>
             <button
+              ref={deleteRef}
               type="button"
               disabled={busy}
               onClick={() => setConfirming(true)}
               aria-label={`Delete ${project.title}`}
               title="Delete project"
-              className="rounded p-1.5 text-slate-500 hover:bg-red-500/15 hover:text-red-300 disabled:opacity-50"
+              className="flex h-9 w-9 items-center justify-center rounded text-slate-500 hover:bg-red-500/15 hover:text-red-300 disabled:opacity-50"
             >
               <TrashIcon />
             </button>

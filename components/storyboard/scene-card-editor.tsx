@@ -232,7 +232,7 @@ export function SceneCardEditor({
             type="button"
             disabled={disabled || !dirty}
             onClick={() => void save(true)}
-            className="rounded-md bg-accent px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+            className="rounded-md bg-accent-solid px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
           >
             {saving === "prompts" ? "Saving and rewriting…" : "Save and rewrite prompts"}
           </button>

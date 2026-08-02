@@ -47,3 +47,23 @@ process.env.STORYFORGE_DATA_DIR = path.join(os.tmpdir(), "storyforge-test-data")
  */
 process.env.SCENE_QUEUE_SETTLE_DELAY_MS = "0";
 process.env.SCENE_QUEUE_RETRY_DELAY_MS = "0";
+
+/**
+ * jsdom does not implement `<dialog>`: `showModal` and `close` are simply
+ * absent, in 25 and in 27 alike. This shim gives them the open/close semantics
+ * component tests need to check role, name, initial focus and focus
+ * restoration.
+ *
+ * It deliberately does NOT fake modality, focus containment or Escape. jsdom
+ * has no top layer, so pretending would prove nothing — those are asserted in
+ * Playwright against a real browser instead.
+ */
+if (typeof HTMLDialogElement !== "undefined" && !HTMLDialogElement.prototype.showModal) {
+  HTMLDialogElement.prototype.showModal = function showModal(this: HTMLDialogElement) {
+    this.open = true;
+  };
+  HTMLDialogElement.prototype.close = function close(this: HTMLDialogElement) {
+    this.open = false;
+    this.dispatchEvent(new Event("close"));
+  };
+}
