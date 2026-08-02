@@ -35,6 +35,22 @@ export const config = {
   env: str(process.env.NODE_ENV, "development"),
   dataDir: str(process.env.STORYFORGE_DATA_DIR, "./projects"),
   persistence,
+  /**
+   * Network trust boundary (SPEC-007A-lite).
+   *
+   * Not authentication — Tailscale ACLs answer "who is this?". This answers
+   * "did the operator's own browser mean to send this?", which is the question
+   * a local app still has open: a cross-origin form POST needs no CORS
+   * preflight, so any page the operator visits could otherwise drive the API.
+   */
+  access: {
+    /** Next binds every interface when unset, including whatever LAN you are on. */
+    bindHost: str(process.env.STORYFORGE_BIND_HOST, "127.0.0.1"),
+    port: str(process.env.PORT, "3200"),
+    allowedHosts: str(process.env.STORYFORGE_ALLOWED_HOSTS, "localhost,127.0.0.1,[::1]"),
+    /** Distinguishes "left at the default" from "deliberately set to the default". */
+    allowedHostsWasSet: Boolean(process.env.STORYFORGE_ALLOWED_HOSTS?.trim()),
+  },
   defaults: {
     segmentSeconds: int(process.env.DEFAULT_SEGMENT_SECONDS, 20),
     aspectRatio: str(process.env.DEFAULT_ASPECT_RATIO, "16:9"),

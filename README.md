@@ -228,6 +228,13 @@ The image is a multi-stage build producing a self-contained Next.js standalone
 server with a `/api/health` healthcheck. It defaults to in-memory demo mode; set
 `STORYFORGE_PERSISTENCE=prisma` to use the bundled Postgres service.
 
+Both services publish to `127.0.0.1` only. Without that prefix Docker opens the
+port on every interface *and* bypasses the host firewall while doing it. The
+container itself binds `0.0.0.0`, which is its own network namespace — the
+boundary is the publish address. To reach the container from another device, add
+that hostname to `STORYFORGE_ALLOWED_HOSTS` and change the publish address
+deliberately.
+
 ---
 
 ## Testing & quality
@@ -277,11 +284,65 @@ npm run audit:all    # whole graph, including build and test tooling
 
 ### Deployment
 
-- The app has **no authentication**. It is built to run on a machine you control,
-  bound to localhost. Do not expose it to a network you do not trust.
-- There is **no rate limiting** on the API. A reverse proxy should provide it if
-  the app is ever reachable beyond localhost.
-- There is **no content moderation** anywhere in the pipeline.
+The app is built to run on a machine you control. Two settings define where it
+listens and which requests it will honour.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `STORYFORGE_BIND_HOST` | `127.0.0.1` | The interface to listen on |
+| `STORYFORGE_ALLOWED_HOSTS` | `localhost,127.0.0.1,[::1]` | `Host` values the app answers to |
+
+Out of the box the app serves your workstation only. Left unset, Next would bind
+every interface, including whatever LAN you happen to be attached to.
+
+**Reaching it from a phone over Tailscale.** `-H` takes one address, so there is
+a trade-off to make deliberately:
+
+*Tailnet only* — the desktop must then use the tailnet name too, because binding
+to one interface stops `localhost` being served:
+
+```env
+STORYFORGE_BIND_HOST=100.71.40.31              # this machine's tailnet address
+STORYFORGE_ALLOWED_HOSTS=box.tailnet.ts.net
+```
+
+*Loopback and tailnet together* — the only way to have both, since Next cannot
+bind two specific addresses. The allowlist is doing the work here, so name the
+hosts exactly:
+
+```env
+STORYFORGE_BIND_HOST=0.0.0.0
+STORYFORGE_ALLOWED_HOSTS=localhost,127.0.0.1,box.tailnet.ts.net
+```
+
+With `0.0.0.0` the socket is open on your LAN as well, and a request arriving
+there is refused by the `Host` check rather than by the network. That is a
+weaker boundary than the first option — prefer it only if you need both, and
+keep a host firewall in front. Allowlist entries match with and without the
+port. The app **refuses to start** if you bind wider than loopback without
+naming the allowlist, so the unsafe combination is a startup error rather than
+something discovered later by whoever finds the open port.
+
+**What this does and does not do:**
+
+- The `Host` allowlist blocks **DNS rebinding** — a hostile domain re-resolving
+  to `127.0.0.1`, which the browser then treats as same-origin, so CORS stops
+  applying and the `Host` header is all that still gives it away.
+- Cross-site `POST`/`PUT`/`PATCH`/`DELETE` requests are refused. This matters
+  even on pure localhost: a cross-origin HTML form POST needs no CORS preflight,
+  and several routes here take no request body at all, so any page you visit
+  could otherwise trigger generation or unload your planning model.
+- Requests carrying neither `Sec-Fetch-Site` nor `Origin` are allowed, which is
+  how `npm run smoke` and the `wangp:*` scripts keep working. They are not
+  browsers, and this guards against your browser being used against the app.
+- There is **no login**, deliberately. Tailscale ACLs decide which devices may
+  connect; these settings decide which requests are honoured once they do.
+- There is **no rate limiting** and **no content moderation** anywhere.
+
+> **Exposing the app publicly — Tailscale Funnel, a public reverse proxy, port
+> forwarding — is out of scope for this design and needs real authentication
+> first.** See `docs/build-specs/SPEC-007-network-trust-boundary.md`.
+
 - Secrets live in `.env.local`, which is gitignored. Nothing is logged from it —
   telemetry records event names and IDs, never prompts or credentials.
 - API responses that reflect mutable state send `Cache-Control: no-store`, so a

@@ -19,6 +19,13 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 # Demo/local mode by default: in-memory store, all integrations off.
 ENV STORYFORGE_PERSISTENCE=memory
+# Inside a container 0.0.0.0 is the container's own namespace, so the real
+# boundary is the publish address on the host — see docker-compose.yml, which
+# publishes to 127.0.0.1. The allowlist is set explicitly rather than left at its
+# default because the app refuses to bind wider than loopback otherwise.
+ENV HOSTNAME=0.0.0.0
+ENV STORYFORGE_BIND_HOST=0.0.0.0
+ENV STORYFORGE_ALLOWED_HOSTS=localhost,127.0.0.1,[::1]
 RUN addgroup -S nodejs && adduser -S nextjs -G nodejs
 COPY --from=builder /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
