@@ -56,6 +56,7 @@ export type TelemetryEvent =
   | "scene_queue.gpu_freed"
   | "audio_cue.generated"
   | "assembly.completed"
+  | "assembly.prerequisite_failed"
   | "character.created"
   | "character.updated"
   | "character.deleted"

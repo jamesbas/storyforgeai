@@ -5,9 +5,16 @@ import Link from "next/link";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { MediaDescriptor } from "@/lib/media/refs";
 import { generationStages } from "@/lib/types";
+import { assemblyReadiness, type MissingApproval, type MissingApprovalReason } from "@/lib/media/assembly";
 import { AudioCuePanel } from "@/components/assembly/audio-cue-panel";
 
 type ExportDescriptor = { name: string; url: string; available: boolean };
+
+const MISSING_REASON_LABEL: Record<MissingApprovalReason, string> = {
+  no_attempt: "No media generated yet",
+  no_approved_attempt: "Awaiting approval",
+  approved_attempt_missing_video: "Approved attempt has no video",
+};
 
 export function AssemblyView({ projectId }: { projectId: string }) {
   const [record, setRecord] = useState<ProjectRecord | null>(null);
@@ -15,6 +22,7 @@ export function AssemblyView({ projectId }: { projectId: string }) {
   const [media, setMedia] = useState<MediaDescriptor[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [conflict, setConflict] = useState<MissingApproval[] | null>(null);
   const [deepy, setDeepy] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -42,9 +50,17 @@ export function AssemblyView({ projectId }: { projectId: string }) {
     try {
       const res = await fetch(`/api/projects/${projectId}/assemble`, { method: "POST" });
       if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          details?: { missingApprovals?: MissingApproval[] };
+        };
+        // Keep the server's complete list; it outlives this failed request.
+        if (res.status === 409 && data.details?.missingApprovals) {
+          setConflict(data.details.missingApprovals);
+        }
         throw new Error(data.error ?? "Failed to assemble");
       }
+      setConflict(null);
       setRecord((await res.json()) as ProjectRecord);
       await load();
     } catch (e) {
@@ -71,6 +87,9 @@ export function AssemblyView({ projectId }: { projectId: string }) {
 
   const assembly = record?.assembly;
   const canAssemble = record ? generationStages(record.project.generationMode).assembly : false;
+  const readiness = record ? assemblyReadiness(record) : null;
+  const missingApprovals = conflict ?? readiness?.missingApprovals ?? [];
+  const approvalsMet = Boolean(readiness?.ready) && missingApprovals.length === 0;
   const cut = media.find((m) => m.role === "final_cut" && m.available)
     ?? media.find((m) => m.role === "rough_cut" && m.available);
 
@@ -88,7 +107,9 @@ export function AssemblyView({ projectId }: { projectId: string }) {
         <div className="flex gap-2">
           <button
             onClick={assemble}
-            disabled={busy || !canAssemble}
+            disabled={busy || !canAssemble || !approvalsMet}
+            aria-describedby="assembly-readiness"
+            data-testid="assemble-button"
             className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
             {busy ? "Assembling…" : "Assemble rough cut"}
@@ -101,6 +122,55 @@ export function AssemblyView({ projectId }: { projectId: string }) {
           </Link>
         </div>
       </div>
+
+      {canAssemble && readiness && (
+        <section
+          role="status"
+          aria-live="polite"
+          id="assembly-readiness"
+          data-testid="assembly-readiness"
+          className="rounded-lg border border-white/10 bg-panel/40 p-4"
+        >
+          <p className="text-sm" data-testid="approval-count">
+            {readiness.approvedScenes} of {readiness.totalScenes} scenes approved
+          </p>
+          {missingApprovals.length > 0 ? (
+            <>
+              <p className="mt-1 text-xs text-slate-400">
+                Only approved takes can enter the final cut, so assembly stays disabled until every
+                scene has an approved video.
+              </p>
+              <h2 className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Needs approval
+              </h2>
+              <ul className="mt-2 space-y-2">
+                {missingApprovals.map((m) => (
+                  <li
+                    key={m.sceneId}
+                    data-testid="missing-approval"
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-white/10 px-3 py-2 text-sm"
+                  >
+                    <span className="truncate">
+                      Scene {m.sceneNumber} — {m.sceneTitle}{" "}
+                      <span className="text-slate-500">({MISSING_REASON_LABEL[m.reason]})</span>
+                    </span>
+                    <Link
+                      href={`/storyboard/${projectId}#scene-${m.sceneId}`}
+                      className="rounded-md border border-white/10 px-2 py-1 text-xs hover:border-accent"
+                    >
+                      Review scene
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </>
+          ) : (
+            <p className="mt-1 text-xs text-slate-400">
+              Every scene has an approved video. Ready to assemble.
+            </p>
+          )}
+        </section>
+      )}
 
       {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
 
@@ -147,6 +217,11 @@ export function AssemblyView({ projectId }: { projectId: string }) {
                 <span className="truncate">
                   Scene {c.sceneNumber} · {c.durationSeconds}s ·{" "}
                   <span className="text-slate-500">{c.path}</span>
+                  {c.attemptId ? (
+                    <span className="text-slate-500" data-testid="clip-attempt-id">
+                      {" "}· attempt {c.attemptId}
+                    </span>
+                  ) : null}
                 </span>
                 <button
                   onClick={() => askDeepy(c.sceneId, c.path)}

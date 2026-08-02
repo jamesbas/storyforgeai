@@ -107,7 +107,11 @@ export function SceneCard({
   const hasPreviews = playable.some((m) => m.preview);
 
   return (
-    <article className="rounded-lg border border-white/10 bg-panel/40 p-4" data-testid="scene-card">
+    <article
+      id={`scene-${scene.id}`}
+      className="scroll-mt-24 rounded-lg border border-white/10 bg-panel/40 p-4"
+      data-testid="scene-card"
+    >
       <header className="flex items-baseline justify-between">
         <h3 className="font-semibold">
           Scene {scene.sceneNumber} — {scene.title}

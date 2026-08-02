@@ -15,3 +15,17 @@ export class ValidationError extends Error {
     this.details = details;
   }
 }
+
+/**
+ * The request is well formed but the record is not in a state that allows it —
+ * work the user must complete first, not input to correct.
+ */
+export class PrerequisiteError extends Error {
+  readonly status = 409;
+  readonly details: unknown;
+  constructor(message: string, details?: unknown) {
+    super(message);
+    this.name = "PrerequisiteError";
+    this.details = details;
+  }
+}

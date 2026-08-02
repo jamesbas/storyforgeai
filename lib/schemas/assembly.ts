@@ -1,8 +1,14 @@
 import { z } from "zod";
+import { maybe } from "@/lib/schemas/maybe";
 
 export const finalCutClipSchema = z.object({
   sceneId: z.string(),
   sceneNumber: z.number().int().positive(),
+  /**
+   * The approved attempt this clip was cut from. Optional so assemblies
+   * written before attempt provenance existed still parse.
+   */
+  attemptId: maybe(z.string()),
   path: z.string(),
   durationSeconds: z.number().int().positive(),
   transitionIn: z.string(),

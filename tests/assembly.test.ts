@@ -5,8 +5,14 @@ import {
   buildTrimArgs,
   MockFfmpegRunner,
 } from "@/lib/media/ffmpeg";
-import { buildFinalCutPlan } from "@/lib/media/assembly";
-import { finalCutPlanSchema } from "@/lib/schemas/assembly";
+import {
+  assemblyPrerequisites,
+  assemblyReadiness,
+  buildFinalCutPlan,
+  selectApprovedAttempt,
+} from "@/lib/media/assembly";
+import { finalCutClipSchema, finalCutPlanSchema } from "@/lib/schemas/assembly";
+import { PrerequisiteError } from "@/lib/errors";
 import { computeSegmentation } from "@/lib/duration";
 import { runStoryboardOrchestrator } from "@/lib/agents/orchestrator";
 import type { Project } from "@/lib/schemas/project";
@@ -105,6 +111,21 @@ async function makeRecordWithMedia(requestedDurationSeconds: number): Promise<Pr
   return { project, storyboard, attempts };
 }
 
+function attempt(
+  sceneId: string,
+  attemptNumber: number,
+  overrides: { approved: boolean; videoPath?: string },
+): SceneAttempt {
+  return {
+    id: `${sceneId}-a${attemptNumber}`,
+    sceneId,
+    attemptNumber,
+    settingsIds: [],
+    createdAt: new Date().toISOString(),
+    ...overrides,
+  };
+}
+
 describe("final cut plan", () => {
   it("assembles one clip per scene and totals the requested runtime", async () => {
     const record = await makeRecordWithMedia(90); // 5 scenes, 10s trim
@@ -117,9 +138,129 @@ describe("final cut plan", () => {
     expect(plan.finalTrimSeconds).toBe(10);
   });
 
+  it("records the approved attempt id on every clip", async () => {
+    const record = await makeRecordWithMedia(40);
+    const plan = buildFinalCutPlan(record);
+    for (const clip of plan.clips) {
+      expect(clip.attemptId).toBe(`${clip.sceneId}-a1`);
+    }
+  });
+
   it("throws when a scene has no generated video", async () => {
     const record = await makeRecordWithMedia(40);
     delete record.attempts![record.storyboard!.scenes[0]!.id];
-    expect(() => buildFinalCutPlan(record)).toThrow();
+    expect(() => buildFinalCutPlan(record)).toThrow(PrerequisiteError);
+  });
+});
+
+describe("approved-attempt selection", () => {
+  it("keeps an older approved attempt over a newer unapproved one", async () => {
+    const record = await makeRecordWithMedia(20);
+    const sceneId = record.storyboard!.scenes[0]!.id;
+    record.attempts![sceneId] = [
+      attempt(sceneId, 1, { approved: true, videoPath: "approved-take.mp4" }),
+      attempt(sceneId, 2, { approved: false, videoPath: "newer-take.mp4" }),
+    ];
+
+    expect(selectApprovedAttempt(record, sceneId).attempt?.id).toBe(`${sceneId}-a1`);
+
+    const plan = buildFinalCutPlan(record);
+    expect(plan.clips[0]!.path).toBe("approved-take.mp4");
+    expect(plan.clips[0]!.attemptId).toBe(`${sceneId}-a1`);
+  });
+
+  it("never falls back to the latest attempt when nothing is approved", async () => {
+    const record = await makeRecordWithMedia(20);
+    const sceneId = record.storyboard!.scenes[0]!.id;
+    record.attempts![sceneId] = [
+      attempt(sceneId, 1, { approved: false, videoPath: "take-1.mp4" }),
+      attempt(sceneId, 2, { approved: false, videoPath: "take-2.mp4" }),
+    ];
+
+    expect(selectApprovedAttempt(record, sceneId)).toEqual({ reason: "no_approved_attempt" });
+    expect(() => buildFinalCutPlan(record)).toThrow(PrerequisiteError);
+  });
+
+  it("rejects an approved attempt that has no video", async () => {
+    const record = await makeRecordWithMedia(20);
+    const sceneId = record.storyboard!.scenes[0]!.id;
+    record.attempts![sceneId] = [attempt(sceneId, 1, { approved: true, videoPath: undefined })];
+
+    expect(selectApprovedAttempt(record, sceneId)).toEqual({
+      reason: "approved_attempt_missing_video",
+    });
+    expect(assemblyPrerequisites(record)[0]!.reason).toBe("approved_attempt_missing_video");
+  });
+
+  it("treats a blank video path as missing", async () => {
+    const record = await makeRecordWithMedia(20);
+    const sceneId = record.storyboard!.scenes[0]!.id;
+    record.attempts![sceneId] = [attempt(sceneId, 1, { approved: true, videoPath: "   " })];
+
+    expect(selectApprovedAttempt(record, sceneId).attempt).toBeUndefined();
+  });
+
+  it("reports every blocking scene with id, number, title and reason", async () => {
+    const record = await makeRecordWithMedia(60); // 3 scenes
+    const scenes = record.storyboard!.scenes;
+    // Scene 1 approved, scene 2 generated but unapproved, scene 3 not generated.
+    record.attempts![scenes[1]!.id] = [
+      attempt(scenes[1]!.id, 1, { approved: false, videoPath: "take.mp4" }),
+    ];
+    delete record.attempts![scenes[2]!.id];
+
+    const missing = assemblyPrerequisites(record);
+    expect(missing).toEqual([
+      {
+        sceneId: scenes[1]!.id,
+        sceneNumber: 2,
+        sceneTitle: scenes[1]!.title,
+        reason: "no_approved_attempt",
+      },
+      {
+        sceneId: scenes[2]!.id,
+        sceneNumber: 3,
+        sceneTitle: scenes[2]!.title,
+        reason: "no_attempt",
+      },
+    ]);
+
+    const readiness = assemblyReadiness(record);
+    expect(readiness).toMatchObject({ ready: false, totalScenes: 3, approvedScenes: 1 });
+
+    try {
+      buildFinalCutPlan(record);
+      expect.unreachable("assembly must not build a plan with unapproved scenes");
+    } catch (err) {
+      expect(err).toBeInstanceOf(PrerequisiteError);
+      expect((err as PrerequisiteError).status).toBe(409);
+      expect((err as PrerequisiteError).details).toEqual({ missingApprovals: missing });
+    }
+  });
+
+  it("is ready only when every scene has an approved video", async () => {
+    const record = await makeRecordWithMedia(40);
+    expect(assemblyReadiness(record)).toMatchObject({
+      ready: true,
+      totalScenes: 2,
+      approvedScenes: 2,
+      missingApprovals: [],
+    });
+  });
+});
+
+describe("final cut clip compatibility", () => {
+  it("parses a legacy clip that predates attempt provenance", () => {
+    const legacy = {
+      sceneId: "p-scene-001",
+      sceneNumber: 1,
+      path: "clip.mp4",
+      durationSeconds: 20,
+      transitionIn: "Cut",
+      transitionOut: "Cut",
+    };
+    const parsed = finalCutClipSchema.parse(legacy);
+    expect(parsed.attemptId).toBeUndefined();
+    expect(parsed.path).toBe("clip.mp4");
   });
 });

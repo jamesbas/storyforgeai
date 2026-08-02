@@ -3,7 +3,7 @@ import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { Assembly } from "@/lib/schemas/assembly";
 import { repository } from "@/lib/db/store";
 import { getProjectRecord } from "@/lib/services/project-service";
-import { buildFinalCutPlan } from "@/lib/media/assembly";
+import { buildFinalCutPlan, assemblyPrerequisiteError, assemblyPrerequisites } from "@/lib/media/assembly";
 import { getFfmpegRunner, probeMedia } from "@/lib/media/ffmpeg";
 import { resolveCueTimeline } from "@/lib/media/audio-mix";
 import { listProjectMedia, type MediaDescriptor } from "@/lib/media/refs";
@@ -32,6 +32,20 @@ export async function assembleRoughCut(projectId: string): Promise<ProjectRecord
         "the Storyboard screen to assemble a cut.",
     );
   }
+
+  // Approval is a hard boundary: report every unapproved scene before any work.
+  const missingApprovals = assemblyPrerequisites(record);
+  if (missingApprovals.length) {
+    const reasons: Record<string, number> = {};
+    for (const m of missingApprovals) reasons[m.reason] = (reasons[m.reason] ?? 0) + 1;
+    logEvent("assembly.prerequisite_failed", {
+      projectId,
+      missing: missingApprovals.length,
+      reasons,
+    });
+    throw assemblyPrerequisiteError(missingApprovals);
+  }
+
   const plan = buildFinalCutPlan(record);
 
   const runner = getFfmpegRunner();
@@ -81,6 +95,7 @@ export async function assembleRoughCut(projectId: string): Promise<ProjectRecord
     mode: runner.mode,
     plannedSeconds: plan.totalDurationSeconds,
     audioCues: cues.length,
+    attempts: plan.clips.map((c) => `${c.sceneNumber}:${c.attemptId ?? "legacy"}`),
     ...(probe?.durationSeconds == null
       ? {}
       : { actualSeconds: Math.round(probe.durationSeconds * 100) / 100 }),
