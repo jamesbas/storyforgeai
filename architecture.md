@@ -484,10 +484,18 @@ flowchart TB
     so the chain is skipped there. A predecessor's rejection is swallowed so one
     failed agent cannot strand everything queued behind it.
 
-    The canvas's **Run core agents** control drives the four plan agents in
-    dependency order and then the storyboard, client-side and sequentially. That is
-    a UX affordance rather than the safety mechanism: the server-side chain is what
-    actually prevents collision.
+    The canvas's **Run core agents** control queues the four plan agents in
+    dependency order, then optionally the storyboard, in `lib/services/canvas-queue.ts`.
+    It was a loop in the browser until it became clear what that cost: every agent
+    is minutes of work on a local model, so a refresh or a navigation abandoned
+    every agent that had not started — silently, while the one in flight finished
+    server-side and kept the screen looking busy. Same shape as the scene queue now:
+    one worker pinned to `globalThis.__storyforgeCanvasQueue`, and clients polling
+    `GET /api/projects/{id}/canvas-run`. Survives navigation and browser restarts,
+    not a Node restart — the same bargain the project store makes.
+
+    A failure stops that project's remaining agents rather than pressing on, since
+    a later plan written against a missing earlier one is not what was asked for.
 
 ### 3.3 Orchestrator sequence
 

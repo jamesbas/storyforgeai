@@ -8,6 +8,14 @@ import { planOn, planSpecFor } from "@/lib/agents/plan-fields";
 import { isContinuousTake } from "@/lib/agents/continuity";
 import { shotPlanIssues } from "@/lib/media/seam";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
+import type { CanvasRunEntry } from "@/lib/services/canvas-queue";
+
+type CanvasQueue = {
+  entries: CanvasRunEntry[];
+  active: boolean;
+  done: number;
+  total: number;
+};
 
 type CanvasAgent = {
   key: string;
@@ -103,11 +111,8 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
   const [record, setRecord] = useState<ProjectRecord | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  /** Set while the sequential runner is working, so single buttons stay locked. */
-  const [runningAll, setRunningAll] = useState(false);
-  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
+  const [queue, setQueue] = useState<CanvasQueue | null>(null);
   const [alsoStoryboard, setAlsoStoryboard] = useState(true);
-  const stopRequested = useRef(false);
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/projects/${projectId}`);
@@ -121,6 +126,42 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
 
   // A run started here, or before a navigation, or in another tab.
   const { agentKey: remoteKey } = useAgentRun(projectId, () => void load());
+
+  /**
+   * The server's view of the crew run.
+   *
+   * Polled unconditionally rather than only while this page believes a run is
+   * going: the run belongs to the server, and arriving mid-run is the case that
+   * has to work.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    let wasActive = false;
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/canvas-run`, { cache: "no-store" });
+        if (!res.ok || cancelled) return;
+        const next = (await res.json()) as CanvasQueue;
+        if (cancelled) return;
+        setQueue(next.total > 0 ? next : null);
+        // Each finished agent has new output worth showing straight away.
+        if (wasActive) void load();
+        wasActive = next.active;
+      } catch {
+        // Transient: the next tick tries again.
+      } finally {
+        if (!cancelled) timer = setTimeout(() => void poll(), 3000);
+      }
+    };
+
+    void poll();
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [projectId, load]);
 
   /** Run one agent. Returns the updated record, or null when it failed. */
   const runAgent = useCallback(
@@ -155,45 +196,36 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
   );
 
   /**
-   * Run the plan agents in order, then optionally the storyboard.
+   * Hand the crew to the server and let go.
    *
-   * Strictly sequential. Each call occupies the planning model for as long as it
-   * takes, and on a single GPU overlapping them is slower at best. Running in
-   * dependency order also matters: the storyboard folds in whichever plans exist
-   * *at the moment it runs*, so it has to come last to see them all.
+   * This used to be a loop in the page, which meant a refresh or a navigation
+   * abandoned every agent that had not started yet — silently, while the one in
+   * flight carried on and kept the screen looking busy.
    */
   const runCore = useCallback(async () => {
     setError(null);
-    setRunningAll(true);
-    stopRequested.current = false;
-
-    const queue = AGENTS.filter((a) => (CORE_AGENT_KEYS as readonly string[]).includes(a.key));
-    const storyboard = AGENTS.find((a) => a.key === "storyboard");
-    const total = queue.length + (alsoStoryboard && storyboard ? 1 : 0);
-
     try {
-      let done = 0;
-      setProgress({ done, total });
-
-      for (const agent of queue) {
-        if (stopRequested.current) return;
-        // Stop on the first failure rather than pressing on: a later plan built
-        // against a missing earlier one is not what the user asked for.
-        if (!(await runAgent(agent))) return;
-        done += 1;
-        setProgress({ done, total });
-      }
-
-      if (alsoStoryboard && storyboard && !stopRequested.current) {
-        if (!(await runAgent(storyboard))) return;
-        setProgress({ done: done + 1, total });
-      }
-    } finally {
-      setRunningAll(false);
-      setProgress(null);
-      stopRequested.current = false;
+      const res = await fetch(`/api/projects/${projectId}/canvas-run`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ includeStoryboard: alsoStoryboard }),
+      });
+      const body = (await res.json().catch(() => null)) as (CanvasQueue & { error?: string }) | null;
+      if (!res.ok) throw new Error(body?.error ?? "Failed to start the crew");
+      if (body) setQueue(body);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to start the crew");
     }
-  }, [alsoStoryboard, runAgent]);
+  }, [alsoStoryboard, projectId]);
+
+  const stopCore = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/canvas-run`, { method: "DELETE" });
+      if (res.ok) setQueue((await res.json()) as CanvasQueue);
+    } catch {
+      setError("Failed to stop the run");
+    }
+  }, [projectId]);
 
   const history = useMemo(() => record?.history ?? [], [record]);
 
@@ -203,9 +235,11 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
    * Previously only the clicked agent's button disabled, so four agents could be
    * started at once and collide inside a local model that serves one at a time.
    */
+  const runningAll = queue?.active ?? false;
   const busy = runningAll || busyKey !== null || remoteKey !== null;
   /** Which card shows a spinner — this tab's run, or one recovered from the server. */
   const activeKey = busyKey ?? remoteKey;
+  const failed = queue?.entries.find((entry) => entry.state === "failed");
 
   /** Only meaningful on a continuous take: on a cut project, varied sizes are the point. */
   const shotIssues =
@@ -233,16 +267,14 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
             disabled={busy}
             className="rounded-md bg-accent px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
-            {runningAll && progress
-              ? `Running ${progress.done + 1} of ${progress.total}…`
+            {runningAll && queue
+              ? `Running ${Math.min(queue.done + 1, queue.total)} of ${queue.total}…`
               : "Run core agents"}
           </button>
           {runningAll ? (
             <button
               type="button"
-              onClick={() => {
-                stopRequested.current = true;
-              }}
+              onClick={() => void stopCore()}
               className="rounded-md border border-white/15 px-3 py-2 text-sm text-slate-300 hover:border-accent"
             >
               Stop after this one
@@ -270,6 +302,28 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
       </div>
 
       {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+
+      {runningAll && queue ? (
+        <p
+          data-testid="canvas-queue-running"
+          className="rounded-lg border border-accent/30 bg-accent/10 px-4 py-2 text-xs text-slate-300"
+        >
+          The crew is running on the server, {queue.done} of {queue.total} done. This does not
+          belong to this page any more — close the tab, refresh, or go elsewhere and it carries on.
+          Come back whenever.
+        </p>
+      ) : null}
+
+      {failed ? (
+        <p
+          role="alert"
+          data-testid="canvas-queue-failed"
+          className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-200"
+        >
+          {failed.agentName} failed, so the rest of the run was stopped: {failed.error}. A later
+          plan written against a missing earlier one is not what you asked for.
+        </p>
+      ) : null}
 
       {remoteKey && !busyKey && !runningAll ? (
         <p

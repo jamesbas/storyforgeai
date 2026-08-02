@@ -942,6 +942,13 @@ export default function HelpPage() {
             continuing, since a later plan built on a missing earlier one is not what you asked for.
           </p>
           <p className={p}>
+            <strong>The run belongs to the server, not to this page.</strong> Once you start it you
+            can refresh, navigate away, close the tab or shut the browser entirely — it carries on,
+            and reopening the canvas shows you where it got to. That matters because the whole
+            sequence is many minutes of work on a local model. (It does not survive restarting
+            StoryForgeAI itself.)
+          </p>
+          <p className={p}>
             Variant Explorer is deliberately not part of that run: choosing a direction is your
             decision, and generating variants nobody selects changes nothing downstream.
           </p>
