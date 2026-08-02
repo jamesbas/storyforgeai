@@ -160,19 +160,19 @@ media path.
 | # | Agent | Module | Consumes | Produces | Schema | Invoked by |
 |---|---|---|---|---|---|---|
 | 1 | **Variant Explorer** | `canvas-agents.ts` | `Project` | 3 creative directions, each on a different `variantType` axis | `creativeVariantSchema[]` | `POST /generate-variants` |
-| 2 | **World Builder** | `canvas-agents.ts` | `Project` + variant + cast + story plan | World Bible | `worldBibleSchema` | `POST /generate-world-bible` |
+| 2 | **World Builder** | `canvas-agents.ts` | `Project` + variant + cast + story plan (+ reference look) | World Bible | `worldBibleSchema` | `POST /generate-world-bible` |
 | 3 | **Director** | `canvas-agents.ts` | `Project` + variant + cast + story plan + plans (+ explicitness directive) | Directorial plan | `directorialPlanSchema` | `POST /generate-directorial-plan` |
 | 4 | **Cinematographer** | `canvas-agents.ts` | `Project` (incl. continuity mode) + variant + story plan + plans | Camera plan | `cinematographyPlanSchema` | `POST /generate-cinematography-plan` |
-| 5 | **Art Director** | `canvas-agents.ts` | `Project` + variant + cast + story plan + plans | Art direction plan | `artDirectionPlanSchema` | `POST /generate-art-direction-plan` |
-| 6 | **Intake Producer** | `intake-agent.ts` | `Project` (+ selected variant) | Creative brief | `creativeBriefSchema` | Orchestrator, step 1 |
+| 5 | **Art Director** | `canvas-agents.ts` | `Project` + variant + cast + story plan + plans (+ reference look) | Art direction plan | `artDirectionPlanSchema` | `POST /generate-art-direction-plan` |
+| 6 | **Intake Producer** | `intake-agent.ts` | `Project` (+ selected variant) (+ reference look) | Creative brief | `creativeBriefSchema` | Orchestrator, step 1 |
 | 7 | **Story Architect** | `story-architect-agent.ts` | `Project` + brief | Story plan, 1 beat per segment | `storyPlanSchema` | Orchestrator, step 2 |
-| 8 | **Visual Bible** | `visual-bible-agent.ts` | `Project` + brief | Continuity guide | `visualBibleSchema` | Orchestrator, step 3 |
+| 8 | **Visual Bible** | `visual-bible-agent.ts` | `Project` + brief (+ reference look) | Continuity guide | `visualBibleSchema` | Orchestrator, step 3 |
 | 9 | **Storyboard Artist** | `storyboard-agent.ts` | `Project` + brief + story plan + visual bible (+ explicitness directive) | Scene drafts, incl. `charactersPresent` and `wardrobeChanges` | `sceneDraftSchema[]` | Orchestrator, step 4 |
 | 10 | **Image Prompt Engineer** | `prompt-agents.ts` | `Project` + scene draft + **previous end-frame prompt** + visual bible + **this scene's cast** + plan slices + wardrobe state | Start/end frame prompts + negative | subset of `scenePromptsSchema` | Orchestrator, step 5 |
 | 11 | **Video Prompt Engineer** | `prompt-agents.ts` | as above, but the cast arrives as **names only** — the start frame already carries the likeness | Motion prompt + negative + checklist | subset of `scenePromptsSchema` | Orchestrator, step 5 |
 | 12 | **Audio Director** | `audio-agents.ts` | `Project` + scene refs | Audio plan, music/SFX cues | `audioPlanSchema` | `POST /generate-audio-plan` |
 | 13 | **Creative Critic (QC)** | `qc-agent.ts` | `Scene` + `SceneAttempt` (+ keyframes when `OPENAI_VISION_MODEL` is set) | Pass/fail, severity, regen notes | `qcResultSchema` | `media-service`, only when `project.qcEnabled` |
-| 14 | **Concept Reader** | `concept-reader.ts` | `Project` + uploaded **reference** images | Written description of the look | `conceptVisualsSchema` | `POST /read-concept-images`, on demand |
+| 14 | **Concept Reader** | `concept-reader.ts` | `Project` + uploaded **reference** images | Written description of the look | `conceptVisualsSchema` | `POST /read-concept-images`, and automatically by `resolveConceptVisuals` when stale |
 | 15 | **Concept Fidelity Check** | `concept-fidelity.ts` | `Project.concept` + uploaded **render** frames | Findings only, no description | `conceptFidelitySchema` | `POST /concept-fidelity`, on demand |
 | — | **Deepy assistant** | `deepy/deepy.ts` | Media path + action | Inspection/suggestion text | — | `POST /scenes/{id}/deepy` |
 | — | **Animatic builder** | `mock-audio.ts` | Storyboard snapshot | Animatic plan | `animaticPlanSchema` | `POST /generate-animatic` |
@@ -193,11 +193,28 @@ what the image is allowed to do.
 | `reference` | A picture from outside the project whose look you want | Concept Reader | Yes, via `conceptVisuals` |
 | `render` | A frame this pipeline produced | Concept Fidelity Check | **No** |
 
-> **Not yet wired.** `conceptVisuals` is written and persisted, but no planning
-> agent reads it — grep confirms the only references are the schema, the reader
-> and the settings screen. Threading it into Intake, Visual Bible, World Builder,
-> Art Director and the Storyboard Artist is outstanding work. Until then a
-> reference image changes nothing downstream, and the upload order is irrelevant.
+`conceptVisuals` reaches the Intake Producer, Visual Bible, World Builder and
+Art Director, via `conceptVisualsDirective` and `conceptVisualsPayload` in
+`lib/agents/concept-visuals.ts`. It deliberately does **not** reach the
+Storyboard Artist: that prompt already stacks five directives on a 93-line base,
+and the artist reads the Visual Bible, so the look arrives through the bible
+rather than as a sixth. A test asserts `storyboard-agent.ts` never mentions it.
+
+`resolveConceptVisuals` in `project-service.ts` reads the references whenever a
+storyboard or canvas agent runs and the stored reading is missing or came from a
+different set of files. Currency is decided by `conceptVisuals.sources` rather
+than a timestamp: no clocks, and adding or removing an image invalidates the
+reading exactly when it should. This is why there is no ordering rule for the
+creator to learn — an undocumented "visit Settings first" requirement would be a
+defect, not a workflow.
+
+**Precedence.** Where a reference disagrees with the concept, the concept wins,
+and the contested field is removed from the payload entirely rather than
+annotated. `conceptContradictionSchema` therefore tags each disagreement with
+the field it concerns; matching prose against values to infer that would fail
+quietly, and in the direction of letting the contested value through. A
+contradiction that cannot be attributed (`field: "other"`, which is what legacy
+prose parses to) scrubs nothing, because guessing would withhold the wrong one.
 
 The distinction was not in the original design. It was added after pointing the
 Concept Reader at the project's own frames and reading what came back: `mood:

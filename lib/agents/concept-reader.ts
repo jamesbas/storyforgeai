@@ -5,6 +5,9 @@ import { visionAvailable } from "@/lib/agents/llm/provider";
 import { loadImagesAsDataUrls } from "@/lib/media/data-url";
 import { logEvent } from "@/lib/telemetry";
 
+/** A reference image to read: where it is, and what it is called on the record. */
+export type ConceptReaderImage = { name: string; path: string };
+
 /**
  * Reads a project's reference images once, into text the rest of the pipeline
  * can use without any of it needing a vision model.
@@ -42,8 +45,11 @@ export const CONCEPT_READER_VISUAL_SYSTEM =
   "Where several images disagree, describe the common ground and note the difference, naming the " +
   "images by their labels. " +
   "Where an image contradicts the typed concept in the user message, record it in " +
-  "`contradictions` rather than choosing between them: say what the concept states and what the " +
-  "image shows. Leave `contradictions` empty when they agree. " +
+  "`contradictions` rather than choosing between them. Each entry names the `field` it is about " +
+  "— one of setting, subjects, palette, lighting, wardrobe, mood, notableDetails, or other — " +
+  "plus what the `concept` states and what the `image` shows. Name the field accurately: a " +
+  "contested field is withheld from the rest of the pipeline, so a wrong name withholds the " +
+  "wrong thing. Leave `contradictions` empty when they agree. " +
   "Set fromImages to true. Return only valid JSON.";
 
 export const CONCEPT_READER_TEXT_SYSTEM =
@@ -53,7 +59,10 @@ export const CONCEPT_READER_TEXT_SYSTEM =
   "compare the text against, and set fromImages to false. Return only valid JSON.";
 
 /** Deterministic reading, so the pipeline runs with no provider at all. */
-export function buildConceptVisuals(project: Project): ConceptVisuals {
+export function buildConceptVisuals(
+  project: Project,
+  sources: readonly string[] = [],
+): ConceptVisuals {
   return conceptVisualsSchema.parse({
     projectId: project.id,
     setting: firstSentence(project.concept),
@@ -64,6 +73,7 @@ export function buildConceptVisuals(project: Project): ConceptVisuals {
     mood: `${project.tone} mood, ${project.style} style.`,
     notableDetails: [],
     contradictions: [],
+    sources: [...sources],
     fromImages: false,
   });
 }
@@ -77,28 +87,37 @@ function firstSentence(text: string): string {
 /**
  * Read the supplied reference images, or fall back to the text.
  *
- * `imagePaths` are absolute paths on this host; unreadable ones are skipped
- * rather than failing the run, and the labels are built from what survived so
- * they cannot drift. When no vision model is configured the images are not
- * loaded at all, and the text prompt is used so the answer does not claim to
- * have seen anything.
+ * `images` pair an absolute path on this host with the stored filename;
+ * unreadable ones are skipped rather than failing the run, and both the labels
+ * and the recorded `sources` are built from what survived so neither can drift.
+ * When no vision model is configured the files are not loaded at all, and the
+ * text prompt is used so the answer does not claim to have seen anything.
  */
 export async function conceptReaderAgent(
   project: Project,
-  imagePaths: readonly string[],
+  images: readonly ConceptReaderImage[],
   provider: PlanningProvider | null,
 ): Promise<ConceptVisuals> {
-  if (!provider) return buildConceptVisuals(project);
+  const supplied = images.map((image) => image.name);
+  if (!provider) return buildConceptVisuals(project, supplied);
 
-  const loaded = visionAvailable() ? await loadImagesAsDataUrls(imagePaths, "concept") : [];
+  const loaded = visionAvailable()
+    ? await loadImagesAsDataUrls(
+        images.map((image) => image.path),
+        "concept",
+      )
+    : [];
   const visual = loaded.length > 0;
-  const images = loaded.map((image) => image.url);
+  const byPath = new Map(images.map((image) => [image.path, image.name]));
+  // Only files that actually loaded count as sources; counting a skipped one
+  // would make a reading look current for an image it never saw.
+  const sources = visual ? loaded.map((image) => byPath.get(image.path) ?? image.path) : supplied;
 
   logEvent("project.concept_visuals", {
     projectId: project.id,
     mode: visual ? "visual" : "text_only",
-    supplied: imagePaths.length,
-    images: images.length,
+    supplied: images.length,
+    images: loaded.length,
     visionModel: visionAvailable(),
   });
 
@@ -118,13 +137,13 @@ export async function conceptReaderAgent(
     visual ? CONCEPT_READER_VISUAL_SYSTEM : CONCEPT_READER_TEXT_SYSTEM,
     user,
     conceptVisualsSchema,
-    visual ? { images } : {},
+    visual ? { images: loaded.map((image) => image.url) } : {},
   );
 
   if (!result) {
     logEvent("agent.fallback", { projectId: project.id, agent: "concept_reader", reason: "no_valid_response" });
-    return buildConceptVisuals(project);
+    return buildConceptVisuals(project, supplied);
   }
   // The model is told its own id but never trusted with it, as elsewhere.
-  return { ...result, projectId: project.id, fromImages: visual };
+  return { ...result, projectId: project.id, sources, fromImages: visual };
 }

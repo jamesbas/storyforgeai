@@ -282,6 +282,34 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
         </p>
       ) : null}
 
+      {record.conceptVisuals?.contradictions.length ? (
+        <section
+          data-testid="canvas-concept-contradictions"
+          className="space-y-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3"
+        >
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-amber-200">
+            Your reference images disagree with your concept
+          </h2>
+          <p className="text-xs text-amber-100/80">
+            The concept wins. These fields are withheld from every agent below, which write them
+            from your concept alone. Change the concept or the images in{" "}
+            <Link href={`/settings/${projectId}`} className="underline hover:text-amber-100">
+              project settings
+            </Link>{" "}
+            if that is not what you want.
+          </p>
+          <ul className="space-y-0.5 text-xs text-amber-100/90">
+            {record.conceptVisuals.contradictions.map((c, index) => (
+              <li key={`${c.field}-${index}`}>
+                <span className="font-semibold text-amber-200">{c.field}</span>
+                {c.concept ? <> — concept: {c.concept}</> : null}
+                {c.image ? <> / reference: {c.image}</> : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       <section className="rounded-lg border border-white/10 bg-panel/40 p-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="min-w-0">

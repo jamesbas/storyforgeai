@@ -22,12 +22,17 @@ import type { CreateProjectInput } from "@/lib/schemas/intake";
 import type { Character } from "@/lib/schemas/character";
 
 export type NewProjectFormProps = {
-  onSubmit: (values: CreateProjectInput) => Promise<void> | void;
+  /**
+   * `references` are uploaded after the project exists — the upload route is
+   * keyed by project id, so there is nowhere to put them until then.
+   */
+  onSubmit: (values: CreateProjectInput, references: File[]) => Promise<void> | void;
   submitting?: boolean;
 };
 
 export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormProps) {
   const [concept, setConcept] = useState("");
+  const [references, setReferences] = useState<File[]>([]);
   const [duration, setDuration] = useState(60);
   const [segmentSeconds, setSegmentSeconds] = useState<number>(SEGMENT_SECONDS);
   const [aspectRatio, setAspectRatio] = useState<(typeof ASPECT_RATIOS)[number]>("16:9");
@@ -67,32 +72,35 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
-    await onSubmit({
-      concept,
-      requestedDurationSeconds: Number(duration),
-      segmentSeconds: Number(segmentSeconds),
-      aspectRatio,
-      resolutionPreset,
-      style,
-      tone,
-      audience: audience || undefined,
-      creativeMode,
-      generationMode,
-      narrationRequired,
-      dialogueRequired,
-      musicRequired,
-      sfxRequired,
-      useCharacterLibrary,
-      characterIds: useCharacterLibrary ? characterIds : [],
-      // Only send wardrobe for characters actually in this project.
-      characterWardrobe: useCharacterLibrary
-        ? Object.fromEntries(
-            characterIds
-              .map((id) => [id, characterWardrobe[id]?.trim() ?? ""])
-              .filter(([, value]) => value !== ""),
-          )
-        : {},
-    });
+    await onSubmit(
+      {
+        concept,
+        requestedDurationSeconds: Number(duration),
+        segmentSeconds: Number(segmentSeconds),
+        aspectRatio,
+        resolutionPreset,
+        style,
+        tone,
+        audience: audience || undefined,
+        creativeMode,
+        generationMode,
+        narrationRequired,
+        dialogueRequired,
+        musicRequired,
+        sfxRequired,
+        useCharacterLibrary,
+        characterIds: useCharacterLibrary ? characterIds : [],
+        // Only send wardrobe for characters actually in this project.
+        characterWardrobe: useCharacterLibrary
+          ? Object.fromEntries(
+              characterIds
+                .map((id) => [id, characterWardrobe[id]?.trim() ?? ""])
+                .filter(([, value]) => value !== ""),
+            )
+          : {},
+      },
+      references,
+    );
   }
 
   const field = "rounded-md border border-white/10 bg-canvas px-3 py-2 text-sm outline-none focus:border-accent";
@@ -163,6 +171,30 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
         />
       </div>
 
+      <div>
+        <label htmlFor="references" className={label}>
+          Reference images <span className="normal-case tracking-normal">— optional</span>
+        </label>
+        <p className="mt-1 text-xs text-slate-500">
+          Pictures whose look you want, from outside this project. They are read into a written
+          description the planning agents use; the concept above still leads. Add none and nothing
+          changes.
+        </p>
+        <input
+          id="references"
+          type="file"
+          accept="image/png,image/jpeg,image/webp,image/gif"
+          multiple
+          onChange={(e) => setReferences(Array.from(e.target.files ?? []).slice(0, 6))}
+          className={`mt-2 text-xs text-slate-400 file:mr-3 file:rounded-md file:border file:border-white/10 file:bg-panel/60 file:px-3 file:py-1.5 file:text-xs file:text-slate-200`}
+        />
+        {references.length > 0 ? (
+          <p className="mt-1 text-xs text-slate-400">
+            {references.length} image{references.length === 1 ? "" : "s"} will be uploaded once the
+            project is created.
+          </p>
+        ) : null}
+      </div>
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label htmlFor="duration" className={label}>

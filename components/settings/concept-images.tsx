@@ -305,9 +305,17 @@ function VisualsReport({ visuals }: { visuals: ConceptVisuals }) {
           <p className="text-[11px] font-semibold text-amber-200">
             The references and the concept disagree
           </p>
-          <ul className="list-disc space-y-0.5 pl-4 text-[11px] text-amber-100/90">
-            {visuals.contradictions.map((c) => (
-              <li key={c}>{c}</li>
+          <p className="text-[11px] text-amber-100/70">
+            The concept wins. Each field below is withheld from the planning agents entirely, so
+            they write it from your concept alone.
+          </p>
+          <ul className="space-y-1 text-[11px] text-amber-100/90">
+            {visuals.contradictions.map((c, index) => (
+              <li key={`${c.field}-${index}`}>
+                <span className="font-semibold text-amber-200">{c.field}</span>
+                {c.concept ? <> — concept: {c.concept}</> : null}
+                {c.image ? <> / reference: {c.image}</> : null}
+              </li>
             ))}
           </ul>
         </div>

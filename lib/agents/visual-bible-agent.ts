@@ -1,6 +1,7 @@
 import { visualBibleSchema, type VisualBible } from "@/lib/schemas/agents";
 import { buildVisualBible } from "@/lib/agents/mock-agents";
 import { castSystemDirective } from "@/lib/agents/cast";
+import { conceptVisualsDirective, conceptVisualsPayload } from "@/lib/agents/concept-visuals";
 import { planningPayload, precedenceDirective } from "@/lib/agents/creative-context";
 import type { Character } from "@/lib/schemas/character";
 import type { AgentContext } from "@/lib/agents/types";
@@ -21,14 +22,19 @@ export async function visualBibleAgent(
   if (provider) {
     // The planning agents get the plan documents whole: they run once and emit
     // prose, so context budget is not the constraint it is for render prompts.
+    const conceptVisuals = conceptVisualsPayload(ctx.conceptVisuals);
     const user = JSON.stringify({
       project: ctx.project,
       brief: ctx.brief,
       cast,
       plans: planningPayload(ctx.plans),
+      ...(conceptVisuals ? { conceptVisuals } : {}),
     });
     const result = await provider.generateJson(
-      VISUAL_BIBLE_SYSTEM + castSystemDirective(cast) + precedenceDirective(cast, ctx.plans),
+      VISUAL_BIBLE_SYSTEM +
+        castSystemDirective(cast) +
+        precedenceDirective(cast, ctx.plans) +
+        conceptVisualsDirective(ctx.conceptVisuals),
       user,
       visualBibleSchema,
     );

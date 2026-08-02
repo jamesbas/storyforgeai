@@ -224,7 +224,9 @@ describe("concept reader", () => {
     expect(built.contradictions).toEqual([]);
 
     // A missing provider must not be an error: the whole pipeline runs without one.
-    await expect(conceptReaderAgent(project, ["/nope.png"], null)).resolves.toEqual(built);
+    await expect(
+      conceptReaderAgent(project, [{ name: "nope.png", path: "/nope.png" }], null),
+    ).resolves.toEqual({ ...built, sources: ["nope.png"] });
   });
 
   it("uses the text prompt and sends nothing when no vision model is configured", async () => {
@@ -248,7 +250,7 @@ describe("concept reader", () => {
       fromImages: true,
     }));
 
-    const result = await conceptReaderAgent(project, ["/a.png"], {
+    const result = await conceptReaderAgent(project, [{ name: "a.png", path: "/a.png" }], {
       generateJson,
     } as never);
 
@@ -284,15 +286,11 @@ describe("concept reader", () => {
       wardrobe: ["Shirtsleeves"],
       mood: "Tense.",
       notableDetails: [],
-      contradictions: ["Concept says morning; the image is night."],
+      contradictions: [{ field: "lighting", concept: "Morning", image: "Night" }],
       fromImages: false,
     }));
 
-    const result = await conceptReaderAgent(
-      project,
-      files.map((file) => file.path),
-      { generateJson } as never,
-    );
+    const result = await conceptReaderAgent(project, files, { generateJson } as never);
 
     const [system, , , options] = generateJson.mock.calls[0] as unknown as [
       string,
@@ -414,3 +412,171 @@ describe("concept fidelity check", () => {
     await expect(projects.checkConceptFidelity(project.id)).rejects.toThrow(/at least one render/i);
   });
 });
+
+/**
+ * Where a reference and the concept disagree, the concept wins — and winning
+ * has to mean the contested value never reaches the agent. Annotating it would
+ * hand the model both and ask it to arbitrate, which is the judgement we
+ * decided it should not make.
+ */
+describe("reference reading reaching the planning agents", () => {
+  const reading = (overrides: Record<string, unknown> = {}) => ({
+    projectId: "p",
+    setting: "A panelled dining room.",
+    subjects: ["A woman in her 40s"],
+    palette: ["Amber", "Black"],
+    lighting: "One low side lamp.",
+    wardrobe: ["Black silk robe"],
+    mood: "Intimate",
+    notableDetails: ["Beer bottles"],
+    contradictions: [],
+    sources: ["concept-0.png"],
+    fromImages: true,
+    ...overrides,
+  });
+
+  it("drops every field the reference and the concept disagree about", async () => {
+    const { conceptVisualsPayload } = await import("@/lib/agents/concept-visuals");
+    const { conceptVisualsSchema } = await import("@/lib/schemas/agents");
+    const visuals = conceptVisualsSchema.parse(
+      reading({
+        contradictions: [
+          { field: "wardrobe", concept: "Barely covers her", image: "A closed robe" },
+          { field: "mood", concept: "Explicit", image: "Restrained" },
+        ],
+      }),
+    );
+
+    const payload = conceptVisualsPayload(visuals)!;
+    expect(payload.wardrobe).toBeUndefined();
+    expect(payload.mood).toBeUndefined();
+    // Everything uncontested still gets through, or the feature does nothing.
+    expect(payload.setting).toBe("A panelled dining room.");
+    expect(payload.palette).toEqual(["Amber", "Black"]);
+  });
+
+  it("returns nothing at all when every field is contested", async () => {
+    const { conceptVisualsPayload } = await import("@/lib/agents/concept-visuals");
+    const { conceptVisualsSchema, CONCEPT_VISUAL_FIELDS } = await import("@/lib/schemas/agents");
+    const visuals = conceptVisualsSchema.parse(
+      reading({
+        contradictions: CONCEPT_VISUAL_FIELDS.map((field) => ({
+          field,
+          concept: "x",
+          image: "y",
+        })),
+      }),
+    );
+
+    // An object of empty strings reads as "the reference showed nothing", which
+    // is a different claim from "this was withheld".
+    expect(conceptVisualsPayload(visuals)).toBeNull();
+  });
+
+  it("says nothing to an agent that has no reading to consult", async () => {
+    const { conceptVisualsDirective } = await import("@/lib/agents/concept-visuals");
+    expect(conceptVisualsDirective(undefined)).toBe("");
+  });
+
+  it("names the withheld fields in the directive", async () => {
+    const { conceptVisualsDirective } = await import("@/lib/agents/concept-visuals");
+    const { conceptVisualsSchema } = await import("@/lib/schemas/agents");
+    const visuals = conceptVisualsSchema.parse(
+      reading({ contradictions: [{ field: "wardrobe", concept: "a", image: "b" }] }),
+    );
+
+    const directive = conceptVisualsDirective(visuals);
+    expect(directive).toContain("wardrobe");
+    expect(directive).toMatch(/withheld/i);
+    expect(directive).toMatch(/follow the concept/i);
+  });
+
+  /**
+   * Prose stored before contradictions carried a field cannot be attributed.
+   * Guessing which field it was about would withhold the wrong one.
+   */
+  it("scrubs nothing for a contradiction it cannot attribute", async () => {
+    const { conceptVisualsPayload } = await import("@/lib/agents/concept-visuals");
+    const { conceptVisualsSchema } = await import("@/lib/schemas/agents");
+    const visuals = conceptVisualsSchema.parse(
+      reading({ contradictions: ["The concept says morning; the image is night."] }),
+    );
+
+    expect(visuals.contradictions[0].field).toBe("other");
+    expect(conceptVisualsPayload(visuals)?.lighting).toBe("One low side lamp.");
+  });
+
+  it("reaches the Visual Bible's prompt and payload", async () => {
+    const { projects } = await isolated();
+    const { visualBibleAgent } = await import("@/lib/agents/visual-bible-agent");
+    const { conceptVisualsSchema } = await import("@/lib/schemas/agents");
+    const project = await draft(projects);
+    const conceptVisuals = conceptVisualsSchema.parse(
+      reading({ contradictions: [{ field: "wardrobe", concept: "a", image: "b" }] }),
+    );
+
+    const generateJson = vi.fn(async () => null);
+    await visualBibleAgent({ project, conceptVisuals }, { generateJson } as never);
+
+    const [system, user] = generateJson.mock.calls[0] as unknown as [string, string];
+    expect(system).toMatch(/REFERENCE LOOK/);
+    const payload = JSON.parse(user) as { conceptVisuals?: Record<string, unknown> };
+    expect(payload.conceptVisuals?.setting).toBe("A panelled dining room.");
+    expect(payload.conceptVisuals?.wardrobe).toBeUndefined();
+  });
+
+  it("leaves the Visual Bible untouched when the project has no references", async () => {
+    const { projects } = await isolated();
+    const { visualBibleAgent } = await import("@/lib/agents/visual-bible-agent");
+    const project = await draft(projects);
+
+    const generateJson = vi.fn(async () => null);
+    await visualBibleAgent({ project }, { generateJson } as never);
+
+    const [system, user] = generateJson.mock.calls[0] as unknown as [string, string];
+    expect(system).not.toMatch(/REFERENCE LOOK/);
+    expect(JSON.parse(user).conceptVisuals).toBeUndefined();
+  });
+
+  /**
+   * The Storyboard Artist already carries the longest prompt in the app. It
+   * reads the Visual Bible, so the look reaches it there rather than as another
+   * directive competing for the model's attention.
+   */
+  it("does not add a directive to the Storyboard Artist", async () => {
+    const source = await fs.readFile("lib/agents/storyboard-agent.ts", "utf8");
+    expect(source).not.toContain("conceptVisuals");
+  });
+
+  /**
+   * Requiring the creator to visit Settings before running anything, with
+   * nothing on screen saying so, is an ordering rule nobody would discover.
+   */
+  it("reads references during storyboard generation without being asked", async () => {
+    const { projects, conceptImages } = await isolated();
+    const project = await draft(projects);
+    await conceptImages.addConceptImage(project.id, upload("image/png"), "reference");
+
+    const before = await projects.getProjectRecord(project.id);
+    expect(before.conceptVisuals).toBeUndefined();
+
+    const record = await projects.generateStoryboard(project.id);
+    expect(record.conceptVisuals).toBeDefined();
+    expect(record.conceptVisuals?.sources).toEqual(["concept-0.png"]);
+  });
+
+  it("re-reads when the images change, and not otherwise", async () => {
+    const { projects, conceptImages } = await isolated();
+    const project = await draft(projects);
+    await conceptImages.addConceptImage(project.id, upload("image/png"), "reference");
+
+    const first = await projects.generateStoryboard(project.id);
+    const second = await projects.generateStoryboard(project.id);
+    expect(second.conceptVisuals).toEqual(first.conceptVisuals);
+
+    await conceptImages.addConceptImage(project.id, upload("image/png"), "reference");
+    const third = await projects.generateStoryboard(project.id);
+    expect(third.conceptVisuals?.sources).toEqual(["concept-0.png", "concept-1.png"]);
+  });
+});
+

@@ -38,6 +38,7 @@ export async function runStoryboardOrchestrator(
     selectedVariant: deps.selectedVariant,
     cast: deps.cast ?? [],
     plans: deps.plans,
+    conceptVisuals: deps.conceptVisuals,
   };
   ctx.brief = await intakeAgent(ctx, provider);
   if (ctx.selectedVariant) {

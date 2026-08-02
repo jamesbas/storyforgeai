@@ -30,6 +30,45 @@ export type CreativeBrief = z.infer<typeof creativeBriefSchema>;
  * needs a vision model, and the images are turned into tokens once rather than
  * on every one of a storyboard's calls.
  */
+/** The descriptive fields a contradiction can be about. */
+export const CONCEPT_VISUAL_FIELDS = [
+  "setting",
+  "subjects",
+  "palette",
+  "lighting",
+  "wardrobe",
+  "mood",
+  "notableDetails",
+  "other",
+] as const;
+
+/**
+ * One place a reference image and the typed concept disagree.
+ *
+ * Tagged with the field it concerns rather than left as prose, because the
+ * disagreement has to be actionable: the contested field is withheld from the
+ * planning agents entirely. Matching a sentence against a value to work out
+ * what it was about would fail quietly and in the direction of passing the
+ * contested value through, which is the outcome this exists to prevent.
+ */
+export const conceptContradictionSchema = z
+  .union([
+    z.string(),
+    z.object({
+      field: z.enum(CONCEPT_VISUAL_FIELDS),
+      /** What the typed concept says. */
+      concept: z.string(),
+      /** What the image shows. */
+      image: z.string(),
+    }),
+  ])
+  // Prose stored before the fields existed cannot be attributed, so it is shown
+  // but scrubs nothing. Guessing a field would withhold the wrong one.
+  .transform((entry) =>
+    typeof entry === "string" ? { field: "other" as const, concept: "", image: entry } : entry,
+  );
+export type ConceptContradiction = z.infer<typeof conceptContradictionSchema>;
+
 export const conceptVisualsSchema = z.object({
   projectId: z.string(),
   /** The place, written the way a shot description would put it. */
@@ -46,7 +85,14 @@ export const conceptVisualsSchema = z.object({
    * a decision for the person who wrote both, and a model that quietly picks
    * one produces a project nobody asked for.
    */
-  contradictions: z.array(z.string()).default([]),
+  contradictions: z.array(conceptContradictionSchema).default([]),
+  /**
+   * The image filenames this reading was taken from.
+   *
+   * Lets the pipeline tell a current reading from one taken before the images
+   * changed, without depending on clocks or on anyone remembering to re-run it.
+   */
+  sources: z.array(z.string()).default([]),
   /** False when no vision model was configured, so this was inferred from text. */
   fromImages: z.boolean().default(true),
 });

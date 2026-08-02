@@ -22,4 +22,6 @@ export const AGENT_REGISTRY: AgentDescriptor[] = [
   { key: "video_prompt", name: "Video Prompt Engineer", role: "Motion prompts", artifact: "Video prompts", phase: "mvp" },
   { key: "wangp_settings", name: "WanGP Producer", role: "Model settings", artifact: "Settings manifest", phase: "phase3" },
   { key: "qc", name: "Creative Critic", role: "Quality control", artifact: "QC notes", phase: "phase3" },
+  { key: "concept_reader", name: "Concept Reader", role: "Read reference images", artifact: "Reference look", phase: "phase3" },
+  { key: "concept_fidelity", name: "Concept Fidelity Check", role: "Frames vs the concept", artifact: "Fidelity findings", phase: "phase3" },
 ];

@@ -20,11 +20,11 @@ import {
   buildWorldBible,
 } from "@/lib/agents/mock-canvas";
 import { castSystemDirective } from "@/lib/agents/cast";
+import { conceptVisualsDirective, conceptVisualsPayload } from "@/lib/agents/concept-visuals";
 import { explicitnessDirective } from "@/lib/agents/explicitness";
 import { cameraContinuityDirective } from "@/lib/agents/continuity";
 import { planningPayload, precedenceDirective, type CreativePlans } from "@/lib/agents/creative-context";
-import type { StoryPlan } from "@/lib/schemas/agents";
-import type { Character } from "@/lib/schemas/character";
+import type { ConceptVisuals, StoryPlan } from "@/lib/schemas/agents";import type { Character } from "@/lib/schemas/character";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 
 export const VARIANT_EXPLORER_SYSTEM =
@@ -160,6 +160,8 @@ export type CanvasContext = {
   cast?: readonly Character[];
   storyPlan?: StoryPlan;
   plans?: CreativePlans;
+  /** What the project's reference images showed, if any were read. */
+  conceptVisuals?: ConceptVisuals;
 };
 
 /** Only the direction's substance is useful; ids and timestamps are noise. */
@@ -195,14 +197,18 @@ export async function worldBuilderAgent(
   ctx: CanvasContext = {},
 ): Promise<WorldBible> {
   if (provider) {
+    const conceptVisuals = conceptVisualsPayload(ctx.conceptVisuals);
     const user = JSON.stringify({
       project,
       selectedDirection: directionOf(ctx.selectedVariant),
       cast: ctx.cast ?? [],
       storyPlan: ctx.storyPlan,
+      ...(conceptVisuals ? { conceptVisuals } : {}),
     });
     const result = await provider.generateJson(
-      WORLD_BUILDER_SYSTEM + castSystemDirective(ctx.cast ?? []),
+      WORLD_BUILDER_SYSTEM +
+        castSystemDirective(ctx.cast ?? []) +
+        conceptVisualsDirective(ctx.conceptVisuals),
       user,
       worldBibleSchema,
     );
@@ -267,17 +273,20 @@ export async function artDirectorAgent(
   ctx: CanvasContext = {},
 ): Promise<ArtDirectionPlan> {
   if (provider) {
+    const conceptVisuals = conceptVisualsPayload(ctx.conceptVisuals);
     const user = JSON.stringify({
       project,
       selectedDirection: directionOf(ctx.selectedVariant),
       cast: ctx.cast ?? [],
       storyPlan: ctx.storyPlan,
       plans: planningPayload(ctx.plans),
+      ...(conceptVisuals ? { conceptVisuals } : {}),
     });
     const result = await provider.generateJson(
       ART_DIRECTOR_SYSTEM +
         castSystemDirective(ctx.cast ?? []) +
-        precedenceDirective(ctx.cast ?? [], ctx.plans),
+        precedenceDirective(ctx.cast ?? [], ctx.plans) +
+        conceptVisualsDirective(ctx.conceptVisuals),
       user,
       artDirectionPlanSchema,
     );

@@ -1,5 +1,5 @@
 import type { Project } from "@/lib/schemas/project";
-import type { CreativeBrief, StoryPlan, VisualBible } from "@/lib/schemas/agents";
+import type { ConceptVisuals, CreativeBrief, StoryPlan, VisualBible } from "@/lib/schemas/agents";
 import type { SceneDraft } from "@/lib/schemas/storyboard";
 import type { CreativeVariant } from "@/lib/schemas/canvas";
 import type { Character } from "@/lib/schemas/character";
@@ -27,6 +27,15 @@ export type AgentContext = {
   brief?: CreativeBrief;
   storyPlan?: StoryPlan;
   visualBible?: VisualBible;
+  /**
+   * What the project's reference images showed, read once before the run.
+   *
+   * Read by the Intake Producer and the Visual Bible, and deliberately not by
+   * the Storyboard Artist: the bible is the continuity guide the artist already
+   * consumes, so the look reaches it there rather than as a ninth directive on
+   * a prompt that is already the longest in the app.
+   */
+  conceptVisuals?: ConceptVisuals;
   sceneDrafts?: SceneDraft[];
   /** Agents that fell back to their deterministic builder during this run. */
   fallbacks?: { agent: string; reason: string; detail?: string }[];
@@ -43,6 +52,8 @@ export type OrchestratorDeps = {
   plans?: CreativePlans;
   /** A previously generated arc, reused rather than paid for again. */
   storyPlan?: StoryPlan;
+  /** What the project's reference images showed, resolved by the caller. */
+  conceptVisuals?: ConceptVisuals;
   /** Reports a freshly generated arc so the caller can persist it. */
   onStoryPlan?: (plan: StoryPlan) => void;
   /** Reports costume changes the storyboard called for, so they outlive the run. */

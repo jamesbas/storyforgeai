@@ -14,7 +14,7 @@ export default function NewProjectPage() {
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = useCallback(
-    async (values: CreateProjectInput) => {
+    async (values: CreateProjectInput, references: File[]) => {
       setSubmitting(true);
       setError(null);
       try {
@@ -28,6 +28,27 @@ export default function NewProjectPage() {
           throw new Error(data.error ?? "Failed to create project");
         }
         const data = (await res.json()) as { project: Project };
+
+        // The upload route is keyed by project id, so this cannot happen before
+        // the project exists. A failure here leaves a created project with fewer
+        // references than asked for, which is worth saying rather than hiding.
+        for (const file of references) {
+          const form = new FormData();
+          form.append("file", file);
+          form.append("kind", "reference");
+          const upload = await fetch(`/api/projects/${data.project.id}/concept-images`, {
+            method: "POST",
+            body: form,
+          });
+          if (!upload.ok) {
+            const body = (await upload.json().catch(() => ({}))) as { error?: string };
+            throw new Error(
+              `Project created, but ${file.name} did not upload: ${body.error ?? "unknown error"}. ` +
+                "Add it from project settings.",
+            );
+          }
+        }
+
         router.push(`/storyboard/${data.project.id}`);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to create project");

@@ -162,8 +162,10 @@ values in the `Dockerfile`, and the port mapping in `docker-compose.yml`.
 ## Typical workflow
 
 1. **New Project** — enter a concept, duration, style, tone, and toggles.
+   Optionally attach reference images.
 2. **Variant Review** — generate 3 directions and select one (optional).
 3. **Storyboard** — generate the brief, visual bible, and 20s scene cards.
+   References are read automatically if they have not been already.
 4. **Agentic Canvas** — run World Builder / Director / Cinematographer / Art
    Director / Audio Director; view artifacts, status, and decision history.
 5. **Generation Console** — inspect WanGP models and job status.
@@ -353,22 +355,36 @@ do.
 ### Reference images
 
 Pictures from outside the project whose look you want — a set, a palette, a
-jacket, a quality of light. Press **Read references** and the Concept Reader
-writes a single description of setting, lighting, mood, subjects, wardrobe,
-palette and details. The images themselves never reach the image generator; the
-written description is the artefact.
+jacket, a quality of light. The Concept Reader writes a single description of
+setting, lighting, mood, subjects, wardrobe, palette and details, and the
+planning agents read that. The images themselves never reach the image
+generator.
 
-> **Current status.** The description is produced and stored on the project, and
-> shown to you on the settings screen. It is **not yet threaded into the
-> planning agents** — Intake, Visual Bible, World Builder, Art Director and the
-> Storyboard Artist do not read it. Until that lands, reference images change
-> nothing about what gets generated, and the order you upload them in does not
-> matter.
+The Intake Producer, Visual Bible, World Builder and Art Director all receive
+it. The Storyboard Artist does not — not an oversight: it already carries the
+longest prompt in the app, and it reads the Visual Bible, so the look reaches it
+there rather than as another directive competing for attention.
 
-Where a reference disagrees with what you typed, it is recorded under
-*contradictions* rather than resolved. A night interior against a concept that
-says "sunlit morning" is a decision for the person who wrote both, and a model
-that quietly picks one produces a project nobody asked for.
+**There is no order to remember.** Generating a storyboard, or running any
+canvas agent, reads the references first if they have not been read or the
+images have changed since. Currency is decided by which files a reading came
+from, not by a timestamp, so adding or removing an image invalidates it exactly
+when it should.
+
+You can also add references on the New Project form. They are uploaded once the
+project exists, since the upload is keyed by project id.
+
+### When a reference disagrees with your concept
+
+The concept wins, and winning means the contested detail **never reaches the
+agent at all**.
+
+Each contradiction names the field it is about, and that whole field is dropped
+from the payload — the agent writes it from the concept alone. Merely annotating
+it would hand the model both values and ask it to arbitrate, which is precisely
+the judgement it should not be making. Contradictions are shown on the settings
+screen and again on the Agentic Canvas, so a silent withholding is never a
+surprise.
 
 Requires `OPENAI_VISION_MODEL`. Without it the reader falls back to the typed
 concept and says so in an amber banner rather than pretending it looked.

@@ -1,5 +1,6 @@
 import { creativeBriefSchema, type CreativeBrief } from "@/lib/schemas/agents";
 import { buildCreativeBrief } from "@/lib/agents/mock-agents";
+import { conceptVisualsDirective, conceptVisualsPayload } from "@/lib/agents/concept-visuals";
 import type { AgentContext } from "@/lib/agents/types";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 
@@ -14,8 +15,16 @@ export async function intakeAgent(
   provider: PlanningProvider | null,
 ): Promise<CreativeBrief> {
   if (provider) {
-    const user = JSON.stringify({ project: ctx.project });
-    const result = await provider.generateJson(INTAKE_SYSTEM, user, creativeBriefSchema);
+    const conceptVisuals = conceptVisualsPayload(ctx.conceptVisuals);
+    const user = JSON.stringify({
+      project: ctx.project,
+      ...(conceptVisuals ? { conceptVisuals } : {}),
+    });
+    const result = await provider.generateJson(
+      INTAKE_SYSTEM + conceptVisualsDirective(ctx.conceptVisuals),
+      user,
+      creativeBriefSchema,
+    );
     if (result) return { ...result, projectId: ctx.project.id };
   }
   return buildCreativeBrief(ctx.project);

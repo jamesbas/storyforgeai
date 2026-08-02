@@ -43,6 +43,7 @@ import { intakeAgent } from "@/lib/agents/intake-agent";
 import { storyArchitectAgent } from "@/lib/agents/story-architect-agent";
 import { conceptReaderAgent } from "@/lib/agents/concept-reader";
 import { conceptFidelityAgent } from "@/lib/agents/concept-fidelity";
+import type { ConceptVisuals } from "@/lib/schemas/agents";
 import type { AgentContext } from "@/lib/agents/types";
 import type { StoryPlan } from "@/lib/schemas/agents";
 import { deriveTitle } from "@/lib/agents/mock-agents";
@@ -551,11 +552,16 @@ export async function generateStoryboard(id: string): Promise<ProjectRecord> {
     };
     let freshStoryPlan: StoryPlan | undefined;
     let freshWardrobe: Record<string, WardrobeChange[]> | undefined;
+    // Read before the run rather than during it: the orchestrator composes
+    // agents, and reaching the filesystem from inside it would put IO in the one
+    // layer that is meant to be pure.
+    const concept = await resolveConceptVisuals(record);
     const snapshot = await runStoryboardOrchestrator(record.project, {
       selectedVariant,
       cast,
       plans,
       storyPlan: record.storyPlan,
+      conceptVisuals: concept.visuals,
       onStoryPlan: (plan) => {
         freshStoryPlan = plan;
       },
@@ -572,6 +578,7 @@ export async function generateStoryboard(id: string): Promise<ProjectRecord> {
         ...(freshWardrobe ? { wardrobeChanges: freshWardrobe } : {}),
       },
       storyPlan: freshStoryPlan ?? record.storyPlan,
+      ...(concept.fresh ? { conceptVisuals: concept.visuals } : {}),
       storyboard: snapshot,
       history: appendHistory(record, "storyboard.generated", selectedVariant?.name),
     };
@@ -928,11 +935,7 @@ export async function readConceptImages(id: string): Promise<ProjectRecord> {
       throw new ValidationError("Add at least one reference image before reading them.");
     }
 
-    const conceptVisuals = await conceptReaderAgent(
-      record.project,
-      files.map((file) => file.path),
-      getPlanningProvider(),
-    );
+    const conceptVisuals = await conceptReaderAgent(record.project, files, getPlanningProvider());
     const updated: ProjectRecord = {
       ...record,
       conceptVisuals,
@@ -1238,6 +1241,7 @@ async function canvasContext(record: ProjectRecord) {
     selectedVariant: record.variants?.find((v) => v.id === record.selectedVariantId),
     cast: await resolveProjectCast(record.project),
     storyPlan: record.storyPlan,
+    conceptVisuals: (await resolveConceptVisuals(record)).visuals,
     plans: {
       worldBible: record.worldBible,
       directorialPlan: record.directorialPlan,
@@ -1245,6 +1249,42 @@ async function canvasContext(record: ProjectRecord) {
       artDirectionPlan: record.artDirectionPlan,
     },
   };
+}
+
+/**
+ * The project's reference reading, taken now if it is missing or out of date.
+ *
+ * Reading references used to be something the creator had to remember to do,
+ * before running anything else, with nothing on screen saying so. An ordering
+ * requirement nobody is told about is a defect: the pipeline fetches what it
+ * needs when it needs it instead.
+ *
+ * Currency is decided by which files the reading came from rather than by a
+ * timestamp — no clocks, and adding or removing an image invalidates it exactly
+ * when it should.
+ */
+async function resolveConceptVisuals(
+  record: ProjectRecord,
+): Promise<{ visuals?: ConceptVisuals; fresh: boolean }> {
+  const { conceptImageFiles } = await import("@/lib/services/concept-image-service");
+  const files = await conceptImageFiles(record.project.id, "reference");
+  if (files.length === 0) return { visuals: undefined, fresh: false };
+
+  const current = files.map((file) => file.name).sort();
+  const read = [...(record.conceptVisuals?.sources ?? [])].sort();
+  if (record.conceptVisuals && current.join("\u0000") === read.join("\u0000")) {
+    return { visuals: record.conceptVisuals, fresh: false };
+  }
+
+  logEvent("project.concept_visuals", {
+    projectId: record.project.id,
+    mode: "auto",
+    supplied: files.length,
+    images: files.length,
+    visionModel: true,
+  });
+  const visuals = await conceptReaderAgent(record.project, files, getPlanningProvider());
+  return { visuals, fresh: true };
 }
 
 export async function generateWorldBible(id: string): Promise<ProjectRecord> {

@@ -667,22 +667,26 @@ export default function HelpPage() {
           <h3 className={h3}>Reference images</h3>
           <p className={p}>
             Pictures from <em>outside</em> the project whose look you want — a set, a palette, a
-            jacket, a quality of light. Press <em>Read references</em> and the Concept Reader writes
-            one description covering setting, lighting, mood, subjects, wardrobe, palette and
-            details. The images themselves are never sent to the image generator; the written
-            description is the artefact.
-          </p>
-          <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm leading-relaxed text-amber-100">
-            <strong>Current status.</strong> The description is written, stored, and shown to you
-            here. It is <strong>not yet read by the planning agents</strong> — the Visual Bible,
-            World Builder, Art Director and Storyboard Artist do not see it. Until that lands,
-            reference images do not change what gets generated, and it does not matter when you
-            upload them.
+            jacket, a quality of light. The Concept Reader writes one description covering setting,
+            lighting, mood, subjects, wardrobe, palette and details, and the planning agents read
+            that. The images themselves are never sent to the image generator.
           </p>
           <p className={p}>
-            Where a reference disagrees with what you typed, it is listed under{" "}
-            <em>contradictions</em> rather than quietly resolved. A night interior against a concept
-            that says &ldquo;sunlit morning&rdquo; is a decision for the person who wrote both.
+            <strong>There is no order to remember.</strong> Generating a storyboard, or running any
+            canvas agent, reads your references first if they have not been read yet or the images
+            have changed since. You can add them on the New Project form or from settings at any
+            point, before or after planning.
+          </p>
+          <p className={p}>
+            Where a reference disagrees with what you typed, <strong>your concept wins</strong> —
+            and winning means the contested detail never reaches the agent at all. The whole field
+            is withheld and written from your concept alone, rather than handed to the model
+            alongside a note asking it to choose. Disagreements are listed here and again on the
+            Agentic Canvas, so nothing is withheld silently.
+          </p>
+          <p className={p}>
+            Needs <code>OPENAI_VISION_MODEL</code>. Without it the reader works from your typed
+            concept alone and says so in an amber banner, rather than pretending it looked.
           </p>
           <p className={p}>
             Needs <code>OPENAI_VISION_MODEL</code>. Without it the reader works from your typed
@@ -788,7 +792,7 @@ export default function HelpPage() {
           <Anchor id="workflow" />
           <h2 className={h2}>7. The end-to-end workflow</h2>
           <ol className="mt-2 list-decimal space-y-2 pl-5">
-            <li className={li}><strong>New project</strong> — describe the idea and settings.</li>
+            <li className={li}><strong>New project</strong> — describe the idea and settings, and optionally attach reference images.</li>
             <li className={li}><strong>Variant Review</strong> (optional) — generate 3 creative directions, each changing a different thing, and select one.</li>
             <li className={li}><strong>Storyboard</strong> — generate the brief, visual bible, and 20s scene cards; edit and approve.</li>
             <li className={li}><strong>Agentic Canvas</strong> — run the World Builder, Director, Cinematographer, Art Director, and Audio Director; review each artifact.</li>
