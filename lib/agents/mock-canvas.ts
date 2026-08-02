@@ -1,4 +1,5 @@
 import type { Project } from "@/lib/schemas/project";
+import type { VariantType } from "@/lib/types";
 import type {
   ArtDirectionPlan,
   CinematographyPlan,
@@ -12,29 +13,88 @@ import type {
  * Each has an LLM-backed counterpart that must emit the same shape (parity).
  */
 
+/**
+ * The axes the deterministic set offers, and the order it offers them in.
+ *
+ * They are complementary on purpose: `story` changes what happens, `hook`
+ * changes only the way in, `visual_style` changes only the look. Three
+ * directions that all changed the premise would be one idea in three moods,
+ * which is not a choice — and that is exactly what this builder used to return,
+ * labelling all three `concept`.
+ */
+export const DETERMINISTIC_AXES = ["story", "hook", "visual_style"] as const satisfies readonly VariantType[];
+
+/** First sentence of the concept, so a direction reads as being about this project. */
+function conceptGist(concept: string, limit = 120): string {
+  const cleaned = concept.trim().replace(/\s+/g, " ");
+  const sentence = cleaned.split(/(?<=[.!?])\s/)[0] ?? cleaned;
+  const gist = sentence.length <= limit ? sentence : `${cleaned.slice(0, limit).trimEnd()}…`;
+  return gist.replace(/[.!?…]+$/, "");
+}
+
 export function buildVariants(project: Project): CreativeVariant[] {
   const now = new Date().toISOString();
-  const directions: Array<{ name: string; hook: string; angle: string; style: string; platform: string }> = [
+  const gist = conceptGist(project.concept);
+
+  // The two things a direction can hold still. Whichever axis a variant owns is
+  // the only one of these it is allowed to depart from.
+  const straightAngle = `Tell ${gist} straight: the person it happens to, in the order it happens.`;
+  const plainOpening = "Open on the situation and let it establish itself before anything moves.";
+  const baseLook = `${project.style}, naturalistic lighting, ${project.tone} palette`;
+
+  const directions: Array<{
+    axis: VariantType;
+    name: string;
+    summary: string;
+    hook: string;
+    storyAngle: string;
+    visualStyle: string;
+    platform: string;
+    strengths: string[];
+    risks: string[];
+  }> = [
     {
-      name: "Grounded & Cinematic",
-      hook: "Open on a striking, quiet image that poses the central question.",
-      angle: "Character-first, realistic tone.",
-      style: `${project.style}, naturalistic lighting`,
+      axis: "story",
+      name: "Whose Story It Is",
+      summary:
+        "Changes what happens and who it happens to. Same subject, a different piece of it.",
+      // Only this direction departs from the straight telling.
+      storyAngle: `Follow someone on the edge of ${gist} rather than at the centre of it, and end on the consequence rather than the event.`,
+      hook: plainOpening,
+      visualStyle: baseLook,
       platform: "youtube_16x9",
+      strengths: ["a point of view the obvious version does not have", "an ending that lands"],
+      risks: [
+        "Gives up the literal reading of your concept — a viewer expecting the obvious version has to be won over in the first ten seconds.",
+      ],
     },
     {
-      name: "High-Energy Hook",
-      hook: "Start mid-action with an immediate pattern interrupt.",
-      angle: "Fast, punchy, momentum-driven.",
-      style: `${project.style}, high-contrast, kinetic`,
+      axis: "hook",
+      name: "Cold Open",
+      summary: "Same story, entered somewhere else. Changes the way in, not the events.",
+      storyAngle: straightAngle,
+      // Only this direction departs from the plain opening.
+      hook: `Start mid-action inside ${gist}, then double back and explain nothing for the first beat.`,
+      visualStyle: baseLook,
       platform: "shorts_reels_tiktok",
+      strengths: ["holds a scrolling audience", "no setup to sit through"],
+      risks: [
+        "Gives up the establishing beat, so anyone who needs context to care may leave before they get it.",
+      ],
     },
     {
-      name: "Stylized & Bold",
-      hook: "Lead with a surreal, memorable visual motif.",
-      angle: "Concept-forward and distinctive.",
-      style: `${project.style}, stylized palette`,
+      axis: "visual_style",
+      name: "Stylised Treatment",
+      summary: "Same story, same opening, rendered as a different visual system.",
+      storyAngle: straightAngle,
+      hook: plainOpening,
+      // Only this direction departs from the base look.
+      visualStyle: `${project.style}, high-contrast stylised palette, graphic shapes and hard shadows over naturalism`,
       platform: "social_campaign",
+      strengths: ["memorable at a glance", "a look that survives a thumbnail"],
+      risks: [
+        "Gives up realism, so anything the style flattens — faces, small gestures, fine detail — stops carrying the story.",
+      ],
     },
   ];
 
@@ -42,14 +102,14 @@ export function buildVariants(project: Project): CreativeVariant[] {
     id: `${project.id}-variant-${i + 1}`,
     projectId: project.id,
     name: d.name,
-    variantType: "concept" as const,
-    summary: `${d.angle} ${d.hook}`,
+    variantType: d.axis,
+    summary: d.summary,
     hook: d.hook,
-    storyAngle: d.angle,
-    visualStyle: d.style,
+    storyAngle: d.storyAngle,
+    visualStyle: d.visualStyle,
     bestFitPlatform: d.platform,
-    strengths: ["clear point of view", "distinct tone"],
-    risks: ["needs strong execution to land"],
+    strengths: d.strengths,
+    risks: d.risks,
     selected: false,
     createdByAgent: "Variant Explorer",
     createdAt: now,

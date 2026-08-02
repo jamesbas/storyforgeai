@@ -15,6 +15,16 @@ const VARIANT_AXIS: Readonly<Record<string, string>> = {
   platform_cut: "different platform",
 };
 
+/** The chip names the axis; this says what the axis holds still. */
+const VARIANT_CHANGES: Readonly<Record<string, string>> = {
+  concept: "The premise and framing. Same subject, a different idea about it.",
+  story: "The events and whose story it is. The look stays the same.",
+  visual_style: "The look only. Same story, same opening.",
+  hook: "The way in only. Same story, same look.",
+  scene: "Which moments are shown. Same story, same look.",
+  platform_cut: "Length and pacing for a different platform.",
+};
+
 export function VariantReview({ projectId }: { projectId: string }) {
   const [record, setRecord] = useState<ProjectRecord | null>(null);
   const [busy, setBusy] = useState(false);
@@ -120,6 +130,11 @@ export function VariantReview({ projectId }: { projectId: string }) {
                 </span>
               </div>
               <p className="mt-1 text-sm text-slate-300">{v.summary}</p>
+              {VARIANT_CHANGES[v.variantType] ? (
+                <p data-testid="variant-changes" className="mt-1 text-xs text-slate-500">
+                  What changes: {VARIANT_CHANGES[v.variantType]}
+                </p>
+              ) : null}
               <dl className="mt-3 space-y-1 text-xs text-slate-400">
                 {v.hook && <div>Hook: {v.hook}</div>}
                 {v.bestFitPlatform && <div>Best fit: {v.bestFitPlatform}</div>}

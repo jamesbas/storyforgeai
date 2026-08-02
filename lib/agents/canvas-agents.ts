@@ -20,12 +20,14 @@ import {
   buildWorldBible,
 } from "@/lib/agents/mock-canvas";
 import { castSystemDirective } from "@/lib/agents/cast";
+import { repairVariantSet } from "@/lib/agents/variant-set";
 import { conceptVisualsDirective, conceptVisualsPayload } from "@/lib/agents/concept-visuals";
 import { explicitnessDirective } from "@/lib/agents/explicitness";
 import { cameraContinuityDirective } from "@/lib/agents/continuity";
 import { planningPayload, precedenceDirective, type CreativePlans } from "@/lib/agents/creative-context";
 import type { ConceptVisuals, StoryPlan } from "@/lib/schemas/agents";import type { Character } from "@/lib/schemas/character";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
+import { logEvent } from "@/lib/telemetry";
 
 export const VARIANT_EXPLORER_SYSTEM =
   "You are the Variant Explorer Agent. Create 3 distinct creative directions from the same " +
@@ -41,6 +43,10 @@ export const VARIANT_EXPLORER_SYSTEM =
   "to catch a different audience; \"scene\" for a different choice of which moments to show; " +
   "\"platform_cut\" for the same material shaped to a different platform's length and pacing. " +
   "Use a different variantType for each of the three. " +
+  "Before returning, verify variantType contains exactly three unique values, and that the " +
+  "fields demonstrate the axis each one names: a \"hook\" direction changes the opening but " +
+  "preserves the premise and story; \"visual_style\" preserves the story and changes the visual " +
+  "system; \"story\" changes the events or the point of view. " +
   "Apply one test before answering: if two directions would produce similar images, they are the " +
   "same direction described twice \u2014 replace one. " +
   "Risks must name what this direction gives up, not generic production caveats. Every real " +
@@ -184,8 +190,23 @@ export async function variantExplorerAgent(
   if (provider) {
     const user = JSON.stringify({ project });
     const result = await provider.generateJson(VARIANT_EXPLORER_SYSTEM, user, variantsSchema);
-    if (result && result.variants.length >= 3) {
-      return result.variants.map((v) => ({ ...v, projectId: project.id }));
+    if (result?.variants.length) {
+      // The schema validates one variant at a time, so three directions that all
+      // claim the same axis parse cleanly. Repair the set before it is stored.
+      const repair = repairVariantSet(
+        project,
+        result.variants.map((v) => ({ ...v, projectId: project.id })),
+      );
+      if (repair.issues.length) {
+        logEvent("variant_set.repaired", {
+          projectId: project.id,
+          issues: repair.issues,
+          returned: result.variants.length,
+          replaced: repair.replaced.length,
+          axes: repair.variants.map((v) => v.variantType),
+        });
+      }
+      return repair.variants;
     }
   }
   return buildVariants(project);

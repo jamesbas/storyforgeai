@@ -5,6 +5,7 @@ import {
   artDirectorAgent,
   cinematographerAgent,
   directorAgent,
+  variantExplorerAgent,
   worldBuilderAgent,
   ART_DIRECTOR_SYSTEM,
   CINEMATOGRAPHER_SYSTEM,
@@ -244,7 +245,100 @@ describe("the Variant Explorer's instruction", () => {
     expect(VARIANT_EXPLORER_SYSTEM).toMatch(/would produce similar images/);
   });
 
+  it("states the postcondition each axis has to satisfy", () => {
+    expect(VARIANT_EXPLORER_SYSTEM).toMatch(/exactly three unique values/);
+    expect(VARIANT_EXPLORER_SYSTEM).toMatch(/preserves the premise and story/);
+    expect(VARIANT_EXPLORER_SYSTEM).toMatch(/preserves the story and changes the visual/);
+  });
+
   it("makes the risks field say what is given up", () => {
     expect(VARIANT_EXPLORER_SYSTEM).toMatch(/name what this direction gives up/);
+  });
+});
+
+/**
+ * The set contract holds whoever wrote the set.
+ *
+ * `creativeVariantSchema` validates one variant at a time, so a model returning
+ * three directions all labelled `concept` parsed cleanly and was stored.
+ */
+describe("what the Variant Explorer stores", () => {
+  const project = makeProject();
+
+  function providerReturning(variants: unknown[]): PlanningProvider {
+    return {
+      name: "test",
+      generateJson: async <T,>() => ({ variants }) as T,
+    };
+  }
+
+  const modelVariant = (id: string, variantType: string) => ({
+    id,
+    projectId: "elsewhere",
+    name: `Direction ${id}`,
+    variantType,
+    summary: "A direction.",
+    hook: "Open somewhere.",
+    storyAngle: "Told a way.",
+    visualStyle: "Looks a way.",
+    strengths: ["s"],
+    risks: ["r"],
+    selected: false,
+    createdByAgent: "Variant Explorer",
+    createdAt: new Date().toISOString(),
+  });
+
+  it("repairs duplicate axes rather than storing them", async () => {
+    const variants = await variantExplorerAgent(
+      project,
+      providerReturning([
+        modelVariant("a", "concept"),
+        modelVariant("b", "concept"),
+        modelVariant("c", "concept"),
+      ]),
+    );
+
+    expect(variants).toHaveLength(3);
+    expect(new Set(variants.map((v) => v.variantType)).size).toBe(3);
+    // The model's first direction survives; only the redundant ones are replaced.
+    expect(variants[0]!.name).toBe("Direction a");
+    expect(variants.every((v) => v.projectId === project.id)).toBe(true);
+  });
+
+  it("keeps a model set that already offers three axes", async () => {
+    const variants = await variantExplorerAgent(
+      project,
+      providerReturning([
+        modelVariant("a", "story"),
+        modelVariant("b", "hook"),
+        modelVariant("c", "visual_style"),
+      ]),
+    );
+
+    expect(variants.map((v) => v.name)).toEqual([
+      "Direction a",
+      "Direction b",
+      "Direction c",
+    ]);
+  });
+
+  it("fills a short model set instead of returning two choices", async () => {
+    const variants = await variantExplorerAgent(
+      project,
+      providerReturning([modelVariant("a", "story"), modelVariant("b", "hook")]),
+    );
+
+    expect(variants).toHaveLength(3);
+    expect(new Set(variants.map((v) => v.variantType)).size).toBe(3);
+  });
+
+  it("falls back to the deterministic set when the model returns nothing", async () => {
+    const variants = await variantExplorerAgent(project, {
+      name: "test",
+      generateJson: async () => null,
+    });
+
+    expect(variants).toHaveLength(3);
+    expect(variants.map((v) => v.variantType)).toEqual(["story", "hook", "visual_style"]);
   });
 });

@@ -15,6 +15,13 @@ test("generate 3 variants, select one, then generate a storyboard", async ({ pag
   await page.getByRole("button", { name: /generate variants/i }).click();
   await expect(page.getByTestId("variant-card")).toHaveCount(3);
 
+  // Three directions are only a choice if they differ on a named axis.
+  await expect(page.getByText("different story")).toBeVisible();
+  await expect(page.getByText("different opening")).toBeVisible();
+  await expect(page.getByText("different look")).toBeVisible();
+  const changes = await page.getByTestId("variant-changes").allTextContents();
+  expect(new Set(changes).size).toBe(3);
+
   // Select the first direction.
   await page.getByTestId("variant-card").first().getByRole("button", { name: /select direction/i }).click();
   await expect(page.getByRole("button", { name: /selected/i })).toBeVisible();

@@ -23,6 +23,8 @@ describe("agentic canvas service flow", () => {
     let record = await generateVariants(project.id);
     expect(record.variants).toHaveLength(3);
     expect(record.selectedVariantId).toBeUndefined();
+    // Three directions are only a choice if they differ on a named axis.
+    expect(new Set(record.variants!.map((v) => v.variantType)).size).toBe(3);
 
     const chosen = record.variants![1]!;
     record = await selectVariant(project.id, chosen.id);

@@ -57,6 +57,7 @@ export type TelemetryEvent =
   | "audio_cue.generated"
   | "assembly.completed"
   | "assembly.prerequisite_failed"
+  | "variant_set.repaired"
   | "character.created"
   | "character.updated"
   | "character.deleted"

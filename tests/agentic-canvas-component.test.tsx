@@ -70,6 +70,39 @@ describe("VariantReview component", () => {
     render(<VariantReview projectId="p1" />);
     await waitFor(() => expect(screen.getByText(/no variants yet/i)).toBeInTheDocument());
   });
+
+  it("labels the three axes distinctly and says what each one holds still", async () => {
+    const record: ProjectRecord = {
+      ...baseRecord,
+      variants: [
+        { ...variant("1"), variantType: "story" },
+        { ...variant("2"), variantType: "hook" },
+        { ...variant("3"), variantType: "visual_style" },
+      ],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(record)));
+
+    render(<VariantReview projectId="p1" />);
+    await waitFor(() => expect(screen.getAllByTestId("variant-card")).toHaveLength(3));
+
+    for (const label of ["different story", "different opening", "different look"]) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    const changes = screen.getAllByTestId("variant-changes").map((el) => el.textContent);
+    expect(new Set(changes).size).toBe(3);
+  });
+
+  it("still reads a legacy set where every direction was labelled concept", async () => {
+    const record: ProjectRecord = {
+      ...baseRecord,
+      variants: [variant("1"), variant("2"), variant("3")],
+    };
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(record)));
+
+    render(<VariantReview projectId="p1" />);
+    await waitFor(() => expect(screen.getAllByTestId("variant-card")).toHaveLength(3));
+    expect(screen.getAllByText("different premise")).toHaveLength(3);
+  });
 });
 
 describe("AgenticCanvas component", () => {
