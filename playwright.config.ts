@@ -31,6 +31,10 @@ export default defineConfig({
       WANGP_MCP_ENABLED: "false",
       FFMPEG_ENABLED: "false",
       DEEPY_ASSIST_ENABLED: "false",
+      // Its own build directory. Sharing `.next` with a running `next start`
+      // silently breaks that server: it resolves each route's module on first
+      // request, so routes nobody had hit yet vanish underneath it.
+      NEXT_DIST_DIR: ".next-e2e",
     },
   },
 });

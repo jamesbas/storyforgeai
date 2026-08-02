@@ -144,6 +144,16 @@ PLATFORM_DERIVATIVES_ENABLED=false
 
 First E2E run downloads the browser: `npx playwright install chromium`.
 
+The E2E server builds into `.next-e2e`, not `.next`, so it is safe to run the
+suite while the app itself is running. They shared a build directory once, and
+the consequence was not obvious: `next start` resolves a route's compiled module
+the first time something asks for it, so the dev server rewriting `.next`
+mid-session left the running app unable to find routes nothing had touched yet.
+Media assets were the casualty every time, because nothing requests them until a
+render has finished — the app looked fine for hours, then served broken images.
+
+`npm run build` still writes `.next`, so that one does need the app stopped.
+
 ### Ports
 
 | Purpose | Port |
