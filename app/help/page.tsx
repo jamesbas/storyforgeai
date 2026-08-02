@@ -301,6 +301,28 @@ export default function HelpPage() {
             the continuity modes above read the previous scene&apos;s finished attempt, so overlapping
             them would quietly degrade them to plain cuts.
           </p>
+
+          <h3 className={h3}>Regenerating only the clips</h3>
+          <p className={p}>
+            Changing a video prompt or a motion LoRA does not change the keyframes, but a full
+            regeneration re-renders both of them anyway — two image jobs per scene, thrown away, to
+            arrive back where you started.
+          </p>
+          <p className={p}>
+            <strong>Regenerate all video</strong> rebuilds every clip from the frames already on the
+            record. The collapsed <em>Regenerate video for selected scenes</em> panel underneath does
+            the same for a subset. The frames come from each scene&apos;s chosen attempt, so a face
+            swap — or a frame you swapped by hand — is what the new clip is built on.
+          </p>
+          <p className={p}>
+            <strong>One exception on continuity.</strong> Cut and{" "}
+            <em>continue from previous end frame</em> chain keyframes, which a clip rerun does not
+            touch, so your selection is used exactly as given. But{" "}
+            <em>continue from previous clip</em> builds each clip from the previous scene&apos;s
+            rendered clip — so rebuilding one in the middle is extended forward to every scene after
+            it, and the screen tells you it did. Leaving them alone would have left them continuing
+            from a clip that no longer exists.
+          </p>
           <p className={p}>
             The queue runs on the server, so closing the page does not abandon it. A scene that fails
             is marked and skipped rather than stopping the rest, and{" "}

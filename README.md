@@ -444,6 +444,33 @@ check receives them together.
 Use QC to catch bad execution. Use the fidelity check to catch a plan that
 drifted before rendering started.
 
+## Regenerating only the clips
+
+Changing a video prompt or a motion LoRA does not change the keyframes, but a
+full regeneration re-renders both of them anyway — two image jobs per scene,
+discarded, to arrive back where you started.
+
+**Regenerate all video** on the Storyboard screen rebuilds every clip from the
+frames already on the record. A collapsed *Regenerate video for selected scenes*
+panel underneath does the same for a subset.
+
+The frames come from each scene's chosen attempt, so a face swap or a
+hand-swapped frame is what the new clip is built on.
+
+### Continuity, and why a subset is not always a subset
+
+The frame-chained modes — **cut** and **continue from previous end frame** —
+chain keyframes, and a clip rerun does not touch those. The selection is honoured
+exactly as given.
+
+**Continue from previous clip** is different: each clip is built from the
+previous scene's *rendered clip*. Rebuilding one in the middle would leave every
+scene after it continuing from something that no longer exists, so the selection
+is extended forward from the earliest scene you picked, and the screen says so.
+Refusing outright would leave that mode with no way to do this at all; honouring
+the selection literally would break the chain silently, which is worse than
+either.
+
 ## Character identity
 
 Holding one face across independently rendered scenes is the hardest part of the

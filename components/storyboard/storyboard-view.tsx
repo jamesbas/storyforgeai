@@ -128,6 +128,9 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const [llmBusy, setLlmBusy] = useState<null | "load" | "unload">(null);
   const [queue, setQueue] = useState<QueueSnapshot | null>(null);
   const [queueBusy, setQueueBusy] = useState(false);
+  /** Scenes ticked for a clip-only rerun. Empty means the whole project. */
+  const [videoPicks, setVideoPicks] = useState<string[]>([]);
+  const [cascadeNotice, setCascadeNotice] = useState<string | null>(null);
   /**
    * LoRA catalogs, fetched once per model rather than per scene. They are only
    * needed to look up trigger words, which every scene shares.
@@ -343,8 +346,42 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     [projectId, failureMessage],
   );
 
-  const cancelQueue = useCallback(async () => {
-    setQueueBusy(true);
+  /**
+   * Rebuild clips from the keyframes already on the record.
+   *
+   * `sceneIds` empty means every scene. On `continue_video` the server extends
+   * the selection forward, because each clip there is built from the previous
+   * scene's clip — it reports that back so the notice is not a guess.
+   */
+  const regenerateVideo = useCallback(
+    async (sceneIds: string[]) => {
+      setQueueBusy(true);
+      setError(null);
+      setCascadeNotice(null);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/queue?video=1`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sceneIds }),
+        });
+        if (!res.ok) throw new Error(await failureMessage(res, "Failed to queue clips"));
+        const body = (await res.json()) as QueueSnapshot & { cascaded?: boolean };
+        setQueue(body);
+        if (body.cascaded) {
+          setCascadeNotice(
+            "This project continues each clip from the previous one, so every scene after the earliest you picked was included too. Leaving them alone would have left them continuing from a clip that no longer exists.",
+          );
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to queue clips");
+      } finally {
+        setQueueBusy(false);
+      }
+    },
+    [projectId, failureMessage],
+  );
+
+  const cancelQueue = useCallback(async () => {    setQueueBusy(true);
     try {
       const res = await fetch(`/api/projects/${projectId}/queue`, { method: "DELETE" });
       if (res.ok) setQueue((await res.json()) as QueueSnapshot);
@@ -898,6 +935,16 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                 >
                   Regenerate all
                 </button>
+                {stages.video ? (
+                  <button
+                    onClick={() => void regenerateVideo([])}
+                    disabled={queueBusy || queue?.active}
+                    title="Rebuild every clip from the keyframes already rendered. The frames are not touched."
+                    className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
+                  >
+                    Regenerate all video
+                  </button>
+                ) : null}
                 {queue?.active ? (
                   <button
                     onClick={() => void cancelQueue()}
@@ -909,6 +956,65 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                 ) : null}
               </div>
             </div>
+
+            {cascadeNotice ? (
+              <p
+                data-testid="queue-cascade-notice"
+                className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+              >
+                {cascadeNotice}
+              </p>
+            ) : null}
+
+            {stages.video && storyboard.scenes.length > 0 ? (
+              <details className="mt-3 rounded-md border border-white/10 bg-black/20">
+                <summary className="cursor-pointer px-3 py-2 text-xs text-slate-400 hover:text-slate-200">
+                  Regenerate video for selected scenes
+                </summary>
+                <div className="space-y-2 px-3 pb-3">
+                  <p className="text-xs text-slate-500">
+                    Rebuilds only the clip, reusing each scene&apos;s existing keyframes — for when
+                    a video prompt or a motion LoRA changed but the frames are fine.
+                  </p>
+                  <ul className="flex flex-wrap gap-x-4 gap-y-1">
+                    {storyboard.scenes.map((scene) => (
+                      <li key={scene.id}>
+                        <label className="flex items-center gap-1.5 text-xs text-slate-300">
+                          <input
+                            type="checkbox"
+                            checked={videoPicks.includes(scene.id)}
+                            onChange={(e) =>
+                              setVideoPicks((current) =>
+                                e.target.checked
+                                  ? [...current, scene.id]
+                                  : current.filter((id) => id !== scene.id),
+                              )
+                            }
+                          />
+                          Scene {scene.sceneNumber}
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      onClick={() => void regenerateVideo(videoPicks)}
+                      disabled={queueBusy || queue?.active || videoPicks.length === 0}
+                      className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:border-accent disabled:opacity-50"
+                    >
+                      Regenerate {videoPicks.length} clip{videoPicks.length === 1 ? "" : "s"}
+                    </button>
+                    <button
+                      onClick={() => setVideoPicks([])}
+                      disabled={videoPicks.length === 0}
+                      className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:border-accent disabled:opacity-50"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              </details>
+            ) : null}
 
             {queue?.entries.length ? (
               <ul className="mt-3 flex flex-wrap gap-2">

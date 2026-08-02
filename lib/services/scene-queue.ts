@@ -1,8 +1,14 @@
-import { generateSceneMedia, canRunPhased, generateProjectMediaPhased } from "@/lib/services/media-service";
+import {
+  generateSceneMedia,
+  canRunPhased,
+  generateProjectMediaPhased,
+  regenerateSceneVideo,
+} from "@/lib/services/media-service";
 import type { PhaseName } from "@/lib/services/media-service";
 import { getProjectRecord } from "@/lib/services/project-service";
 import { getLlmRuntimeStatus, unloadPlanningModel } from "@/lib/services/llm-runtime-service";
-import { generationStages } from "@/lib/types";
+import { generationStages, DEFAULT_SCENE_CONTINUITY } from "@/lib/types";
+import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import { config } from "@/lib/config";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
@@ -26,11 +32,21 @@ import { logEvent } from "@/lib/telemetry";
 
 export type SceneQueueState = "pending" | "running" | "completed" | "failed" | "cancelled";
 
+/**
+ * How much of a scene an entry re-renders.
+ *
+ * `video` reuses the keyframes already on the record. Changing a video prompt
+ * or a motion LoRA does not change the frames, and a full pass would re-render
+ * both of them to arrive back where it started.
+ */
+export type SceneQueueScope = "full" | "video";
+
 export type SceneQueueEntry = {
   projectId: string;
   sceneId: string;
   sceneNumber: number;
   state: SceneQueueState;
+  scope: SceneQueueScope;
   error?: string;
   /** How many times this scene has been attempted, including retries. */
   attempts: number;
@@ -137,6 +153,7 @@ export async function enqueueProjectScenes(
       sceneId: scene.id,
       sceneNumber: scene.sceneNumber,
       state: "pending",
+      scope: "full",
       attempts: 0,
     };
     state.entries.push(entry);
@@ -149,6 +166,101 @@ export async function enqueueProjectScenes(
   await freeGpuForGeneration();
   void drain();
   return queued;
+}
+
+/**
+ * Which scenes a video-only rerun actually has to cover.
+ *
+ * On `continue_video` each clip is built from the previous scene's *clip*, so
+ * re-rendering one in the middle leaves every scene after it continuing from
+ * something that no longer exists. The selection is therefore extended forward
+ * from the earliest scene chosen — refusing outright would leave that mode with
+ * no way to do this at all, and honouring the selection literally would break
+ * the chain silently, which is worse than either.
+ *
+ * The frame-based modes chain keyframes rather than clips, and a video-only
+ * rerun does not touch those, so the selection stands as given.
+ */
+export function videoRerunScope(
+  record: ProjectRecord,
+  sceneIds: readonly string[],
+): { sceneIds: string[]; cascaded: boolean } {
+  const scenes = record.storyboard?.scenes ?? [];
+  const chosen = new Set(sceneIds);
+  const selected = scenes.filter((scene) => chosen.has(scene.id));
+  if (selected.length === 0) return { sceneIds: [], cascaded: false };
+
+  if ((record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY) !== "continue_video") {
+    return { sceneIds: selected.map((scene) => scene.id), cascaded: false };
+  }
+
+  const from = Math.min(...selected.map((scene) => scene.sceneNumber));
+  const forward = scenes.filter((scene) => scene.sceneNumber >= from);
+  return {
+    sceneIds: forward.map((scene) => scene.id),
+    cascaded: forward.length > selected.length,
+  };
+}
+
+/**
+ * Queue a clip-only rerun for the given scenes, or all of them when none are named.
+ *
+ * No phasing: every job in the batch runs on the same video model, so there is
+ * nothing to group and the scene-at-a-time worker is already optimal.
+ */
+export async function enqueueVideoRerun(
+  projectId: string,
+  sceneIds?: readonly string[],
+): Promise<{ entries: SceneQueueEntry[]; cascaded: boolean }> {
+  const record = await getProjectRecord(projectId);
+  if (!record.storyboard) throw new ValidationError("Generate a storyboard before media");
+  if (!generationStages(record.project.generationMode).video) {
+    throw new ValidationError(
+      "This project's generation mode does not render clips. Change it to Video segments first.",
+    );
+  }
+
+  const all = record.storyboard.scenes.map((scene) => scene.id);
+  const scope = videoRerunScope(record, sceneIds?.length ? sceneIds : all);
+
+  const state = store();
+  const alreadyQueued = new Set(
+    state.entries
+      .filter((e) => e.projectId === projectId && (e.state === "pending" || e.state === "running"))
+      .map((e) => e.sceneId),
+  );
+
+  const byId = new Map(record.storyboard.scenes.map((scene) => [scene.id, scene]));
+  const queued: SceneQueueEntry[] = [];
+  for (const sceneId of scope.sceneIds) {
+    if (alreadyQueued.has(sceneId)) continue;
+    const scene = byId.get(sceneId);
+    if (!scene) continue;
+    // Nothing to reuse means nothing to rerun; a full pass is the right answer.
+    if (!(record.attempts?.[sceneId] ?? []).some((attempt) => attempt.startImagePath)) continue;
+
+    const entry: SceneQueueEntry = {
+      projectId,
+      sceneId,
+      sceneNumber: scene.sceneNumber,
+      state: "pending",
+      scope: "video",
+      attempts: 0,
+    };
+    state.entries.push(entry);
+    queued.push(entry);
+  }
+
+  if (queued.length === 0) {
+    throw new ValidationError(
+      "None of those scenes have keyframes to rebuild a clip from. Generate their media first.",
+    );
+  }
+
+  logEvent("scene_queue.enqueued", { projectId, scenes: queued.length, scope: "video" });
+  await freeGpuForGeneration();
+  void drain();
+  return { entries: queued, cascaded: scope.cascaded };
 }
 
 /**
@@ -343,11 +455,19 @@ async function drain(): Promise<void> {
 
       // Grouping a whole project by model saves a model load per job, and a load
       // costs more than the job. Only worth it for a real batch, so a single
-      // pending scene still runs the immediate path below.
+      // pending scene still runs the immediate path below. A clip-only batch is
+      // already one model throughout, so there is nothing for phasing to group.
       const pending = state.entries.filter(
         (entry) => entry.projectId === next.projectId && entry.state === "pending",
       );
-      if (pending.length > 1 && (await drainPhased(next.projectId, pending))) {
+      if (
+        next.scope !== "video" &&
+        pending.length > 1 &&
+        (await drainPhased(
+          next.projectId,
+          pending.filter((entry) => entry.scope !== "video"),
+        ))
+      ) {
         firstScene = false;
         continue;
       }
@@ -370,7 +490,8 @@ async function drain(): Promise<void> {
       for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
         next.attempts = attempt;
         try {
-          await generateSceneMedia(next.projectId, next.sceneId);
+          if (next.scope === "video") await regenerateSceneVideo(next.projectId, next.sceneId);
+          else await generateSceneMedia(next.projectId, next.sceneId);
           next.state = "completed";
           next.error = undefined;
           break;

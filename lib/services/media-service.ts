@@ -863,6 +863,90 @@ async function scoreAttempt(
   return updated;
 }
 
+/**
+ * Re-render one scene's clip from the keyframes it already has.
+ *
+ * Tweaking a video prompt or a motion LoRA does not change the frames, but a
+ * full regeneration re-renders both of them anyway — two image jobs per scene,
+ * discarded, to arrive back where you started. This keeps the frames and pays
+ * only for the clip.
+ *
+ * The frames are taken from the chosen attempt rather than re-derived, so a
+ * face swap or a hand-swapped frame is what the new clip is built on.
+ */
+export async function regenerateSceneVideo(
+  projectId: string,
+  sceneId: string,
+): Promise<ProjectRecord> {
+  const loaded = await getProjectRecord(projectId);
+  if (!loaded.storyboard) throw new ValidationError("Generate a storyboard before media");
+  const stages = stagesOf(loaded);
+  if (!stages.video) {
+    throw new ValidationError(
+      "This project's generation mode does not render clips. Change it to Video segments first.",
+    );
+  }
+  const scene = findScene(loaded, sceneId);
+  const previous = chosenAttempt(loaded, sceneId);
+  if (!previous) {
+    throw new ValidationError(
+      `Scene ${scene.sceneNumber} has no generated frames yet. Generate its media first.`,
+    );
+  }
+
+  const continuity = resolveContinuity(loaded, scene);
+  // `continue_video` builds the clip from the previous scene's clip rather than
+  // from frames, so there is nothing of this scene's own to reuse.
+  const continuing = Boolean(continuity.videoSource);
+  if (!continuing && !previous.startImagePath) {
+    throw new ValidationError(
+      `Scene ${scene.sceneNumber} has no start frame to build a clip from. Regenerate its media instead.`,
+    );
+  }
+
+  const manifest = await buildVideoManifest({
+    sceneId,
+    prompt: scene.prompts.videoPromptSegment,
+    negativePrompt: scene.prompts.videoNegativePrompt,
+    imageStart: previous.startImagePath,
+    imageEnd: previous.endImagePath,
+    videoSource: continuity.videoSource,
+    modelStrategy: loaded.project.modelStrategy,
+    modelType: loaded.project.videoModel,
+    steps: loaded.project.videoSteps,
+    frame: frameOf(loaded.project),
+    loras: resolveSceneLoras(loaded.project, sceneId, "video"),
+    durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
+  });
+  const job = await runToCompletion(manifest.settings);
+
+  logEvent("scene.video_only", {
+    projectId,
+    sceneId,
+    continuedFromVideo: continuing,
+    reusedFrames: continuing ? 0 : previous.endImagePath ? 2 : 1,
+  });
+
+  const existing = loaded.attempts?.[sceneId] ?? [];
+  const attempt: SceneAttempt = {
+    ...previous,
+    id: randomUUID(),
+    attemptNumber: existing.length + 1,
+    videoPath: job.generatedFiles[0],
+    // The frames carry over untouched, so the settings that produced them stay
+    // on the record; only the clip's manifest is new.
+    settingsIds: [
+      ...previous.settingsIds.filter((id) => id !== previous.settingsIds.at(-1)),
+      manifest.id,
+    ],
+    approved: false,
+    qcResult: undefined,
+    createdAt: new Date().toISOString(),
+  };
+
+  return persistThenScore(projectId, scene, attempt, existing, loaded, true);
+}
+
 export async function generateSceneMedia(projectId: string, sceneId: string): Promise<ProjectRecord> {
   const loaded = await getProjectRecord(projectId);
   if (!loaded.storyboard) throw new ValidationError("Generate a storyboard before media");
