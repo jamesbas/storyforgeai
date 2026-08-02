@@ -578,5 +578,35 @@ describe("reference reading reaching the planning agents", () => {
     const third = await projects.generateStoryboard(project.id);
     expect(third.conceptVisuals?.sources).toEqual(["concept-0.png", "concept-1.png"]);
   });
+
+  /**
+   * The reading has to be persisted where the caller's own update cannot
+   * overwrite it. An earlier version resolved it inline and let each caller's
+   * record spread clobber it, so every canvas agent paid for a fresh vision
+   * pass — the slowest call in the app — and discarded it, every time.
+   */
+  it("persists the reading from a canvas agent, not just from the storyboard", async () => {
+    const { projects, conceptImages } = await isolated();
+    const project = await draft(projects);
+    await conceptImages.addConceptImage(project.id, upload("image/png"), "reference");
+
+    const after = await projects.generateWorldBible(project.id);
+    expect(after.conceptVisuals?.sources).toEqual(["concept-0.png"]);
+
+    // The next agent must find it already there rather than reading again.
+    const reloaded = await projects.getProjectRecord(project.id);
+    expect(reloaded.conceptVisuals?.sources).toEqual(["concept-0.png"]);
+  });
+
+  it("survives a second canvas agent without losing the reading", async () => {
+    const { projects, conceptImages } = await isolated();
+    const project = await draft(projects);
+    await conceptImages.addConceptImage(project.id, upload("image/png"), "reference");
+
+    await projects.generateWorldBible(project.id);
+    const after = await projects.generateArtDirectionPlan(project.id);
+    expect(after.conceptVisuals?.sources).toEqual(["concept-0.png"]);
+    expect(after.worldBible).toBeDefined();
+  });
 });
 

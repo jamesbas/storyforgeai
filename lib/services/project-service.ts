@@ -536,7 +536,7 @@ export async function getProjectRecord(id: string): Promise<ProjectRecord> {
 
 export async function generateStoryboard(id: string): Promise<ProjectRecord> {
   return trackAgentRun(id, "storyboard", "Storyboard Artist", async () => {
-    const record = await getProjectRecord(id);
+    const record = await withConceptVisuals(await getProjectRecord(id));
     const selectedVariant = record.variants?.find((v) => v.id === record.selectedVariantId);
     // Read the cast at generation time rather than at creation time, so editing a
     // character in the library and regenerating picks up the new description.
@@ -552,16 +552,12 @@ export async function generateStoryboard(id: string): Promise<ProjectRecord> {
     };
     let freshStoryPlan: StoryPlan | undefined;
     let freshWardrobe: Record<string, WardrobeChange[]> | undefined;
-    // Read before the run rather than during it: the orchestrator composes
-    // agents, and reaching the filesystem from inside it would put IO in the one
-    // layer that is meant to be pure.
-    const concept = await resolveConceptVisuals(record);
     const snapshot = await runStoryboardOrchestrator(record.project, {
       selectedVariant,
       cast,
       plans,
       storyPlan: record.storyPlan,
-      conceptVisuals: concept.visuals,
+      conceptVisuals: record.conceptVisuals,
       onStoryPlan: (plan) => {
         freshStoryPlan = plan;
       },
@@ -578,7 +574,6 @@ export async function generateStoryboard(id: string): Promise<ProjectRecord> {
         ...(freshWardrobe ? { wardrobeChanges: freshWardrobe } : {}),
       },
       storyPlan: freshStoryPlan ?? record.storyPlan,
-      ...(concept.fresh ? { conceptVisuals: concept.visuals } : {}),
       storyboard: snapshot,
       history: appendHistory(record, "storyboard.generated", selectedVariant?.name),
     };
@@ -1241,7 +1236,7 @@ async function canvasContext(record: ProjectRecord) {
     selectedVariant: record.variants?.find((v) => v.id === record.selectedVariantId),
     cast: await resolveProjectCast(record.project),
     storyPlan: record.storyPlan,
-    conceptVisuals: (await resolveConceptVisuals(record)).visuals,
+    conceptVisuals: record.conceptVisuals,
     plans: {
       worldBible: record.worldBible,
       directorialPlan: record.directorialPlan,
@@ -1252,44 +1247,41 @@ async function canvasContext(record: ProjectRecord) {
 }
 
 /**
- * The project's reference reading, taken now if it is missing or out of date.
+ * Guarantee the project's reference reading is current, and persisted.
  *
  * Reading references used to be something the creator had to remember to do,
  * before running anything else, with nothing on screen saying so. An ordering
  * requirement nobody is told about is a defect: the pipeline fetches what it
  * needs when it needs it instead.
  *
+ * Persisting is the whole point of the wrapper. An earlier version resolved the
+ * reading inline and let the caller's own update overwrite it, so every canvas
+ * agent paid for a fresh vision pass — the slowest call in the app — and threw
+ * it away, forever. Follows `withStoryPlan`: return the record the caller should
+ * carry forward.
+ *
  * Currency is decided by which files the reading came from rather than by a
  * timestamp — no clocks, and adding or removing an image invalidates it exactly
  * when it should.
  */
-async function resolveConceptVisuals(
-  record: ProjectRecord,
-): Promise<{ visuals?: ConceptVisuals; fresh: boolean }> {
+async function withConceptVisuals(record: ProjectRecord): Promise<ProjectRecord> {
   const { conceptImageFiles } = await import("@/lib/services/concept-image-service");
   const files = await conceptImageFiles(record.project.id, "reference");
-  if (files.length === 0) return { visuals: undefined, fresh: false };
+  if (files.length === 0) return record;
 
   const current = files.map((file) => file.name).sort();
   const read = [...(record.conceptVisuals?.sources ?? [])].sort();
-  if (record.conceptVisuals && current.join("\u0000") === read.join("\u0000")) {
-    return { visuals: record.conceptVisuals, fresh: false };
-  }
+  if (record.conceptVisuals && current.join("\u0000") === read.join("\u0000")) return record;
 
-  logEvent("project.concept_visuals", {
-    projectId: record.project.id,
-    mode: "auto",
-    supplied: files.length,
-    images: files.length,
-    visionModel: true,
-  });
-  const visuals = await conceptReaderAgent(record.project, files, getPlanningProvider());
-  return { visuals, fresh: true };
+  const conceptVisuals = await conceptReaderAgent(record.project, files, getPlanningProvider());
+  const updated: ProjectRecord = { ...record, conceptVisuals };
+  await repository.update(record.project.id, updated);
+  return updated;
 }
 
 export async function generateWorldBible(id: string): Promise<ProjectRecord> {
   return trackAgentRun(id, "world", "World Builder", async () => {
-    const record = await getProjectRecord(id);
+    const record = await withConceptVisuals(await getProjectRecord(id));
     const worldBible: WorldBible = await worldBuilderAgent(
       record.project,
       getPlanningProvider(),
@@ -1309,7 +1301,7 @@ export async function generateDirectorialPlan(id: string): Promise<ProjectRecord
   return trackAgentRun(id, "director", "Director", async () => {
     // The Director is the one canvas agent whose prompt names the story arc, so
     // it is the natural place to produce one when the project has none yet.
-    const record = await withStoryPlan(await getProjectRecord(id));
+    const record = await withStoryPlan(await withConceptVisuals(await getProjectRecord(id)));
     const directorialPlan: DirectorialPlan = await directorAgent(
       record.project,
       getPlanningProvider(),
@@ -1327,7 +1319,7 @@ export async function generateDirectorialPlan(id: string): Promise<ProjectRecord
 
 export async function generateCinematographyPlan(id: string): Promise<ProjectRecord> {
   return trackAgentRun(id, "cinematographer", "Cinematographer", async () => {
-    const record = await getProjectRecord(id);
+    const record = await withConceptVisuals(await getProjectRecord(id));
     const cinematographyPlan: CinematographyPlan = await cinematographerAgent(
       record.project,
       getPlanningProvider(),
@@ -1345,7 +1337,7 @@ export async function generateCinematographyPlan(id: string): Promise<ProjectRec
 
 export async function generateArtDirectionPlan(id: string): Promise<ProjectRecord> {
   return trackAgentRun(id, "art", "Art Director", async () => {
-    const record = await getProjectRecord(id);
+    const record = await withConceptVisuals(await getProjectRecord(id));
     const artDirectionPlan: ArtDirectionPlan = await artDirectorAgent(
       record.project,
       getPlanningProvider(),
