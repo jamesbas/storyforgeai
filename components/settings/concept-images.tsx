@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { ConceptVisuals, RenderAudit } from "@/lib/schemas/agents";
+import type { ConceptFidelityReport, ConceptVisuals } from "@/lib/schemas/agents";
 import type { ConceptImage, ConceptImageKind } from "@/lib/schemas/project";
 
 const MAX_CONCEPT_IMAGES = 6;
@@ -23,16 +23,16 @@ export function ConceptImages({
   projectId,
   initial,
   initialVisuals,
-  initialAudit,
+  initialFidelity,
 }: {
   projectId: string;
   initial: readonly ConceptImage[];
   initialVisuals?: ConceptVisuals;
-  initialAudit?: RenderAudit;
+  initialFidelity?: ConceptFidelityReport;
 }) {
   const [images, setImages] = useState<ConceptImage[]>([...initial]);
   const [visuals, setVisuals] = useState<ConceptVisuals | undefined>(initialVisuals);
-  const [audit, setAudit] = useState<RenderAudit | undefined>(initialAudit);
+  const [fidelity, setFidelity] = useState<ConceptFidelityReport | undefined>(initialFidelity);
   const [busy, setBusy] = useState(false);
   const [running, setRunning] = useState<ConceptImageKind | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -99,15 +99,15 @@ export function ConceptImages({
     async (kind: ConceptImageKind) => {
       setRunning(kind);
       setError(null);
-      const path = kind === "reference" ? "read-concept-images" : "audit-renders";
+      const path = kind === "reference" ? "read-concept-images" : "concept-fidelity";
       try {
         const res = await fetch(`/api/projects/${projectId}/${path}`, { method: "POST" });
         const body = (await res.json().catch(() => null)) as
-          | { conceptVisuals?: ConceptVisuals; renderAudit?: RenderAudit; error?: string }
+          | { conceptVisuals?: ConceptVisuals; conceptFidelity?: ConceptFidelityReport; error?: string }
           | null;
         if (!res.ok) throw new Error(body?.error ?? "Failed");
         if (kind === "reference") setVisuals(body?.conceptVisuals);
-        else setAudit(body?.renderAudit);
+        else setFidelity(body?.conceptFidelity);
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed");
       } finally {
@@ -162,11 +162,12 @@ export function ConceptImages({
       {visuals ? <VisualsReport visuals={visuals} /> : null}
 
       <Group
-        title="Renders to check"
-        blurb="Frames this project generated. Compared against the concept to find what they failed
-          to deliver. Nothing written about them is fed back into the pipeline — a render records
-          what was settled for, not what was asked for."
-        action="Audit renders"
+        title="Concept fidelity check"
+        blurb="Frames this project generated, compared against what you originally typed. This is not
+          the QC agent: QC grades a render against its scene card, so it passes a faithful render of
+          a card that already lost the plot. Only the concept still holds what you asked for.
+          Nothing written about these frames is ever fed back into the pipeline."
+        action="Check against concept"
         kind="render"
         images={renders}
         projectId={projectId}
@@ -178,7 +179,7 @@ export function ConceptImages({
         onRemove={remove}
         onRun={run}
       />
-      {audit ? <AuditReport audit={audit} /> : null}
+      {fidelity ? <FidelityReport report={fidelity} /> : null}
 
       {full ? (
         <p className="text-[11px] text-slate-500">
@@ -315,8 +316,8 @@ function VisualsReport({ visuals }: { visuals: ConceptVisuals }) {
   );
 }
 
-function AuditReport({ audit }: { audit: RenderAudit }) {
-  if (audit.images.length === 0) {
+function FidelityReport({ report }: { report: ConceptFidelityReport }) {
+  if (report.images.length === 0) {
     return (
       <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-200">
         Nothing was looked at, so this is not a clean bill of health. Set OPENAI_VISION_MODEL and
@@ -327,14 +328,14 @@ function AuditReport({ audit }: { audit: RenderAudit }) {
   return (
     <div className="space-y-2 rounded-md border border-white/10 bg-black/20 p-3">
       <p className="text-[11px] text-slate-500">
-        Checked {audit.images.length} render{audit.images.length === 1 ? "" : "s"}:{" "}
-        {audit.images.join(", ")}
+        Checked {report.images.length} frame{report.images.length === 1 ? "" : "s"}:{" "}
+        {report.images.join(", ")}
       </p>
-      {audit.findings.length === 0 ? (
+      {report.findings.length === 0 ? (
         <p className="text-xs text-slate-300">No departures from the concept found.</p>
       ) : (
         <ul className="space-y-2">
-          {audit.findings.map((finding, index) => (
+          {report.findings.map((finding, index) => (
             <li
               key={`${finding.image}-${index}`}
               className="space-y-0.5 rounded-md border border-amber-500/30 bg-amber-500/10 p-2 text-[11px]"
@@ -345,7 +346,7 @@ function AuditReport({ audit }: { audit: RenderAudit }) {
                 {finding.concept}
               </p>
               <p className="text-amber-100/90">
-                <span className="text-slate-400">Render: </span>
+                <span className="text-slate-400">Frame: </span>
                 {finding.shows}
               </p>
             </li>

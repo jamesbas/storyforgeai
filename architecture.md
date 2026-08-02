@@ -172,6 +172,8 @@ media path.
 | 11 | **Video Prompt Engineer** | `prompt-agents.ts` | as above, but the cast arrives as **names only** — the start frame already carries the likeness | Motion prompt + negative + checklist | subset of `scenePromptsSchema` | Orchestrator, step 5 |
 | 12 | **Audio Director** | `audio-agents.ts` | `Project` + scene refs | Audio plan, music/SFX cues | `audioPlanSchema` | `POST /generate-audio-plan` |
 | 13 | **Creative Critic (QC)** | `qc-agent.ts` | `Scene` + `SceneAttempt` (+ keyframes when `OPENAI_VISION_MODEL` is set) | Pass/fail, severity, regen notes | `qcResultSchema` | `media-service`, only when `project.qcEnabled` |
+| 14 | **Concept Reader** | `concept-reader.ts` | `Project` + uploaded **reference** images | Written description of the look | `conceptVisualsSchema` | `POST /read-concept-images`, on demand |
+| 15 | **Concept Fidelity Check** | `concept-fidelity.ts` | `Project.concept` + uploaded **render** frames | Findings only, no description | `conceptFidelitySchema` | `POST /concept-fidelity`, on demand |
 | — | **Deepy assistant** | `deepy/deepy.ts` | Media path + action | Inspection/suggestion text | — | `POST /scenes/{id}/deepy` |
 | — | **Animatic builder** | `mock-audio.ts` | Storyboard snapshot | Animatic plan | `animaticPlanSchema` | `POST /generate-animatic` |
 
@@ -179,6 +181,70 @@ media path.
 carries `wangp_settings` (WanGP Producer) as a phase-3 descriptor whose behaviour
 is currently implemented directly by `wangp-service` + `lib/wangp/settings.ts`
 rather than as a standalone agent module.
+
+### 3.1.1 Concept images: two kinds, two agents, one of them isolated
+
+A project can hold up to six images that describe the piece rather than a
+character in it. Each carries the kind it was uploaded as, and the kind decides
+what the image is allowed to do.
+
+| Kind | What it is | Read by | Reaches a prompt |
+|---|---|---|---|
+| `reference` | A picture from outside the project whose look you want | Concept Reader | Yes, via `conceptVisuals` |
+| `render` | A frame this pipeline produced | Concept Fidelity Check | **No** |
+
+> **Not yet wired.** `conceptVisuals` is written and persisted, but no planning
+> agent reads it — grep confirms the only references are the schema, the reader
+> and the settings screen. Threading it into Intake, Visual Bible, World Builder,
+> Art Director and the Storyboard Artist is outstanding work. Until then a
+> reference image changes nothing downstream, and the upload order is irrelevant.
+
+The distinction was not in the original design. It was added after pointing the
+Concept Reader at the project's own frames and reading what came back: `mood:
+"Intimate"` for a concept that asks for a good deal more, and `wardrobe: "short
+black silk robe or dress"` for a robe the concept says barely covers anything.
+
+Both readings were accurate. That is the problem. **A render records what the
+pipeline settled for, not what was asked for.** Feeding a description of one into
+the Visual Bible starts the next generation from the last one's retreat — every
+step small, defensible, and always in the direction of less.
+
+So the two paths do not share an agent, and `conceptFidelitySchema` has no
+`palette`, `wardrobe`, `mood`, `lighting`, `setting` or `subjects` field. The
+isolation is structural rather than a directive somebody has to remember: there
+is nothing in the report to route. A test asserts those fields stay absent.
+
+Nothing in the pixels tells a reference from a render, so the kind is required
+at upload and never inferred. A bare filename stored before the split existed is
+read as a `render` — the conservative direction, since being wrong that way
+costs a missing detail rather than a corrupted look.
+
+### 3.1.2 Concept Fidelity Check vs the QC agent
+
+They overlap on execution defects and differ on the thing that matters: what the
+frame is measured against.
+
+| | QC agent | Concept Fidelity Check |
+|---|---|---|
+| Measured against | The scene card | The typed concept |
+| Scope | One scene's keyframes | Any frames, in one call |
+| Catches drift in the card | No — the card is its yardstick | Yes |
+| Cross-scene continuity | No | Yes |
+| When | Automatic, during generation | On demand |
+| Output | Verdict + regeneration instructions | Findings only |
+| Feeds the pipeline | Yes, drives regeneration | No |
+
+QC's prompt says *"judge what you can actually see in them against the scene
+card and prompts"*. The scene card is a downstream artefact, written by the
+Storyboard Artist from the concept, and it can lose what was asked for before a
+single pixel exists. A card written without the men in shot, rendered
+faithfully, **passes QC** — correctly, because the render matches the card. Only
+the concept still holds the original intent, and nothing else in the pipeline
+ever looks back at it.
+
+The second gap is structural. QC sees one scene, so it cannot notice that scene
+1 has three men and scene 3 has four, however good the model is: the two frames
+are never in the same call. The fidelity check receives them together.
 
 ### 3.2 Full agent interconnection map
 

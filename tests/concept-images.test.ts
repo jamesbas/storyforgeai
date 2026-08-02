@@ -352,25 +352,25 @@ describe("concept reader", () => {
   });
 });
 
-describe("render auditor", () => {
+describe("concept fidelity check", () => {
   it("reports nothing looked at rather than nothing wrong when vision is off", async () => {
     delete process.env.OPENAI_VISION_MODEL;
     const { projects } = await isolated();
-    const { renderAuditorAgent } = await import("@/lib/agents/render-auditor");
+    const { conceptFidelityAgent } = await import("@/lib/agents/concept-fidelity");
     const project = await draft(projects);
 
     const generateJson = vi.fn();
-    const audit = await renderAuditorAgent(project, ["/a.png"], { generateJson } as never);
+    const report = await conceptFidelityAgent(project, ["/a.png"], { generateJson } as never);
 
     expect(generateJson).not.toHaveBeenCalled();
     // An empty findings list with no images examined must not read as a pass.
-    expect(audit.findings).toEqual([]);
-    expect(audit.images).toEqual([]);
+    expect(report.findings).toEqual([]);
+    expect(report.images).toEqual([]);
   });
 
-  it("labels the renders it examined and keeps the model's labels out of it", async () => {
+  it("labels the frames it examined and keeps the model's labels out of it", async () => {
     const { projects, conceptImages } = await isolated({ OPENAI_VISION_MODEL: "qwen-vl" });
-    const { renderAuditorAgent } = await import("@/lib/agents/render-auditor");
+    const { conceptFidelityAgent } = await import("@/lib/agents/concept-fidelity");
     const project = await draft(projects);
     await conceptImages.addConceptImage(project.id, upload("image/png"), "render");
     await conceptImages.addConceptImage(project.id, upload("image/png"), "render");
@@ -383,34 +383,34 @@ describe("render auditor", () => {
       checkedAt: "not a date",
     }));
 
-    const audit = await renderAuditorAgent(
+    const report = await conceptFidelityAgent(
       project,
       files.map((file) => file.path),
       { generateJson } as never,
     );
 
-    expect(audit.projectId).toBe(project.id);
-    expect(audit.images).toEqual(["Image 1", "Image 2"]);
-    expect(audit.findings).toHaveLength(1);
+    expect(report.projectId).toBe(project.id);
+    expect(report.images).toEqual(["Image 1", "Image 2"]);
+    expect(report.findings).toHaveLength(1);
   });
 
   /**
    * The whole point of the split. A render's palette, wardrobe and mood record
-   * what the pipeline settled for, so the audit is given nowhere to put them.
+   * what the pipeline settled for, so the report is given nowhere to put them.
    */
   it("has no descriptive fields that could reach a prompt", async () => {
-    const { renderAuditSchema } = await import("@/lib/schemas/agents");
-    const fields = Object.keys(renderAuditSchema.shape);
+    const { conceptFidelitySchema } = await import("@/lib/schemas/agents");
+    const fields = Object.keys(conceptFidelitySchema.shape);
     for (const banned of ["palette", "wardrobe", "mood", "lighting", "setting", "subjects"]) {
       expect(fields).not.toContain(banned);
     }
   });
 
-  it("refuses to audit a project that has no renders", async () => {
+  it("refuses to check a project that has no rendered frames", async () => {
     const { projects, conceptImages } = await isolated();
     const project = await draft(projects);
     await conceptImages.addConceptImage(project.id, upload("image/png"), "reference");
 
-    await expect(projects.auditRenderImages(project.id)).rejects.toThrow(/at least one render/i);
+    await expect(projects.checkConceptFidelity(project.id)).rejects.toThrow(/at least one render/i);
   });
 });

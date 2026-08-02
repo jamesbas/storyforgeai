@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { maybe } from "@/lib/schemas/maybe";
 import { MAX_SEGMENT_SECONDS, MIN_SEGMENT_SECONDS, SCENE_STATUSES } from "@/lib/types";
-import { conceptVisualsSchema, creativeBriefSchema, renderAuditSchema, storyPlanSchema, visualBibleSchema } from "@/lib/schemas/agents";
+import { conceptFidelitySchema, conceptVisualsSchema, creativeBriefSchema, storyPlanSchema, visualBibleSchema } from "@/lib/schemas/agents";
 import { projectSchema } from "@/lib/schemas/project";
 import { dialogueLineSchema, audioPlanSchema, animaticPlanSchema } from "@/lib/schemas/audio";
 import { sceneAttemptSchema, scenePreviewSchema } from "@/lib/schemas/generation";
@@ -189,12 +189,13 @@ export const projectRecordSchema = z.object({
   /** What the reference images show, read once by the Concept Reader. */
   conceptVisuals: conceptVisualsSchema.optional(),
   /**
-   * Where this project's own renders departed from the concept.
+   * Where this project's finished frames departed from the concept.
    *
    * Read by the settings screen and nothing else. It is kept out of every
-   * payload the storyboard agents receive on purpose — see `render-auditor.ts`.
+   * payload the storyboard agents receive on purpose — see
+   * `lib/agents/concept-fidelity.ts`.
    */
-  renderAudit: renderAuditSchema.optional(),
+  conceptFidelity: conceptFidelitySchema.optional(),
   worldBible: worldBibleSchema.optional(),
   directorialPlan: directorialPlanSchema.optional(),
   cinematographyPlan: cinematographyPlanSchema.optional(),

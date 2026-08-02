@@ -24,16 +24,17 @@ const TOC: Section[] = [
   { id: "concepts", title: "2. Key concepts" },
   { id: "fields", title: "3. Field reference (New Project)" },
   { id: "characters", title: "4. Character library" },
-  { id: "quickstart", title: "5. Quick start" },
-  { id: "workflow", title: "6. The end-to-end workflow" },
-  { id: "pages", title: "7. Every screen explained" },
-  { id: "agents", title: "8. The creative team (agents)" },
-  { id: "wangp", title: "9. WanGP & generation" },
-  { id: "qc", title: "10. QC, attempts & approval" },
-  { id: "assembly", title: "11. Assembly & exports" },
-  { id: "deepy", title: "12. Deepy assist" },
-  { id: "flags", title: "13. Modes & feature flags" },
-  { id: "faq", title: "14. FAQ & troubleshooting" },
+  { id: "conceptimages", title: "5. Concept images" },
+  { id: "quickstart", title: "6. Quick start" },
+  { id: "workflow", title: "7. The end-to-end workflow" },
+  { id: "pages", title: "8. Every screen explained" },
+  { id: "agents", title: "9. The creative team (agents)" },
+  { id: "wangp", title: "10. WanGP & generation" },
+  { id: "qc", title: "11. QC, attempts & approval" },
+  { id: "assembly", title: "12. Assembly & exports" },
+  { id: "deepy", title: "13. Deepy assist" },
+  { id: "flags", title: "14. Modes & feature flags" },
+  { id: "faq", title: "15. FAQ & troubleshooting" },
 ];
 
 function Anchor({ id }: { id: string }) {
@@ -647,10 +648,117 @@ export default function HelpPage() {
           </p>
         </section>
 
-        {/* 5. Quick start */}
+        {/* 5. Concept images */}
+        <section className={card}>
+          <Anchor id="conceptimages" />
+          <h2 className={h2}>5. Concept images</h2>
+          <p className={p}>
+            A project can hold up to six images that describe <em>the piece</em> rather than a
+            character in it. They live on <strong>Project → Settings</strong>, and they are
+            entirely optional — the concept you typed leads, and a project with no images behaves
+            exactly as it always has.
+          </p>
+          <p className={p}>
+            Each image carries the kind it was uploaded as, and the kind decides what it is allowed
+            to do. Nothing in the pixels tells the two apart, so you choose at upload and the app
+            never guesses.
+          </p>
+
+          <h3 className={h3}>Reference images</h3>
+          <p className={p}>
+            Pictures from <em>outside</em> the project whose look you want — a set, a palette, a
+            jacket, a quality of light. Press <em>Read references</em> and the Concept Reader writes
+            one description covering setting, lighting, mood, subjects, wardrobe, palette and
+            details. The images themselves are never sent to the image generator; the written
+            description is the artefact.
+          </p>
+          <p className="mt-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm leading-relaxed text-amber-100">
+            <strong>Current status.</strong> The description is written, stored, and shown to you
+            here. It is <strong>not yet read by the planning agents</strong> — the Visual Bible,
+            World Builder, Art Director and Storyboard Artist do not see it. Until that lands,
+            reference images do not change what gets generated, and it does not matter when you
+            upload them.
+          </p>
+          <p className={p}>
+            Where a reference disagrees with what you typed, it is listed under{" "}
+            <em>contradictions</em> rather than quietly resolved. A night interior against a concept
+            that says &ldquo;sunlit morning&rdquo; is a decision for the person who wrote both.
+          </p>
+          <p className={p}>
+            Needs <code>OPENAI_VISION_MODEL</code>. Without it the reader works from your typed
+            concept alone and says so in an amber banner, rather than pretending it looked.
+          </p>
+
+          <h3 className={h3}>Concept fidelity check</h3>
+          <p className={p}>
+            Frames this project generated, compared against{" "}
+            <strong>what you originally typed</strong>. Press <em>Check against concept</em> and you
+            get findings only: the image, what the concept asks for, and what the frame actually
+            shows.
+          </p>
+          <p className={p}>
+            Nothing written about these frames is ever fed back into the pipeline. A render records
+            what the pipeline <em>settled for</em>, not what was asked for — a scene written as
+            explicit and rendered as coy reads back as &ldquo;intimate&rdquo;. Describing one back
+            into the Visual Bible would teach the next generation the last one&apos;s compromises,
+            with the drift always in the direction of less. The report has no palette, wardrobe,
+            mood or lighting field, so there is nothing to leak.
+          </p>
+
+          <h3 className={h3}>How this differs from QC</h3>
+          <p className={p}>
+            Both look at rendered frames with a vision model, so the overlap is real. The difference
+            is what the frame is measured against.
+          </p>
+          <div className="mt-3 overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-slate-400">
+                  <th className="py-1 pr-4 font-medium" />
+                  <th className="py-1 pr-4 font-medium">QC agent</th>
+                  <th className="py-1 font-medium">Concept fidelity check</th>
+                </tr>
+              </thead>
+              <tbody className="text-slate-300">
+                {[
+                  ["Measured against", "The scene card", "The typed concept"],
+                  ["Scope", "One scene's keyframes", "Any frames, in one call"],
+                  ["Catches drift in the card", "No", "Yes"],
+                  ["Cross-scene continuity", "No", "Yes"],
+                  ["When", "Automatic, during generation", "On demand"],
+                  ["Output", "Verdict + regeneration notes", "Findings only"],
+                ].map(([label, qc, fidelity]) => (
+                  <tr key={label} className="border-t border-white/5">
+                    <td className="py-1 pr-4 text-slate-400">{label}</td>
+                    <td className="py-1 pr-4">{qc}</td>
+                    <td className="py-1">{fidelity}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <p className={p}>
+            QC grades a render against its scene card. But the scene card is itself written by the
+            Storyboard Artist <em>from</em> your concept, and it can lose what you asked for before a
+            single pixel exists. A card written without the men in shot, rendered faithfully,{" "}
+            <strong>passes QC</strong> — correctly, because the render matches the card. Your
+            concept is the only place the original intent survives.
+          </p>
+          <p className={p}>
+            QC also only ever sees one scene, so it cannot notice that scene 1 has three men and
+            scene 3 has four — those frames are never in the same call. The fidelity check receives
+            them together.
+          </p>
+          <p className={p}>
+            Use QC to catch bad execution. Use the fidelity check to catch a plan that drifted
+            before rendering started.
+          </p>
+        </section>
+
+        {/* 6. Quick start */}
         <section className={card}>
           <Anchor id="quickstart" />
-          <h2 className={h2}>5. Quick start</h2>
+          <h2 className={h2}>6. Quick start</h2>
           <ol className="mt-2 list-decimal space-y-2 pl-5">
             <li className={li}>
               Open <strong>New project</strong> from the header. Enter a concept and a duration, then
@@ -678,7 +786,7 @@ export default function HelpPage() {
         {/* 6. Workflow */}
         <section className={card}>
           <Anchor id="workflow" />
-          <h2 className={h2}>6. The end-to-end workflow</h2>
+          <h2 className={h2}>7. The end-to-end workflow</h2>
           <ol className="mt-2 list-decimal space-y-2 pl-5">
             <li className={li}><strong>New project</strong> — describe the idea and settings.</li>
             <li className={li}><strong>Variant Review</strong> (optional) — generate 3 creative directions, each changing a different thing, and select one.</li>
@@ -699,7 +807,7 @@ export default function HelpPage() {
         {/* 7. Pages */}
         <section className={card}>
           <Anchor id="pages" />
-          <h2 className={h2}>7. Every screen explained</h2>
+          <h2 className={h2}>8. Every screen explained</h2>
 
           <h3 className={h3}>Home</h3>
           <p className={p}>
@@ -871,7 +979,7 @@ export default function HelpPage() {
         {/* 8. Agents */}
         <section className={card}>
           <Anchor id="agents" />
-          <h2 className={h2}>8. The creative team (agents)</h2>
+          <h2 className={h2}>9. The creative team (agents)</h2>
           <p className={p}>Each agent produces one artifact you can review and regenerate:</p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             <li className={li}><strong>Intake Producer</strong> — turns your idea into a structured creative brief: logline, synopsis, narrative arc, visual style, tone, audience and constraints.</li>
@@ -968,7 +1076,7 @@ export default function HelpPage() {
         {/* 9. WanGP */}
         <section className={card}>
           <Anchor id="wangp" />
-          <h2 className={h2}>9. WanGP &amp; generation</h2>
+          <h2 className={h2}>10. WanGP &amp; generation</h2>
           <p className={p}>
             StoryForgeAI generates media through WanGP/Wan2GP. It is <strong>discovery-first</strong>:
             it lists available models, prefers ones that support start frames (for scene continuity),
@@ -1162,7 +1270,7 @@ export default function HelpPage() {
         {/* 8. QC */}
         <section className={card}>
           <Anchor id="qc" />
-          <h2 className={h2}>10. QC, attempts &amp; approval</h2>
+          <h2 className={h2}>11. QC, attempts &amp; approval</h2>
           <p className={p}>
             Generating media for a scene creates an <strong>attempt</strong> — a start frame, an end
             frame, and a video clip.
@@ -1194,7 +1302,7 @@ export default function HelpPage() {
         {/* 9. Assembly */}
         <section className={card}>
           <Anchor id="assembly" />
-          <h2 className={h2}>11. Assembly &amp; exports</h2>
+          <h2 className={h2}>12. Assembly &amp; exports</h2>
           <p className={p}>
             Assembly builds a final-cut plan from your approved clips and produces a rough cut. The last
             scene&apos;s trim is applied automatically so the total runtime matches your request.
@@ -1238,7 +1346,7 @@ export default function HelpPage() {
         {/* 10. Deepy */}
         <section className={card}>
           <Anchor id="deepy" />
-          <h2 className={h2}>12. Deepy assist</h2>
+          <h2 className={h2}>13. Deepy assist</h2>
           <p className={p}>
             Deepy is an optional media helper. On the Assembly page you can &quot;Ask Deepy&quot; about a
             clip to inspect it, extract the final frame, transcribe audio, suggest why a generation
@@ -1250,7 +1358,7 @@ export default function HelpPage() {
         {/* 11. Flags */}
         <section className={card}>
           <Anchor id="flags" />
-          <h2 className={h2}>13. Modes &amp; feature flags</h2>
+          <h2 className={h2}>14. Modes &amp; feature flags</h2>
           <p className={p}>
             Every external integration is off by default. An administrator can enable them via
             environment variables (see the project README and the <a href="/about" className="text-accent hover:underline">About</a> page for current status):
@@ -1271,7 +1379,7 @@ export default function HelpPage() {
         {/* 12. FAQ */}
         <section className={card}>
           <Anchor id="faq" />
-          <h2 className={h2}>14. FAQ &amp; troubleshooting</h2>
+          <h2 className={h2}>15. FAQ &amp; troubleshooting</h2>
 
           <h3 className={h3}>Why are all my scenes 20 seconds?</h3>
           <p className={p}>

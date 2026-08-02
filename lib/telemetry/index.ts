@@ -9,7 +9,7 @@ export type TelemetryEvent =
   | "project.concept_image_added"
   | "project.concept_image_removed"
   | "project.concept_visuals"
-  | "project.render_audit"
+  | "project.concept_fidelity"
   | "project.updated"
   | "project.deleted"
   | "project.restored"

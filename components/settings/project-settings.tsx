@@ -194,7 +194,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
         projectId={projectId}
         initial={project.conceptImages ?? []}
         initialVisuals={record.conceptVisuals}
-        initialAudit={record.renderAudit}
+        initialFidelity={record.conceptFidelity}
       />
 
       <section className="space-y-4 rounded-lg border border-white/10 bg-panel/40 p-4">

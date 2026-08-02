@@ -1,20 +1,20 @@
 import { NextResponse } from "next/server";
-import { auditRenderImages } from "@/lib/services/project-service";
+import { checkConceptFidelity } from "@/lib/services/project-service";
 import { toErrorResponse } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
 
 /**
- * Check the project's own renders against its concept.
+ * Check the project's finished frames against its concept.
  *
  * Returns findings only. Nothing from this route reaches the storyboard agents,
- * by design — see `lib/agents/render-auditor.ts`.
+ * by design — see `lib/agents/concept-fidelity.ts`.
  */
 export async function POST(_request: Request, { params }: { params: { projectId: string } }) {
   try {
-    const record = await auditRenderImages(params.projectId);
+    const record = await checkConceptFidelity(params.projectId);
     return NextResponse.json(
-      { renderAudit: record.renderAudit },
+      { conceptFidelity: record.conceptFidelity },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (err) {

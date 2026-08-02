@@ -42,7 +42,7 @@ import { runStoryboardOrchestrator } from "@/lib/agents/orchestrator";
 import { intakeAgent } from "@/lib/agents/intake-agent";
 import { storyArchitectAgent } from "@/lib/agents/story-architect-agent";
 import { conceptReaderAgent } from "@/lib/agents/concept-reader";
-import { renderAuditorAgent } from "@/lib/agents/render-auditor";
+import { conceptFidelityAgent } from "@/lib/agents/concept-fidelity";
 import type { AgentContext } from "@/lib/agents/types";
 import type { StoryPlan } from "@/lib/schemas/agents";
 import { deriveTitle } from "@/lib/agents/mock-agents";
@@ -411,9 +411,9 @@ export async function importProject(raw: unknown): Promise<ImportOutcome> {
     project,
     attempts,
     previews: undefined,
-    // The audit names frames by label, and no frame travelled with the export.
+    // The report names frames by label, and no frame travelled with the export.
     // Carrying it over would attribute findings to renders that are not here.
-    renderAudit: undefined,
+    conceptFidelity: undefined,
     storyboard: source.storyboard
       ? {
           ...source.storyboard,
@@ -946,35 +946,35 @@ export async function readConceptImages(id: string): Promise<ProjectRecord> {
 }
 
 /**
- * Check the project's own renders against the concept.
+ * Check the project's finished frames against the concept it started from.
  *
  * The result is stored on the record and read by the settings screen. It is
- * never added to an agent payload: see `lib/agents/render-auditor.ts` for why
+ * never added to an agent payload: see `lib/agents/concept-fidelity.ts` for why
  * describing a render back into the pipeline degrades it.
  */
-export async function auditRenderImages(id: string): Promise<ProjectRecord> {
-  return trackAgentRun(id, "render_auditor", "Render Auditor", async () => {
+export async function checkConceptFidelity(id: string): Promise<ProjectRecord> {
+  return trackAgentRun(id, "concept_fidelity", "Concept Fidelity Check", async () => {
     const record = await getProjectRecord(id);
     const { conceptImageFiles } = await import("@/lib/services/concept-image-service");
     const files = await conceptImageFiles(id, "render");
 
     if (files.length === 0) {
-      throw new ValidationError("Add at least one render before auditing.");
+      throw new ValidationError("Add at least one render before checking it against the concept.");
     }
 
-    const renderAudit = await renderAuditorAgent(
+    const conceptFidelity = await conceptFidelityAgent(
       record.project,
       files.map((file) => file.path),
       getPlanningProvider(),
     );
     const updated: ProjectRecord = {
       ...record,
-      renderAudit,
+      conceptFidelity,
       project: { ...record.project, updatedAt: new Date().toISOString() },
       history: appendHistory(
         record,
-        "render_audit.generated",
-        `${renderAudit.findings.length} findings from ${renderAudit.images.length} renders`,
+        "concept_fidelity.checked",
+        `${conceptFidelity.findings.length} findings from ${conceptFidelity.images.length} frames`,
       ),
     };
 

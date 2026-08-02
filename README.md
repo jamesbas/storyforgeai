@@ -340,6 +340,84 @@ call goes through one chain whenever `OPENAI_BASE_URL` is set, which also covers
 the Agentic Canvas firing several agents and a second browser tab. Hosted APIs
 have no such limit and are left to run in parallel.
 
+## Concept images
+
+A project can hold up to six images that describe the piece rather than a
+character in it. They live under **Project → Settings → Concept images**, and are
+entirely optional: the typed concept leads, and a project with no images behaves
+exactly as it does today.
+
+Each image carries the kind it was uploaded as, and the kind decides what it may
+do.
+
+### Reference images
+
+Pictures from outside the project whose look you want — a set, a palette, a
+jacket, a quality of light. Press **Read references** and the Concept Reader
+writes a single description of setting, lighting, mood, subjects, wardrobe,
+palette and details. The images themselves never reach the image generator; the
+written description is the artefact.
+
+> **Current status.** The description is produced and stored on the project, and
+> shown to you on the settings screen. It is **not yet threaded into the
+> planning agents** — Intake, Visual Bible, World Builder, Art Director and the
+> Storyboard Artist do not read it. Until that lands, reference images change
+> nothing about what gets generated, and the order you upload them in does not
+> matter.
+
+Where a reference disagrees with what you typed, it is recorded under
+*contradictions* rather than resolved. A night interior against a concept that
+says "sunlit morning" is a decision for the person who wrote both, and a model
+that quietly picks one produces a project nobody asked for.
+
+Requires `OPENAI_VISION_MODEL`. Without it the reader falls back to the typed
+concept and says so in an amber banner rather than pretending it looked.
+
+### Concept fidelity check
+
+Frames this project generated, compared against **what you originally typed**.
+Press **Check against concept** and you get findings only — the image, what the
+concept asks for, and what the frame actually shows.
+
+Nothing written about these frames is fed back into the pipeline, and that is
+enforced by the schema rather than by a rule: `conceptFidelitySchema` has no
+palette, wardrobe, mood or lighting field to leak. A render records what the
+pipeline *settled for*, not what was asked for. Describing one back into the
+Visual Bible would teach each generation the last one's compromises — a scene
+written as explicit and rendered as coy reads back as "intimate", and the drift
+is always in the direction of less.
+
+Because nothing in the pixels distinguishes a reference from a render, the kind
+is chosen at upload and never guessed.
+
+### How it differs from QC
+
+Both look at rendered frames with a vision model, so the overlap is real. The
+difference is the yardstick.
+
+| | QC agent | Concept fidelity check |
+|---|---|---|
+| Measured against | The scene card | The typed concept |
+| Scope | One scene's keyframes | Any frames, in one call |
+| Catches drift in the card | No | Yes |
+| Cross-scene continuity | No | Yes |
+| When | Automatic, during generation | On demand |
+| Output | Verdict + regeneration instructions | Findings only |
+
+QC grades a render against its scene card. The scene card is itself written by
+the Storyboard Artist *from* the concept, and can lose what you asked for before
+a single pixel exists. A card written without the men in shot, rendered
+faithfully, **passes QC** — correctly, because the render matches the card. The
+concept is the only place the original intent survives, and nothing else in the
+pipeline looks back at it.
+
+QC also only ever sees one scene, so it cannot notice that scene 1 has three men
+and scene 3 has four. Those frames are never in the same call. The fidelity
+check receives them together.
+
+Use QC to catch bad execution. Use the fidelity check to catch a plan that
+drifted before rendering started.
+
 ## Character identity
 
 Holding one face across independently rendered scenes is the hardest part of the
