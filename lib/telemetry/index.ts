@@ -71,7 +71,6 @@ export function logEvent(event: TelemetryEvent, data: Record<string, unknown> = 
       event,
       ...data,
     });
-    // eslint-disable-next-line no-console
     console.log(line);
   } catch {
     // Telemetry must never break the caller.

@@ -1,11 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { MediaDescriptor } from "@/lib/media/refs";
 import { generationStages } from "@/lib/types";
 import { assemblyReadiness, type MissingApproval, type MissingApprovalReason } from "@/lib/media/assembly";
+import { useLoadEffect } from "@/components/shared/use-load-effect";
 import { AudioCuePanel } from "@/components/assembly/audio-cue-panel";
 
 type ExportDescriptor = { name: string; url: string; available: boolean };
@@ -25,24 +26,26 @@ export function AssemblyView({ projectId }: { projectId: string }) {
   const [conflict, setConflict] = useState<MissingApproval[] | null>(null);
   const [deepy, setDeepy] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    const [rec, exp, med] = await Promise.all([
-      fetch(`/api/projects/${projectId}`).then((r) => (r.ok ? (r.json() as Promise<ProjectRecord>) : null)),
-      fetch(`/api/projects/${projectId}/exports`).then((r) =>
-        r.ok ? (r.json() as Promise<{ exports: ExportDescriptor[] }>) : { exports: [] },
-      ),
-      fetch(`/api/projects/${projectId}/media`).then((r) =>
-        r.ok ? (r.json() as Promise<{ media: MediaDescriptor[] }>) : { media: [] },
-      ),
-    ]);
-    if (rec) setRecord(rec);
-    setExportsList(exp.exports);
-    setMedia(med.media);
-  }, [projectId]);
+  const load = useCallback(
+    async (isCurrent: () => boolean = () => true) => {
+      const [rec, exp, med] = await Promise.all([
+        fetch(`/api/projects/${projectId}`).then((r) => (r.ok ? (r.json() as Promise<ProjectRecord>) : null)),
+        fetch(`/api/projects/${projectId}/exports`).then((r) =>
+          r.ok ? (r.json() as Promise<{ exports: ExportDescriptor[] }>) : { exports: [] },
+        ),
+        fetch(`/api/projects/${projectId}/media`).then((r) =>
+          r.ok ? (r.json() as Promise<{ media: MediaDescriptor[] }>) : { media: [] },
+        ),
+      ]);
+      if (!isCurrent()) return;
+      if (rec) setRecord(rec);
+      setExportsList(exp.exports);
+      setMedia(med.media);
+    },
+    [projectId],
+  );
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useLoadEffect(load);
 
   const assemble = useCallback(async () => {
     setBusy(true);

@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
+import { useLoadEffect } from "@/components/shared/use-load-effect";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 
 export function AnimaticReview({ projectId }: { projectId: string }) {
@@ -10,15 +11,17 @@ export function AnimaticReview({ projectId }: { projectId: string }) {
   const [approved, setApproved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    const res = await fetch(`/api/projects/${projectId}`);
-    if (res.ok) setRecord((await res.json()) as ProjectRecord);
-    else setError("Failed to load project");
-  }, [projectId]);
+  const load = useCallback(
+    async (isCurrent: () => boolean = () => true) => {
+      const res = await fetch(`/api/projects/${projectId}`);
+      if (!isCurrent()) return;
+      if (res.ok) setRecord((await res.json()) as ProjectRecord);
+      else setError("Failed to load project");
+    },
+    [projectId],
+  );
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useLoadEffect(load);
 
   const generate = useCallback(async () => {
     setBusy(true);

@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
+import { useLoadEffect } from "@/components/shared/use-load-effect";
 import type { WangpJob, WangpModel } from "@/lib/schemas/wangp";
 
 type Status = { enabled: boolean; mode: string; url: string; ok: boolean };
@@ -13,22 +14,21 @@ export function GenerationConsole({ projectId }: { projectId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (isCurrent: () => boolean = () => true) => {
     try {
       const [s, m] = await Promise.all([
         fetch("/api/wangp/status").then((r) => r.json() as Promise<Status>),
         fetch("/api/wangp/models").then((r) => r.json() as Promise<{ models: WangpModel[] }>),
       ]);
+      if (!isCurrent()) return;
       setStatus(s);
       setModels(m.models);
     } catch {
-      setError("Failed to reach WanGP");
+      if (isCurrent()) setError("Failed to reach WanGP");
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useLoadEffect(load);
 
   const submit = useCallback(async () => {
     setBusy(true);

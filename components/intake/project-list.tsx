@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { ProjectListItem } from "@/components/intake/project-list-item";
+import { useLoadEffect } from "@/components/shared/use-load-effect";
 import type { Project } from "@/lib/schemas/project";
 
 /**
@@ -15,22 +16,22 @@ export function useProjects() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (isCurrent: () => boolean = () => true) => {
     try {
       const res = await fetch("/api/projects", { cache: "no-store" });
       if (!res.ok) return;
       const data = (await res.json()) as { projects: Project[] };
-      setProjects([...data.projects].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+      if (isCurrent()) {
+        setProjects([...data.projects].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt)));
+      }
     } catch {
       // non-fatal in demo mode
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    void reload();
-  }, [reload]);
+  useLoadEffect(reload);
 
   const forget = useCallback((id: string) => {
     setProjects((current) => current.filter((project) => project.id !== id));

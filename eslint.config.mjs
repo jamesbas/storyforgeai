@@ -22,11 +22,5 @@ export default defineConfig([
   ]),
   {
     extends: [...nextCoreWebVitals],
-    rules: {
-      // New in eslint-config-next 16, and it fires on the load-on-mount effect
-      // every screen uses. Clearing it is a data-loading refactor, which does
-      // not belong in a dependency upgrade.
-      "react-hooks/set-state-in-effect": "warn",
-    },
   },
 ]);

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { PlanPanel } from "@/components/agentic-canvas/plan-panel";
 import { useAgentRun } from "@/components/shared/use-agent-run";
+import { useLoadEffect } from "@/components/shared/use-load-effect";
 import { planOn, planSpecFor } from "@/lib/agents/plan-fields";
 import { isContinuousTake } from "@/lib/agents/continuity";
 import { shotPlanIssues } from "@/lib/media/seam";
@@ -133,15 +134,17 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
   const [queue, setQueue] = useState<CanvasQueue | null>(null);
   const [alsoStoryboard, setAlsoStoryboard] = useState(true);
 
-  const load = useCallback(async () => {
-    const res = await fetch(`/api/projects/${projectId}`);
-    if (res.ok) setRecord((await res.json()) as ProjectRecord);
-    else setError("Failed to load project");
-  }, [projectId]);
+  const load = useCallback(
+    async (isCurrent: () => boolean = () => true) => {
+      const res = await fetch(`/api/projects/${projectId}`);
+      if (!isCurrent()) return;
+      if (res.ok) setRecord((await res.json()) as ProjectRecord);
+      else setError("Failed to load project");
+    },
+    [projectId],
+  );
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useLoadEffect(load);
 
   // A run started here, or before a navigation, or in another tab.
   const { agentKey: remoteKey } = useAgentRun(projectId, () => void load());

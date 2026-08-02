@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/shell/app-shell";
 import { CharacterLibrary } from "@/components/settings/character-library";
+import { useLoadEffect } from "@/components/shared/use-load-effect";
 import type { Project } from "@/lib/schemas/project";
 
 /**
@@ -17,18 +18,17 @@ import type { Project } from "@/lib/schemas/project";
 export default function SettingsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (isCurrent: () => boolean = () => true) => {
     try {
       const res = await fetch("/api/projects");
-      if (res.ok) setProjects(((await res.json()) as { projects: Project[] }).projects);
+      const data = res.ok ? ((await res.json()) as { projects: Project[] }) : null;
+      if (isCurrent() && data) setProjects(data.projects);
     } catch {
       // non-fatal: the character library does not depend on projects
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useLoadEffect(load);
 
   return (
     <AppShell>

@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAgentRun } from "@/components/shared/use-agent-run";
+import { useLoadEffect } from "@/components/shared/use-load-effect";
 import Link from "next/link";
 import { SceneCard } from "@/components/storyboard/scene-card";
 import { CreativePlansPanel } from "@/components/storyboard/creative-plans-panel";
@@ -45,24 +46,26 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     }
   }, [projectId]);
 
-  const load = useCallback(async () => {
-    setError(null);
-    const res = await fetch(`/api/projects/${projectId}`);
-    if (res.status === 404) {
-      setError("Project not found");
-      setRecord(null);
-    } else if (res.ok) {
-      setRecord((await res.json()) as ProjectRecord);
-      await loadMedia();
-    } else {
-      setError("Failed to load project");
-    }
-    setLoading(false);
-  }, [projectId, loadMedia]);
+  const load = useCallback(
+    async (isCurrent: () => boolean = () => true) => {
+      setError(null);
+      const res = await fetch(`/api/projects/${projectId}`);
+      if (!isCurrent()) return;
+      if (res.status === 404) {
+        setError("Project not found");
+        setRecord(null);
+      } else if (res.ok) {
+        setRecord((await res.json()) as ProjectRecord);
+        await loadMedia();
+      } else {
+        setError("Failed to load project");
+      }
+      if (isCurrent()) setLoading(false);
+    },
+    [projectId, loadMedia],
+  );
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useLoadEffect(load);
 
   /**
    * A storyboard run outlives this component.
@@ -137,14 +140,17 @@ export function StoryboardView({ projectId }: { projectId: string }) {
    */
   const [loraCatalogs, setLoraCatalogs] = useState<{ image?: LoraCatalog; video?: LoraCatalog }>({});
   /** The project's pinned cast, for the per-scene wardrobe panel. */
-  const [cast, setCast] = useState<Character[]>([]);
+  const [fetchedCast, setFetchedCast] = useState<Character[]>([]);
+  const castEnabled = Boolean(
+    record?.project.useCharacterLibrary && record.project.characterIds?.length,
+  );
+  // Derived rather than reset from an effect: an effect that writes [] on the
+  // disabled path is a synchronous state update and an extra render.
+  const cast = useMemo(() => (castEnabled ? fetchedCast : []), [castEnabled, fetchedCast]);
 
   useEffect(() => {
     const ids = record?.project.characterIds;
-    if (!record?.project.useCharacterLibrary || !ids?.length) {
-      setCast([]);
-      return;
-    }
+    if (!castEnabled || !ids?.length) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -152,7 +158,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         if (!res.ok) return;
         const all = (await res.json()) as Character[];
         const byId = new Map(all.map((c) => [c.id, c] as const));
-        if (!cancelled) setCast(ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : [])));
+        if (!cancelled) setFetchedCast(ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : [])));
       } catch {
         // The wardrobe panel is optional; the storyboard works without it.
       }
@@ -160,22 +166,20 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [record?.project.useCharacterLibrary, record?.project.characterIds]);
+  }, [castEnabled, record?.project.characterIds]);
 
-  const loadLlmStatus = useCallback(async () => {
+  const loadLlmStatus = useCallback(async (isCurrent: () => boolean = () => true) => {
     try {
       // `no-store` matters here: without it the browser can answer Refresh from
       // its own cache and report a model as unloaded when it is resident.
       const res = await fetch("/api/llm/status", { cache: "no-store" });
-      if (res.ok) setLlm((await res.json()) as LlmRuntimeStatus);
+      if (res.ok && isCurrent()) setLlm((await res.json()) as LlmRuntimeStatus);
     } catch {
       // Runtime control is optional; the storyboard works without it.
     }
   }, []);
 
-  useEffect(() => {
-    void loadLlmStatus();
-  }, [loadLlmStatus]);
+  useLoadEffect(loadLlmStatus);
 
   // Trigger words come from the LoRA catalog, so it is fetched once per kind and
   // shared across every scene card.
@@ -303,18 +307,19 @@ export function StoryboardView({ projectId }: { projectId: string }) {
    * and strictly in scene order so the continuity modes can read the previous
    * scene's finished attempt. The page just polls for progress.
    */
-  const loadQueue = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/projects/${projectId}/queue`, { cache: "no-store" });
-      if (res.ok) setQueue((await res.json()) as QueueSnapshot);
-    } catch {
-      // Progress polling is best-effort.
-    }
-  }, [projectId]);
+  const loadQueue = useCallback(
+    async (isCurrent: () => boolean = () => true) => {
+      try {
+        const res = await fetch(`/api/projects/${projectId}/queue`, { cache: "no-store" });
+        if (res.ok && isCurrent()) setQueue((await res.json()) as QueueSnapshot);
+      } catch {
+        // Progress polling is best-effort.
+      }
+    },
+    [projectId],
+  );
 
-  useEffect(() => {
-    void loadQueue();
-  }, [loadQueue]);
+  useLoadEffect(loadQueue);
 
   // Poll only while work is outstanding, and refresh the record as scenes land.
   useEffect(() => {

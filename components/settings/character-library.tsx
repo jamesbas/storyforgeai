@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { MAX_REFERENCE_IMAGES, referenceImagesOf } from "@/lib/schemas/character";
+import { useLoadEffect } from "@/components/shared/use-load-effect";
 import type { Character } from "@/lib/schemas/character";
 
 type CharactersResponse = { characters: Character[] };
@@ -31,21 +32,22 @@ export function CharacterLibrary() {
   const [loaded, setLoaded] = useState(false);
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (isCurrent: () => boolean = () => true) => {
     try {
       const res = await fetch("/api/characters");
       if (!res.ok) throw new Error("Failed to load the character library");
-      setCharacters(((await res.json()) as CharactersResponse).characters);
+      const data = (await res.json()) as CharactersResponse;
+      if (isCurrent()) setCharacters(data.characters);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to load the character library");
+      if (isCurrent()) {
+        setError(e instanceof Error ? e.message : "Failed to load the character library");
+      }
     } finally {
-      setLoaded(true);
+      if (isCurrent()) setLoaded(true);
     }
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
+  useLoadEffect(load);
 
   const request = useCallback(
     async (url: string, init: RequestInit, failure: string) => {

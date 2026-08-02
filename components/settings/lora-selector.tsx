@@ -1,8 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { MAX_LORAS_PER_MODEL } from "@/lib/schemas/lora";
 import { effectiveTriggerWords, needsTriggerChoice } from "@/lib/lora/trigger-words";
+import { useLoadEffect } from "@/components/shared/use-load-effect";
 import type { LoraCatalog, LoraKind, LoraSelection } from "@/lib/schemas/lora";
 
 /**
@@ -35,7 +36,7 @@ export function LoraSelector({
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(
-    async (refresh = false) => {
+    async (refresh = false, isCurrent: () => boolean = () => true) => {
       setLoading(true);
       try {
         const res = await fetch(
@@ -43,24 +44,31 @@ export function LoraSelector({
             (refresh ? "&refresh=1" : ""),
           { cache: "no-store" },
         );
-        setCatalog(
-          res.ok
-            ? ((await res.json()) as LoraCatalog)
-            : { supported: false, modelType: "", reason: "Could not reach the LoRA catalog." },
-        );
+        const next: LoraCatalog = res.ok
+          ? ((await res.json()) as LoraCatalog)
+          : { supported: false, modelType: "", reason: "Could not reach the LoRA catalog." };
+        if (isCurrent()) setCatalog(next);
       } catch {
-        setCatalog({ supported: false, modelType: "", reason: "Could not reach the LoRA catalog." });
+        if (isCurrent()) {
+          setCatalog({ supported: false, modelType: "", reason: "Could not reach the LoRA catalog." });
+        }
       } finally {
-        setLoading(false);
+        if (isCurrent()) setLoading(false);
       }
     },
     [projectId, kind],
   );
 
-  useEffect(() => {
-    void load();
-    // `modelType` is not read by `load` — it is here so a model change refetches.
-  }, [load, modelType]);
+  useLoadEffect(
+    useCallback(
+      (isCurrent: () => boolean) => load(false, isCurrent),
+      // `modelType` is not read by `load` — it is here so a model change
+      // refetches. The rule cannot see that, and dropping it would silently
+      // leave the old model's LoRAs on screen.
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      [load, modelType],
+    ),
+  );
 
   if (loading) return <p className="text-xs text-slate-500">Loading {kind} LoRAs…</p>;
 
