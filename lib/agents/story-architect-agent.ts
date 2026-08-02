@@ -1,6 +1,8 @@
 import { storyPlanSchema, type StoryPlan } from "@/lib/schemas/agents";
 import { buildStoryPlan } from "@/lib/agents/mock-agents";
 import { creativeModeDirective } from "@/lib/agents/look";
+import { executeArtifact, providerCall } from "@/lib/agents/provenance";
+import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import { SEGMENT_SECONDS } from "@/lib/types";
 import type { AgentContext } from "@/lib/agents/types";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
@@ -64,18 +66,29 @@ export async function storyArchitectAgent(
   ctx: AgentContext,
   provider: PlanningProvider | null,
 ): Promise<StoryPlan> {
-  if (provider) {
-    const user = JSON.stringify({ project: ctx.project, brief: ctx.brief });
-    const result = await provider.generateJson(
-      storyArchitectSystem(ctx.project.segmentSeconds, ctx.project.segmentCount) +
-        creativeModeDirective(ctx.project),
-      user,
-      storyPlanSchema,
-    );
-    // Enforce one beat per segment even if the model returned a different count.
-    if (result && result.segmentBeats.length === ctx.project.segmentCount) {
-      return { ...result, projectId: ctx.project.id };
-    }
-  }
-  return buildStoryPlan(ctx.project);
+  const user = JSON.stringify({ project: ctx.project, brief: ctx.brief });
+
+  const { value } = await executeArtifact<StoryPlan>({
+    artifact: "story_plan",
+    scope: "project",
+    correlationId: ctx.correlationId,
+    promptVersion: PROMPT_VERSIONS.storyArchitect,
+    builderVersion: BUILDER_VERSION,
+    provider,
+    onExecution: ctx.onExecution,
+    llm: provider
+      ? providerCall(
+          provider,
+          storyArchitectSystem(ctx.project.segmentSeconds, ctx.project.segmentCount) +
+            creativeModeDirective(ctx.project),
+          user,
+          storyPlanSchema,
+        )
+      : undefined,
+    // One beat per segment, even if the model returned a different count.
+    validate: (plan) =>
+      plan.segmentBeats.length === ctx.project.segmentCount ? undefined : "short_collection",
+    fallback: () => buildStoryPlan(ctx.project),
+  });
+  return { ...value, projectId: ctx.project.id };
 }

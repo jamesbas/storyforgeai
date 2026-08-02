@@ -41,6 +41,9 @@ export function buildGenerationManifest(record: ProjectRecord): unknown {
     projectId: record.project.id,
     title: record.project.title,
     segmentSeconds: record.project.segmentSeconds,
+    // How each artifact was produced. Absent on projects written before
+    // provenance existed, which is not the same as "written by a model".
+    provenance: record.executions ?? null,
     scenes: record.storyboard.scenes.map((scene) => {
       const attempts = record.attempts?.[scene.id] ?? [];
       const chosen = attempts.find((a) => a.approved) ?? attempts[attempts.length - 1];

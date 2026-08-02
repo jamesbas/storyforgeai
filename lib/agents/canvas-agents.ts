@@ -21,6 +21,8 @@ import {
 } from "@/lib/agents/mock-canvas";
 import { castSystemDirective } from "@/lib/agents/cast";
 import { repairVariantSet } from "@/lib/agents/variant-set";
+import { executeArtifact, providerCall, type ExecutionCollector } from "@/lib/agents/provenance";
+import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import { conceptVisualsDirective, conceptVisualsPayload } from "@/lib/agents/concept-visuals";
 import { explicitnessDirective } from "@/lib/agents/explicitness";
 import { cameraContinuityDirective } from "@/lib/agents/continuity";
@@ -168,6 +170,8 @@ export type CanvasContext = {
   plans?: CreativePlans;
   /** What the project's reference images showed, if any were read. */
   conceptVisuals?: ConceptVisuals;
+  onExecution?: ExecutionCollector;
+  correlationId?: string;
 };
 
 /** Only the direction's substance is useful; ids and timestamps are noise. */
@@ -186,30 +190,65 @@ function directionOf(variant: CreativeVariant | undefined) {
 export async function variantExplorerAgent(
   project: Project,
   provider: PlanningProvider | null,
+  ctx: CanvasContext = {},
 ): Promise<CreativeVariant[]> {
-  if (provider) {
-    const user = JSON.stringify({ project });
-    const result = await provider.generateJson(VARIANT_EXPLORER_SYSTEM, user, variantsSchema);
-    if (result?.variants.length) {
-      // The schema validates one variant at a time, so three directions that all
-      // claim the same axis parse cleanly. Repair the set before it is stored.
-      const repair = repairVariantSet(
-        project,
-        result.variants.map((v) => ({ ...v, projectId: project.id })),
-      );
-      if (repair.issues.length) {
-        logEvent("variant_set.repaired", {
-          projectId: project.id,
-          issues: repair.issues,
-          returned: result.variants.length,
-          replaced: repair.replaced.length,
-          axes: repair.variants.map((v) => v.variantType),
-        });
-      }
-      return repair.variants;
-    }
-  }
-  return buildVariants(project);
+  const user = JSON.stringify({ project });
+  let repaired = 0;
+
+  const { value } = await executeArtifact<CreativeVariant[]>({
+    artifact: "variants",
+    scope: "project",
+    correlationId: ctx.correlationId,
+    promptVersion: PROMPT_VERSIONS.variants,
+    builderVersion: BUILDER_VERSION,
+    provider,
+    onExecution: (execution) =>
+      ctx.onExecution?.(
+        // A partly repaired set is neither the model's work nor the builder's.
+        repaired > 0 && execution.source === "llm"
+          ? {
+              ...execution,
+              source: "hybrid",
+              status: "degraded",
+              fallbackReason: "invalid_set",
+              attempted: { total: 3, fromLlm: 3 - repaired },
+            }
+          : execution,
+      ),
+    llm: provider
+      ? async () => {
+          const result = await providerCall(
+            provider,
+            VARIANT_EXPLORER_SYSTEM,
+            user,
+            variantsSchema,
+          )();
+          if (!result.ok) return result;
+          if (!result.value.variants.length) {
+            return { ok: false, reason: "short_collection", provider: provider.name };
+          }
+          // The schema validates one variant at a time, so three directions that
+          // all claim the same axis parse cleanly. Repair before storing.
+          const repair = repairVariantSet(
+            project,
+            result.value.variants.map((v) => ({ ...v, projectId: project.id })),
+          );
+          repaired = repair.replaced.length;
+          if (repair.issues.length) {
+            logEvent("variant_set.repaired", {
+              projectId: project.id,
+              issues: repair.issues,
+              returned: result.value.variants.length,
+              replaced: repair.replaced.length,
+              axes: repair.variants.map((v) => v.variantType),
+            });
+          }
+          return { ...result, value: repair.variants };
+        }
+      : undefined,
+    fallback: () => buildVariants(project),
+  });
+  return value;
 }
 
 export async function worldBuilderAgent(
@@ -217,25 +256,36 @@ export async function worldBuilderAgent(
   provider: PlanningProvider | null,
   ctx: CanvasContext = {},
 ): Promise<WorldBible> {
-  if (provider) {
-    const conceptVisuals = conceptVisualsPayload(ctx.conceptVisuals);
-    const user = JSON.stringify({
-      project,
-      selectedDirection: directionOf(ctx.selectedVariant),
-      cast: ctx.cast ?? [],
-      storyPlan: ctx.storyPlan,
-      ...(conceptVisuals ? { conceptVisuals } : {}),
-    });
-    const result = await provider.generateJson(
-      WORLD_BUILDER_SYSTEM +
-        castSystemDirective(ctx.cast ?? []) +
-        conceptVisualsDirective(ctx.conceptVisuals),
-      user,
-      worldBibleSchema,
-    );
-    if (result) return { ...result, projectId: project.id };
-  }
-  return buildWorldBible(project);
+  const conceptVisuals = conceptVisualsPayload(ctx.conceptVisuals);
+  const user = JSON.stringify({
+    project,
+    selectedDirection: directionOf(ctx.selectedVariant),
+    cast: ctx.cast ?? [],
+    storyPlan: ctx.storyPlan,
+    ...(conceptVisuals ? { conceptVisuals } : {}),
+  });
+
+  const { value } = await executeArtifact<WorldBible>({
+    artifact: "world_bible",
+    scope: "project",
+    correlationId: ctx.correlationId,
+    promptVersion: PROMPT_VERSIONS.worldBible,
+    builderVersion: BUILDER_VERSION,
+    provider,
+    onExecution: ctx.onExecution,
+    llm: provider
+      ? providerCall(
+          provider,
+          WORLD_BUILDER_SYSTEM +
+            castSystemDirective(ctx.cast ?? []) +
+            conceptVisualsDirective(ctx.conceptVisuals),
+          user,
+          worldBibleSchema,
+        )
+      : undefined,
+    fallback: () => buildWorldBible(project),
+  });
+  return { ...value, projectId: project.id };
 }
 
 export async function directorAgent(
@@ -243,25 +293,36 @@ export async function directorAgent(
   provider: PlanningProvider | null,
   ctx: CanvasContext = {},
 ): Promise<DirectorialPlan> {
-  if (provider) {
-    const user = JSON.stringify({
-      project,
-      selectedDirection: directionOf(ctx.selectedVariant),
-      cast: ctx.cast ?? [],
-      storyPlan: ctx.storyPlan,
-      plans: planningPayload(ctx.plans),
-    });
-    const result = await provider.generateJson(
-      DIRECTOR_SYSTEM +
-        explicitnessDirective(project, "plan") +
-        castSystemDirective(ctx.cast ?? []) +
-        precedenceDirective(ctx.cast ?? [], ctx.plans),
-      user,
-      directorialPlanSchema,
-    );
-    if (result) return { ...result, projectId: project.id };
-  }
-  return buildDirectorialPlan(project);
+  const user = JSON.stringify({
+    project,
+    selectedDirection: directionOf(ctx.selectedVariant),
+    cast: ctx.cast ?? [],
+    storyPlan: ctx.storyPlan,
+    plans: planningPayload(ctx.plans),
+  });
+
+  const { value } = await executeArtifact<DirectorialPlan>({
+    artifact: "directorial_plan",
+    scope: "project",
+    correlationId: ctx.correlationId,
+    promptVersion: PROMPT_VERSIONS.director,
+    builderVersion: BUILDER_VERSION,
+    provider,
+    onExecution: ctx.onExecution,
+    llm: provider
+      ? providerCall(
+          provider,
+          DIRECTOR_SYSTEM +
+            explicitnessDirective(project, "plan") +
+            castSystemDirective(ctx.cast ?? []) +
+            precedenceDirective(ctx.cast ?? [], ctx.plans),
+          user,
+          directorialPlanSchema,
+        )
+      : undefined,
+    fallback: () => buildDirectorialPlan(project),
+  });
+  return { ...value, projectId: project.id };
 }
 
 export async function cinematographerAgent(
@@ -269,23 +330,34 @@ export async function cinematographerAgent(
   provider: PlanningProvider | null,
   ctx: CanvasContext = {},
 ): Promise<CinematographyPlan> {
-  if (provider) {
-    const user = JSON.stringify({
-      project,
-      selectedDirection: directionOf(ctx.selectedVariant),
-      storyPlan: ctx.storyPlan,
-      plans: planningPayload(ctx.plans),
-    });
-    const result = await provider.generateJson(
-      CINEMATOGRAPHER_SYSTEM +
-        cameraContinuityDirective(project) +
-        precedenceDirective(ctx.cast ?? [], ctx.plans),
-      user,
-      cinematographyPlanSchema,
-    );
-    if (result) return { ...result, projectId: project.id };
-  }
-  return buildCinematographyPlan(project);
+  const user = JSON.stringify({
+    project,
+    selectedDirection: directionOf(ctx.selectedVariant),
+    storyPlan: ctx.storyPlan,
+    plans: planningPayload(ctx.plans),
+  });
+
+  const { value } = await executeArtifact<CinematographyPlan>({
+    artifact: "cinematography_plan",
+    scope: "project",
+    correlationId: ctx.correlationId,
+    promptVersion: PROMPT_VERSIONS.cinematographer,
+    builderVersion: BUILDER_VERSION,
+    provider,
+    onExecution: ctx.onExecution,
+    llm: provider
+      ? providerCall(
+          provider,
+          CINEMATOGRAPHER_SYSTEM +
+            cameraContinuityDirective(project) +
+            precedenceDirective(ctx.cast ?? [], ctx.plans),
+          user,
+          cinematographyPlanSchema,
+        )
+      : undefined,
+    fallback: () => buildCinematographyPlan(project),
+  });
+  return { ...value, projectId: project.id };
 }
 
 export async function artDirectorAgent(
@@ -293,25 +365,36 @@ export async function artDirectorAgent(
   provider: PlanningProvider | null,
   ctx: CanvasContext = {},
 ): Promise<ArtDirectionPlan> {
-  if (provider) {
-    const conceptVisuals = conceptVisualsPayload(ctx.conceptVisuals);
-    const user = JSON.stringify({
-      project,
-      selectedDirection: directionOf(ctx.selectedVariant),
-      cast: ctx.cast ?? [],
-      storyPlan: ctx.storyPlan,
-      plans: planningPayload(ctx.plans),
-      ...(conceptVisuals ? { conceptVisuals } : {}),
-    });
-    const result = await provider.generateJson(
-      ART_DIRECTOR_SYSTEM +
-        castSystemDirective(ctx.cast ?? []) +
-        precedenceDirective(ctx.cast ?? [], ctx.plans) +
-        conceptVisualsDirective(ctx.conceptVisuals),
-      user,
-      artDirectionPlanSchema,
-    );
-    if (result) return { ...result, projectId: project.id };
-  }
-  return buildArtDirectionPlan(project);
+  const conceptVisuals = conceptVisualsPayload(ctx.conceptVisuals);
+  const user = JSON.stringify({
+    project,
+    selectedDirection: directionOf(ctx.selectedVariant),
+    cast: ctx.cast ?? [],
+    storyPlan: ctx.storyPlan,
+    plans: planningPayload(ctx.plans),
+    ...(conceptVisuals ? { conceptVisuals } : {}),
+  });
+
+  const { value } = await executeArtifact<ArtDirectionPlan>({
+    artifact: "art_direction_plan",
+    scope: "project",
+    correlationId: ctx.correlationId,
+    promptVersion: PROMPT_VERSIONS.artDirector,
+    builderVersion: BUILDER_VERSION,
+    provider,
+    onExecution: ctx.onExecution,
+    llm: provider
+      ? providerCall(
+          provider,
+          ART_DIRECTOR_SYSTEM +
+            castSystemDirective(ctx.cast ?? []) +
+            precedenceDirective(ctx.cast ?? [], ctx.plans) +
+            conceptVisualsDirective(ctx.conceptVisuals),
+          user,
+          artDirectionPlanSchema,
+        )
+      : undefined,
+    fallback: () => buildArtDirectionPlan(project),
+  });
+  return { ...value, projectId: project.id };
 }

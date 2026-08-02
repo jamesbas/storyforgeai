@@ -2,6 +2,24 @@ import type { ZodType, ZodTypeDef } from "zod";
 import { config } from "@/lib/config";
 import { logEvent } from "@/lib/telemetry";
 import { withSchemaHint } from "@/lib/agents/llm/schema-hint";
+import type { FailureReason } from "@/lib/schemas/provenance";
+
+/**
+ * The outcome of one generation, with the metadata provenance needs.
+ *
+ * `generateJson` collapses this to `T | null`, which is why a model returning
+ * malformed JSON used to be indistinguishable from no model at all.
+ */
+export type ProviderResult<T> =
+  | { ok: true; value: T; provider: string; model?: string; format?: string }
+  | {
+      ok: false;
+      reason: FailureReason;
+      detail?: string;
+      provider: string;
+      model?: string;
+      format?: string;
+    };
 
 /**
  * Planning provider abstraction. The deterministic pipeline runs without any
@@ -21,6 +39,18 @@ export interface PlanningProvider {
     schema: ZodType<T, ZodTypeDef, unknown>,
     options?: GenerateOptions,
   ): Promise<T | null>;
+  /**
+   * The same call, reporting why it failed.
+   *
+   * Optional so the many test fakes that implement `generateJson` alone still
+   * satisfy the interface; provenance then records reason `unknown` for them.
+   */
+  generate?<T>(
+    system: string,
+    user: string,
+    schema: ZodType<T, ZodTypeDef, unknown>,
+    options?: GenerateOptions,
+  ): Promise<ProviderResult<T>>;
 }
 
 export type GenerateOptions = {
@@ -175,25 +205,29 @@ async function jsonSchemaFormat<T>(schema: ZodType<T>, name: string): Promise<Re
 function createOpenAiProvider(): PlanningProvider {
   const label = config.openai.baseUrl ? "openai-compatible" : "openai";
 
-  return {
-    name: label,
-    async generateJson<T>(
-      system: string,
-      user: string,
-      schema: ZodType<T, ZodTypeDef, unknown>,
-      options: GenerateOptions = {},
-    ): Promise<T | null> {
-      const fail = (reason: string, extra: Record<string, unknown> = {}) => {
-        logEvent("agent.llm.failed", { provider: label, reason, ...extra });
-        return null;
-      };
+  const generate = async <T,>(
+    system: string,
+    user: string,
+    schema: ZodType<T, ZodTypeDef, unknown>,
+    options: GenerateOptions = {},
+  ): Promise<ProviderResult<T>> => {
+    let model: string | undefined;
+    let usedFormat: string | undefined;
+    const fail = (
+      reason: FailureReason,
+      detail?: string,
+      extra: Record<string, unknown> = {},
+    ): ProviderResult<T> => {
+      logEvent("agent.llm.failed", { provider: label, reason, ...extra });
+      return { ok: false, reason, detail, provider: label, model, format: usedFormat };
+    };
 
-      try {
-        const specifier = "openai";
-        const imported = await import(/* webpackIgnore: true */ specifier).catch(() => null);
-        const mod = imported as { default?: OpenAiCtor; OpenAI?: OpenAiCtor } | null;
-        const Ctor = mod?.default ?? mod?.OpenAI;
-        if (!Ctor) return fail("sdk_missing");
+    try {
+      const specifier = "openai";
+      const imported = await import(/* webpackIgnore: true */ specifier).catch(() => null);
+      const mod = imported as { default?: OpenAiCtor; OpenAI?: OpenAiCtor } | null;
+      const Ctor = mod?.default ?? mod?.OpenAI;
+      if (!Ctor) return fail("sdk_missing");
 
         const client = new Ctor({
           // Local servers ignore the key but the SDK requires a non-empty value.
@@ -206,7 +240,8 @@ function createOpenAiProvider(): PlanningProvider {
         // A vision model is a separate deployment, so images decide the model.
         const images = options.images ?? [];
         const useVision = images.length > 0 && Boolean(config.openai.visionModel);
-        const model = useVision ? config.openai.visionModel : config.openai.model;
+        const activeModel = useVision ? config.openai.visionModel! : config.openai.model;
+        model = activeModel;
         // Silently answering from the text alone is the worst outcome here: the
         // caller's prompt usually says "the attached images show", and a model
         // asked about attachments it never received describes them anyway.
@@ -239,7 +274,7 @@ function createOpenAiProvider(): PlanningProvider {
         const call = (format: ResponseFormat | null) =>
           client.chat.completions.create(
             {
-              model,
+              model: activeModel,
               messages,
               ...(format ? { response_format: format } : {}),
               temperature: config.openai.temperature,
@@ -267,10 +302,11 @@ function createOpenAiProvider(): PlanningProvider {
           try {
             res = await call(format);
             used = kind;
+            usedFormat = kind;
           } catch (err) {
             const message = err instanceof Error ? err.message : String(err);
             if (!isResponseFormatRejection(message)) {
-              return fail("request_failed", { message, format: kind });
+              return fail("request_failed", message, { message, format: kind });
             }
             // The server does not support this format at all — a fact about the
             // server, so it holds for every later call.
@@ -283,7 +319,11 @@ function createOpenAiProvider(): PlanningProvider {
             });
           }
         }
-        if (res === null) return fail("request_failed", { message: "no usable response format" });
+        if (res === null) {
+          return fail("format_unsupported", "no usable response format", {
+            message: "no usable response format",
+          });
+        }
 
         const choice = res.choices?.[0];
         const content = choice?.message?.content ?? undefined;
@@ -303,13 +343,17 @@ function createOpenAiProvider(): PlanningProvider {
           // A reasoning model spends max_tokens on thinking before it emits any
           // content, so an exhausted budget looks like an empty reply. Surface
           // finish_reason so that is diagnosable rather than mysterious.
-          return fail("empty_response", {
-            finishReason: choice?.finish_reason ?? "unknown",
-            reasoningChars: choice?.message?.reasoning_content?.length ?? 0,
-            ...(choice?.finish_reason === "length"
-              ? { hint: "raise OPENAI_MAX_TOKENS; reasoning tokens count toward it" }
-              : {}),
-          });
+          return fail(
+            "empty_response",
+            `finish_reason ${choice?.finish_reason ?? "unknown"}`,
+            {
+              finishReason: choice?.finish_reason ?? "unknown",
+              reasoningChars: choice?.message?.reasoning_content?.length ?? 0,
+              ...(choice?.finish_reason === "length"
+                ? { hint: "raise OPENAI_MAX_TOKENS; reasoning tokens count toward it" }
+                : {}),
+            },
+          );
         }
 
         const json = extractJsonObject(content);
@@ -317,15 +361,23 @@ function createOpenAiProvider(): PlanningProvider {
           // Truncation and garbage look alike in the sample, but need opposite
           // fixes: finish_reason=length means the budget ran out mid-object
           // (raise max_tokens), anything else means malformed output.
-          return fail("unparseable_json", {
-            finishReason: choice?.finish_reason ?? "unknown",
-            contentChars: content.length,
-            reasoningChars: choice?.message?.reasoning_content?.length ?? 0,
-            ...(choice?.finish_reason === "length"
-              ? { hint: "response truncated; raise OPENAI_MAX_TOKENS" }
-              : {}),
-            sample: content.slice(0, 200),
-          });
+          // The 200-character sample below is for the console only. It is a raw
+          // model response and must never reach the stored execution record.
+          return fail(
+            "unparseable_json",
+            choice?.finish_reason === "length"
+              ? "response truncated; raise OPENAI_MAX_TOKENS"
+              : "model output was not recoverable JSON",
+            {
+              finishReason: choice?.finish_reason ?? "unknown",
+              contentChars: content.length,
+              reasoningChars: choice?.message?.reasoning_content?.length ?? 0,
+              ...(choice?.finish_reason === "length"
+                ? { hint: "response truncated; raise OPENAI_MAX_TOKENS" }
+                : {}),
+              sample: content.slice(0, 200),
+            },
+          );
         }
 
         const parsed = schema.safeParse(json);
@@ -333,17 +385,32 @@ function createOpenAiProvider(): PlanningProvider {
           // Distinct from a transport failure: the model answered, but not in
           // the shape the artifact requires. Silently falling back here is how
           // a local model can look like it is working when it is not.
-          return fail("schema_mismatch", {
+          const issues = parsed.error.issues
+            .slice(0, 5)
+            .map((i) => `${i.path.join(".")}: ${i.message}`);
+          return fail("schema_mismatch", issues.slice(0, 2).join("; "), {
             format: used ?? "none",
-            issues: parsed.error.issues.slice(0, 5).map((i) => `${i.path.join(".")}: ${i.message}`),
+            issues,
           });
         }
-        return parsed.data;
+        return { ok: true, value: parsed.data, provider: label, model, format: usedFormat };
       } catch (err) {
-        return fail("request_failed", {
-          message: err instanceof Error ? err.message : String(err),
-        });
+        const message = err instanceof Error ? err.message : String(err);
+        return fail("request_failed", message, { message });
       }
+  };
+
+  return {
+    name: label,
+    generate,
+    async generateJson<T>(
+      system: string,
+      user: string,
+      schema: ZodType<T, ZodTypeDef, unknown>,
+      options?: GenerateOptions,
+    ): Promise<T | null> {
+      const result = await generate<T>(system, user, schema, options);
+      return result.ok ? result.value : null;
     },
   };
 }
@@ -395,5 +462,17 @@ export function getPlanningProvider(): PlanningProvider | null {
     name: provider.name,
     generateJson: (system, user, schema, options) =>
       enqueuePlanning(() => provider.generateJson(system, user, schema, options)),
+    // Forwarded, or provenance would record `unknown` for every real run: this
+    // wrapper rebuilds the object, so anything not listed here is dropped.
+    ...(provider.generate
+      ? {
+          generate: <T,>(
+            system: string,
+            user: string,
+            schema: ZodType<T, ZodTypeDef, unknown>,
+            options?: GenerateOptions,
+          ) => enqueuePlanning(() => provider.generate!(system, user, schema, options)),
+        }
+      : {}),
   };
 }

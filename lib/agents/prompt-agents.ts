@@ -7,6 +7,13 @@ import {
 } from "@/lib/schemas/storyboard";
 import { buildImagePrompts, buildVideoPrompts } from "@/lib/agents/mock-agents";
 import {
+  deterministicExecution,
+  executeArtifact,
+  providerCall,
+  type ExecutionCollector,
+} from "@/lib/agents/provenance";
+import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
+import {
   castContinuityClause,
   castNegativeSuffix,
   castPromptSuffix,
@@ -53,6 +60,9 @@ export type ScenePromptContext = {
    */
   only?: ReadonlySet<string>;
   existing?: Record<string, ScenePrompts>;
+  /** Receives one record per scene per pass, so image and video stay separate. */
+  onExecution?: ExecutionCollector;
+  correlationId?: string;
 };
 
 export const IMAGE_PROMPT_SYSTEM =
@@ -199,6 +209,21 @@ export async function attachScenePrompts(
     let imagePart = buildImagePrompts(project, draft, sceneCast, plans, wardrobe);
     let videoPart = buildVideoPrompts(project, draft, sceneCast, plans, wardrobe);
 
+    if (!provider) {
+      // Demo mode still reports itself, or a scene written by a template would
+      // be indistinguishable from one nobody has provenance for at all.
+      for (const pass of ["image_prompt", "video_prompt"] as const) {
+        context.onExecution?.(
+          deterministicExecution({
+            artifact: `${draft.id}.${pass}`,
+            scope: draft.id,
+            correlationId: context.correlationId,
+            builderVersion: BUILDER_VERSION,
+          }),
+        );
+      }
+    }
+
     if (provider) {
       const user = JSON.stringify({
         project,
@@ -234,31 +259,65 @@ export async function attachScenePrompts(
           : undefined,
         forbiddenContradictions: plans?.worldBible?.forbiddenContradictions,
       });
-      const image = await provider.generateJson(
-        IMAGE_PROMPT_SYSTEM +
-          explicitnessDirective(project, "image") +
-          wardrobeChangeDirective(wardrobe) +
-          imagePromptDirective(imageFamily) +
-          seamDirective(project) +
-          castSystemDirective(sceneCast, true) +
-          precedenceDirective(sceneCast, plans),
-        user,
-        imagePartSchema,
-      );
-      if (image) imagePart = withCastEnforced(image, sceneCast, plans, project, wardrobe, draft);
-      const video = await provider.generateJson(
-        videoPromptSystem(project.segmentSeconds) +
-          explicitnessDirective(project, "video") +
-          videoPromptDirective(videoFamily, {
-            segmentSeconds: project.segmentSeconds,
-            nativeAudio: hasNativeAudio(videoFamily),
-          }) +
-          castSystemDirective(sceneCast, true) +
-          precedenceDirective(sceneCast, plans),
-        user,
-        videoPartSchema,
-      );
-      if (video) videoPart = withCastEnforcedVideo(video, sceneCast, plans, project, wardrobe);
+      const imageResult = await executeArtifact<ImagePart>({
+        artifact: `${draft.id}.image_prompt`,
+        scope: draft.id,
+        correlationId: context.correlationId,
+        promptVersion: PROMPT_VERSIONS.imagePrompt,
+        builderVersion: BUILDER_VERSION,
+        provider,
+        onExecution: context.onExecution,
+        llm: providerCall(
+          provider,
+          IMAGE_PROMPT_SYSTEM +
+            explicitnessDirective(project, "image") +
+            wardrobeChangeDirective(wardrobe) +
+            imagePromptDirective(imageFamily) +
+            seamDirective(project) +
+            castSystemDirective(sceneCast, true) +
+            precedenceDirective(sceneCast, plans),
+          user,
+          imagePartSchema,
+        ),
+        fallback: () => imagePart,
+      });
+      if (imageResult.execution.source === "llm") {
+        imagePart = withCastEnforced(
+          imageResult.value,
+          sceneCast,
+          plans,
+          project,
+          wardrobe,
+          draft,
+        );
+      }
+
+      const videoResult = await executeArtifact<VideoPart>({
+        artifact: `${draft.id}.video_prompt`,
+        scope: draft.id,
+        correlationId: context.correlationId,
+        promptVersion: PROMPT_VERSIONS.videoPrompt,
+        builderVersion: BUILDER_VERSION,
+        provider,
+        onExecution: context.onExecution,
+        llm: providerCall(
+          provider,
+          videoPromptSystem(project.segmentSeconds) +
+            explicitnessDirective(project, "video") +
+            videoPromptDirective(videoFamily, {
+              segmentSeconds: project.segmentSeconds,
+              nativeAudio: hasNativeAudio(videoFamily),
+            }) +
+            castSystemDirective(sceneCast, true) +
+            precedenceDirective(sceneCast, plans),
+          user,
+          videoPartSchema,
+        ),
+        fallback: () => videoPart,
+      });
+      if (videoResult.execution.source === "llm") {
+        videoPart = withCastEnforcedVideo(videoResult.value, sceneCast, plans, project, wardrobe);
+      }
     }
 
     scenes.push({

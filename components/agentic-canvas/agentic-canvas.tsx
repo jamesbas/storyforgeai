@@ -5,6 +5,8 @@ import Link from "next/link";
 import { PlanPanel } from "@/components/agentic-canvas/plan-panel";
 import { useAgentRun } from "@/components/shared/use-agent-run";
 import { useLoadEffect } from "@/components/shared/use-load-effect";
+import { ExecutionBadge } from "@/components/shared/execution-badge";
+import { latestExecution } from "@/lib/schemas/provenance";
 import { planOn, planSpecFor } from "@/lib/agents/plan-fields";
 import { isContinuousTake } from "@/lib/agents/continuity";
 import { shotPlanIssues } from "@/lib/media/seam";
@@ -44,6 +46,8 @@ type CanvasAgent = {
   endpoint: string | null;
   status: (r: ProjectRecord) => "ready" | "empty" | "external";
   summary: (r: ProjectRecord) => string;
+  /** Provenance key for this agent's artifact, when it records one. */
+  artifactKey?: string;
 };
 
 const AGENTS: CanvasAgent[] = [
@@ -52,6 +56,7 @@ const AGENTS: CanvasAgent[] = [
     name: "Variant Explorer",
     role: "Creative directions",
     endpoint: "generate-variants",
+    artifactKey: "variants",
     status: (r) => (r.variants && r.variants.length > 0 ? "ready" : "empty"),
     summary: (r) => (r.variants?.length ? `${r.variants.length} directions` : "Not generated"),
   },
@@ -60,6 +65,7 @@ const AGENTS: CanvasAgent[] = [
     name: "World Builder",
     role: "World bible",
     endpoint: "generate-world-bible",
+    artifactKey: "world_bible",
     status: (r) => (r.worldBible ? "ready" : "empty"),
     summary: (r) => r.worldBible?.premise ?? "Not generated",
   },
@@ -68,6 +74,7 @@ const AGENTS: CanvasAgent[] = [
     name: "Director",
     role: "Directorial plan",
     endpoint: "generate-directorial-plan",
+    artifactKey: "directorial_plan",
     status: (r) => (r.directorialPlan ? "ready" : "empty"),
     summary: (r) => r.directorialPlan?.creativeThesis ?? "Not generated",
   },
@@ -76,6 +83,7 @@ const AGENTS: CanvasAgent[] = [
     name: "Cinematographer",
     role: "Camera plan",
     endpoint: "generate-cinematography-plan",
+    artifactKey: "cinematography_plan",
     status: (r) => (r.cinematographyPlan ? "ready" : "empty"),
     summary: (r) => r.cinematographyPlan?.cameraLanguage ?? "Not generated",
   },
@@ -84,6 +92,7 @@ const AGENTS: CanvasAgent[] = [
     name: "Art Director",
     role: "Art direction",
     endpoint: "generate-art-direction-plan",
+    artifactKey: "art_direction_plan",
     status: (r) => (r.artDirectionPlan ? "ready" : "empty"),
     summary: (r) => r.artDirectionPlan?.productionDesign ?? "Not generated",
   },
@@ -92,6 +101,7 @@ const AGENTS: CanvasAgent[] = [
     name: "Storyboard Artist",
     role: "Scene cards",
     endpoint: "generate-storyboard",
+    artifactKey: "storyboard",
     status: (r) => (r.storyboard ? "ready" : "empty"),
     summary: (r) => (r.storyboard ? `${r.storyboard.scenes.length} scenes` : "Not generated"),
   },
@@ -100,6 +110,7 @@ const AGENTS: CanvasAgent[] = [
     name: "Audio Director",
     role: "Audio plan",
     endpoint: "generate-audio-plan",
+    artifactKey: "audio_plan",
     status: (r) => (r.audioPlan ? "ready" : "empty"),
     summary: (r) =>
       r.audioPlan
@@ -486,6 +497,11 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
                 </span>
               </header>
               <p className="mt-2 line-clamp-2 text-sm text-slate-300">{agent.summary(record)}</p>
+              {status === "ready" && agent.artifactKey ? (
+                <p className="mt-2">
+                  <ExecutionBadge execution={latestExecution(record.executions, agent.artifactKey)} />
+                </p>
+              ) : null}
               <button
                 onClick={() => run(agent)}
                 disabled={busy}

@@ -6,6 +6,7 @@ import type { Character } from "@/lib/schemas/character";
 import type { WardrobeChange } from "@/lib/schemas/wardrobe";
 import type { CreativePlans } from "@/lib/agents/creative-context";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
+import type { ExecutionCollector } from "@/lib/agents/provenance";
 
 /**
  * Shared context threaded through the planning pipeline. Later agents read the
@@ -39,6 +40,10 @@ export type AgentContext = {
   sceneDrafts?: SceneDraft[];
   /** Agents that fell back to their deterministic builder during this run. */
   fallbacks?: { agent: string; reason: string; detail?: string }[];
+  /** Receives one provenance record per artifact produced during this run. */
+  onExecution?: ExecutionCollector;
+  /** Groups every execution produced by one user action. */
+  correlationId?: string;
 };
 
 /**
@@ -58,4 +63,7 @@ export type OrchestratorDeps = {
   onStoryPlan?: (plan: StoryPlan) => void;
   /** Reports costume changes the storyboard called for, so they outlive the run. */
   onWardrobeChanges?: (changes: Record<string, WardrobeChange[]>) => void;
+  /** Receives one provenance record per artifact produced during this run. */
+  onExecution?: ExecutionCollector;
+  correlationId?: string;
 };

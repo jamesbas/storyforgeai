@@ -39,6 +39,8 @@ export async function runStoryboardOrchestrator(
     cast: deps.cast ?? [],
     plans: deps.plans,
     conceptVisuals: deps.conceptVisuals,
+    onExecution: deps.onExecution,
+    correlationId: deps.correlationId,
   };
   ctx.brief = await intakeAgent(ctx, provider);
   if (ctx.selectedVariant) {
@@ -72,6 +74,8 @@ export async function runStoryboardOrchestrator(
     cast: ctx.cast,
     visualBible: ctx.visualBible,
     plans: ctx.plans,
+    onExecution: ctx.onExecution,
+    correlationId: ctx.correlationId,
   });
 
   const snapshot = storyboardSnapshotSchema.parse({

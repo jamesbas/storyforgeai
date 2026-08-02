@@ -3,6 +3,8 @@ import { buildVisualBible } from "@/lib/agents/mock-agents";
 import { castSystemDirective } from "@/lib/agents/cast";
 import { conceptVisualsDirective, conceptVisualsPayload } from "@/lib/agents/concept-visuals";
 import { planningPayload, precedenceDirective } from "@/lib/agents/creative-context";
+import { executeArtifact, providerCall } from "@/lib/agents/provenance";
+import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import type { Character } from "@/lib/schemas/character";
 import type { AgentContext } from "@/lib/agents/types";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
@@ -19,28 +21,42 @@ export async function visualBibleAgent(
 ): Promise<VisualBible> {
   const cast = ctx.cast ?? [];
 
-  if (provider) {
-    // The planning agents get the plan documents whole: they run once and emit
-    // prose, so context budget is not the constraint it is for render prompts.
-    const conceptVisuals = conceptVisualsPayload(ctx.conceptVisuals);
-    const user = JSON.stringify({
-      project: ctx.project,
-      brief: ctx.brief,
-      cast,
-      plans: planningPayload(ctx.plans),
-      ...(conceptVisuals ? { conceptVisuals } : {}),
-    });
-    const result = await provider.generateJson(
-      VISUAL_BIBLE_SYSTEM +
-        castSystemDirective(cast) +
-        precedenceDirective(cast, ctx.plans) +
-        conceptVisualsDirective(ctx.conceptVisuals),
-      user,
-      visualBibleSchema,
-    );
-    if (result) return withPinnedCast({ ...result, projectId: ctx.project.id }, cast);
-  }
-  return buildVisualBible(ctx.project, cast, ctx.plans);
+  // The planning agents get the plan documents whole: they run once and emit
+  // prose, so context budget is not the constraint it is for render prompts.
+  const conceptVisuals = conceptVisualsPayload(ctx.conceptVisuals);
+  const user = JSON.stringify({
+    project: ctx.project,
+    brief: ctx.brief,
+    cast,
+    plans: planningPayload(ctx.plans),
+    ...(conceptVisuals ? { conceptVisuals } : {}),
+  });
+
+  const { value, execution } = await executeArtifact<VisualBible>({
+    artifact: "visual_bible",
+    scope: "project",
+    correlationId: ctx.correlationId,
+    promptVersion: PROMPT_VERSIONS.visualBible,
+    builderVersion: BUILDER_VERSION,
+    provider,
+    onExecution: ctx.onExecution,
+    llm: provider
+      ? providerCall(
+          provider,
+          VISUAL_BIBLE_SYSTEM +
+            castSystemDirective(cast) +
+            precedenceDirective(cast, ctx.plans) +
+            conceptVisualsDirective(ctx.conceptVisuals),
+          user,
+          visualBibleSchema,
+        )
+      : undefined,
+    fallback: () => buildVisualBible(ctx.project, cast, ctx.plans),
+  });
+
+  return execution.source === "llm"
+    ? withPinnedCast({ ...value, projectId: ctx.project.id }, cast)
+    : value;
 }
 
 /**

@@ -1,5 +1,7 @@
 import { audioPlanSchema, type AudioPlan } from "@/lib/schemas/audio";
 import { buildAudioPlan, type AudioSceneRef } from "@/lib/agents/mock-audio";
+import { executeArtifact, providerCall, type ExecutionCollector } from "@/lib/agents/provenance";
+import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import type { Project } from "@/lib/schemas/project";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 
@@ -14,14 +16,28 @@ export async function audioDirectorAgent(
   project: Project,
   scenes: AudioSceneRef[],
   provider: PlanningProvider | null,
+  options: { onExecution?: ExecutionCollector; correlationId?: string } = {},
 ): Promise<AudioPlan> {
-  if (provider) {
-    const user = JSON.stringify({ project, scenes });
-    const result = await provider.generateJson(AUDIO_DIRECTOR_SYSTEM, user, audioPlanSchema);
-    if (result && result.sceneAudioCues.length === scenes.length) {
-      // Re-parse so schema defaults (e.g. an omitted `cues` array) are applied.
-      return audioPlanSchema.parse({ ...result, projectId: project.id });
-    }
-  }
-  return buildAudioPlan(project, scenes);
+  const user = JSON.stringify({ project, scenes });
+
+  const { value, execution } = await executeArtifact<AudioPlan>({
+    artifact: "audio_plan",
+    scope: "project",
+    correlationId: options.correlationId,
+    promptVersion: PROMPT_VERSIONS.audio,
+    builderVersion: BUILDER_VERSION,
+    provider,
+    onExecution: options.onExecution,
+    llm: provider
+      ? providerCall(provider, AUDIO_DIRECTOR_SYSTEM, user, audioPlanSchema)
+      : undefined,
+    validate: (plan) =>
+      plan.sceneAudioCues.length === scenes.length ? undefined : "short_collection",
+    fallback: () => buildAudioPlan(project, scenes),
+  });
+
+  // Re-parse so schema defaults (e.g. an omitted `cues` array) are applied.
+  return execution.source === "llm"
+    ? audioPlanSchema.parse({ ...value, projectId: project.id })
+    : value;
 }

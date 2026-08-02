@@ -2,6 +2,8 @@ import { qcResultSchema, type QCResult, type SceneAttempt } from "@/lib/schemas/
 import type { Scene } from "@/lib/schemas/storyboard";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 import { loadImagesAsDataUrls } from "@/lib/media/data-url";
+import { executeArtifact, providerCall, type ExecutionCollector } from "@/lib/agents/provenance";
+import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import { config } from "@/lib/config";
 import { logEvent } from "@/lib/telemetry";
 
@@ -78,35 +80,54 @@ export async function qcAgent(
   attempt: SceneAttempt,
   provider: PlanningProvider | null,
   expectations: QcExpectations = { expectVideo: true },
+  options: { onExecution?: ExecutionCollector; correlationId?: string } = {},
 ): Promise<QCResult> {
-  if (provider) {
-    const images = config.openai.visionModel
+  const images =
+    provider && config.openai.visionModel
       ? await loadQcImages([attempt.startImagePath, attempt.endImagePath])
       : [];
-    const visual = images.length > 0;
+  const visual = images.length > 0;
 
+  if (provider) {
     logEvent("qc.mode", {
       sceneId: scene.id,
       mode: visual ? "visual" : "text_only",
       images: images.length,
     });
-
-    // Paths are noise to a model that can see the frames, and misleading to one
-    // that cannot — it reads them as evidence the media was supplied.
-    const { startImagePath, endImagePath, videoPath, ...rest } = attempt;
-    const user = JSON.stringify({
-      scene,
-      attempt: visual ? rest : { ...rest, note: "Media not attached. Review prompts only." },
-      expectations,
-    });
-
-    const result = await provider.generateJson(
-      visual ? VISUAL_SYSTEM : TEXT_SYSTEM,
-      user,
-      qcResultSchema,
-      visual ? { images } : {},
-    );
-    if (result) return result;
   }
-  return evaluateQc(scene, attempt, expectations);
+
+  // Paths are noise to a model that can see the frames, and misleading to one
+  // that cannot — it reads them as evidence the media was supplied.
+  const { startImagePath, endImagePath, videoPath, ...rest } = attempt;
+  const user = JSON.stringify({
+    scene,
+    attempt: visual ? rest : { ...rest, note: "Media not attached. Review prompts only." },
+    expectations,
+  });
+
+  const { value } = await executeArtifact<QCResult>({
+    artifact: `${scene.id}.qc`,
+    scope: scene.id,
+    correlationId: options.correlationId,
+    promptVersion: PROMPT_VERSIONS.qc,
+    builderVersion: BUILDER_VERSION,
+    provider,
+    onExecution: options.onExecution,
+    // A text-only verdict must never read as though the frames were seen.
+    evidence: {
+      mode: provider ? (visual ? "visual" : "text_only") : "deterministic",
+      attachments: images.length,
+    },
+    llm: provider
+      ? providerCall(
+          provider,
+          visual ? VISUAL_SYSTEM : TEXT_SYSTEM,
+          user,
+          qcResultSchema,
+          visual ? { images } : {},
+        )
+      : undefined,
+    fallback: () => evaluateQc(scene, attempt, expectations),
+  });
+  return value;
 }

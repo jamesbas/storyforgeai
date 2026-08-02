@@ -6,7 +6,10 @@ import { seamDirective } from "@/lib/agents/continuity";
 import { creativeModeDirective } from "@/lib/agents/look";
 import { explicitnessDirective } from "@/lib/agents/explicitness";
 import { planningPayload, precedenceDirective } from "@/lib/agents/creative-context";
+import { composeExecution } from "@/lib/agents/provenance";
+import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import { SEGMENT_SECONDS } from "@/lib/types";
+import type { FailureReason } from "@/lib/schemas/provenance";
 import type { Project } from "@/lib/schemas/project";
 import type { AgentContext } from "@/lib/agents/types";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
@@ -155,7 +158,21 @@ export async function storyboardAgent(
   const built = () =>
     buildSceneDrafts(ctx.project, storyPlan, brief, visualBible, ctx.cast ?? [], ctx.plans);
 
-  if (!provider) return built();
+  const startedAt = new Date();
+  if (!provider) {
+    ctx.onExecution?.(
+      composeExecution({
+        artifact: "storyboard",
+        scope: "project",
+        correlationId: ctx.correlationId,
+        builderVersion: BUILDER_VERSION,
+        source: "deterministic",
+        fallbackReason: "provider_disabled",
+        startedAt,
+      }),
+    );
+    return built();
+  }
 
   const cast = ctx.cast ?? [];
   const wanted = ctx.project.segmentCount;
@@ -170,6 +187,7 @@ export async function storyboardAgent(
   const fallbackDrafts = built();
   const scenes: SceneDraft[] = [];
   let builderFilled = 0;
+  let batchReason: FailureReason | undefined;
 
   for (let start = 0; start < wanted; start += CARDS_PER_CALL) {
     const end = Math.min(start + CARDS_PER_CALL, wanted);
@@ -197,6 +215,7 @@ export async function storyboardAgent(
 
     const result = await provider.generateJson(system + batchDirective(start + 1, end, wanted), user, sceneDraftsSchema);
     const returned = result?.scenes ?? [];
+    if (returned.length !== end - start) batchReason ??= returned.length ? "short_collection" : "unknown";
     for (let i = 0; i < end - start; i += 1) {
       const card = returned[i];
       if (card) scenes.push(card);
@@ -216,6 +235,26 @@ export async function storyboardAgent(
       });
     }
   }
+
+  const fromLlm = wanted - builderFilled;
+  ctx.onExecution?.(
+    composeExecution({
+      artifact: "storyboard",
+      scope: "project",
+      correlationId: ctx.correlationId,
+      promptVersion: PROMPT_VERSIONS.storyboard,
+      builderVersion: BUILDER_VERSION,
+      provider: provider.name,
+      source: builderFilled === 0 ? "llm" : fromLlm === 0 ? "deterministic" : "hybrid",
+      fallbackReason: builderFilled === 0 ? undefined : batchReason ?? "unknown",
+      detail:
+        builderFilled === 0
+          ? undefined
+          : `${fromLlm} of ${wanted} scene cards written by the model`,
+      attempted: { total: wanted, fromLlm },
+      startedAt,
+    }),
+  );
 
   if (builderFilled === 0) return withDerivedTiming(scenes, ctx.project);
 

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { access } from "node:fs/promises";
+import { appendExecution, type ArtifactExecution } from "@/lib/schemas/provenance";
 import { createProjectSchema, renameProjectSchema, updateProjectModelsSchema } from "@/lib/schemas/intake";
 import { computeSegmentation } from "@/lib/duration";
 import { DEFAULT_SCENE_CONTINUITY, generationStages } from "@/lib/types";
@@ -73,6 +74,28 @@ import { logEvent } from "@/lib/telemetry";
 function appendHistory(record: ProjectRecord, action: string, detail?: string): HistoryEntry[] {
   const entry: HistoryEntry = { at: new Date().toISOString(), action, detail };
   return [...(record.history ?? []), entry];
+}
+
+/** Fold a run's provenance into the record, keeping the retention bounds. */
+function withExecutions(
+  existing: ArtifactExecution[] | undefined,
+  produced: ArtifactExecution[],
+): ArtifactExecution[] | undefined {
+  if (!produced.length) return existing;
+  return produced.reduce<ArtifactExecution[] | undefined>(
+    (all, next) => appendExecution(all, next),
+    existing,
+  );
+}
+
+/** Collects one run's executions so they can be committed with the artifact. */
+function executionRun() {
+  const executions: ArtifactExecution[] = [];
+  return {
+    executions,
+    correlationId: randomUUID(),
+    onExecution: (execution: ArtifactExecution) => executions.push(execution),
+  };
 }
 
 export async function createProject(raw: unknown): Promise<Project> {
@@ -552,12 +575,16 @@ export async function generateStoryboard(id: string): Promise<ProjectRecord> {
     };
     let freshStoryPlan: StoryPlan | undefined;
     let freshWardrobe: Record<string, WardrobeChange[]> | undefined;
+    const executions: ArtifactExecution[] = [];
+    const correlationId = randomUUID();
     const snapshot = await runStoryboardOrchestrator(record.project, {
       selectedVariant,
       cast,
       plans,
       storyPlan: record.storyPlan,
       conceptVisuals: record.conceptVisuals,
+      correlationId,
+      onExecution: (execution) => executions.push(execution),
       onStoryPlan: (plan) => {
         freshStoryPlan = plan;
       },
@@ -575,6 +602,9 @@ export async function generateStoryboard(id: string): Promise<ProjectRecord> {
       },
       storyPlan: freshStoryPlan ?? record.storyPlan,
       storyboard: snapshot,
+      // Same write as the artifact: the repository renames a whole record into
+      // place, so provenance cannot be committed without what it describes.
+      executions: withExecutions(record.executions, executions),
       history: appendHistory(record, "storyboard.generated", selectedVariant?.name),
     };
     await repository.update(id, updated);
@@ -613,11 +643,16 @@ export async function generateVariants(id: string): Promise<ProjectRecord> {
   return trackAgentRun(id, "variants", "Variant Explorer", async () => {
     const record = await getProjectRecord(id);
     const provider = getPlanningProvider();
-    const variants = await variantExplorerAgent(record.project, provider);
+    const run = executionRun();
+    const variants = await variantExplorerAgent(record.project, provider, {
+      onExecution: run.onExecution,
+      correlationId: run.correlationId,
+    });
     const updated: ProjectRecord = {
       ...record,
       variants,
       selectedVariantId: undefined,
+      executions: withExecutions(record.executions, run.executions),
       history: appendHistory(record, "variants.generated", `${variants.length} directions`),
     };
     await repository.update(id, updated);
@@ -1282,14 +1317,16 @@ async function withConceptVisuals(record: ProjectRecord): Promise<ProjectRecord>
 export async function generateWorldBible(id: string): Promise<ProjectRecord> {
   return trackAgentRun(id, "world", "World Builder", async () => {
     const record = await withConceptVisuals(await getProjectRecord(id));
-    const worldBible: WorldBible = await worldBuilderAgent(
-      record.project,
-      getPlanningProvider(),
-      await canvasContext(record),
-    );
+    const run = executionRun();
+    const worldBible: WorldBible = await worldBuilderAgent(record.project, getPlanningProvider(), {
+      ...(await canvasContext(record)),
+      onExecution: run.onExecution,
+      correlationId: run.correlationId,
+    });
     const updated: ProjectRecord = {
       ...record,
       worldBible,
+      executions: withExecutions(record.executions, run.executions),
       history: appendHistory(record, "world_bible.generated"),
     };
     await repository.update(id, updated);
@@ -1302,14 +1339,16 @@ export async function generateDirectorialPlan(id: string): Promise<ProjectRecord
     // The Director is the one canvas agent whose prompt names the story arc, so
     // it is the natural place to produce one when the project has none yet.
     const record = await withStoryPlan(await withConceptVisuals(await getProjectRecord(id)));
+    const run = executionRun();
     const directorialPlan: DirectorialPlan = await directorAgent(
       record.project,
       getPlanningProvider(),
-      await canvasContext(record),
+      { ...(await canvasContext(record)), onExecution: run.onExecution, correlationId: run.correlationId },
     );
     const updated: ProjectRecord = {
       ...record,
       directorialPlan,
+      executions: withExecutions(record.executions, run.executions),
       history: appendHistory(record, "directorial_plan.generated"),
     };
     await repository.update(id, updated);
@@ -1320,14 +1359,16 @@ export async function generateDirectorialPlan(id: string): Promise<ProjectRecord
 export async function generateCinematographyPlan(id: string): Promise<ProjectRecord> {
   return trackAgentRun(id, "cinematographer", "Cinematographer", async () => {
     const record = await withConceptVisuals(await getProjectRecord(id));
+    const run = executionRun();
     const cinematographyPlan: CinematographyPlan = await cinematographerAgent(
       record.project,
       getPlanningProvider(),
-      await canvasContext(record),
+      { ...(await canvasContext(record)), onExecution: run.onExecution, correlationId: run.correlationId },
     );
     const updated: ProjectRecord = {
       ...record,
       cinematographyPlan,
+      executions: withExecutions(record.executions, run.executions),
       history: appendHistory(record, "cinematography_plan.generated"),
     };
     await repository.update(id, updated);
@@ -1338,14 +1379,16 @@ export async function generateCinematographyPlan(id: string): Promise<ProjectRec
 export async function generateArtDirectionPlan(id: string): Promise<ProjectRecord> {
   return trackAgentRun(id, "art", "Art Director", async () => {
     const record = await withConceptVisuals(await getProjectRecord(id));
+    const run = executionRun();
     const artDirectionPlan: ArtDirectionPlan = await artDirectorAgent(
       record.project,
       getPlanningProvider(),
-      await canvasContext(record),
+      { ...(await canvasContext(record)), onExecution: run.onExecution, correlationId: run.correlationId },
     );
     const updated: ProjectRecord = {
       ...record,
       artDirectionPlan,
+      executions: withExecutions(record.executions, run.executions),
       history: appendHistory(record, "art_direction_plan.generated"),
     };
     await repository.update(id, updated);

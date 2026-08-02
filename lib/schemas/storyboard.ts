@@ -6,6 +6,7 @@ import { projectSchema } from "@/lib/schemas/project";
 import { dialogueLineSchema, audioPlanSchema, animaticPlanSchema } from "@/lib/schemas/audio";
 import { sceneAttemptSchema, scenePreviewSchema } from "@/lib/schemas/generation";
 import { assemblySchema } from "@/lib/schemas/assembly";
+import { artifactExecutionSchema } from "@/lib/schemas/provenance";
 import {
   artDirectionPlanSchema,
   cinematographyPlanSchema,
@@ -207,6 +208,12 @@ export const projectRecordSchema = z.object({
   /** One-off keyframe renders, keyed by scene id. Never assembled. */
   previews: z.record(scenePreviewSchema).optional(),
   assembly: assemblySchema.optional(),
+  /**
+   * How each artifact was produced. Absent on projects written before
+   * provenance existed, which is what makes them read as legacy rather than as
+   * model output.
+   */
+  executions: z.array(artifactExecutionSchema).optional(),
   history: z.array(historyEntrySchema).optional(),
 });
 export type ProjectRecord = z.infer<typeof projectRecordSchema>;
