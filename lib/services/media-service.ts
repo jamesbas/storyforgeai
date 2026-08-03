@@ -947,7 +947,21 @@ export async function regenerateSceneVideo(
   return persistThenScore(projectId, scene, attempt, existing, loaded, true);
 }
 
-export async function generateSceneMedia(projectId: string, sceneId: string): Promise<ProjectRecord> {
+export type SceneMediaOptions = {
+  /**
+   * Called with the WanGP job id as soon as the backend returns it.
+   *
+   * The durable queue persists it here so a restart mid-render can poll the
+   * job rather than resubmit it (SPEC-008 FR-2/FR-4).
+   */
+  onJobSubmitted?: (jobId: string) => Promise<void> | void;
+};
+
+export async function generateSceneMedia(
+  projectId: string,
+  sceneId: string,
+  options: SceneMediaOptions = {},
+): Promise<ProjectRecord> {
   const loaded = await getProjectRecord(projectId);
   if (!loaded.storyboard) throw new ValidationError("Generate a storyboard before media");
   requireKeyframeStage(loaded);
@@ -1044,7 +1058,9 @@ export async function generateSceneMedia(projectId: string, sceneId: string): Pr
         durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
       })
     : undefined;
-  const videoJob = videoManifest ? await runToCompletion(videoManifest.settings) : undefined;
+  const videoJob = videoManifest
+    ? await runToCompletion(videoManifest.settings, { onSubmitted: options.onJobSubmitted })
+    : undefined;
 
   logEvent("scene.continuity", {
     projectId,

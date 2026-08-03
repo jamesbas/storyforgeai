@@ -312,13 +312,27 @@ export function isSessionBusyError(err: unknown): boolean {
  * generation takes minutes, so the live path uses the configured interval and
  * attempt budget instead of a tight loop.
  */
+export type RunOptions = {
+  maxPolls?: number;
+  /**
+   * Called the instant the backend returns a job id, before any polling.
+   *
+   * SPEC-008 FR-2: this is the only moment at which an accepted job becomes
+   * recoverable. Anything awaited here delays the first poll, so the durable
+   * queue uses it to persist the id and nothing else.
+   */
+  onSubmitted?: (jobId: string) => Promise<void> | void;
+};
+
 export async function runToCompletion(
   settings: Record<string, unknown>,
-  maxPolls?: number,
+  maxPollsOrOptions?: number | RunOptions,
 ): Promise<WangpJob> {
+  const options: RunOptions =
+    typeof maxPollsOrOptions === "number" ? { maxPolls: maxPollsOrOptions } : (maxPollsOrOptions ?? {});
   const client = getWangpClient();
   const live = client.mode === "live";
-  const attempts = maxPolls ?? (live ? config.wangp.maxPollAttempts : 10);
+  const attempts = options.maxPolls ?? (live ? config.wangp.maxPollAttempts : 10);
   const intervalMs = live ? config.wangp.pollIntervalMs : 0;
 
   return enqueue(async () => {
@@ -335,6 +349,9 @@ export async function runToCompletion(
       throw err;
     }
     logEvent("wangp.job.submitted", { jobId: job.id, mode: client.mode });
+    // Persisted before the first poll: a crash after this point is resumable,
+    // a crash before it is not, and that distinction is the whole of FR-11.
+    await options.onSubmitted?.(job.id);
 
     for (let i = 0; i < attempts && !TERMINAL.includes(job.status); i += 1) {
       await delay(intervalMs);
@@ -352,6 +369,23 @@ export async function runToCompletion(
     }
     return job;
   });
+}
+
+/**
+ * Ask the backend what became of a job we submitted before a restart (FR-4).
+ *
+ * Never resubmits. A job the backend has forgotten returns `unknown`, which the
+ * caller must escalate to a person rather than guessing.
+ */
+export async function resumeJob(
+  jobId: string,
+): Promise<{ status: WangpJob["status"] | "unknown"; job?: WangpJob }> {
+  try {
+    const job = await getWangpClient().getJob(jobId);
+    return { status: job.status, job };
+  } catch {
+    return { status: "unknown" };
+  }
 }
 
 /** Build an image keyframe manifest (start or end frame). */

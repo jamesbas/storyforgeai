@@ -7,6 +7,7 @@ import Link from "next/link";
 import { SceneCard } from "@/components/storyboard/scene-card";
 import { CreativePlansPanel } from "@/components/storyboard/creative-plans-panel";
 import { NegativePromptRepair } from "@/components/storyboard/negative-prompt-repair";
+import { TaskRecoveryPanel } from "@/components/storyboard/task-recovery-panel";
 import { WardrobeCheck } from "@/components/storyboard/wardrobe-check";
 import { GENERATION_MODE_DOCS, SCENE_CONTINUITY_OPTIONS } from "@/lib/presets";
 import type { GenerationMode, SceneContinuityMode } from "@/lib/types";
@@ -763,6 +764,8 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         busy={generating}
         onRegenerate={requestGenerate}
       />
+
+      <TaskRecoveryPanel projectId={projectId} />
 
       <NegativePromptRepair
         record={record}

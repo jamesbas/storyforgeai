@@ -119,6 +119,11 @@ export async function enqueueProjectScenes(
   projectId: string,
   options: { includeGenerated?: boolean } = {},
 ): Promise<SceneQueueEntry[]> {
+  // SPEC-008 §17.7: exactly one drainer owns a project. Durable tasks take
+  // this queue out of service rather than running alongside it.
+  if (config.flags.durableTasks) {
+    throw new ValidationError("Durable tasks are enabled; use the task queue for this project.");
+  }
   const record = await getProjectRecord(projectId);
   if (!record.storyboard) throw new ValidationError("Generate a storyboard before media");
   if (!generationStages(record.project.generationMode).keyframes) {

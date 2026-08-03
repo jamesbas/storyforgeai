@@ -24,4 +24,11 @@ export async function register() {
       allowedHostCount: allowed.size,
     }),
   );
+
+  // SPEC-008 FR-3: anything left mid-flight by the previous process is
+  // reconciled before a drainer can touch it, so a restart cannot resubmit.
+  if (config.flags.durableTasks) {
+    const { reconcileStartup } = await import("@/lib/tasks/startup");
+    await reconcileStartup();
+  }
 }

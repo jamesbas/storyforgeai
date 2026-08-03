@@ -18,6 +18,16 @@ process.env.WANGP_MCP_ENABLED = "false";
 process.env.AI_PLANNING_ENABLED = "false";
 
 /**
+ * Durable tasks off by default, matching the shipped configuration.
+ *
+ * The legacy queues refuse to enqueue while it is on — that is the SPEC-008
+ * guarantee that two drainers never own one project — so leaving it inherited
+ * from the shell would make those suites fail for the right reason at the wrong
+ * time. The durable suites set it themselves after `vi.resetModules()`.
+ */
+process.env.DURABLE_TASKS = "false";
+
+/**
  * Projects now persist to disk by default. Tests must not write into the real
  * data directory: it would leave stray records behind, make runs order
  * dependent, and slow every case down with filesystem I/O.

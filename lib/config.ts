@@ -72,6 +72,13 @@ export const config = {
      * prompt change is an improvement is to render with it.
      */
     mediaPromptComposerV2: bool(process.env.MEDIA_PROMPT_COMPOSER_V2, false),
+    /**
+     * Durable task state and recovery (SPEC-008).
+     *
+     * Off until live reconciliation is proven. While off the legacy in-memory
+     * queues run unchanged; the two drainers never run for one project.
+     */
+    durableTasks: bool(process.env.DURABLE_TASKS, false),
   },
   ffmpeg: {
     path: str(process.env.FFMPEG_PATH, "ffmpeg"),

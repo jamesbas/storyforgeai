@@ -7,6 +7,7 @@ import {
 } from "@/lib/services/project-service";
 import { ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
+import { config } from "@/lib/config";
 
 /**
  * Sequential canvas planning queue.
@@ -130,6 +131,12 @@ export function enqueueCanvasRun(
   options: { includeStoryboard?: boolean } = {},
 ): CanvasRunEntry[] {
   const state = store();
+  // SPEC-008 §17.7: exactly one drainer owns a project. When durable tasks are
+  // on, this queue must not enqueue at all, or two workers would run the same
+  // agents against the same record.
+  if (config.flags.durableTasks) {
+    throw new ValidationError("Durable tasks are enabled; use the task queue for this project.");
+  }
   if (getCanvasQueue(projectId).active) {
     throw new ValidationError("This project already has a plan run in progress.");
   }
