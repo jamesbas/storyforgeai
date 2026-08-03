@@ -143,9 +143,35 @@ function keyframeSeed(
   return purpose === "start_frame" ? base : (base + 1) % (2 ** 31 - 1);
 }
 
+/**
+ * What the end frame's reference image is allowed to dictate.
+ *
+ * The reference is only ever a frame carried in from the previous scene. A
+ * scene's own start frame is never shown to its end frame: an edit model handed
+ * a picture returns that picture, so the two keyframes came back identical and
+ * the clip between them had nothing to move through. Wording did not fix it —
+ * only withholding the image did.
+ *
+ * The inherited frame is the previous scene's *ending*, so character and
+ * wardrobe have to carry, but this scene is entitled to happen somewhere else.
+ */
+const MATCH_INSTRUCTION = {
+  inherited:
+    " The character's wardrobe, hair and styling are exactly as in the supplied reference frame; identical clothing." +
+    " Follow this scene's own description for location, framing and action.",
+  /** The one scene that depicts the costume change itself; its prompt names the outfit. */
+  inheritedChangingWardrobe:
+    " The character's hair and styling are exactly as in the supplied reference frame." +
+    " Follow this scene's own description for location, framing, action and clothing.",
+} as const;
+
+/** Does this scene depict a costume change, rather than arriving with one done? */
+function changingWardrobe(record: ProjectRecord, sceneId: string): boolean {
+  return (record.project.wardrobeChanges?.[sceneId] ?? []).some((c) => c.mode === "within");
+}
+
 /** Drop a scene's pinned seed so the next render samples afresh. */
-export async function clearSceneSeed(projectId: string, sceneId: string): Promise<ProjectRecord> {
-  const record = await getProjectRecord(projectId);
+export async function clearSceneSeed(projectId: string, sceneId: string): Promise<ProjectRecord> {  const record = await getProjectRecord(projectId);
   if (record.project.sceneSeeds?.[sceneId] === undefined) return record;
 
   const seeds = { ...record.project.sceneSeeds };
@@ -291,26 +317,23 @@ export async function generateSceneKeyframe(
   const castRefs = await resolveCastReferenceImages(seeded, scene);
   const swapSubject = await sceneFaceSwapSubject(seeded, scene);
 
-  // The end frame is normally shown the start frame to match. Reuse whichever
-  // start frame already exists so the preview is conditioned the same way the
-  // real render would be; with none, it falls back to a plain text-to-image.
+  // Condition the preview the same way the real render would be, so what it
+  // predicts is what a full scene generation produces.
   let extraRefs: string[] = [];
   let prompt =
     purpose === "start_frame" ? scene.prompts.startFramePrompt : scene.prompts.endFramePrompt;
 
   if (purpose === "end_frame" && config.media.endFrameReferencesStartFrame) {
-    const existingStart =
-      seeded.previews?.[sceneId]?.startFramePath ?? chosenAttempt(seeded, sceneId)?.startImagePath;
-    if (existingStart) {
-      extraRefs = [existingStart];
-      // A scene that depicts a costume change is the one place the end frame is
-      // meant to differ in clothing; its own prompt already names the outfit.
-      const changing = (seeded.project.wardrobeChanges?.[sceneId] ?? []).some(
-        (c) => c.mode === "within",
-      );
-      prompt = changing
-        ? `${prompt} Hair, styling, location and lighting exactly as in the supplied reference frame.`
-        : `${prompt} Wardrobe, hair, styling, location and lighting exactly as in the supplied reference frame; identical clothing.`;
+    // Only a frame carried in from the previous scene. This scene's own start
+    // frame is the picture the end frame is supposed to differ from.
+    const inheritedStart = chosenAttempt(seeded, sceneId)?.startImageInherited
+      ? chosenAttempt(seeded, sceneId)?.startImagePath
+      : undefined;
+    if (inheritedStart) {
+      extraRefs = [inheritedStart];
+      prompt = changingWardrobe(seeded, sceneId)
+        ? `${prompt}${MATCH_INSTRUCTION.inheritedChangingWardrobe}`
+        : `${prompt}${MATCH_INSTRUCTION.inherited}`;
     }
   }
 
@@ -520,10 +543,10 @@ export async function generateProjectMediaPhased(
         startId = rendered.id;
       }
 
-      const conditionOnStart = config.media.endFrameReferencesStartFrame && Boolean(startPath);
-      const matchInstruction = inherited
-        ? " The character's wardrobe, hair and styling are exactly as in the supplied reference frame; identical clothing. Follow this scene's own description for location, framing and action."
-        : " Wardrobe, hair, styling, location and lighting exactly as in the supplied reference frame; identical clothing.";
+      const conditionOnStart = config.media.endFrameReferencesStartFrame && Boolean(inherited);
+      const matchInstruction = changingWardrobe(record, scene.id)
+        ? MATCH_INSTRUCTION.inheritedChangingWardrobe
+        : MATCH_INSTRUCTION.inherited;
 
       const endRender = await run(() =>
         renderKeyframe(
@@ -1010,22 +1033,14 @@ export async function generateSceneMedia(
    *
    * The two frames are otherwise independent text-to-image jobs, so anything
    * the prompt leaves unstated is reinvented — which is how a character ends up
-   * in black trousers in one frame and blue jeans in the next.
-   *
-   * What the reference is allowed to dictate depends on where it came from:
-   *
-   *  - This scene's own start frame is the same moment seconds earlier, so the
-   *    set and lighting must match as well as the wardrobe.
-   *  - An inherited frame (reuse_end_frame continuity) is the *previous*
-   *    scene's ending. Character and wardrobe still have to carry, but the
-   *    scene is entitled to move — pinning the location here would stop the
-   *    story progressing and fight the scene's own prompt.
+   * in black trousers in one frame and blue jeans in the next. What the
+   * reference may dictate depends on where it came from: see MATCH_INSTRUCTION.
    */
   const inheritedStart = Boolean(continuity.startImagePath);
-  const conditionOnStartFrame = config.media.endFrameReferencesStartFrame && Boolean(startImagePath);
-  const matchInstruction = inheritedStart
-    ? " The character's wardrobe, hair and styling are exactly as in the supplied reference frame; identical clothing. Follow this scene's own description for location, framing and action."
-    : " Wardrobe, hair, styling, location and lighting exactly as in the supplied reference frame; identical clothing.";
+  const conditionOnStartFrame = config.media.endFrameReferencesStartFrame && inheritedStart;
+  const matchInstruction = changingWardrobe(record, sceneId)
+    ? MATCH_INSTRUCTION.inheritedChangingWardrobe
+    : MATCH_INSTRUCTION.inherited;
 
   const end = continuing
     ? null

@@ -113,6 +113,69 @@ describe("rendering a single keyframe", () => {
     expect(record.previews?.[scene.id]?.endFramePath).toBeTruthy();
   });
 
+  /**
+   * Scene 1 has no frame to inherit, so its end frame is shown nothing. Handing
+   * it its own start frame made an edit model return that start frame back: the
+   * two stills were the same picture and the clip between them had no move to
+   * make. Wording did not shift it — withholding the image did.
+   *
+   * A preview has to make the same choice as a full render, or it stops
+   * predicting the keyframe it stands in for.
+   */
+  it("does not show a scene the start frame it rendered itself", async () => {
+    class RequestRecordingClient extends MockWangpClient {
+      readonly prompts: string[] = [];
+      async generate(settings: Record<string, unknown>) {
+        this.prompts.push(String(settings.prompt ?? ""));
+        return super.generate(settings);
+      }
+    }
+    const seed = await seeded();
+    const scenes = seed.storyboard!.scenes;
+
+    // A banked attempt for scene 1, whose start frame it rendered itself.
+    const generated = await generateSceneMedia(seed.project.id, scenes[0]!.id);
+    const attempt = generated.attempts![scenes[0]!.id]!.at(-1)!;
+    expect(attempt.startImagePath).toBeTruthy();
+    expect(attempt.startImageInherited).toBeUndefined();
+
+    const client = new RequestRecordingClient();
+    setWangpClient(client);
+    await generateSceneKeyframe(seed.project.id, scenes[0]!.id, "end_frame");
+
+    expect(client.prompts.at(-1)!).not.toContain("supplied reference frame");
+
+    setWangpClient(new MockWangpClient());
+  });
+
+  it("shows a scene the frame it inherited from the one before", async () => {
+    class RequestRecordingClient extends MockWangpClient {
+      readonly prompts: string[] = [];
+      async generate(settings: Record<string, unknown>) {
+        this.prompts.push(String(settings.prompt ?? ""));
+        return super.generate(settings);
+      }
+    }
+    const seed = await seeded();
+    const scenes = seed.storyboard!.scenes;
+
+    const first = await generateSceneMedia(seed.project.id, scenes[0]!.id);
+    await approveAttempt(seed.project.id, scenes[0]!.id, first.attempts![scenes[0]!.id]!.at(-1)!.id);
+    const second = await generateSceneMedia(seed.project.id, scenes[1]!.id);
+    const inherited = second.attempts![scenes[1]!.id]!.at(-1)!;
+
+    // Only meaningful if this scene actually inherited; otherwise nothing is asserted.
+    expect(inherited.startImageInherited).toBe(true);
+
+    const client = new RequestRecordingClient();
+    setWangpClient(client);
+    await generateSceneKeyframe(seed.project.id, scenes[1]!.id, "end_frame");
+
+    expect(client.prompts.at(-1)!).toContain("supplied reference frame");
+
+    setWangpClient(new MockWangpClient());
+  });
+
   /** The whole point: a preview must not look like a generation attempt. */
   it("creates no attempt and leaves scene status alone", async () => {
     const seed = await seeded();

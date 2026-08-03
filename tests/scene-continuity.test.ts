@@ -104,8 +104,43 @@ describe("scene continuity", () => {
     expect(second.startImagePath).toBe(first.endImagePath);
   });
 
-  it("a cut renders every scene's own start and end frames", async () => {
-    let record = await projectWithStoryboard("cut");
+  /**
+   * An edit model shown a picture returns that picture. Scene 1 was handed its
+   * own start frame and came back with two identical stills, so nothing may be
+   * shown a frame it is meant to differ from — only one carried in from the
+   * scene before.
+   */
+  it("shows the end frame an inherited frame only, never the scene's own start", async () => {
+    class RequestRecordingClient extends MockWangpClient {
+      readonly requests: Record<string, unknown>[] = [];
+      async generate(settings: Record<string, unknown>) {
+        this.requests.push(settings);
+        return super.generate(settings);
+      }
+    }
+    const client = new RequestRecordingClient();
+    setWangpClient(client);
+
+    let record = await projectWithStoryboard("reuse_end_frame");
+    record = await withContinuousSeams(record);
+    record = await generateAndApprove(record, 0);
+    const afterFirst = client.requests.length;
+    record = await generateAndApprove(record, 1);
+
+    const sceneOne = client.requests.slice(0, afterFirst).map((r) => String(r.prompt));
+    const sceneTwo = client.requests.slice(afterFirst).map((r) => String(r.prompt));
+
+    // Scene 1 renders both its own frames and is shown neither of them.
+    expect(sceneOne.some((p) => p.includes("supplied reference frame"))).toBe(false);
+    // Scene 2 inherits scene 1's ending, which still has to carry the cast.
+    const sceneTwoEnd = sceneTwo.find((p) => p.includes("supplied reference frame"));
+    expect(sceneTwoEnd).toBeDefined();
+    expect(sceneTwoEnd).toContain("Follow this scene's own description for location, framing and action");
+
+    setWangpClient(new MockWangpClient());
+  });
+
+  it("a cut renders every scene's own start and end frames", async () => {    let record = await projectWithStoryboard("cut");
     expect(record.project.sceneContinuity).toBe("cut");
 
     record = await generateAndApprove(record, 0);

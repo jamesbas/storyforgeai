@@ -195,10 +195,43 @@ describe("running a phased batch", () => {
     expect(latest[1]!.startImageInherited).toBe(true);
   });
 
+  /**
+   * An edit model shown a picture returns that picture, so a scene rendering
+   * its own start frame must not then be shown it — scene 1 came back with two
+   * identical stills and a clip with no move to make. A cut project renders
+   * every scene's own start frame, so none of them may be conditioned.
+   */
+  it("never shows a scene the start frame it just rendered", async () => {
+    class RequestRecordingClient extends MockWangpClient {
+      readonly prompts: string[] = [];
+      async generate(settings: Record<string, unknown>) {
+        this.prompts.push(String(settings.prompt ?? ""));
+        return super.generate(settings);
+      }
+    }
+
+    const cutClient = new RequestRecordingClient();
+    setWangpClient(cutClient);
+    const cut = await project({ faceSwap: false, continuity: "cut" });
+    await generateProjectMediaPhased(cut.project.id, sceneIdsOf(cut));
+    // Nothing is inherited across a cut, so no frame is ever a reference.
+    expect(cutClient.prompts.filter((p) => p.includes("supplied reference frame"))).toHaveLength(0);
+
+    const chainClient = new RequestRecordingClient();
+    setWangpClient(chainClient);
+    const chained = await project({ faceSwap: false, continuity: "reuse_end_frame" });
+    await generateProjectMediaPhased(chained.project.id, sceneIdsOf(chained));
+    // Every scene but the first inherits, and only those are conditioned.
+    const conditioned = chainClient.prompts.filter((p) => p.includes("supplied reference frame"));
+    expect(conditioned.length).toBeGreaterThan(0);
+    expect(conditioned.length).toBeLessThan(sceneIdsOf(chained).length * 2);
+
+    setWangpClient(new MockWangpClient());
+  });
+
   /** Cut scenes share nothing, so every frame is its own swap. */
   it("swaps every frame when the project cuts between scenes", async () => {
-    const seeded = await project({ faceSwap: true, continuity: "cut" });
-    const sceneCount = sceneIdsOf(seeded).length;
+    const seeded = await project({ faceSwap: true, continuity: "cut" });    const sceneCount = sceneIdsOf(seeded).length;
     let swapTotal = 0;
     await generateProjectMediaPhased(seeded.project.id, sceneIdsOf(seeded), {
       onPhase: (phase, total) => {
