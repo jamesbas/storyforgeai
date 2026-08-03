@@ -18,6 +18,11 @@ so nothing cloud is required to run, test, or demo the app.
 > terms. Review the license for each model used inside WanGP, as individual models
 > and checkpoints can carry separate commercial-use restrictions.
 
+![A finished scene card: the objective and shot description the agents wrote, the start and end keyframes, and the clip generated between them](public/screenshots/storyboard.png)
+
+*One scene from a finished project. Everything above the images was written by the
+agent crew; everything below was rendered by WanGP from those prompts.*
+
 ---
 
 ## Features
@@ -152,6 +157,7 @@ The About page always shows which flags are currently enabled.
 | `npm test` | Vitest unit + integration + component |
 | `npm run test:e2e` | Playwright E2E (boots its own dev server on 3100) |
 | `npm run smoke` | `tsx` full-pipeline smoke (create → storyboard → media → assemble) |
+| `npm run docs:screenshots` | Recapture the screenshots in this README and `architecture.md` |
 | `npm run audit:prod` | Dependency audit, runtime only, fails on high/critical |
 | `npm run audit:all` | Dependency audit across the whole graph |
 | `npm run prisma:generate` | Generate the Prisma client |
@@ -168,6 +174,18 @@ Media assets were the casualty every time, because nothing requests them until a
 render has finished — the app looked fine for hours, then served broken images.
 
 `npm run build` still writes `.next`, so that one does need the app stopped.
+
+### Documentation screenshots
+
+`npm run docs:screenshots -- --project <projectId>` photographs a running app and
+writes `public/screenshots`. Point it at a project that has been taken all the way
+through — canvas, storyboard, media, assembly — because the screenshots are of its
+work: a half-finished project photographs empty cards and dead players.
+
+It needs the real app (`npm start` or `npm run dev` on 3200), not the E2E server,
+which runs in demo mode against an empty in-memory store. Videos are seeked a
+little way in before the shutter, since a `<video>` that has never played paints
+nothing and every clip would otherwise be a black rectangle.
 
 ### Ports
 
@@ -188,15 +206,30 @@ values in the `Dockerfile`, and the port mapping in `docker-compose.yml`.
 
 1. **New Project** — enter a concept, duration, style, tone, and toggles.
    Optionally attach reference images.
+
+   ![The new project form: concept, duration, style, tone and generation toggles](public/screenshots/new-project.png)
+
 2. **Variant Review** — generate 3 directions and select one (optional).
 3. **Storyboard** — generate the brief, visual bible, and 20s scene cards.
    References are read automatically if they have not been already.
 4. **Agentic Canvas** — run World Builder / Director / Cinematographer / Art
    Director / Audio Director; view artifacts, status, and decision history.
+
+   ![The agentic canvas: one card per agent showing its plan, the model that wrote it, and a decision history of the whole run](public/screenshots/agentic-canvas.png)
+
 5. **Generation Console** — inspect WanGP models and job status.
+
+   ![The generation console: resolved WanGP models, job status and queue state](public/screenshots/generation-console.png)
+
 6. Per scene — **Generate media** (start/end frame + 20s video), run **QC**, and
    **Approve**.
 7. **Assembly** — assemble a rough cut and export the package.
+
+   ![Assembly: approval state, the assembled rough cut, its source clips and the export package](public/screenshots/assembly.png)
+
+> Screenshots are captured from a real finished project with
+> `npm run docs:screenshots -- --project <projectId>`, against a locally running
+> app. See [Scripts](#scripts).
 
 ---
 

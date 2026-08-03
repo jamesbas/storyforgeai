@@ -27,6 +27,7 @@
     "wangp:e2e": "tsx scripts/live-e2e.ts",
     "prompts:check": "tsx scripts/prompt-check.ts",
     "prompts:preview": "tsx scripts/prompt-preview.ts",
+    "docs:screenshots": "tsx scripts/screenshots.ts",
     "tasks:restart-sim": "tsx scripts/restart-sim.ts",
     "llm:probe": "tsx scripts/llm-probe.ts",
     "llm:bench": "tsx scripts/llm-bench.ts",
