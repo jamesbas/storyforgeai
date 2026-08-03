@@ -47,6 +47,22 @@ export type AgentContext = {
 };
 
 /**
+ * Where a long agent has got to, in the user's language.
+ *
+ * The Storyboard Artist is five sub-agents and most of a run's wall clock, so
+ * without this the canvas shows one unchanging label for twenty minutes and
+ * reads as wedged.
+ */
+export type AgentProgress = {
+  phase: string;
+  /** Position within a repeated step, when the phase has one. */
+  done?: number;
+  total?: number;
+};
+
+export type ProgressReporter = (progress: AgentProgress) => void;
+
+/**
  * Dependencies injected into the orchestrator so tests can drive the pipeline
  * with a fake provider (or none) via DI.
  */
@@ -65,5 +81,7 @@ export type OrchestratorDeps = {
   onWardrobeChanges?: (changes: Record<string, WardrobeChange[]>) => void;
   /** Receives one provenance record per artifact produced during this run. */
   onExecution?: ExecutionCollector;
+  /** Reports which sub-agent is working, for the canvas status line. */
+  onProgress?: ProgressReporter;
   correlationId?: string;
 };

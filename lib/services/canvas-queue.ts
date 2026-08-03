@@ -8,6 +8,7 @@ import {
 import { ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
 import { config } from "@/lib/config";
+import type { AgentProgress, ProgressReporter } from "@/lib/agents/types";
 
 /**
  * Sequential canvas planning queue.
@@ -37,6 +38,8 @@ export type CanvasRunEntry = {
   agentKey: string;
   agentName: string;
   state: CanvasRunState;
+  /** Where a long agent has got to. Only meaningful while it is running. */
+  progress?: AgentProgress;
   error?: string;
   startedAt?: string;
   finishedAt?: string;
@@ -66,18 +69,25 @@ function store(): QueueStore {
  * The Storyboard Artist is optional and always last: it folds in whichever
  * plans exist at the moment it runs.
  */
+type CanvasRunner = {
+  agentKey: string;
+  agentName: string;
+  /** Long agents report sub-steps; short ones ignore the reporter. */
+  run: (projectId: string, onProgress?: ProgressReporter) => Promise<unknown>;
+};
+
 const CORE_RUNNERS = [
   { agentKey: "world", agentName: "World Builder", run: generateWorldBible },
   { agentKey: "director", agentName: "Director", run: generateDirectorialPlan },
   { agentKey: "cinematographer", agentName: "Cinematographer", run: generateCinematographyPlan },
   { agentKey: "art", agentName: "Art Director", run: generateArtDirectionPlan },
-] as const;
+] as const satisfies readonly CanvasRunner[];
 
 const STORYBOARD_RUNNER = {
   agentKey: "storyboard",
   agentName: "Storyboard Artist",
   run: generateStoryboard,
-} as const;
+} as const satisfies CanvasRunner;
 
 function runnerFor(agentKey: string) {
   return [...CORE_RUNNERS, STORYBOARD_RUNNER].find((r) => r.agentKey === agentKey) ?? null;
@@ -192,13 +202,19 @@ async function drain(): Promise<void> {
       next.state = "running";
       next.startedAt = new Date().toISOString();
       try {
-        await runner.run(next.projectId);
+        // A late report from an agent that has already finished would leave a
+        // completed row claiming to be mid-scene, so only the running one takes it.
+        await runner.run(next.projectId, (progress) => {
+          if (next.state === "running") next.progress = progress;
+        });
         next.state = "completed";
         next.finishedAt = new Date().toISOString();
+        next.progress = undefined;
       } catch (err) {
         next.state = "failed";
         next.error = err instanceof Error ? err.message : "Failed";
         next.finishedAt = new Date().toISOString();
+        next.progress = undefined;
         logEvent("canvas_queue.failed", { projectId: next.projectId, agent: next.agentKey });
         // Stop this project rather than pressing on: a later plan written
         // against a missing earlier one is not what was asked for.

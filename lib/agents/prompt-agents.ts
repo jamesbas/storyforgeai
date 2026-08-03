@@ -21,6 +21,7 @@ import {
   type ExecutionCollector,
 } from "@/lib/agents/provenance";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
+import type { ProgressReporter } from "@/lib/agents/types";
 import {
   castContinuityClause,
   castNegativeSuffix,
@@ -70,6 +71,8 @@ export type ScenePromptContext = {
   existing?: Record<string, ScenePrompts>;
   /** Receives one record per scene per pass, so image and video stay separate. */
   onExecution?: ExecutionCollector;
+  /** Reports which scene is being written, for the canvas status line. */
+  onProgress?: ProgressReporter;
   correlationId?: string;
 };
 
@@ -195,7 +198,8 @@ export async function attachScenePrompts(
   const scenes: Scene[] = [];
   // The seam can only be matched by an agent that can see what it is matching.
   let previousEndFramePrompt: string | undefined;
-  for (const draft of drafts) {
+  for (const [index, draft] of drafts.entries()) {
+    context.onProgress?.({ phase: "Writing prompts", done: index + 1, total: drafts.length });
     // Only this scene's slice of the Director and Cinematographer plans travels
     // into the prompt. The full documents would crowd out the shot description.
     const slice = sceneCreativeSlice(plans, draft);

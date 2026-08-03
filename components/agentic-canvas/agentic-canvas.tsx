@@ -40,6 +40,15 @@ function terminalSignature(queue: CanvasQueue): string {
     .join(",");
 }
 
+/** "Writing prompts, scene 2 of 3" — or just the phase, when it has no count. */
+function progressLabel(entry: CanvasRunEntry | undefined): string | null {
+  const progress = entry?.progress;
+  if (!progress) return null;
+  return progress.total
+    ? `${progress.phase}, scene ${progress.done ?? 1} of ${progress.total}`
+    : progress.phase;
+}
+
 type CanvasAgent = {
   key: string;
   name: string;
@@ -304,6 +313,7 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
   const busy = runningAll || busyKey !== null || remoteKey !== null;
   /** Which card shows a spinner — this tab's run, or one recovered from the server. */
   const activeKey = busyKey ?? remoteKey;
+  const runningEntry = queue?.entries.find((entry) => entry.state === "running");
   const failed = queue?.entries.find((entry) => entry.state === "failed");
   const cancelledCount = queue?.entries.filter((entry) => entry.state === "cancelled").length ?? 0;
   const lastCompleted = queue?.entries.filter((entry) => entry.state === "completed").at(-1);
@@ -311,21 +321,25 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
   const finishedRun = queue && !queue.active && queue.total > 0 && !failed ? queue : null;
 
   /**
-   * One sentence for the whole run, phrased so it only changes when an agent
-   * actually finishes.
+   * One sentence for the whole run, phrased so it only changes when the run
+   * actually moves on.
    *
    * The visible progress lives in a disabled button's label, which is never
    * announced, and the running banner re-renders its counts every three-second
-   * poll. Naming the agent rather than echoing the raw counter means the
-   * announcement fires per transition, not per tick.
+   * poll. Naming the agent and its current sub-step means the announcement
+   * fires per transition, not per tick: the Storyboard Artist is most of a
+   * run's wall clock, and without its sub-steps this sentence would sit
+   * unchanged for twenty minutes.
    */
   const runStatus = (() => {
     if (failed) return `${failed.agentName} failed. The rest of the run was stopped.`;
     if (runningAll && queue) {
       const current = queue.entries.find((entry) => entry.state === "running");
-      return current
-        ? `Running ${current.agentName}, ${queue.done} of ${queue.total} done.`
-        : `Starting the crew, ${queue.total} agents queued.`;
+      if (!current) return `Starting the crew, ${queue.total} agents queued.`;
+      const detail = progressLabel(current);
+      return detail
+        ? `Running ${current.agentName} — ${detail}. ${queue.done} of ${queue.total} done.`
+        : `Running ${current.agentName}, ${queue.done} of ${queue.total} done.`;
     }
     if (finishedRun) {
       return cancelledCount
@@ -362,7 +376,7 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
             className="rounded-md bg-accent-solid px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
             {runningAll && queue
-              ? `Running ${Math.min(queue.done + 1, queue.total)} of ${queue.total}…`
+              ? `Running step ${Math.min(queue.done + 1, queue.total)} of ${queue.total}…`
               : "Run core agents"}
           </button>
           {runningAll ? (
@@ -525,13 +539,27 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
                 </div>
                 <span
                   className={`rounded-full px-2 py-0.5 text-xs ${
-                    status === "ready" ? "bg-green-500/20 text-green-300" : "bg-white/10 text-slate-400"
+                    status === "ready"
+                      ? "bg-green-500/20 text-green-300"
+                      : runningEntry?.agentKey === agent.key
+                        ? "bg-accent/20 text-accent"
+                        : "bg-white/10 text-slate-400"
                   }`}
                 >
-                  {status === "ready" ? "ready" : "pending"}
+                  {status === "ready"
+                    ? "ready"
+                    : runningEntry?.agentKey === agent.key
+                      ? "running"
+                      : "pending"}
                 </span>
               </header>
               <p className="mt-2 line-clamp-2 text-sm text-slate-300">{agent.summary(record)}</p>
+              {/* An agent that takes twenty minutes has to show it is moving. */}
+              {runningEntry?.agentKey === agent.key && progressLabel(runningEntry) ? (
+                <p data-testid="agent-progress" className="mt-2 text-xs text-accent">
+                  {progressLabel(runningEntry)}…
+                </p>
+              ) : null}
               {status === "ready" && agent.artifactKey ? (
                 <p className="mt-2">
                   <ExecutionBadge execution={latestExecution(record.executions, agent.artifactKey)} />

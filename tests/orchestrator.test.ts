@@ -5,6 +5,7 @@ import { runStoryboardOrchestrator } from "@/lib/agents/orchestrator";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 import { computeSegmentation } from "@/lib/duration";
 import type { Project } from "@/lib/schemas/project";
+import type { StoryPlan } from "@/lib/schemas/agents";
 import { storyboardSnapshotSchema } from "@/lib/schemas/storyboard";
 
 function makeProject(requestedDurationSeconds: number): Project {
@@ -66,6 +67,51 @@ describe("storyboard orchestrator (integration with in-memory repo)", () => {
     const project = makeProject(60);
     const snapshot = await runStoryboardOrchestrator(project);
     expect(snapshot.scenes.at(-1)!.trimAtEndSeconds).toBeUndefined();
+  });
+
+  /**
+   * The canvas shows this agent as one row. It is five, and the per-scene pass
+   * is where the minutes go, so the run has to say which one it is on.
+   */
+  it("reports each sub-agent, and counts the scenes it writes prompts for", async () => {
+    const project = makeProject(60); // 3 segments
+    const seen: string[] = [];
+    const scenePasses: { done?: number; total?: number }[] = [];
+    await runStoryboardOrchestrator(project, {
+      onProgress: (p) => {
+        seen.push(p.phase);
+        if (p.total) scenePasses.push({ done: p.done, total: p.total });
+      },
+    });
+
+    expect(seen.slice(0, 4)).toEqual([
+      "Reading the brief",
+      "Planning the story",
+      "Setting the look",
+      "Drafting the scenes",
+    ]);
+    // One report per scene, in order, so the count only ever moves forward.
+    expect(scenePasses).toEqual([
+      { done: 1, total: 3 },
+      { done: 2, total: 3 },
+      { done: 3, total: 3 },
+    ]);
+  });
+
+  it("does not claim to be planning a story it was handed", async () => {
+    const project = makeProject(60);
+    let plan: StoryPlan | undefined;
+    await runStoryboardOrchestrator(project, { onStoryPlan: (p) => (plan = p) });
+
+    const seen: string[] = [];
+    await runStoryboardOrchestrator(project, {
+      storyPlan: plan,
+      onProgress: (p) => seen.push(p.phase),
+    });
+
+    // A reused arc costs nothing, so announcing it would be a phase that never happened.
+    expect(seen).not.toContain("Planning the story");
+    expect(seen).toContain("Setting the look");
   });
 
   /**

@@ -13,14 +13,19 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 const runs: string[] = [];
 let failOn: string | null = null;
 let gate: (() => void) | null = null;
+/** The reporter the queue handed to the agent currently in flight. */
+let reporter: ((progress: { phase: string; done?: number; total?: number }) => void) | null = null;
 
 vi.mock("@/lib/services/project-service", () => {
-  const record = (agent: string) => async (projectId: string) => {
-    runs.push(`${agent}:${projectId}`);
-    if (gate) await new Promise<void>((resolve) => (gate = resolve));
-    if (failOn === agent) throw new Error(`${agent} exploded`);
-    return {} as never;
-  };
+  const record =
+    (agent: string) =>
+    async (projectId: string, onProgress?: (p: { phase: string }) => void) => {
+      runs.push(`${agent}:${projectId}`);
+      reporter = onProgress ?? null;
+      if (gate) await new Promise<void>((resolve) => (gate = resolve));
+      if (failOn === agent) throw new Error(`${agent} exploded`);
+      return {} as never;
+    };
   return {
     generateWorldBible: record("world"),
     generateDirectorialPlan: record("director"),
@@ -45,6 +50,7 @@ beforeEach(async () => {
   runs.length = 0;
   failOn = null;
   gate = null;
+  reporter = null;
   (await queue()).resetCanvasQueue();
 });
 
@@ -106,8 +112,46 @@ describe("canvas run queue", () => {
     expect(state.entries[1].state).toBe("pending");
   });
 
-  it("stops the rest of the run when an agent fails", async () => {
+  /**
+   * The Storyboard Artist is one queue row and most of a run's wall clock, so
+   * without a sub-step the page shows an unchanging label for twenty minutes
+   * and reads as wedged.
+   */
+  it("carries a long agent's sub-step to whoever is polling", async () => {
     const { enqueueCanvasRun, getCanvasQueue } = await queue();
+    gate = () => undefined;
+    enqueueCanvasRun("p1", { includeStoryboard: true });
+    await settle();
+
+    reporter?.({ phase: "Writing prompts", done: 2, total: 3 });
+
+    const running = getCanvasQueue("p1").entries.find((e) => e.state === "running");
+    expect(running?.progress).toEqual({ phase: "Writing prompts", done: 2, total: 3 });
+  });
+
+  it("drops the sub-step once the agent is done, so a finished row cannot claim to be mid-scene", async () => {
+    const { enqueueCanvasRun, getCanvasQueue } = await queue();
+    let release: (() => void) | null = null;
+    gate = () => undefined;
+    enqueueCanvasRun("p1", { includeStoryboard: false });
+    await settle();
+
+    reporter?.({ phase: "Writing prompts", done: 1, total: 3 });
+    const stale = reporter;
+    release = gate;
+    release?.();
+    gate = null;
+    await settle();
+
+    // A report from an agent that has already finished must not resurrect it.
+    stale?.({ phase: "Writing prompts", done: 3, total: 3 });
+
+    const first = getCanvasQueue("p1").entries[0];
+    expect(first.state).toBe("completed");
+    expect(first.progress).toBeUndefined();
+  });
+
+  it("stops the rest of the run when an agent fails", async () => {    const { enqueueCanvasRun, getCanvasQueue } = await queue();
     failOn = "director";
     enqueueCanvasRun("p1", { includeStoryboard: true });
     await settle();

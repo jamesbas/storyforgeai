@@ -42,6 +42,7 @@ export async function runStoryboardOrchestrator(
     onExecution: deps.onExecution,
     correlationId: deps.correlationId,
   };
+  deps.onProgress?.({ phase: "Reading the brief" });
   ctx.brief = await intakeAgent(ctx, provider);
   if (ctx.selectedVariant) {
     // Carry the substance of the chosen direction, not just its label. Passing
@@ -60,10 +61,13 @@ export async function runStoryboardOrchestrator(
       constraints: [...ctx.brief.constraints, ...direction],
     };
   }
+  if (!deps.storyPlan) deps.onProgress?.({ phase: "Planning the story" });
   ctx.storyPlan = deps.storyPlan ?? (await storyArchitectAgent(ctx, provider));
   // Only a freshly generated arc is worth reporting; a reused one is already stored.
   if (!deps.storyPlan) deps.onStoryPlan?.(ctx.storyPlan);
+  deps.onProgress?.({ phase: "Setting the look" });
   ctx.visualBible = await visualBibleAgent(ctx, provider);
+  deps.onProgress?.({ phase: "Drafting the scenes" });
   ctx.sceneDrafts = await storyboardAgent(ctx, provider);
   // A costume change the story called for has to reach the project before the
   // prompts are written, or the proposal would only take effect on the next
@@ -75,6 +79,7 @@ export async function runStoryboardOrchestrator(
     visualBible: ctx.visualBible,
     plans: ctx.plans,
     onExecution: ctx.onExecution,
+    onProgress: deps.onProgress,
     correlationId: ctx.correlationId,
   });
 

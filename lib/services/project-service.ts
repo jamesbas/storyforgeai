@@ -50,7 +50,7 @@ import { storyArchitectAgent } from "@/lib/agents/story-architect-agent";
 import { conceptReaderAgent } from "@/lib/agents/concept-reader";
 import { conceptFidelityAgent } from "@/lib/agents/concept-fidelity";
 import type { ConceptVisuals } from "@/lib/schemas/agents";
-import type { AgentContext } from "@/lib/agents/types";
+import type { AgentContext, ProgressReporter } from "@/lib/agents/types";
 import type { StoryPlan } from "@/lib/schemas/agents";
 import { deriveTitle } from "@/lib/agents/mock-agents";
 import {
@@ -561,7 +561,10 @@ export async function getProjectRecord(id: string): Promise<ProjectRecord> {
   return record;
 }
 
-export async function generateStoryboard(id: string): Promise<ProjectRecord> {
+export async function generateStoryboard(
+  id: string,
+  onProgress?: ProgressReporter,
+): Promise<ProjectRecord> {
   return trackAgentRun(id, "storyboard", "Storyboard Artist", async () => {
     const record = await withConceptVisuals(await getProjectRecord(id));
     const selectedVariant = record.variants?.find((v) => v.id === record.selectedVariantId);
@@ -589,6 +592,7 @@ export async function generateStoryboard(id: string): Promise<ProjectRecord> {
       conceptVisuals: record.conceptVisuals,
       correlationId,
       onExecution: (execution) => executions.push(execution),
+      onProgress,
       onStoryPlan: (plan) => {
         freshStoryPlan = plan;
       },

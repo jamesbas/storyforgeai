@@ -334,6 +334,59 @@ describe("AgenticCanvas queue reconciliation", () => {
     expect(state.projectFetches).toBe(3);
   });
 
+  /**
+   * The Storyboard Artist ran for twenty-four minutes behind a label that never
+   * moved, next to a card reading "pending". Both were accurate and together
+   * they read as a hang.
+   */
+  it("says which sub-step a long agent is on, and calls it running rather than pending", async () => {
+    const storyboardEntry: CanvasRunEntry = {
+      projectId: "p1",
+      agentKey: "storyboard",
+      agentName: "Storyboard Artist",
+      state: "running",
+      progress: { phase: "Writing prompts", done: 2, total: 3 },
+    };
+    server({
+      record: plannedRecord,
+      queue: {
+        entries: [...(["completed", "completed", "completed", "completed"] as CanvasRunState[]).map(
+          (state, i) => entry(i, state),
+        ), storyboardEntry],
+        active: true,
+        done: 4,
+        total: 5,
+      },
+    });
+
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("canvas-run-status")).toHaveTextContent(
+        "Running Storyboard Artist — Writing prompts, scene 2 of 3. 4 of 5 done.",
+      ),
+    );
+    expect(screen.getByTestId("agent-progress")).toHaveTextContent("Writing prompts, scene 2 of 3");
+    // "Running 5 of 5" read as though all five had finished.
+    expect(screen.getByRole("button", { name: /running step 5 of 5/i })).toBeInTheDocument();
+  });
+
+  it("keeps the plain sentence for an agent that reports no sub-step", async () => {
+    server({
+      record: baseRecord,
+      queue: snapshot(["running", "pending", "pending", "pending"]),
+    });
+
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() =>
+      expect(screen.getByTestId("canvas-run-status")).toHaveTextContent(
+        "Running World Builder, 0 of 4 done.",
+      ),
+    );
+    expect(screen.queryByTestId("agent-progress")).toBeNull();
+  });
+
   it("names the failed agent and keeps completed predecessors", async () => {
     const state = server({ record: baseRecord, queue: IDLE });
     state.onPost = () => {
