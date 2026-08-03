@@ -39,6 +39,11 @@ import type {
   WorldBible,
 } from "@/lib/schemas/canvas";
 import { repository } from "@/lib/db/store";
+import {
+  copyConceptImages,
+  deleteConceptImages,
+  resolveConceptImageFiles,
+} from "@/lib/media/concept-image-files";
 import { runStoryboardOrchestrator } from "@/lib/agents/orchestrator";
 import { intakeAgent } from "@/lib/agents/intake-agent";
 import { storyArchitectAgent } from "@/lib/agents/story-architect-agent";
@@ -273,7 +278,6 @@ export async function duplicateProject(id: string): Promise<Project> {
   // Concept images live in a folder keyed by project id, so the copy needs its
   // own bytes. Anything missing from disk drops out of the list rather than
   // leaving the copy pointing at files it does not have.
-  const { copyConceptImages } = await import("@/lib/services/concept-image-service");
   const conceptImages = await copyConceptImages(id, newId, source.project.conceptImages ?? []);
 
   const project: Project = {
@@ -956,8 +960,7 @@ export async function updateSceneCard(
 export async function readConceptImages(id: string): Promise<ProjectRecord> {
   return trackAgentRun(id, "concept_reader", "Concept Reader", async () => {
     const record = await getProjectRecord(id);
-    const { conceptImageFiles } = await import("@/lib/services/concept-image-service");
-    const files = await conceptImageFiles(id, "reference");
+    const files = await resolveConceptImageFiles(id, record.project.conceptImages ?? [], "reference");
 
     // Reading nothing would still produce an artefact — a "visual reference"
     // derived from no visuals, which is worse than not having one.
@@ -988,8 +991,7 @@ export async function readConceptImages(id: string): Promise<ProjectRecord> {
 export async function checkConceptFidelity(id: string): Promise<ProjectRecord> {
   return trackAgentRun(id, "concept_fidelity", "Concept Fidelity Check", async () => {
     const record = await getProjectRecord(id);
-    const { conceptImageFiles } = await import("@/lib/services/concept-image-service");
-    const files = await conceptImageFiles(id, "render");
+    const files = await resolveConceptImageFiles(id, record.project.conceptImages ?? [], "render");
 
     if (files.length === 0) {
       throw new ValidationError("Add at least one render before checking it against the concept.");
@@ -1300,8 +1302,7 @@ async function canvasContext(record: ProjectRecord) {
  * when it should.
  */
 async function withConceptVisuals(record: ProjectRecord): Promise<ProjectRecord> {
-  const { conceptImageFiles } = await import("@/lib/services/concept-image-service");
-  const files = await conceptImageFiles(record.project.id, "reference");
+  const files = await resolveConceptImageFiles(record.project.id, record.project.conceptImages ?? [], "reference");
   if (files.length === 0) return record;
 
   const current = files.map((file) => file.name).sort();
@@ -1487,7 +1488,6 @@ export async function deleteProject(
   // repository's purge does not always reach them. Said explicitly here rather
   // than left to depend on which store is configured.
   if (!options.keepMedia) {
-    const { deleteConceptImages } = await import("@/lib/services/concept-image-service");
     await deleteConceptImages(id);
   }
 
