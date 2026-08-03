@@ -10,7 +10,7 @@ export const PROMPT_VERSIONS = {
   storyArchitect: "story-architect-v1",
   visualBible: "visual-bible-v1",
   storyboard: "storyboard-v1",
-  imagePrompt: "image-prompt-v1",
+  imagePrompt: "image-prompt-v2",
   videoPrompt: "video-prompt-v1",
   variants: "variants-v2",
   worldBible: "world-bible-v1",

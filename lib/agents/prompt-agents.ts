@@ -94,6 +94,13 @@ export const IMAGE_PROMPT_SYSTEM =
   // produced black trousers in one frame and blue jeans in the next.
   " The start and end frame are the same moment seconds apart: every character must wear " +
   "identical clothing in both, and the location, lighting and time of day must match. " +
+  // A family of four, described as four separate "X wears ..." clauses, rendered
+  // as five people. The count was stated once in prose at the top of the prompt,
+  // far from the bodies it governed; restating it beside them fixed it.
+  " When the people in shot are described individually, follow their descriptions " +
+  "with an explicit headcount — for example 'Exactly four people are in frame: one " +
+  "man, one woman, one boy and one girl.' Do not count background crowds, which " +
+  "are not individually described. " +
   "For any character who is not in the supplied cast, state the wardrobe as specific named " +
   "garments with colours and materials — never a vague placeholder such as 'casual attire', " +
   "'contemporary clothing' or 'appropriate outfit' — and repeat that same wardrobe wording " +

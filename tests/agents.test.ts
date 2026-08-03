@@ -9,7 +9,7 @@ import { intakeAgent, INTAKE_SYSTEM } from "@/lib/agents/intake-agent";
 import { storyArchitectAgent, storyArchitectSystem } from "@/lib/agents/story-architect-agent";
 import { visualBibleAgent } from "@/lib/agents/visual-bible-agent";
 import { storyboardAgent } from "@/lib/agents/storyboard-agent";
-import { attachScenePrompts } from "@/lib/agents/prompt-agents";
+import { attachScenePrompts, IMAGE_PROMPT_SYSTEM } from "@/lib/agents/prompt-agents";
 import { buildCreativeBrief, buildStoryPlan, buildVisualBible } from "@/lib/agents/mock-agents";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 import type { AgentContext } from "@/lib/agents/types";
@@ -107,6 +107,24 @@ describe("planning agents — deterministic fallback (no provider)", () => {
     it("says nothing about structure when the count is unknown", () => {
       const system = storyArchitectSystem(20);
       expect(system).not.toMatch(/three acts|hook, turn and payoff|one movement only/);
+    });
+  });
+
+  /**
+   * A family of four came back as five people. The count was stated once as
+   * prose at the top of the prompt, four separate "X wears ..." clauses
+   * followed, and the model added a body to match. Repeating the count beside
+   * the descriptions fixed it on a live render.
+   */
+  describe("what the Image Prompt Agent is told", () => {
+    it("requires an explicit headcount beside the people it describes", () => {
+      expect(IMAGE_PROMPT_SYSTEM).toMatch(/explicit headcount/);
+      expect(IMAGE_PROMPT_SYSTEM).toMatch(/Exactly four people are in frame/);
+    });
+
+    /** A crowd is not countable, and demanding a number would invent one. */
+    it("exempts background crowds from the count", () => {
+      expect(IMAGE_PROMPT_SYSTEM).toMatch(/Do not count background crowds/);
     });
   });
 
