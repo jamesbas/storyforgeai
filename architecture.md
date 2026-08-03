@@ -492,7 +492,12 @@ flowchart TB
     server-side and kept the screen looking busy. Same shape as the scene queue now:
     one worker pinned to `globalThis.__storyforgeCanvasQueue`, and clients polling
     `GET /api/projects/{id}/canvas-run`. Survives navigation and browser restarts,
-    not a Node restart — the same bargain the project store makes.
+    not a Node restart.
+
+    With `DURABLE_TASKS=true` the run instead goes through
+    `lib/services/canvas-task-queue.ts` onto the SPEC-008 task file, which does
+    survive a Node restart. Exactly one of the two owns a project: the legacy
+    queue refuses to enqueue while the flag is on.
 
     A failure stops that project's remaining agents rather than pressing on, since
     a later plan written against a missing earlier one is not what was asked for.
@@ -1107,18 +1112,23 @@ the scene because a change carries forward to every scene after it.
 
 ### 7.1 Where data actually lives
 
-**No database is in use today.** Storage is split in two:
+**No database is in use today.** Storage is on the local filesystem, split three ways:
 
 | What | Where | Durability |
-|---|---|---|
-| `ProjectRecord` — project, variants, all agent plans, storyboard, audio plan, attempts, assembly metadata, history | **In-process JavaScript `Map`**, pinned to `globalThis.__storyforgeStore` | Lost on process restart |
-| Rendered media — images, video segments, `rough-cut.mp4`, `final-cut.mp4` | **Local filesystem** under `config.dataDir` (`./projects/{projectId}/…`) | Survives restart, but is orphaned once the in-memory record is gone |
+| --- | --- | --- |
+| `ProjectRecord` — project, variants, all agent plans, storyboard, audio plan, attempts, assembly metadata, history, SPEC-004 executions | **`./projects/{projectId}/project.json`**, written atomically | Survives restart |
+| Durable task state — SPEC-008 queue entries, states, external job ids, lease | **`./projects/{projectId}/tasks.json`**, written atomically | Survives restart; only written when `DURABLE_TASKS=true` |
+| Rendered media — images, video segments, `rough-cut.mp4`, `final-cut.mp4` | **Local filesystem** under `config.dataDir` (`./projects/{projectId}/…`) | Survives restart |
 
 ```mermaid
 flowchart LR
-    svc["Services"] --> repoIface["ProjectRepository interface<br/>create · get · list · update · delete"]
-    repoIface --> impl["InMemoryProjectRepository<br/>Map&lt;projectId, ProjectRecord&gt;"]
-    impl --> glob[("globalThis.__storyforgeStore<br/>survives HMR, not restarts")]
+    svc["Services"] --> repoIface["ProjectRepository interface<br/>create · get · list · update · delete · purge"]
+    repoIface --> file["FileProjectRepository<br/>write-through cache + atomic write"]
+    repoIface -. "tests, STORYFORGE_PERSISTENCE=memory" .-> mem["InMemoryProjectRepository"]
+    file --> disk[/"./projects/:projectId/project.json"/]
+
+    tasks["Task service"] --> taskRepo["TaskRepository<br/>SPEC-008"]
+    taskRepo --> taskFile[/"./projects/:projectId/tasks.json"/]
 
     svc --> fs[/"config.dataDir<br/>./projects/:projectId/assembly/*.mp4"/]
     wangp["WanGP output"] --> fs
@@ -1136,27 +1146,34 @@ What exists versus what is wired:
 - **The interface is real.** `lib/db/repository.ts` defines `ProjectRepository`,
   and every service talks only to it — no service imports a store implementation
   directly. Swapping in a durable store requires no application-logic changes.
-- **Only one implementation exists.** `InMemoryProjectRepository` wraps a `Map`,
-  sorting `list()` by `createdAt` descending. It is held on `globalThis` so the
-  store survives Next.js hot-module reloads in dev and is shared across route
-  handlers in the same process.
-- **`config.persistence` is read but not acted on.** `lib/config.ts` parses
-  `STORYFORGE_PERSISTENCE` into a `"memory" | "prisma"` value, but
-  `lib/db/store.ts` constructs `InMemoryProjectRepository` unconditionally. There
-  is no `PrismaProjectRepository`, and nothing in `lib/` imports
-  `@prisma/client`.
+- **`config.persistence` defaults to `file` and is acted on.** `lib/db/store.ts`
+  returns `InMemoryProjectRepository` only for `STORYFORGE_PERSISTENCE=memory`
+  (tests and throwaway runs) and `FileProjectRepository` otherwise.
+- **Writes are atomic.** `FileProjectRepository.write` writes `project.json.tmp`
+  and renames it, so a crash mid-write leaves the previous record intact rather
+  than a truncated file. Writes are serialised on one repository-wide promise
+  chain; the cache is write-through, so reads never touch the disk after the
+  initial hydrate.
+- **Task state is a separate file.** SPEC-008 keeps `tasks.json` beside
+  `project.json` so a corrupt task file can be quarantined without losing the
+  project, and so a scene transition does not rewrite the whole storyboard. It
+  has its own per-project write chain.
+- **`prisma` silently falls back to `file`.** `PersistenceMode` admits
+  `"prisma"`, but no `PrismaProjectRepository` exists and `store.ts` treats it as
+  `file` without warning.
 - **`prisma/schema.prisma` is a scaffold only.** It declares a `postgresql`
-  datasource and a single `Project` model that stores the whole storyboard
-  snapshot as a `Json?` column, with enum-like fields modelled as `String`
-  (constrained by the union types in `lib/types.ts`) rather than native DB enums,
-  for portability. It is not generated, migrated, or queried by the app.
+  datasource and models that are neither generated, migrated, nor queried.
 - **`docker-compose.yml` ships a Postgres service** so the durable path can be
   developed against, but the running app never connects to it.
 
-Practical consequences: a project vanishes on server restart; two app instances do
-not share state; and there is no transactional boundary — each service builds a
-new `ProjectRecord` immutably and calls `repository.update(id, record)` as a
-whole-object replace, which is last-write-wins under concurrency.
+Practical consequences: a project survives a restart, but two app instances
+sharing one data directory will clobber each other — there is no cross-process
+lock. There is no transactional boundary either: each service builds a new
+`ProjectRecord` immutably and calls `repository.update(id, record)` as a
+whole-object replace, which is last-write-wins under concurrency. A task
+transition and a project change are two separate writes, so they are not atomic
+with respect to each other; reconciliation re-derives task state from artifacts
+rather than trusting the task file alone.
 
 ### Project status lifecycle
 

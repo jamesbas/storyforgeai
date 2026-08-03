@@ -114,7 +114,9 @@ Copy `.env.example` to `.env` and adjust as needed. All integrations default to
 off/local:
 
 ```bash
-STORYFORGE_PERSISTENCE=memory        # or "prisma"
+STORYFORGE_PERSISTENCE=file          # "file" (default) or "memory"; "prisma" is
+                                     # accepted but falls back to file — no
+                                     # Prisma repository exists yet
 DATABASE_URL=postgresql://storyforge:storyforge@localhost:5432/storyforge
 DEFAULT_SEGMENT_SECONDS=20
 AI_PLANNING_ENABLED=false            # + OPENAI_API_KEY to enable the LLM path
@@ -123,6 +125,17 @@ DEEPY_ASSIST_ENABLED=false
 ANIMATIC_ASSEMBLY_ENABLED=false
 PLATFORM_DERIVATIVES_ENABLED=false
 ```
+
+Two further flags are implemented but **off pending validation against real
+hardware**. Both change behaviour that only a live render can judge, so neither
+is enabled by default:
+
+| Flag | What it does | What it is waiting for |
+| --- | --- | --- |
+| `MEDIA_PROMPT_COMPOSER_V2` | Rebuilds deterministic prompts around a shared semantic contract | Fixed-seed renders compared per model family (`npm run prompts:preview` shows the diff) |
+| `DURABLE_TASKS` | Persists queue state so a restart reconciles instead of losing or resubmitting work | One interrupted live WanGP render resumed by polling |
+
+The About page always shows which flags are currently enabled.
 
 ---
 

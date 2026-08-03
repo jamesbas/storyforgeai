@@ -14,6 +14,8 @@ export default function AboutPage() {
     ["Deepy assist", config.flags.deepyAssist],
     ["Animatic assembly", config.flags.animaticAssembly],
     ["Platform derivatives", config.flags.platformDerivatives],
+    ["Media prompt composer v2", config.flags.mediaPromptComposerV2],
+    ["Durable tasks", config.flags.durableTasks],
   ];
 
   return (

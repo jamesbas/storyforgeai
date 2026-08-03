@@ -968,7 +968,7 @@ export default function HelpPage() {
             can refresh, navigate away, close the tab or shut the browser entirely — it carries on,
             and reopening the canvas shows you where it got to. That matters because the whole
             sequence is many minutes of work on a local model. (It does not survive restarting
-            StoryForgeAI itself.)
+            StoryForgeAI itself, unless durable tasks are enabled.)
           </p>
           <p className={p}>
             Variant Explorer is deliberately not part of that run: choosing a direction is your
@@ -1402,7 +1402,9 @@ export default function HelpPage() {
             <li className={li}><strong>Deepy assist</strong> — enable the real Deepy helper.</li>
             <li className={li}><strong>Animatic assembly</strong> — build a rough preview video for the animatic.</li>
             <li className={li}><strong>Platform derivatives</strong> — YouTube/Shorts/social output variants.</li>
-            <li className={li}><strong>Persistence</strong> — in-memory (demo) or PostgreSQL for durable, shared storage.</li>
+            <li className={li}><strong>Media prompt composer v2</strong> — rebuilds deterministic prompts around a shared semantic contract. Off pending fixed-seed comparison per model family.</li>
+            <li className={li}><strong>Durable tasks</strong> — persists queue state so a restart reconciles instead of losing or resubmitting work. Off pending live validation.</li>
+            <li className={li}><strong>Persistence</strong> — files on disk (default), or in-memory for throwaway runs. Projects are written to <code>projects/&lt;id&gt;/project.json</code> as they change, so a restart keeps your work.</li>
           </ul>
           <p className={p}>
             The <a href="/about" className="text-accent underline underline-offset-2">About</a> page always shows which flags are currently enabled.
