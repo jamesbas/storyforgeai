@@ -25,7 +25,7 @@ if not exist "node_modules\" (
 
 echo Building StoryForgeAI...
 call npm run build
-if errorlevel 1 goto :command_error
+if errorlevel 1 goto :build_error
 
 echo.
 echo Starting StoryForgeAI...
@@ -36,8 +36,11 @@ echo (WANGP_MCP_ENABLED for generation, AI_PLANNING_ENABLED for the agents).
 echo Press Ctrl+C to stop the application.
 echo.
 call npm start
-if errorlevel 1 goto :command_error
-goto :done
+rem Ctrl+C returns a non-zero code here, so this is a stop rather than a failure.
+set "EXIT_CODE=0"
+echo.
+echo StoryForgeAI has stopped. If that was unexpected, review the output above.
+goto :pause_and_done
 
 :folder_error
 echo Unable to open the launcher directory.
@@ -59,6 +62,13 @@ set "EXIT_CODE=%ERRORLEVEL%"
 if "%EXIT_CODE%"=="0" set "EXIT_CODE=1"
 echo.
 echo The application could not be started. Review the error above.
+goto :pause_and_done
+
+:build_error
+set "EXIT_CODE=%ERRORLEVEL%"
+if "%EXIT_CODE%"=="0" set "EXIT_CODE=1"
+echo.
+echo The build failed. Review the error above.
 
 :pause_and_done
 pause
