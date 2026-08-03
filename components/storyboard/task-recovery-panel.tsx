@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLoadEffect } from "@/components/shared/use-load-effect";
 import { AsyncStatus } from "@/components/shared/async-status";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
@@ -37,6 +37,15 @@ const STATE_LABELS: Record<TaskEntry["state"], string> = {
   stop_tracking: "No longer tracked",
 };
 
+/** What each action says once it succeeds. States and counts only. */
+const ACTION_DONE: Record<string, string> = {
+  resume: "Resumed. Checking the backend for the interrupted work.",
+  retry: "Retry queued.",
+  cancel: "Cancellation requested. Work already running will stop after the current step.",
+  stop_tracking: "Stopped tracking. The backend job may still be running.",
+  dismiss: "Completed work dismissed.",
+};
+
 function elapsed(entry: TaskEntry): string | null {
   if (!entry.startedAt) return null;
   const end = entry.finishedAt ? Date.parse(entry.finishedAt) : Date.now();
@@ -67,6 +76,10 @@ export function TaskRecoveryPanel({ projectId }: { projectId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<Task | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  const stopTrackingRef = useRef<HTMLButtonElement | null>(null);
+  const restoreToStop = useRef(false);
 
   const load = useCallback(
     async (isCurrent: () => boolean = () => true) => {
@@ -80,9 +93,32 @@ export function TaskRecoveryPanel({ projectId }: { projectId: string }) {
 
   useLoadEffect(load);
 
+  // The trigger is still mounted after a cancel, but the dialog took focus with
+  // it; this hands it back once the dialog has gone.
+  useEffect(() => {
+    if (confirming || !restoreToStop.current) return;
+    restoreToStop.current = false;
+    stopTrackingRef.current?.focus();
+  }, [confirming]);
+
+  /**
+   * Put focus somewhere deliberate after an action.
+   *
+   * Every one of these actions can remove the button that triggered it — a
+   * retried entry is no longer retryable — which drops focus to the document
+   * and loses a keyboard user's place entirely.
+   */
+  const recoverFocus = () => {
+    const active = document.activeElement;
+    if (!active || active === document.body || !active.isConnected) {
+      headingRef.current?.focus();
+    }
+  };
+
   const act = async (action: string, taskId?: string) => {
     setBusy(true);
     setError(null);
+    setDone(null);
     try {
       const res = await fetch(`/api/projects/${projectId}/tasks`, {
         method: "POST",
@@ -94,10 +130,12 @@ export function TaskRecoveryPanel({ projectId }: { projectId: string }) {
         throw new Error(detail?.error ?? `Action failed (HTTP ${res.status})`);
       }
       setFile((await res.json()) as TaskFile);
+      setDone(ACTION_DONE[action] ?? "Done.");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Action failed");
     } finally {
       setBusy(false);
+      requestAnimationFrame(recoverFocus);
     }
   };
 
@@ -114,7 +152,12 @@ export function TaskRecoveryPanel({ projectId }: { projectId: string }) {
       className="mt-4 rounded-md border border-white/10 bg-panel/40 p-3"
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h2 id="task-recovery-heading" className="text-sm font-semibold">
+        <h2
+          id="task-recovery-heading"
+          ref={headingRef}
+          tabIndex={-1}
+          className="text-sm font-semibold"
+        >
           Background work
         </h2>
         {finished > 0 ? (
@@ -129,7 +172,13 @@ export function TaskRecoveryPanel({ projectId }: { projectId: string }) {
         ) : null}
       </div>
 
-      <AsyncStatus message={error} failed={Boolean(error)} className="mt-2" />
+      <AsyncStatus
+        testId="recovery-status"
+        message={error ?? (busy ? "Working…" : done)}
+        busy={busy}
+        failed={Boolean(error)}
+        className="mt-2"
+      />
 
       <ul className="mt-3 space-y-3">
         {tasks.map((task) => {
@@ -203,6 +252,7 @@ export function TaskRecoveryPanel({ projectId }: { projectId: string }) {
                   <button
                     type="button"
                     disabled={busy}
+                    ref={stopTrackingRef}
                     onClick={() => setConfirming(task)}
                     className="min-h-[2.25rem] rounded-md border border-white/15 px-3 py-1 text-xs text-slate-300 hover:border-accent disabled:opacity-50"
                   >
@@ -220,7 +270,12 @@ export function TaskRecoveryPanel({ projectId }: { projectId: string }) {
         title="Stop tracking this run?"
         confirmLabel="Stop tracking"
         busy={busy}
-        onCancel={() => setConfirming(null)}
+        onCancel={() => {
+          // Cancelling returns to where the dialog was opened from; confirming
+          // hands focus to `recoverFocus` instead, because the trigger goes away.
+          restoreToStop.current = true;
+          setConfirming(null);
+        }}
         onConfirm={() => {
           const id = confirming?.id;
           setConfirming(null);

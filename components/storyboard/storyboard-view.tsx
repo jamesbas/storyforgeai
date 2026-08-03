@@ -8,6 +8,7 @@ import { SceneCard } from "@/components/storyboard/scene-card";
 import { CreativePlansPanel } from "@/components/storyboard/creative-plans-panel";
 import { NegativePromptRepair } from "@/components/storyboard/negative-prompt-repair";
 import { TaskRecoveryPanel } from "@/components/storyboard/task-recovery-panel";
+import { AsyncStatus } from "@/components/shared/async-status";
 import { WardrobeCheck } from "@/components/storyboard/wardrobe-check";
 import { GENERATION_MODE_DOCS, SCENE_CONTINUITY_OPTIONS } from "@/lib/presets";
 import type { GenerationMode, SceneContinuityMode } from "@/lib/types";
@@ -149,6 +150,27 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   // Derived rather than reset from an effect: an effect that writes [] on the
   // disabled path is a synchronous state update and an extra render.
   const cast = useMemo(() => (castEnabled ? fetchedCast : []), [castEnabled, fetchedCast]);
+
+  /**
+   * One sentence for the batch, changing only when a phase or a scene does.
+   *
+   * The visible line recomputes its counts on every three-second poll; feeding
+   * that straight to a live region would read the same sentence over and over.
+   * Phase name plus completed count moves on real progress and nothing else.
+   */
+  const batchStatus = (() => {
+    if (!queue) return null;
+    const done = queue.entries.filter((e) => e.state === "completed").length;
+    const failedCount = queue.entries.filter((e) => e.state === "failed").length;
+    if (queue.active) {
+      const phase = queue.phase ? `${PHASE_LABELS[queue.phase.phase]}. ` : "";
+      return `${phase}${done} of ${queue.entries.length} scenes done.`;
+    }
+    if (!queue.entries.length) return null;
+    return failedCount
+      ? `Generation finished. ${done} done, ${failedCount} failed.`
+      : `Generation finished. All ${done} scenes done.`;
+  })();
 
   useEffect(() => {
     const ids = record?.project.characterIds;
@@ -846,11 +868,15 @@ export function StoryboardView({ projectId }: { projectId: string }) {
           </section>
 
           <section className="rounded-lg border border-white/10 bg-panel/40 p-4">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            <h2
+              id="generation-mode-heading"
+              className="text-sm font-semibold uppercase tracking-wide text-slate-400"
+            >
               Generation mode
             </h2>
-            <label className="mt-2 block">
+            <div className="mt-2">
               <select
+                aria-labelledby="generation-mode-heading"
                 value={record.project.generationMode}
                 onChange={(e) => void setGenerationMode(e.target.value as GenerationMode)}
                 className="w-full rounded-md border border-white/10 bg-canvas px-3 py-2 text-sm outline-none focus:border-accent sm:max-w-md"
@@ -861,18 +887,22 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   </option>
                 ))}
               </select>
-            </label>
+            </div>
             <p className="mt-2 text-xs text-slate-500">
               {GENERATION_MODE_DOCS[record.project.generationMode]}
             </p>
           </section>
 
           <section className="rounded-lg border border-white/10 bg-panel/40 p-4">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-400">
+            <h2
+              id="scene-continuity-heading"
+              className="text-sm font-semibold uppercase tracking-wide text-slate-400"
+            >
               Scene continuity
             </h2>
-            <label className="mt-2 block">
+            <div className="mt-2">
               <select
+                aria-labelledby="scene-continuity-heading"
                 value={record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY}
                 onChange={(e) => void setContinuity(e.target.value as SceneContinuityMode)}
                 className="w-full rounded-md border border-white/10 bg-canvas px-3 py-2 text-sm outline-none focus:border-accent sm:max-w-md"
@@ -883,7 +913,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   </option>
                 ))}
               </select>
-            </label>
+            </div>
             <p className="mt-2 text-xs text-slate-500">
               {
                 SCENE_CONTINUITY_OPTIONS.find(
@@ -928,6 +958,11 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                       : ""}
                   </p>
                 ) : null}
+                <AsyncStatus
+                  testId="batch-status"
+                  message={batchStatus}
+                  busy={Boolean(queue?.active)}
+                />
               </div>
               <div className="flex gap-2">
                 <button

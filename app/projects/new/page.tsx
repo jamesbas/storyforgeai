@@ -73,7 +73,7 @@ export default function NewProjectPage() {
         <p className="mt-1 text-sm text-slate-400">
           Describe a concept and target duration. StoryForgeAI plans a storyboard in equal-length
           segments of 5 to 20 seconds. Everything here can be changed later —{" "}
-          <Link href="/help#fields" className="text-accent hover:underline">
+          <Link href="/help#fields" className="text-accent underline underline-offset-2">
             the field reference
           </Link>{" "}
           explains each option.

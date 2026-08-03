@@ -358,7 +358,7 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
           characters.length === 0 ? (
             <p className="text-xs text-slate-400">
               No characters saved yet.{" "}
-              <Link href="/settings" className="text-accent hover:underline">
+              <Link href="/settings" className="text-accent underline underline-offset-2">
                 Add one in Settings
               </Link>
               .

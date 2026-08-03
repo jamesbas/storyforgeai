@@ -7,6 +7,7 @@ import type { MediaDescriptor } from "@/lib/media/refs";
 import { generationStages } from "@/lib/types";
 import { assemblyReadiness, type MissingApproval, type MissingApprovalReason } from "@/lib/media/assembly";
 import { useLoadEffect } from "@/components/shared/use-load-effect";
+import { AsyncStatus } from "@/components/shared/async-status";
 import { AudioCuePanel } from "@/components/assembly/audio-cue-panel";
 
 type ExportDescriptor = { name: string; url: string; available: boolean };
@@ -96,6 +97,13 @@ export function AssemblyView({ projectId }: { projectId: string }) {
   const cut = media.find((m) => m.role === "final_cut" && m.available)
     ?? media.find((m) => m.role === "rough_cut" && m.available);
 
+  /** Clip counts and durations only — never the media paths beside them. */
+  const assemblyStatus = busy
+    ? "Assembling the rough cut…"
+    : assembly
+      ? `Rough cut ready. ${assembly.plan.clips.length} clips, ${assembly.plan.totalDurationSeconds} seconds.`
+      : null;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -128,13 +136,16 @@ export function AssemblyView({ projectId }: { projectId: string }) {
 
       {canAssemble && readiness && (
         <section
-          role="status"
-          aria-live="polite"
           id="assembly-readiness"
           data-testid="assembly-readiness"
           className="rounded-lg border border-white/10 bg-panel/40 p-4"
         >
-          <p className="text-sm" data-testid="approval-count">
+          {/*
+            Only the count is announced. The list below names scenes, and a
+            scene title is model-authored creative content — on an explicit
+            project a polite region would read it aloud on every change.
+          */}
+          <p className="text-sm" role="status" aria-live="polite" data-testid="approval-count">
             {readiness.approvedScenes} of {readiness.totalScenes} scenes approved
           </p>
           {missingApprovals.length > 0 ? (
@@ -176,6 +187,8 @@ export function AssemblyView({ projectId }: { projectId: string }) {
       )}
 
       {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+
+      <AsyncStatus testId="assembly-status" message={assemblyStatus} busy={busy} />
 
       {assembly ? (
         <section
@@ -279,7 +292,7 @@ export function AssemblyView({ projectId }: { projectId: string }) {
               {e.available ? (
                 <a
                   href={e.url}
-                  className="text-sm text-accent hover:underline"
+                  className="text-sm text-accent underline underline-offset-2"
                   data-testid="export-link"
                 >
                   {e.name}

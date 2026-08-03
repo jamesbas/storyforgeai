@@ -104,7 +104,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           </p>
           <p>
             Free to use — reselling needs a licence.{" "}
-            <Link href="/about" className="hover:text-accent hover:underline">
+            <Link href="/about" className="hover:text-accent underline underline-offset-2">
               Licence
             </Link>
           </p>

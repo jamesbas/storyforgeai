@@ -102,8 +102,11 @@ describe("AssemblyView approval gate", () => {
     expect(missing[1]).toHaveTextContent(/Scene 3 — Beat 3/);
 
     // The explanation is adjacent to the disabled action and announced politely.
-    const status = screen.getByTestId("assembly-readiness");
+    // Only the count is live: the list below names scenes, and a scene title is
+    // model-authored content that a polite region would read aloud.
+    const status = screen.getByTestId("approval-count");
     expect(status).toHaveAttribute("aria-live", "polite");
+    expect(screen.getByTestId("assembly-readiness")).not.toHaveAttribute("aria-live");
     expect(screen.getByTestId("assemble-button")).toHaveAttribute(
       "aria-describedby",
       "assembly-readiness",

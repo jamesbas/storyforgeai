@@ -297,7 +297,7 @@ export function CharacterLibrary() {
         {characters.map((character) => (
           <li
             key={character.id}
-            className="flex gap-3 rounded-md border border-white/10 bg-canvas/40 p-3"
+            className="flex flex-wrap gap-3 rounded-md border border-white/10 bg-canvas/40 p-3"
           >
             {referenceImagesOf(character).length ? (
               <div className="flex flex-none gap-1">
@@ -317,7 +317,9 @@ export function CharacterLibrary() {
               </div>
             )}
 
-            <div className="min-w-0 flex-1">
+            {/* basis-48 so the text drops below the thumbnails rather than
+                being squeezed to zero width and pushing its buttons off-screen. */}
+            <div className="min-w-0 flex-1 basis-48">
               <p className="font-medium">{character.name}</p>
               {/*
                 Prompt-ready descriptions run to several hundred words, so the

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { PlanPanel } from "@/components/agentic-canvas/plan-panel";
 import { useAgentRun } from "@/components/shared/use-agent-run";
+import { AsyncStatus } from "@/components/shared/async-status";
 import { useLoadEffect } from "@/components/shared/use-load-effect";
 import { ExecutionBadge } from "@/components/shared/execution-badge";
 import { latestExecution } from "@/lib/schemas/provenance";
@@ -309,6 +310,31 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
   /** A finished run, including one that was over before the first poll saw it. */
   const finishedRun = queue && !queue.active && queue.total > 0 && !failed ? queue : null;
 
+  /**
+   * One sentence for the whole run, phrased so it only changes when an agent
+   * actually finishes.
+   *
+   * The visible progress lives in a disabled button's label, which is never
+   * announced, and the running banner re-renders its counts every three-second
+   * poll. Naming the agent rather than echoing the raw counter means the
+   * announcement fires per transition, not per tick.
+   */
+  const runStatus = (() => {
+    if (failed) return `${failed.agentName} failed. The rest of the run was stopped.`;
+    if (runningAll && queue) {
+      const current = queue.entries.find((entry) => entry.state === "running");
+      return current
+        ? `Running ${current.agentName}, ${queue.done} of ${queue.total} done.`
+        : `Starting the crew, ${queue.total} agents queued.`;
+    }
+    if (finishedRun) {
+      return cancelledCount
+        ? `Stopped. ${finishedRun.done} finished, ${cancelledCount} cancelled.`
+        : `Run complete. ${finishedRun.done} of ${finishedRun.total} agents finished.`;
+    }
+    return null;
+  })();
+
   /** Only meaningful on a continuous take: on a cut project, varied sizes are the point. */
   const shotIssues =
     record && isContinuousTake(record.project) && record.cinematographyPlan
@@ -371,6 +397,13 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
 
       {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
 
+      <AsyncStatus
+        testId="canvas-run-status"
+        message={runStatus}
+        busy={runningAll}
+        failed={Boolean(failed)}
+      />
+
       {runningAll && queue ? (
         <p
           data-testid="canvas-queue-running"
@@ -383,8 +416,10 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
       ) : null}
 
       {failed ? (
+        // Visible only. The backend's own words routinely echo the submitted
+        // prompt, and a live region would read that aloud; the status region
+        // above announces the agent and the outcome instead.
         <p
-          role="alert"
           data-testid="canvas-queue-failed"
           className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-2 text-xs text-red-200"
         >
@@ -394,8 +429,8 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
       ) : null}
 
       {finishedRun ? (
+        // Announced by the status region above, so this one stays silent.
         <p
-          role="status"
           data-testid="canvas-queue-complete"
           className="rounded-lg border border-white/10 bg-white/5 px-4 py-2 text-xs text-slate-300"
         >

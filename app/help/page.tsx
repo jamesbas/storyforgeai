@@ -95,7 +95,7 @@ export default function HelpPage() {
           <ul className="mt-3 grid gap-2 sm:grid-cols-2">
             {TOC.map((s) => (
               <li key={s.id}>
-                <a href={`#${s.id}`} className="text-sm text-accent hover:underline">
+                <a href={`#${s.id}`} className="text-sm text-accent underline underline-offset-2">
                   {s.title}
                 </a>
               </li>
@@ -148,7 +148,7 @@ export default function HelpPage() {
           <p className={p}>
             Out of the box the app uses deterministic mock agents and a mocked generation backend, so
             it works with no API keys, no database, and no WanGP server. Turning on real integrations
-            is a configuration change (see <a href="#flags" className="text-accent hover:underline">Modes &amp; feature flags</a>).
+            is a configuration change (see <a href="#flags" className="text-accent underline underline-offset-2">Modes &amp; feature flags</a>).
           </p>
         </section>
 
@@ -847,11 +847,11 @@ export default function HelpPage() {
             Collects your concept, duration, clip length, aspect ratio, resolution, style, tone,
             audience, creative mode, generation mode, the narration/dialogue/music/SFX toggles, and
             whether to pin characters from the{" "}
-            <a href="#characters" className="text-accent hover:underline">
+            <a href="#characters" className="text-accent underline underline-offset-2">
               character library
             </a>
             . Every option is defined in the{" "}
-            <a href="#fields" className="text-accent hover:underline">
+            <a href="#fields" className="text-accent underline underline-offset-2">
               field reference
             </a>
             . Submitting creates the project and opens its storyboard.
@@ -886,7 +886,7 @@ export default function HelpPage() {
             yet</em>, or <em>not generated</em>. &quot;Not applied yet&quot; means the plan was
             generated <em>after</em> the current storyboard, so none of its direction is reaching
             your images or video until you regenerate — see{" "}
-            <a href="#agents" className="text-accent hover:underline">The creative team</a> for why.
+            <a href="#agents" className="text-accent underline underline-offset-2">The creative team</a> for why.
           </p>
           <p className={p}>
             If an amber banner appears saying <strong>this storyboard was not written by the planning
@@ -895,7 +895,7 @@ export default function HelpPage() {
             fallback that splits your concept evenly across the runtime. They are structurally valid
             and will render, but they carry none of the story judgement you asked for — no arc, no
             escalation, generic visual descriptions. Fix the model connection (see{" "}
-            <a href="#fields" className="text-accent hover:underline">Planning model</a>) and click{" "}
+            <a href="#fields" className="text-accent underline underline-offset-2">Planning model</a>) and click{" "}
             <strong>Regenerate storyboard</strong> in the banner rather than proceeding to media, or
             you will spend GPU hours rendering placeholder writing.
           </p>
@@ -905,7 +905,7 @@ export default function HelpPage() {
             it holds the exact text sent to WanGP, so you can fix a phrase or add a LoRA trigger word
             for one shot without regenerating anything. <strong>LoRAs</strong> lets a scene override
             the storyboard-wide selection. Both are covered in{" "}
-            <a href="#wangp" className="text-accent hover:underline">WanGP &amp; generation</a>.
+            <a href="#wangp" className="text-accent underline underline-offset-2">WanGP &amp; generation</a>.
           </p>
 
           <h3 className={h3}>Variant Review</h3>
@@ -1394,7 +1394,7 @@ export default function HelpPage() {
           <h2 className={h2}>14. Modes &amp; feature flags</h2>
           <p className={p}>
             Every external integration is off by default. An administrator can enable them via
-            environment variables (see the project README and the <a href="/about" className="text-accent hover:underline">About</a> page for current status):
+            environment variables (see the project README and the <a href="/about" className="text-accent underline underline-offset-2">About</a> page for current status):
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             <li className={li}><strong>AI planning</strong> — use a real LLM for the agents (otherwise deterministic mocks).</li>
@@ -1405,7 +1405,7 @@ export default function HelpPage() {
             <li className={li}><strong>Persistence</strong> — in-memory (demo) or PostgreSQL for durable, shared storage.</li>
           </ul>
           <p className={p}>
-            The <a href="/about" className="text-accent hover:underline">About</a> page always shows which flags are currently enabled.
+            The <a href="/about" className="text-accent underline underline-offset-2">About</a> page always shows which flags are currently enabled.
           </p>
         </section>
 
@@ -1454,7 +1454,7 @@ export default function HelpPage() {
           <h3 className={h3}>Where can I learn more?</h3>
           <p className={p}>
             See the project README and <code>architecture.md</code> for design detail, and the
-            <a href="/about" className="text-accent hover:underline"> About</a> page for licensing and
+            <a href="/about" className="text-accent underline underline-offset-2"> About</a> page for licensing and
             configuration.
           </p>
         </section>

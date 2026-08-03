@@ -55,7 +55,7 @@ export default function AboutPage() {
               href="https://github.com/deepbeepmeep/Wan2GP/blob/main/LICENSE.txt"
               target="_blank"
               rel="noreferrer"
-              className="text-accent hover:underline"
+              className="text-accent underline underline-offset-2"
             >
               WanGP Community License 2.0
             </a>
@@ -109,7 +109,7 @@ export default function AboutPage() {
               href="https://github.com/deepbeepmeep/Wan2GP"
               target="_blank"
               rel="noreferrer"
-              className="text-accent hover:underline"
+              className="text-accent underline underline-offset-2"
             >
               official repository
             </a>

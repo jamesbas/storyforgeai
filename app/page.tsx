@@ -91,7 +91,7 @@ export default function HomePage() {
               Continue where you left off
             </h2>
             {projects.length > RECENT_LIMIT && (
-              <Link href="/projects" className="text-xs text-accent hover:underline">
+              <Link href="/projects" className="text-xs text-accent underline underline-offset-2">
                 View all {projects.length} projects
               </Link>
             )}
@@ -102,7 +102,7 @@ export default function HomePage() {
           ) : recent.length === 0 ? (
             <p className="mt-3 text-sm text-slate-500">
               No projects yet.{" "}
-              <Link href="/projects/new" className="text-accent hover:underline">
+              <Link href="/projects/new" className="text-accent underline underline-offset-2">
                 Create your first one
               </Link>
               .

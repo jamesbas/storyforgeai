@@ -123,7 +123,7 @@ export function CreativePlansPanel({
         </h2>
         <Link
           href={`/agentic-canvas/${projectId}`}
-          className="text-xs text-accent hover:underline"
+          className="text-xs text-accent underline underline-offset-2"
         >
           Open the Agentic canvas →
         </Link>

@@ -17,11 +17,14 @@ export function AsyncStatus({
   busy = false,
   failed = false,
   className = "",
+  testId = "async-status",
 }: {
   message: string | null;
   busy?: boolean;
   failed?: boolean;
   className?: string;
+  /** Distinguishes several regions on one screen; selectors need it. */
+  testId?: string;
 }) {
   const [announced, setAnnounced] = useState<string | null>(null);
   const last = useRef<string | null>(null);
@@ -36,9 +39,12 @@ export function AsyncStatus({
 
   return (
     <p
-      data-testid="async-status"
+      data-testid={testId}
       role={failed ? "alert" : "status"}
       aria-live={failed ? "assertive" : "polite"}
+      // Read the whole sentence, not just the words that changed: "3 of 12"
+      // becoming "4 of 12" otherwise announces a bare "4".
+      aria-atomic="true"
       aria-busy={busy || undefined}
       className={`text-xs ${failed ? "text-red-300" : "text-slate-400"} ${className}`}
     >

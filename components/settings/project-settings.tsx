@@ -171,14 +171,14 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
             {project.generatedDurationSeconds}s generated
           </p>
         </div>
-        <Link href={`/storyboard/${projectId}`} className="text-sm text-accent hover:underline">
+        <Link href={`/storyboard/${projectId}`} className="text-sm text-accent underline underline-offset-2">
           Back to storyboard
         </Link>
       </header>
 
       <p className="text-xs text-slate-500">
         Looking for the character library?{" "}
-        <Link href="/settings" className="text-accent hover:underline">
+        <Link href="/settings" className="text-accent underline underline-offset-2">
           Global settings
         </Link>{" "}
         holds the configuration shared by every project.

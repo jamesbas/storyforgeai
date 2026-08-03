@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import { AsyncStatus } from "@/components/shared/async-status";
 
 type Outcome = {
   project: { id: string; title: string };
@@ -24,6 +25,12 @@ export function ImportProject({ onImported }: { onImported: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
+
+  const importStatus = busy
+    ? "Importing the project file…"
+    : outcome
+      ? `Project restored. ${outcome.missingPlans.length} plans missing, ${outcome.missingMedia} media files missing.`
+      : null;
 
   const pick = async (file: File) => {
     setBusy(true);
@@ -80,6 +87,12 @@ export function ImportProject({ onImported }: { onImported: () => void }) {
           {error}
         </p>
       )}
+
+      {/*
+        Counts only. The project title below is user content and stays visible
+        rather than announced.
+      */}
+      <AsyncStatus testId="import-status" message={importStatus} busy={busy} />
 
       {outcome && (
         <div

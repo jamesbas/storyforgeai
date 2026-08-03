@@ -169,7 +169,7 @@ export function ProjectListItem({
 
   if (confirming) {
     return (
-      <li className="group relative h-full">
+      <li className="group relative h-full min-w-0">
         <ConfirmDialog
           open
           title={`Delete “${project.title}”?`}
@@ -210,7 +210,7 @@ export function ProjectListItem({
   }
 
   return (
-    <li className="group relative h-full">
+    <li className="group relative h-full min-w-0">
       {renaming ? (
         <div className="h-full rounded-md border border-accent/60 bg-panel/40 px-3 py-2">
           <label htmlFor={`rename-${project.id}`} className="text-[11px] text-slate-400">
