@@ -15,6 +15,7 @@ import {
 import { parseRangeHeader, contentTypeFor, streamFile } from "@/lib/media/streaming";
 import { isPathInsideRoot, assertPathInsideRoots, MediaAccessError } from "@/lib/media/path-policy";
 import { encodeMediaRef, parseMediaRef, mediaKindFor, listProjectMedia } from "@/lib/media/refs";
+import { config } from "@/lib/config";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 
 describe("path policy", () => {
@@ -96,6 +97,37 @@ describe("media refs", () => {
 
     // Mock paths sit outside every approved root, so they resolve to nothing.
     expect(listProjectMedia(record)).toEqual([]);
+  });
+
+  /**
+   * Generating a clip for an already-approved scene forks a new attempt: same
+   * frames, plus the clip, unapproved. Playing the approved attempt then showed
+   * a scene with no clip while the card above it named the newer attempt and
+   * printed the clip's path — so the take could not be watched before being
+   * approved, which is the only reason to approve it.
+   */
+  it("plays the newest attempt, not an older approved one", () => {
+    const inside = path.resolve(config.dataDir, "p1");
+    const record = {
+      project: { id: "p1" },
+      storyboard: { scenes: [{ id: "s1", sceneNumber: 1 }] },
+      attempts: {
+        s1: [
+          { id: "a1", approved: true, startImagePath: path.join(inside, "a.jpg") },
+          {
+            id: "a2",
+            approved: false,
+            startImagePath: path.join(inside, "a.jpg"),
+            videoPath: path.join(inside, "b.mp4"),
+          },
+        ],
+      },
+    } as unknown as ProjectRecord;
+
+    const media = listProjectMedia(record);
+    expect(media.length).toBeGreaterThan(0);
+    expect(media.every((m) => m.attemptId === "a2")).toBe(true);
+    expect(media.some((m) => m.role === "video")).toBe(true);
   });
 });
 

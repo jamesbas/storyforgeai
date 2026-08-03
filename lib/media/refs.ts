@@ -163,6 +163,13 @@ function describe(
  * Every servable asset for a project, with an `available` flag so the UI can
  * render players only for media that actually exists on disk (demo-mode mock
  * paths report unavailable).
+ *
+ * Scene media is the newest attempt, matching what the scene card names above
+ * the players and what its Approve button acts on. Preferring an approved
+ * attempt here left a scene that had just rendered a clip playing the older
+ * approved take, which has no clip: the new one could not be reviewed before
+ * being approved, which is the only reason to review it. Assembly keeps its own
+ * stricter rule and is unaffected — see `selectApprovedAttempt`.
  */
 export function listProjectMedia(record: ProjectRecord): MediaDescriptor[] {
   const projectId = record.project.id;
@@ -170,7 +177,7 @@ export function listProjectMedia(record: ProjectRecord): MediaDescriptor[] {
 
   for (const scene of record.storyboard?.scenes ?? []) {
     const attempts = record.attempts?.[scene.id] ?? [];
-    const attempt = attempts.find((a) => a.approved) ?? attempts[attempts.length - 1];
+    const attempt = attempts[attempts.length - 1];
     if (!attempt) continue;
 
     const common = { sceneId: scene.id, attemptId: attempt.id };
