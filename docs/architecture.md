@@ -160,7 +160,7 @@ holding the artifact it produced and the model that produced it, with the whole
 run's decision history underneath. The five that run in dependency order are the
 subject of §3.2.
 
-![The agentic canvas, showing each agent's card, its artifact, the LLM that wrote it, and the decision history for the run](public/screenshots/agentic-canvas.png)
+![The agentic canvas, showing each agent's card, its artifact, the LLM that wrote it, and the decision history for the run](../public/screenshots/agentic-canvas.png)
 
 ### 3.1 Roster
 
@@ -653,7 +653,7 @@ a new **attempt**, then QC runs.
 An attempt is what a scene card shows: the two keyframes, the clip built between
 them, the seed the frames are pinned to, and the approval state assembly reads.
 
-![A scene card showing its attempt: start frame, end frame, the generated clip, the pinned seed and the approval state](public/screenshots/storyboard.png)
+![A scene card showing its attempt: start frame, end frame, the generated clip, the pinned seed and the approval state](../public/screenshots/storyboard.png)
 
 ```mermaid
 sequenceDiagram
@@ -980,7 +980,7 @@ Assembly is gated on approval and reports what is missing before it does any
 work, so the screen states the approval count before it will build anything. The
 export package below the player is written from the same record.
 
-![The assembly screen: approval count, the assembled rough cut, its source clips and the export package](public/screenshots/assembly.png)
+![The assembly screen: approval count, the assembled rough cut, its source clips and the export package](../public/screenshots/assembly.png)
 
 ```mermaid
 sequenceDiagram

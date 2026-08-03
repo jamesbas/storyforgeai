@@ -5,7 +5,7 @@
 > agent prompt work refers to §9.x throughout). It is **not** a description of how
 > StoryForgeAI works today, and parts of it have been deliberately superseded.
 > For current behaviour see [architecture.md](architecture.md), the
-> [README](README.md), or the in-app Help page.
+> [README](../README.md), or the in-app Help page.
 
 ## 1. Product summary
 

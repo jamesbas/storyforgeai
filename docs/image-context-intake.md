@@ -14,11 +14,11 @@ The vision transport is already built and proven by the QC agent.
 
 | Piece | Exists | Where |
 |---|---|---|
-| `images` on the provider call | ✅ | `GenerateOptions` in [lib/agents/llm/provider.ts](lib/agents/llm/provider.ts) |
-| Data-URL encoding, MIME allowlist, size cap | ✅ | `loadQcImages` in [lib/agents/qc-agent.ts](lib/agents/qc-agent.ts) |
-| Vision-model config | ✅ | `OPENAI_VISION_MODEL` in [lib/config.ts](lib/config.ts) |
+| `images` on the provider call | ✅ | `GenerateOptions` in [lib/agents/llm/provider.ts](../lib/agents/llm/provider.ts) |
+| Data-URL encoding, MIME allowlist, size cap | ✅ | `loadQcImages` in [lib/agents/qc-agent.ts](../lib/agents/qc-agent.ts) |
+| Vision-model config | ✅ | `OPENAI_VISION_MODEL` in [lib/config.ts](../lib/config.ts) |
 | Image upload, validation, safe filenames, serving | ✅ | character reference images |
-| Per-project file storage that deletion already purges | ✅ | [lib/db/file-repository.ts](lib/db/file-repository.ts) |
+| Per-project file storage that deletion already purges | ✅ | [lib/db/file-repository.ts](../lib/db/file-repository.ts) |
 
 Nothing in that list needs inventing. What is missing is storage keyed to a
 project, one new agent, and the wiring.
@@ -219,7 +219,7 @@ const images = visionAvailable() ? await loadImagesAsDataUrls(paths, "concept") 
 
 ### Phase 4 — close the silent-drop hole (~30m)
 
-In [lib/agents/llm/provider.ts](lib/agents/llm/provider.ts), when
+In [lib/agents/llm/provider.ts](../lib/agents/llm/provider.ts), when
 `images.length > 0 && !config.openai.visionModel`:
 
 ```ts

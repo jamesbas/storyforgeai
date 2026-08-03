@@ -4,7 +4,7 @@
 > reasoning, kept as a record of why the system is shaped the way it is. It is
 > **not** a description of how StoryForgeAI works today: several recommendations
 > here were changed once they met a real WanGP install. For current behaviour see
-> [architecture.md](architecture.md), the [README](README.md), or the in-app Help
+> [architecture.md](architecture.md), the [README](../README.md), or the in-app Help
 > page.
 
 ## 1. Goal
