@@ -115,7 +115,7 @@ function applyLoras(
 
   if (fieldNames.has("loras_multipliers") || "loras_multipliers" in schema.defaultSettings) {
     // A plain number per LoRA. WanGP also accepts phase (`;`) and step (`|`)
-    // syntax, which the UI does not model — see LORA Use.md section 4.6.
+    // syntax, which the UI does not model — see docs/LORA Use.md section 4.6.
     settings.loras_multipliers = loras.map((lora) => String(lora.strength)).join(" ");
   }
 }

@@ -74,7 +74,7 @@ function DocList({ docs }: { docs: Readonly<Record<string, string>> }) {
  * A screen, as it actually looks.
  *
  * Served from `public/screenshots`, the same files README.md and
- * architecture.md embed, so there is one set to keep current rather than two.
+ * docs/architecture.md embed, so there is one set to keep current rather than two.
  * Recapture with `npm run docs:screenshots`.
  */
 function Screenshot({ src, alt }: { src: string; alt: string }) {
@@ -1497,7 +1497,7 @@ export default function HelpPage() {
 
           <h3 className={h3}>Where can I learn more?</h3>
           <p className={p}>
-            See the project README and <code>architecture.md</code> for design detail, and the
+            See the project README and <code>docs/architecture.md</code> for design detail, and the
             <a href="/about" className="text-accent underline underline-offset-2"> About</a> page for licensing and
             configuration.
           </p>

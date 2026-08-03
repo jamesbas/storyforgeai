@@ -21,6 +21,12 @@ live-e2e-output.txt
 # Local drafts, not published
 Discord Intro.md
 
+# Working notes that live alongside the published docs but are not part of them.
+# Named rather than `docs/*/` so a future subfolder meant for the repo is not
+# swallowed silently — the rest of docs/ is tracked.
+docs/build-specs/
+docs/quality-assessment/
+
 # scratch probe scripts
 .probe.ts
 .schemaprobe.ts

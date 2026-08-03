@@ -1,5 +1,5 @@
 /**
- * Capture the screenshots used by README.md and architecture.md.
+ * Capture the screenshots used by README.md and docs/architecture.md.
  *
  * Run against a normal local server with a real, finished project — not the
  * e2e server, which runs in demo mode with an empty in-memory store and would

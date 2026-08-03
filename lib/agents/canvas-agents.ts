@@ -58,7 +58,7 @@ export const VARIANT_EXPLORER_SYSTEM =
 /**
  * The four plan agents below carry craft vocabulary rather than a field list.
  *
- * Each opens with the sentence `video-storyboard-spec.md` §9.10–9.13 specifies —
+ * Each opens with the sentence `docs/video-storyboard-spec.md` §9.10–9.13 specifies —
  * dropped when they were first implemented — and then names the concepts a
  * practitioner would use. A model asked to "define the visual camera language"
  * returns mood adjectives; one asked for a shot size from a named taxonomy

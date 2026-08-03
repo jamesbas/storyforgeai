@@ -157,7 +157,7 @@ The About page always shows which flags are currently enabled.
 | `npm test` | Vitest unit + integration + component |
 | `npm run test:e2e` | Playwright E2E (boots its own dev server on 3100) |
 | `npm run smoke` | `tsx` full-pipeline smoke (create → storyboard → media → assemble) |
-| `npm run docs:screenshots` | Recapture the screenshots in this README and `architecture.md` |
+| `npm run docs:screenshots` | Recapture the screenshots in this README and `docs/architecture.md` |
 | `npm run audit:prod` | Dependency audit, runtime only, fails on high/critical |
 | `npm run audit:all` | Dependency audit across the whole graph |
 | `npm run prisma:generate` | Generate the Prisma client |
@@ -253,10 +253,12 @@ prisma/                 # schema.prisma + seed
 scripts/                # smoke script
 tests/                  # Vitest suites
 e2e/                    # Playwright specs
+public/screenshots/     # Screenshots used by this README, docs/, and the Help page
+docs/                   # Architecture, specs and reference notes
 Dockerfile, docker-compose.yml
 ```
 
-See [architecture.md](architecture.md) — the single architecture reference,
+See [architecture.md](docs/architecture.md) — the single architecture reference,
 covering the agent roster and interconnections, prompt precedence, LoRA and
 character-identity conditioning, the face-swap pipeline, the continuity seam, the
 data model, the API surface, and the flag/mock strategy.
