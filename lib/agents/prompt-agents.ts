@@ -6,6 +6,14 @@ import {
   type ScenePrompts,
 } from "@/lib/schemas/storyboard";
 import { buildImagePrompts, buildVideoPrompts } from "@/lib/agents/mock-agents";
+import { buildMediaPromptSpec } from "@/lib/agents/media-prompt-builder";
+import { COMPOSER_VERSION, lintRendered } from "@/lib/agents/media-prompt-spec";
+import { logEvent } from "@/lib/telemetry";
+import {
+  missingDialogue,
+  normaliseImagePrompt,
+  normaliseVideoPrompt,
+} from "@/lib/agents/media-prompt-normalise";
 import {
   deterministicExecution,
   executeArtifact,
@@ -27,7 +35,7 @@ import {
   imagePromptDirective,
   videoPromptDirective,
 } from "@/lib/agents/model-directives";
-import { familyOf } from "@/lib/wangp/family";
+import { familyOf, type ModelFamily } from "@/lib/wangp/family";
 import { charactersInScene } from "@/lib/agents/scene-cast";
 import { explicitnessDirective } from "@/lib/agents/explicitness";
 import { isTightShot } from "@/lib/media/seam";
@@ -206,19 +214,29 @@ export async function attachScenePrompts(
       continue;
     }
 
-    let imagePart = buildImagePrompts(project, draft, sceneCast, plans, wardrobe);
-    let videoPart = buildVideoPrompts(project, draft, sceneCast, plans, wardrobe);
+    let imagePart = buildImagePrompts(project, draft, sceneCast, plans, wardrobe, imageFamily);
+    let videoPart = buildVideoPrompts(project, draft, sceneCast, plans, wardrobe, videoFamily);
 
     if (!provider) {
       // Demo mode still reports itself, or a scene written by a template would
       // be indistinguishable from one nobody has provenance for at all.
       for (const pass of ["image_prompt", "video_prompt"] as const) {
+        const isImage = pass === "image_prompt";
+        const lint = composerLint(
+          isImage ? imagePart.startFramePrompt : videoPart.videoPromptSegment,
+          isImage ? imageFamily : videoFamily,
+          isImage ? "image" : "video",
+          draft,
+        );
         context.onExecution?.(
           deterministicExecution({
             artifact: `${draft.id}.${pass}`,
             scope: draft.id,
             correlationId: context.correlationId,
             builderVersion: BUILDER_VERSION,
+            ...(config.flags.mediaPromptComposerV2
+              ? { composerVersion: COMPOSER_VERSION, lint }
+              : {}),
           }),
         );
       }
@@ -283,7 +301,7 @@ export async function attachScenePrompts(
       });
       if (imageResult.execution.source === "llm") {
         imagePart = withCastEnforced(
-          imageResult.value,
+          normaliseImageResult(imageResult.value, project, draft, plans, wardrobe, imageFamily),
           sceneCast,
           plans,
           project,
@@ -316,7 +334,13 @@ export async function attachScenePrompts(
         fallback: () => videoPart,
       });
       if (videoResult.execution.source === "llm") {
-        videoPart = withCastEnforcedVideo(videoResult.value, sceneCast, plans, project, wardrobe);
+        videoPart = withCastEnforcedVideo(
+          normaliseVideoResult(videoResult.value, draft, videoFamily),
+          sceneCast,
+          plans,
+          project,
+          wardrobe,
+        );
       }
     }
 
@@ -332,6 +356,73 @@ export async function attachScenePrompts(
 
 type ImagePart = z.infer<typeof imagePartSchema>;
 type VideoPart = z.infer<typeof videoPartSchema>;
+
+/**
+ * Lint codes for the final prompt, recorded on the execution and in telemetry.
+ *
+ * Codes only, never prompt text: §13 forbids logging prompts, and a scene's
+ * dialogue is exactly the sort of private content a log should not carry.
+ */
+function composerLint(
+  text: string,
+  family: ModelFamily,
+  kind: "image" | "video",
+  draft: SceneDraft,
+): string[] {
+  const seconds = draft.trimAtEndSeconds ?? draft.targetDurationSeconds;
+  const findings = lintRendered(text, family, kind, kind === "image" ? 0 : seconds);
+  const codes = findings.map((f) => f.code as string);
+  if (kind === "video" && draft.dialogue?.length) {
+    if (missingDialogue(text, draft.dialogue).length) codes.push("dialogue_dropped");
+  }
+  logEvent("prompt.composed", {
+    scene: draft.id,
+    family,
+    kind,
+    version: COMPOSER_VERSION,
+    chars: text.length,
+    lint: codes,
+  });
+  return codes;
+}
+
+/**
+ * Hold a model-authored image prompt to the same contract as the deterministic
+ * one, before enforcement appends the canonical suffixes.
+ *
+ * A no-op while the composer is off, so the LLM path changes only when the
+ * deterministic path does — the two are meant to agree, and rolling one back
+ * without the other would recreate the drift SPEC-003 exists to close.
+ */
+function normaliseImageResult(
+  part: ImagePart,
+  project: Project,
+  draft: SceneDraft,
+  plans: CreativePlans | undefined,
+  wardrobe: SceneWardrobe | undefined,
+  family: ModelFamily,
+): ImagePart {
+  if (!config.flags.mediaPromptComposerV2) return part;
+  const spec = buildMediaPromptSpec(project, draft, plans, wardrobe);
+  return {
+    ...part,
+    startFramePrompt: normaliseImagePrompt(part.startFramePrompt, spec, family).text,
+    endFramePrompt: normaliseImagePrompt(part.endFramePrompt, spec, family).text,
+  };
+}
+
+function normaliseVideoResult(
+  part: VideoPart,
+  draft: SceneDraft,
+  family: ModelFamily,
+): VideoPart {
+  if (!config.flags.mediaPromptComposerV2) return part;
+  const seconds = draft.trimAtEndSeconds ?? draft.targetDurationSeconds;
+  return {
+    ...part,
+    videoPromptSegment: normaliseVideoPrompt(part.videoPromptSegment, family, seconds).text,
+  };
+}
 
 /**
  * Re-append the look, the cast sheet and world-continuity constraints to

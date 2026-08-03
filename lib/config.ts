@@ -64,6 +64,14 @@ export const config = {
     deepyAssist: bool(process.env.DEEPY_ASSIST_ENABLED, false),
     animaticAssembly: bool(process.env.ANIMATIC_ASSEMBLY_ENABLED, false),
     platformDerivatives: bool(process.env.PLATFORM_DERIVATIVES_ENABLED, false),
+    /**
+     * Structured media prompt composer (SPEC-003).
+     *
+     * Off until fixed-seed comparisons have been run per model family: it
+     * changes every prompt sent to WanGP, and the only honest way to know a
+     * prompt change is an improvement is to render with it.
+     */
+    mediaPromptComposerV2: bool(process.env.MEDIA_PROMPT_COMPOSER_V2, false),
   },
   ffmpeg: {
     path: str(process.env.FFMPEG_PATH, "ffmpeg"),

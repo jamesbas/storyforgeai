@@ -26,6 +26,7 @@
     "wangp:refs": "tsx scripts/wangp-refs.ts",
     "wangp:e2e": "tsx scripts/live-e2e.ts",
     "prompts:check": "tsx scripts/prompt-check.ts",
+    "prompts:preview": "tsx scripts/prompt-preview.ts",
     "llm:probe": "tsx scripts/llm-probe.ts",
     "llm:bench": "tsx scripts/llm-bench.ts",
     "llm:context": "tsx scripts/llm-context-check.ts",

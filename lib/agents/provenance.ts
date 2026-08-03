@@ -221,6 +221,8 @@ export function deterministicExecution(options: {
   scope?: string;
   correlationId?: string;
   builderVersion?: string;
+  composerVersion?: string;
+  lint?: string[];
   evidence?: { mode: QcEvidenceMode; attachments: number };
   startedAt?: Date;
 }): ArtifactExecution {
@@ -238,6 +240,8 @@ export function deterministicExecution(options: {
     format: undefined,
     promptVersion: undefined,
     builderVersion: options.builderVersion,
+    composerVersion: options.composerVersion,
+    lint: options.lint,
     fallbackReason: "provider_disabled",
     detail: undefined,
     evidence: options.evidence,

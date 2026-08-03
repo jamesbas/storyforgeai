@@ -7,6 +7,7 @@ import type { Character } from "@/lib/schemas/character";
 import type { WardrobeChange } from "@/lib/schemas/wardrobe";
 import type { Scene } from "@/lib/schemas/storyboard";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
+import type { ArtifactExecution } from "@/lib/schemas/provenance";
 import type { SceneAttempt } from "@/lib/schemas/generation";
 import type { MediaDescriptor } from "@/lib/media/refs";
 
@@ -26,6 +27,8 @@ type SceneCardProps = {
   onLoraSave?: (next: SceneLoraOverride) => void;
   /** Trigger words appended automatically at generation, by prompt kind. */
   triggerWords?: { image: string[]; video: string[] };
+  /** SPEC-004 record for this scene's image-prompt pass; owns source and version. */
+  promptExecution?: ArtifactExecution;
   onPromptsSaved?: (record: ProjectRecord) => void;
   /** The project's pinned cast, for the wardrobe panel. Empty hides it. */
   cast?: readonly Character[];
@@ -91,6 +94,7 @@ export function SceneCard({
   loraOverride,
   onLoraSave,
   triggerWords,
+  promptExecution,
   onPromptsSaved,
   cast = [],
   wardrobeChanges = [],
@@ -167,6 +171,7 @@ export function SceneCard({
           projectId={projectId}
           triggerWords={triggerWords}
           busy={busy}
+          execution={promptExecution}
           onSaved={onPromptsSaved}
         />
       ) : (

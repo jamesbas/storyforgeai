@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { ZodType, ZodTypeDef } from "zod";
 import { computeSegmentation } from "@/lib/duration";
+import { config } from "@/lib/config";
 import type { Project } from "@/lib/schemas/project";
 import { creativeBriefSchema, storyPlanSchema, visualBibleSchema } from "@/lib/schemas/agents";
 import { sceneDraftSchema, sceneSchema } from "@/lib/schemas/storyboard";
@@ -162,7 +163,15 @@ describe("planning agents — deterministic fallback (no provider)", () => {
     expect(startPrompts.size).toBe(scenes.length);
 
     for (const s of scenes) {
-      expect(s.prompts.videoPromptSegment).toContain(s.actionDescription);
+      // v1 concatenated the card's fields verbatim; v2 restructures them into
+      // the semantic contract, so the check is that the scene's own content is
+      // present rather than that it was pasted in whole.
+      if (config.flags.mediaPromptComposerV2) {
+        const firstAction = s.actionDescription.split(/[.!?]/)[0].trim().toLowerCase();
+        expect(s.prompts.videoPromptSegment.toLowerCase()).toContain(firstAction);
+      } else {
+        expect(s.prompts.videoPromptSegment).toContain(s.actionDescription);
+      }
       expect(s.prompts.videoPromptSegment).toContain(s.cameraMovement.toLowerCase());
       expect(s.prompts.startFramePrompt).toContain(s.visualDescription);
     }

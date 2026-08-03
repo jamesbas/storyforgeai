@@ -60,6 +60,13 @@ export const artifactExecutionSchema = z.object({
   format: maybe(z.string()),
   promptVersion: maybe(z.string()),
   builderVersion: maybe(z.string()),
+  /**
+   * Media prompt composer version (SPEC-003 FR-11). Lives here rather than on
+   * `ScenePrompts` so provenance stays in one place.
+   */
+  composerVersion: maybe(z.string()),
+  /** Lint codes raised on the final prompt. Codes only, never prompt text. */
+  lint: maybe(z.array(z.string())),
   fallbackReason: maybe(failureReasonSchema),
   /** Redacted and truncated free text. Never a prompt or a response body. */
   detail: maybe(z.string()),

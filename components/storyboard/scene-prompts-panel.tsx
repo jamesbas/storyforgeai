@@ -3,6 +3,10 @@
 import { useState } from "react";
 import type { Scene } from "@/lib/schemas/storyboard";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
+import type { ArtifactExecution } from "@/lib/schemas/provenance";
+import { ExecutionBadge } from "@/components/shared/execution-badge";
+import { dedupeSentences, hasPunctuationArtifact } from "@/lib/agents/media-prompt-spec";
+import { missingDialogue, opensWithFraming } from "@/lib/agents/media-prompt-normalise";
 
 /** The prompt fields a user may edit. The quality checklist is agent review notes. */
 const FIELDS = [
@@ -15,6 +19,39 @@ const FIELDS = [
 
 type FieldKey = (typeof FIELDS)[number]["key"];
 type Draft = Record<FieldKey, string>;
+
+/**
+ * Local lint on the text as edited, so a problem is visible before a job is
+ * submitted rather than after a render comes back wrong.
+ *
+ * Composed from the same validators the composer uses, so the panel cannot
+ * disagree with what generation will do. Every item is a warning: these are
+ * quality problems a human may knowingly accept, and blocking an edit on one
+ * would make the field unusable for deliberate experiments.
+ */
+function lintField(key: FieldKey, text: string, scene: Scene): string[] {
+  const notes: string[] = [];
+  if (key.toLowerCase().includes("negative")) return notes;
+
+  if (!text.trim()) return ["Empty — generation will fall back to whatever the model invents."];
+  if (dedupeSentences(text) !== text) notes.push("A sentence is repeated; the model weights it twice.");
+  if (hasPunctuationArtifact(text)) notes.push("Punctuation artifact, usually from concatenation.");
+
+  if (key === "startFramePrompt" || key === "endFramePrompt") {
+    if (!opensWithFraming(text)) {
+      notes.push("Does not open with shot size and camera height; the model will choose its own.");
+    }
+  }
+
+  if (key === "videoPromptSegment" && scene.dialogue?.length) {
+    const dropped = missingDialogue(text, scene.dialogue);
+    if (dropped.length) {
+      notes.push(`Dialogue missing from the prompt, so it will not be spoken: ${dropped.join(" / ")}`);
+    }
+  }
+
+  return notes;
+}
 
 function draftFrom(scene: Scene): Draft {
   return {
@@ -38,6 +75,7 @@ export function ScenePromptsPanel({
   projectId,
   triggerWords,
   busy = false,
+  execution,
   onSaved,
 }: {
   scene: Scene;
@@ -45,6 +83,8 @@ export function ScenePromptsPanel({
   /** Trigger words that will be appended automatically, by prompt kind. */
   triggerWords?: { image: string[]; video: string[] };
   busy?: boolean;
+  /** SPEC-004 record for this scene's prompt pass; owns source and version. */
+  execution?: ArtifactExecution;
   onSaved?: (record: ProjectRecord) => void;
 }) {
   const [draft, setDraft] = useState<Draft>(() => draftFrom(scene));
@@ -130,6 +170,14 @@ export function ScenePromptsPanel({
         </span>
       </summary>
 
+      {execution ? (
+        <p className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+          <ExecutionBadge execution={execution} />
+          {execution.composerVersion ? <span>Composer {execution.composerVersion}</span> : null}
+          {execution.promptVersion ? <span>Prompt {execution.promptVersion}</span> : null}
+        </p>
+      ) : null}
+
       <div className="mt-2 space-y-3">
         {FIELDS.map((field) => {
           const words = triggerWords?.[field.kind] ?? [];
@@ -137,6 +185,7 @@ export function ScenePromptsPanel({
           const pending = isNegative
             ? []
             : words.filter((w) => !new RegExp(`\\b${escapeRegExp(w)}\\b`, "i").test(draft[field.key]));
+          const notes = lintField(field.key, draft[field.key], scene);
 
           return (
             <label key={field.key} className="block space-y-1">
@@ -152,6 +201,15 @@ export function ScenePromptsPanel({
                 }
                 className="w-full rounded-md border border-white/10 bg-canvas px-3 py-2 text-sm leading-relaxed outline-none focus:border-accent disabled:opacity-60"
               />
+              {notes.length ? (
+                <ul data-testid="prompt-lint" className="space-y-0.5">
+                  {notes.map((note) => (
+                    <li key={note} className="text-[10px] text-amber-300/90">
+                      Warning: {note}
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
               {pending.length ? (
                 <span className="block text-[10px] text-amber-300/80">
                   LoRA trigger words appended at generation: {pending.join(", ")}

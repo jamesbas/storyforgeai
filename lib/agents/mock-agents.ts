@@ -17,6 +17,11 @@ import {
   sceneDirectionSuffix,
   type CreativePlans,
 } from "@/lib/agents/creative-context";
+import { config } from "@/lib/config";
+import type { ModelFamily } from "@/lib/wangp/family";
+import { buildMediaPromptSpec } from "@/lib/agents/media-prompt-builder";
+import { renderImagePrompt, renderVideoPrompt } from "@/lib/agents/media-prompt-renderers";
+import { hasNativeAudio } from "@/lib/agents/model-directives";
 
 /**
  * Deterministic mock builders backing each agent. They produce schema-valid
@@ -300,28 +305,37 @@ export function buildImagePrompts(
   cast: readonly Character[] = [],
   plans?: CreativePlans,
   wardrobe?: SceneWardrobe,
+  family: ModelFamily = "unknown",
 ): Pick<ScenePrompts, "startFramePrompt" | "endFramePrompt" | "imageNegativePrompt"> {
   const isLast = scene.sceneNumber === project.segmentCount;
   const direction = sceneDirectionSuffix(sceneCreativeSlice(plans, scene));
   const art = globalStyleSuffix(plans);
 
-  const startBody =
-    `Cinematic still. ` +
-    sentence(scene.visualDescription) +
-    sentence(scene.storyBeat) +
-    `Opening framing of the shot; ${scene.cameraMovement.toLowerCase()} begins from here. ` +
-    `Consistent characters, wardrobe, and location per the visual bible.`;
-  const endBody =
-    `Cinematic still. ` +
-    sentence(scene.visualDescription) +
-    sentence(scene.actionDescription) +
-    `Closing framing after ${scene.cameraMovement.toLowerCase()}, showing the result of the action` +
-    `${isLast ? " on a resolving beat" : `, setting up scene ${scene.sceneNumber + 1}`}. ` +
-    // A scene that depicts a costume change is the one place the two frames are
-    // meant to differ in wardrobe.
-    (wardrobe?.within.length
-      ? `Same characters and location as the start frame, in the changed outfit.`
-      : `Same characters, wardrobe, and location as the start frame.`);
+  // v2 opens with shot size and camera height and states each fact once; v1
+  // opened with "Cinematic still" and repeated the scene description.
+  const v2 = config.flags.mediaPromptComposerV2
+    ? buildMediaPromptSpec(project, scene, plans, wardrobe)
+    : undefined;
+
+  const startBody = v2
+    ? renderImagePrompt(v2, { family, frame: "start" })
+    : `Cinematic still. ` +
+      sentence(scene.visualDescription) +
+      sentence(scene.storyBeat) +
+      `Opening framing of the shot; ${scene.cameraMovement.toLowerCase()} begins from here. ` +
+      `Consistent characters, wardrobe, and location per the visual bible.`;
+  const endBody = v2
+    ? renderImagePrompt(v2, { family, frame: "end" })
+    : `Cinematic still. ` +
+      sentence(scene.visualDescription) +
+      sentence(scene.actionDescription) +
+      `Closing framing after ${scene.cameraMovement.toLowerCase()}, showing the result of the action` +
+      `${isLast ? " on a resolving beat" : `, setting up scene ${scene.sceneNumber + 1}`}. ` +
+      // A scene that depicts a costume change is the one place the two frames are
+      // meant to differ in wardrobe.
+      (wardrobe?.within.length
+        ? `Same characters and location as the start frame, in the changed outfit.`
+        : `Same characters, wardrobe, and location as the start frame.`);
 
   return {
     startFramePrompt:
@@ -352,6 +366,7 @@ export function buildVideoPrompts(
   cast: readonly Character[] = [],
   plans?: CreativePlans,
   wardrobe?: SceneWardrobe,
+  family: ModelFamily = "unknown",
 ): Pick<ScenePrompts, "videoPromptSegment" | "videoNegativePrompt" | "promptQualityChecklist"> {
   const spoken = dialogueProse(scene);
   const narration = scene.narrationText ? ` Voice-over: "${scene.narrationText}"` : "";
@@ -363,17 +378,29 @@ export function buildVideoPrompts(
     wardrobe?.othersStart ?? {},
   );
 
-  const body =
-    sentence(scene.visualDescription) +
-    sentence(scene.actionDescription) +
-    sentence(scene.storyBeat) +
-    `Camera: ${scene.cameraMovement.toLowerCase()}, evolving from the start frame to the end frame ` +
-    `over ${scene.trimAtEndSeconds ?? scene.targetDurationSeconds} seconds.` +
-    spoken +
-    narration +
-    (change
-      ? ` Preserve subject identity, location, and lighting throughout.`
-      : ` Preserve subject identity, wardrobe, location, and lighting throughout.`);
+  const seconds = scene.trimAtEndSeconds ?? scene.targetDurationSeconds;
+
+  // v2 leads with the dominant action; v1 restated the static scene three times
+  // and reached the camera in the fourth sentence.
+  const body = config.flags.mediaPromptComposerV2
+    ? renderVideoPrompt(buildMediaPromptSpec(project, scene, plans, wardrobe), {
+        family,
+        segmentSeconds: seconds,
+        nativeAudio: hasNativeAudio(family),
+      }) +
+      (change
+        ? ` Preserve subject identity, location, and lighting throughout.`
+        : ` Preserve subject identity, wardrobe, location, and lighting throughout.`)
+    : sentence(scene.visualDescription) +
+      sentence(scene.actionDescription) +
+      sentence(scene.storyBeat) +
+      `Camera: ${scene.cameraMovement.toLowerCase()}, evolving from the start frame to the end frame ` +
+      `over ${seconds} seconds.` +
+      spoken +
+      narration +
+      (change
+        ? ` Preserve subject identity, location, and lighting throughout.`
+        : ` Preserve subject identity, wardrobe, location, and lighting throughout.`);
 
   return {
     videoPromptSegment:

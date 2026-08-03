@@ -13,6 +13,7 @@ import type { GenerationMode, SceneContinuityMode } from "@/lib/types";
 import { DEFAULT_SCENE_CONTINUITY, GENERATION_MODES, generationStages } from "@/lib/types";
 import { resolveSceneLoras } from "@/lib/lora/scene-selection";
 import { effectiveTriggerWords } from "@/lib/lora/trigger-words";
+import { latestExecution } from "@/lib/schemas/provenance";
 import type { LoraCatalog, SceneLoraOverride } from "@/lib/schemas/lora";
 import type { LlmRuntimeStatus } from "@/lib/services/llm-runtime-service";
 import type { PhaseProgress, SceneQueueEntry } from "@/lib/services/scene-queue";
@@ -1097,6 +1098,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   loraOverride={record.project.sceneLoras?.[scene.id]}
                   onLoraSave={(next) => void saveSceneLoras(scene.id, next)}
                   triggerWords={{ image: triggerWordsFor("image"), video: triggerWordsFor("video") }}
+                  promptExecution={latestExecution(record.executions, `${scene.id}.image_prompt`)}
                   onPromptsSaved={(next) => setRecord(next)}
                   cast={cast}
                   wardrobeChanges={record.project.wardrobeChanges?.[scene.id]}

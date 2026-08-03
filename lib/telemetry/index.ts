@@ -25,6 +25,7 @@ export type TelemetryEvent =
   | "agent.run_finished"
   | "agent.llm.failed"
   | "agent.fallback"
+  | "prompt.composed"
   | "llm.runtime"
   | "wangp.discovery"
   | "wangp.model.selected"
