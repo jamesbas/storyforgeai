@@ -19,7 +19,7 @@ const LIBRARY_FILENAME = "characters.json";
 const REFERENCE_DIRNAME = "character-images";
 
 export function libraryDir(): string {
-  return path.resolve(process.cwd(), config.dataDir, LIBRARY_DIRNAME);
+  return path.resolve(/*turbopackIgnore: true*/ process.cwd(), config.dataDir, LIBRARY_DIRNAME);
 }
 
 export function referenceImageDir(): string {

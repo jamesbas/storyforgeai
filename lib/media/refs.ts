@@ -136,7 +136,7 @@ function describe(
   let available = false;
   let sizeBytes: number | undefined;
   try {
-    const stats = fs.statSync(resolved);
+    const stats = fs.statSync(/*turbopackIgnore: true*/ resolved);
     available = stats.isFile();
     sizeBytes = available ? stats.size : undefined;
   } catch {

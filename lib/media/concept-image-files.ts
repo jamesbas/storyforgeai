@@ -40,7 +40,7 @@ const SAFE_ID = /^(?!\.+$)[A-Za-z0-9._-]+$/;
 
 export function conceptImageDir(projectId: string): string {
   if (!SAFE_ID.test(projectId)) throw new ValidationError("Invalid project id");
-  return path.resolve(process.cwd(), config.dataDir, projectId, DIRNAME);
+  return path.resolve(/*turbopackIgnore: true*/ process.cwd(), config.dataDir, projectId, DIRNAME);
 }
 
 /** Absolute path for a stored filename, or null if it escapes the folder. */

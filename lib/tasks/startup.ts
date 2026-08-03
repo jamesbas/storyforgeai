@@ -24,7 +24,7 @@ export async function reconcileStartup(): Promise<{
   unknown: number;
 }> {
   const totals = { projects: 0, reconciling: 0, interrupted: 0, unknown: 0 };
-  const root = path.resolve(process.cwd(), config.dataDir);
+  const root = path.resolve(/*turbopackIgnore: true*/ process.cwd(), config.dataDir);
 
   let dirs: string[] = [];
   try {

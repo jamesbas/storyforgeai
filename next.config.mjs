@@ -11,6 +11,20 @@ const nextConfig = {
   // requests them until the render finishes.
   distDir: process.env.NEXT_DIST_DIR || ".next",
   reactStrictMode: true,
+  // The app reads directories it is told about at runtime — the project data
+  // directory and WanGP's LoRA store — so the bundler cannot know what it will
+  // touch and sweeps the repository into the trace. None of it belongs in the
+  // container image, and the routes load their data from disk at request time.
+  outputFileTracingExcludes: {
+    "**/*": [
+      "next.config.mjs",
+      "projects/**",
+      "docs/**",
+      "e2e/**",
+      "tests/**",
+      "test-results/**",
+    ],
+  },
   // Next 14 warned about cross-origin dev requests; Next 16 blocks them, which
   // stops the client bundle loading when the browser uses a different host name
   // than the dev server bound to. Dev-only — `next start` ignores it.

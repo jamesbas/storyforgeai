@@ -29,7 +29,7 @@ const FILENAME = "tasks.json";
 const SAFE_ID = /^(?!\.+$)[A-Za-z0-9._-]+$/;
 
 function projectDir(projectId: string): string {
-  return path.resolve(process.cwd(), config.dataDir, projectId);
+  return path.resolve(/*turbopackIgnore: true*/ process.cwd(), config.dataDir, projectId);
 }
 
 function taskFilePath(projectId: string): string {

@@ -24,7 +24,7 @@ import { logEvent } from "@/lib/telemetry";
 const FILENAME = "project.json";
 
 function projectDir(id: string): string {
-  return path.resolve(process.cwd(), config.dataDir, id);
+  return path.resolve(/*turbopackIgnore: true*/ process.cwd(), config.dataDir, id);
 }
 
 function projectFile(id: string): string {
@@ -84,7 +84,7 @@ export class FileProjectRepository implements ProjectRepository {
     this.loaded = true;
     let entries: string[] = [];
     try {
-      const dir = path.resolve(process.cwd(), config.dataDir);
+      const dir = path.resolve(/*turbopackIgnore: true*/ process.cwd(), config.dataDir);
       entries = (await fs.readdir(dir, { withFileTypes: true }))
         .filter((entry) => entry.isDirectory() && SAFE_ID.test(entry.name))
         .map((entry) => entry.name);
@@ -151,7 +151,7 @@ export class FileProjectRepository implements ProjectRepository {
     const existed = this.cache.delete(id);
 
     const target = projectDir(id);
-    const root = path.resolve(process.cwd(), config.dataDir);
+    const root = path.resolve(/*turbopackIgnore: true*/ process.cwd(), config.dataDir);
     // Belt and braces: the id passed SAFE_ID, so this cannot fail — but a
     // recursive delete is worth proving rather than assuming.
     if (path.dirname(target) !== root) {

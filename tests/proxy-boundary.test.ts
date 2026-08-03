@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { NextRequest } from "next/server";
-import { middleware, config as middlewareConfig } from "@/middleware";
+import { proxy, config as proxyConfig } from "@/proxy";
 
 /**
  * The routes checked here take no request body at all, which makes them the
@@ -19,7 +19,7 @@ const BODYLESS_MUTATING_ROUTES = [
 
 function call(path: string, init: { method?: string; headers?: Record<string, string> } = {}) {
   const headers = new Headers({ host: "localhost:3200", ...init.headers });
-  return middleware(
+  return proxy(
     new NextRequest(`http://localhost:3200${path}`, { method: init.method ?? "POST", headers }),
   );
 }
@@ -27,7 +27,7 @@ function call(path: string, init: { method?: string; headers?: Record<string, st
 beforeEach(() => vi.spyOn(console, "warn").mockImplementation(() => {}));
 afterEach(() => vi.restoreAllMocks());
 
-describe("the middleware boundary", () => {
+describe("the proxy boundary", () => {
   it("rejects a cross-site form POST to every body-less mutating route", () => {
     for (const path of BODYLESS_MUTATING_ROUTES) {
       // What an auto-submitting <form> on a hostile page actually sends.
@@ -87,7 +87,7 @@ describe("the middleware boundary", () => {
 
   it("leaves static build output out of scope", () => {
     // Next anchors matcher patterns; a bare RegExp would match anywhere.
-    const matcher = new RegExp(`^${middlewareConfig.matcher[0]}$`);
+    const matcher = new RegExp(`^${proxyConfig.matcher[0]}$`);
     expect(matcher.test("/_next/static/chunk.js")).toBe(false);
     expect(matcher.test("/favicon.ico")).toBe(false);
     expect(matcher.test("/api/projects")).toBe(true);

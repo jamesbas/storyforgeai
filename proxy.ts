@@ -36,7 +36,7 @@ function deny(request: NextRequest, reason: DenyReason) {
   });
 }
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const verdict = evaluateRequest(
     {
       method: request.method,
