@@ -70,6 +70,28 @@ function DocList({ docs }: { docs: Readonly<Record<string, string>> }) {
   );
 }
 
+/**
+ * A screen, as it actually looks.
+ *
+ * Served from `public/screenshots`, the same files README.md and
+ * architecture.md embed, so there is one set to keep current rather than two.
+ * Recapture with `npm run docs:screenshots`.
+ */
+function Screenshot({ src, alt }: { src: string; alt: string }) {
+  return (
+    <figure className="mt-3">
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={`/screenshots/${src}`}
+        alt={alt}
+        loading="lazy"
+        className="w-full rounded-md border border-white/10 bg-black"
+      />
+      <figcaption className="mt-1 text-xs text-slate-500">{alt}</figcaption>
+    </figure>
+  );
+}
+
 export default function HelpPage() {
   const card = "rounded-lg border border-white/10 bg-panel/40 p-5";
   const h2 = "text-xl font-semibold";
@@ -856,6 +878,10 @@ export default function HelpPage() {
             </a>
             . Submitting creates the project and opens its storyboard.
           </p>
+          <Screenshot
+            src="new-project.png"
+            alt="New project: concept, duration, aspect ratio, style, tone, audience and the generation toggles"
+          />
           <p className={p}>
             <strong>Deleting a project.</strong> Hover a project on the Projects screen and use the{" "}
             <span aria-hidden>✕</span> to remove it. You are asked to confirm first, and the
@@ -880,6 +906,10 @@ export default function HelpPage() {
             generate media per scene, approve attempts, and export. Header buttons jump to Variant
             Review, Agentic Canvas, and the Generation Console.
           </p>
+          <Screenshot
+            src="storyboard.png"
+            alt="A scene card: the objective and shot description, the collapsible scene card and prompts, the start and end keyframes, the generated clip, the pinned seed and the approve action"
+          />
           <p className={p}>
             A <strong>Creative plans</strong> panel sits near the top. It lists the four canvas plans
             that shape rendering and marks each one <em>in this storyboard</em>, <em>not applied
@@ -934,6 +964,10 @@ export default function HelpPage() {
             decision history logs what happened and when. This is where you run the World Builder,
             Director, Cinematographer, Art Director, Audio Director, and Animatic.
           </p>
+          <Screenshot
+            src="agentic-canvas.png"
+            alt="Agentic Canvas: one card per agent with its status, summary and the model that wrote it, above the decision history"
+          />
           <p className={p}>
             <strong>View or edit what an agent wrote.</strong> Once an agent has produced something,
             its card grows a <em>View or edit</em> panel holding the full plan — premise, rules,
@@ -996,12 +1030,20 @@ export default function HelpPage() {
             job queue. You can submit a test job and refresh its status. This is the window into the
             generation backend.
           </p>
+          <Screenshot
+            src="generation-console.png"
+            alt="Generation Console: WanGP connection status, the resolved image and video models, and the job queue"
+          />
 
           <h3 className={h3}>Assembly</h3>
           <p className={p}>
             Combines approved scene clips into a rough cut, shows the final-cut plan (clips, durations,
             total runtime), offers per-clip Deepy inspection, and lists the downloadable export package.
           </p>
+          <Screenshot
+            src="assembly.png"
+            alt="Assembly: approval state, the assembled rough cut, its source clips and the export package"
+          />
 
           <h3 className={h3}>About</h3>
           <p className={p}>
