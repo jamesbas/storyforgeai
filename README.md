@@ -4,9 +4,8 @@
 
 A **local-first agentic creative studio** that turns a single video concept into a
 complete storyboard and generation package. StoryForgeAI orchestrates a team of
-specialized AI agents to produce a creative brief, story arc, visual bible,
-20‑second scene cards, image/video prompts, WanGP generation settings, and a final
-assembled cut.
+specialized AI agents to produce a creative brief, story arc, visual bible, scene
+cards, image/video prompts, WanGP generation settings, and a final assembled cut.
 
 It is **TypeScript-first** (Next.js App Router) and runs **fully offline in demo
 mode**: every external integration (LLM, WanGP/Wan2GP MCP, ffmpeg, Deepy,
@@ -25,9 +24,26 @@ agent crew; everything below was rendered by WanGP from those prompts.*
 
 ---
 
+## Update log
+
+The current release is shown in the app's footer, so you can tell at a glance
+whether what you are running matches what is described here. Only the five most
+recent updates are kept.
+
+| Version | Date | What changed |
+| --- | --- | --- |
+| **1.02** | 2026-08-04 | **Per-scene end-frame reference override.** A carried-over start frame is handed to the end-frame render as a reference image, which holds wardrobe and location across the seam — but holds props too, so an action meant to put a glass down left it in shot. **Match the carried-over frame** on the scene card turns it off for that scene alone. Also: corrected the README's claim that clips are a fixed 20 seconds, and added this log. |
+| **1.01** | 2026-08-04 | **Live batch progress.** A phased run banks each scene's keyframes as it renders them instead of at the end of the phase, so the storyboard fills in while the batch is still going and cancelling no longer discards hours of finished frames. Per-scene chips now name the phase, the counter reports renders that succeeded with failures listed apart from them, and the clip phase stops calling itself that in a keyframes-only project. |
+| **1.00** | 2026-08-03 | Baseline release: the agent crew, storyboard, WanGP media generation, character library and wardrobe timeline, LoRA selection, assembly and export, provenance, durable tasks, and the accessibility pass. |
+
+---
+
 ## Features
 
-- **Concept → storyboard** in fixed **20‑second** segments (`segmentCount = ceil(duration / 20)`).
+- **Concept → storyboard** in equal-length segments. **Clip length is set per project**
+  on the New Project form — anywhere from **5 to 20 seconds**, defaulting to 20 — and
+  the scene count follows from it (`segmentCount = ceil(duration / segmentSeconds)`).
+  Shorter segments mean more scenes, more keyframes and finer control over pacing.
 - **Agentic Canvas** — a visible creative crew: Intake Producer, Story Architect,
   World Builder, Director, Cinematographer, Art Director, Storyboard Artist,
   Image/Video Prompt Engineers, WanGP Producer, Audio Director, and Creative Critic.
@@ -38,7 +54,8 @@ agent crew; everything below was rendered by WanGP from those prompts.*
 - **Animatic** — previsualize pacing and captions before expensive video generation.
 - **WanGP MCP integration** — model discovery, schema/default settings retrieval,
   settings-manifest generation, and job submit/poll/cancel.
-- **Media generation** — per-scene start/end keyframes + a 20s video, scene attempts
+- **Media generation** — per-scene start/end keyframes + a clip of the project's
+  segment length, scene attempts
   with retry/regeneration, QC results, and human approval.
 - **Character library** — reusable cast with up to two reference images each,
   a separable facial description that steps aside for a photo, and an optional
@@ -49,6 +66,15 @@ agent crew; everything below was rendered by WanGP from those prompts.*
   Changes are declared at the scene where they happen and carry forward, nudity is
   a wardrobe state rather than an outfit, and people who were never pinned to the
   library can be dressed by name ("the two men").
+- **Scene continuity you can override** — a scene can start from the previous scene's
+  end frame, and that frame is handed to the end-frame render as a reference so
+  wardrobe, location and lighting carry across the seam. It carries props just as
+  firmly, so **Match the carried-over frame** can be cleared on any single scene
+  whose own action has to change something the start frame is still showing.
+- **Live batch progress** — keyframes are written to the storyboard as each scene
+  renders them rather than at the end of the phase, so a long run visibly fills in,
+  cancelling keeps what has already been paid for, and the per-scene chips name the
+  phase each scene is in.
 - **Model-aware prompting** — prompts are written for the family that will render
   them (FLUX, Qwen, Krea, Wan, LTX). Exclusions are routed at render time, so a
   model with no negative prompt gets them folded into the positive prompt instead
@@ -82,10 +108,10 @@ agent crew; everything below was rendered by WanGP from those prompts.*
 | Layer | Technology |
 |---|---|
 | Language | TypeScript (strict) |
-| Web framework | Next.js 14 (App Router) + React 18 |
+| Web framework | Next.js 16 (App Router) + React 19 |
 | Styling | Tailwind CSS |
 | Validation | Zod (at every trust boundary) |
-| Persistence | Swappable repository — in-memory (demo) · Prisma + PostgreSQL (durable) |
+| Persistence | Swappable repository — JSON files (default) · in-memory (tests) · Prisma + PostgreSQL (scaffolded, not yet wired) |
 | AI orchestration | In-process orchestrator + registry; optional OpenAI adapter |
 | Media backend | WanGP MCP client (mock + live) · ffmpeg (mock + native) |
 | Tests | Vitest + Testing Library (unit/integration/component) · Playwright (E2E) |
@@ -132,7 +158,8 @@ STORYFORGE_PERSISTENCE=file          # "file" (default) or "memory"; "prisma" is
                                      # accepted but falls back to file — no
                                      # Prisma repository exists yet
 DATABASE_URL=postgresql://storyforge:storyforge@localhost:5432/storyforge
-DEFAULT_SEGMENT_SECONDS=20
+DEFAULT_SEGMENT_SECONDS=20           # the form's starting value; each project
+                                     # picks its own between 5 and 20
 AI_PLANNING_ENABLED=false            # + OPENAI_API_KEY to enable the LLM path
 WANGP_MCP_ENABLED=false              # + WANGP_MCP_URL to reach a live WanGP server
 DEEPY_ASSIST_ENABLED=false
@@ -219,7 +246,7 @@ values in the `Dockerfile`, and the port mapping in `docker-compose.yml`.
    ![The new project form: concept, duration, style, tone and generation toggles](public/screenshots/new-project.png)
 
 2. **Variant Review** — generate 3 directions and select one (optional).
-3. **Storyboard** — generate the brief, visual bible, and 20s scene cards.
+3. **Storyboard** — generate the brief, visual bible, and scene cards.
    References are read automatically if they have not been already.
 4. **Agentic Canvas** — run World Builder / Director / Cinematographer / Art
    Director / Audio Director; view artifacts, status, and decision history.
@@ -230,7 +257,7 @@ values in the `Dockerfile`, and the port mapping in `docker-compose.yml`.
 
    ![The generation console: resolved WanGP models, job status and queue state](public/screenshots/generation-console.png)
 
-6. Per scene — **Generate media** (start/end frame + 20s video), run **QC**, and
+6. Per scene — **Generate media** (start/end frame + the scene's clip), run **QC**, and
    **Approve**.
 7. **Assembly** — assemble a rough cut and export the package.
 
@@ -462,8 +489,9 @@ the licence and acceptable-use terms of every model and checkpoint.
 
 ### One take or an edit
 
-A segment boundary exists because the video model renders about 20 seconds at a
-time. It is a **technical join, not a cut** — and the planning agents are told
+A segment boundary exists because the video model renders only so much footage at a
+time — up to about twenty seconds, which is why that is the ceiling on the project's
+clip length. It is a **technical join, not a cut** — and the planning agents are told
 which, from the project's scene-continuity setting.
 
 On the continuing modes (`reuse_end_frame`, `continue_video`) the Cinematographer
@@ -841,8 +869,8 @@ describes the wrong thing produces the wrong shot again, however many times you 
 Dialogue is the only source of speech in a clip: LTX speaks it word for word out of
 the prompt, quoted inline in the prose the way its own model defaults do, and
 nothing is synthesised separately. Roughly two words per second fills a segment at a
-natural pace — about forty words for a 20-second scene — and the editor counts them
-for you.
+natural pace — about forty words for a twenty-second scene, proportionally fewer for
+a shorter one — and the editor counts them for you.
 
 **Prompts** — start frame, end frame, motion, and both negative prompts, exactly as
 sent to WanGP. Edits apply to that scene only. **Regenerate these prompts** asks the

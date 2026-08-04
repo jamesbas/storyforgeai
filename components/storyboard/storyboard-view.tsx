@@ -8,6 +8,7 @@ import { SceneCard } from "@/components/storyboard/scene-card";
 import { CreativePlansPanel } from "@/components/storyboard/creative-plans-panel";
 import { NegativePromptRepair } from "@/components/storyboard/negative-prompt-repair";
 import { TaskRecoveryPanel } from "@/components/storyboard/task-recovery-panel";
+import { chipLabel, phaseLabel } from "@/components/storyboard/phase-labels";
 import { AsyncStatus } from "@/components/shared/async-status";
 import { WardrobeCheck } from "@/components/storyboard/wardrobe-check";
 import { GENERATION_MODE_DOCS, SCENE_CONTINUITY_OPTIONS } from "@/lib/presets";
@@ -25,14 +26,6 @@ import { handEditedSinceGeneration } from "@/lib/history";
 import type { MediaDescriptor } from "@/lib/media/refs";
 
 type QueueSnapshot = { entries: SceneQueueEntry[]; active: boolean; phase?: PhaseProgress };
-
-/** What each phase is actually doing, in the user's terms rather than the code's. */
-const PHASE_LABELS: Record<PhaseProgress["phase"], string> = {
-  keyframes: "Rendering keyframes",
-  face_swap: "Applying face swap",
-  video: "Rendering clips",
-  qc: "Scoring results",
-};
 
 export function StoryboardView({ projectId }: { projectId: string }) {
   const [record, setRecord] = useState<ProjectRecord | null>(null);
@@ -152,6 +145,16 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const cast = useMemo(() => (castEnabled ? fetchedCast : []), [castEnabled, fetchedCast]);
 
   /**
+   * Whether this project renders clips at all. The clip phase runs either way —
+   * it closes the attempts out — so every label that names it has to know.
+   */
+  const rendersVideo = record ? generationStages(record.project.generationMode).video : true;
+
+  /** Scenes with keyframes banked. This is the number that moves in phases 1–2. */
+  const keyframesDone =
+    queue?.entries.filter((e) => e.completedPhase || e.state === "completed").length ?? 0;
+
+  /**
    * One sentence for the batch, changing only when a phase or a scene does.
    *
    * The visible line recomputes its counts on every three-second poll; feeding
@@ -163,8 +166,15 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     const done = queue.entries.filter((e) => e.state === "completed").length;
     const failedCount = queue.entries.filter((e) => e.state === "failed").length;
     if (queue.active) {
-      const phase = queue.phase ? `${PHASE_LABELS[queue.phase.phase]}. ` : "";
-      return `${phase}${done} of ${queue.entries.length} scenes done.`;
+      const current = queue.phase;
+      // No scene is finished before the clip phase, so a completed-scene count
+      // reads as zero for hours. Keyframes banked is what is actually moving.
+      const beforeClips = current?.phase === "keyframes" || current?.phase === "face_swap";
+      const progress = beforeClips
+        ? `${keyframesDone} of ${queue.entries.length} scenes have keyframes.`
+        : `${done} of ${queue.entries.length} scenes done.`;
+      const label = current ? `${phaseLabel(current.phase, rendersVideo)}. ` : "";
+      return `${label}${progress}${failedCount ? ` ${failedCount} failed.` : ""}`;
     }
     if (!queue.entries.length) return null;
     return failedCount
@@ -530,6 +540,33 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     [projectId, failureMessage],
   );
 
+  /**
+   * Whether this scene's end frame is rendered against the frame it inherited.
+   *
+   * Applies from the next render on, like every other continuity setting — the
+   * frames already on the record are not touched.
+   */
+  const setEndFrameReference = useCallback(
+    async (sceneId: string, endFrameReference: boolean) => {
+      setSceneBusy(sceneId);
+      setError(null);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/scenes/${sceneId}/framing`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ endFrameReference }),
+        });
+        if (!res.ok) throw new Error(await failureMessage(res, "Failed to update the reference"));
+        setRecord((await res.json()) as ProjectRecord);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to update the reference");
+      } finally {
+        setSceneBusy(null);
+      }
+    },
+    [projectId, failureMessage],
+  );
+
   const swapSceneFace = useCallback(
     async (sceneId: string, purpose: "start_frame" | "end_frame") => {
       setSceneBusy(sceneId);
@@ -597,6 +634,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
 
   const { project, storyboard } = record;
   const stages = generationStages(project.generationMode);
+  const continuity = project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY;
 
   return (
     <div className="space-y-6">
@@ -937,7 +975,9 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   {!stages.keyframes
                     ? "This project is set to plan only. Change the generation mode above to render media."
                     : queue?.active
-                      ? `Running — ${queue.entries.filter((e) => e.state === "completed").length} of ${queue.entries.length} done`
+                      ? queue.phase?.phase === "keyframes" || queue.phase?.phase === "face_swap"
+                        ? `Running — ${keyframesDone} of ${queue.entries.length} scenes have keyframes`
+                        : `Running — ${queue.entries.filter((e) => e.state === "completed").length} of ${queue.entries.length} done`
                       : queue?.entries.length
                         ? `Last run: ${queue.entries.filter((e) => e.state === "completed").length} completed, ${queue.entries.filter((e) => e.state === "failed").length} failed`
                         : stages.video
@@ -951,8 +991,9 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                 */}
                 {queue?.phase ? (
                   <p className="mt-1 text-xs text-accent" data-testid="queue-phase">
-                    {PHASE_LABELS[queue.phase.phase]} · {queue.phase.completed} of{" "}
+                    {phaseLabel(queue.phase.phase, stages.video)} · {queue.phase.completed} of{" "}
                     {queue.phase.total}
+                    {queue.phase.failed ? ` · ${queue.phase.failed} failed` : ""}
                     {queue.phase.phase === "keyframes" && stages.video
                       ? " — clips start once every keyframe is done"
                       : ""}
@@ -1078,7 +1119,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                               : "border-white/10 text-slate-400"
                     }`}
                   >
-                    Scene {entry.sceneNumber} · {entry.state}
+                    Scene {entry.sceneNumber} · {chipLabel(entry, stages.video)}
                     {entry.attempts > 1 ? ` · try ${entry.attempts}` : ""}
                   </li>
                 ))}
@@ -1140,9 +1181,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   onPromptsSaved={(next) => setRecord(next)}
                   cast={cast}
                   wardrobeChanges={record.project.wardrobeChanges?.[scene.id]}
-                  continuousTake={
-                    (record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY) !== "cut"
-                  }
+                  continuousTake={continuity !== "cut"}
                   onGenerateKeyframe={
                     stages.keyframes
                       ? (purpose) => void generateSceneKeyframe(scene.id, purpose)
@@ -1152,6 +1191,14 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   seed={record.project.sceneSeeds?.[scene.id]}
                   onNewSeed={() => void newSceneSeed(scene.id)}
                   onFaceVisibleChange={(next) => void setFaceVisible(scene.id, next)}
+                  endFrameReference={
+                    continuity === "reuse_end_frame" && scene.sceneNumber > 1
+                      ? record.project.sceneEndFrameRefs?.[scene.id] !== false
+                      : undefined
+                  }
+                  onEndFrameReferenceChange={(next) =>
+                    void setEndFrameReference(scene.id, next)
+                  }
                   onSwapFace={
                     stages.keyframes ? (purpose) => void swapSceneFace(scene.id, purpose) : undefined
                   }

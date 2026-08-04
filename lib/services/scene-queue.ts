@@ -55,6 +55,12 @@ export type SceneQueueEntry = {
    * scene simply runs to completion.
    */
   phase?: PhaseName;
+  /**
+   * Furthest phase this scene has cleared. Phases clear in order, so the mere
+   * presence of this means the scene's keyframes are on the record — which is
+   * what makes a count mean something before any clip exists.
+   */
+  completedPhase?: PhaseName;
   startedAt?: string;
   finishedAt?: string;
 };
@@ -66,7 +72,14 @@ export type SceneQueueEntry = {
  * chips do not move for any of it — so without this the UI is indistinguishable
  * from a stalled job.
  */
-export type PhaseProgress = { phase: PhaseName; completed: number; total: number };
+export type PhaseProgress = {
+  phase: PhaseName;
+  completed: number;
+  total: number;
+  /** Units this phase gave up on. Kept apart from `completed` so the number of
+   *  finished renders is never inflated by the ones that threw. */
+  failed: number;
+};
 
 type QueueStore = {
   entries: SceneQueueEntry[];
@@ -386,12 +399,23 @@ async function drainPhased(projectId: string, pending: SceneQueueEntry[]): Promi
       shouldCancel: cancelled,
       runStep,
       onPhase: (phase, total) => {
-        state.phases.set(projectId, { phase, completed: 0, total });
-        for (const entry of pending) if (entry.state === "running") entry.phase = phase;
+        state.phases.set(projectId, { phase, completed: 0, total, failed: 0 });
       },
-      onPhaseProgress: (completed) => {
+      onPhaseProgress: (completed, failed) => {
         const current = state.phases.get(projectId);
-        if (current) state.phases.set(projectId, { ...current, completed });
+        if (current) state.phases.set(projectId, { ...current, completed, failed });
+      },
+      // Per-scene phase, so the chips move through phases 1 and 2 instead of
+      // sitting on "running" until the first clip lands.
+      onSceneEnterPhase: (sceneId, phase) => {
+        const entry = pending.find((e) => e.sceneId === sceneId);
+        if (entry?.state === "running") entry.phase = phase;
+      },
+      onSceneClearPhase: (sceneId, phase) => {
+        const entry = pending.find((e) => e.sceneId === sceneId);
+        if (!entry) return;
+        entry.completedPhase = phase;
+        entry.phase = undefined;
       },
       // Scenes finish one at a time during the final phase, so the storyboard
       // fills in as clips land rather than all at once at the end.

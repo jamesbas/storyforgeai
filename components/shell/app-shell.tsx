@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { APP_VERSION } from "@/lib/version";
 
 type NavItem = {
   href: string;
@@ -101,6 +102,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               JabAI Solutions
             </a>
+            <span className="ml-2 text-slate-500" data-testid="app-version">
+              v{APP_VERSION}
+            </span>
           </p>
           <p>
             Free to use — reselling needs a licence.{" "}

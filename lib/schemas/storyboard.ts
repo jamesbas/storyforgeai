@@ -56,9 +56,19 @@ export const scenePromptsPatchSchema = z
 export type ScenePromptsPatch = z.infer<typeof scenePromptsPatchSchema>;
 
 /** Framing facts a human can correct after seeing the render. */
-export const sceneFramingPatchSchema = z.object({
-  subjectFaceVisible: z.boolean(),
-});
+export const sceneFramingPatchSchema = z
+  .object({
+    subjectFaceVisible: z.boolean(),
+    /**
+     * Stored on the project rather than the scene, because it is a user's
+     * decision and regenerating the storyboard must not discard it.
+     */
+    endFrameReference: z.boolean(),
+  })
+  .partial()
+  .refine((patch) => Object.keys(patch).length > 0, {
+    message: "Provide at least one framing field to update.",
+  });
 export type SceneFramingPatch = z.infer<typeof sceneFramingPatchSchema>;
 
 /**

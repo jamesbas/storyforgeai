@@ -170,6 +170,20 @@ function changingWardrobe(record: ProjectRecord, sceneId: string): boolean {
   return (record.project.wardrobeChanges?.[sceneId] ?? []).some((c) => c.mode === "within");
 }
 
+/**
+ * Whether this scene's end frame is rendered with its start frame supplied as a
+ * reference image.
+ *
+ * Only ever true for a *carried-over* start frame — see MATCH_INSTRUCTION for
+ * why a scene is never shown the start frame it rendered itself. The per-scene
+ * override can only turn it off: forcing it on where the scene rendered its own
+ * start frame is the failure the exclusion exists to prevent.
+ */
+function referencesStartFrame(record: ProjectRecord, sceneId: string, inherited: boolean): boolean {
+  if (!inherited || !config.media.endFrameReferencesStartFrame) return false;
+  return record.project.sceneEndFrameRefs?.[sceneId] !== false;
+}
+
 /** Drop a scene's pinned seed so the next render samples afresh. */
 export async function clearSceneSeed(projectId: string, sceneId: string): Promise<ProjectRecord> {  const record = await getProjectRecord(projectId);
   if (record.project.sceneSeeds?.[sceneId] === undefined) return record;
@@ -323,13 +337,13 @@ export async function generateSceneKeyframe(
   let prompt =
     purpose === "start_frame" ? scene.prompts.startFramePrompt : scene.prompts.endFramePrompt;
 
-  if (purpose === "end_frame" && config.media.endFrameReferencesStartFrame) {
+  if (purpose === "end_frame") {
     // Only a frame carried in from the previous scene. This scene's own start
     // frame is the picture the end frame is supposed to differ from.
     const inheritedStart = chosenAttempt(seeded, sceneId)?.startImageInherited
       ? chosenAttempt(seeded, sceneId)?.startImagePath
       : undefined;
-    if (inheritedStart) {
+    if (inheritedStart && referencesStartFrame(seeded, sceneId, true)) {
       extraRefs = [inheritedStart];
       prompt = changingWardrobe(seeded, sceneId)
         ? `${prompt}${MATCH_INSTRUCTION.inheritedChangingWardrobe}`
@@ -433,11 +447,10 @@ export type PhaseName = "keyframes" | "face_swap" | "video" | "qc";
  * clips is what starves the next video render of VRAM, so every scene is scored
  * once the GPU work is done.
  *
- * The cost is that a scene is no longer finished in one pass; it appears in the
- * storyboard when its clip lands during phase three. Intermediate keyframes are
- * held in memory rather than written to the record, because the only slot for a
- * frame without a clip is the preview map — and a preview is something the user
- * asks for, not a side effect of pressing "generate".
+ * The cost is that a scene is no longer finished in one pass. Its keyframes are
+ * banked as an attempt the moment phase one renders them, so the storyboard
+ * fills in as frames land and a cancel keeps what was already paid for; the
+ * swap and the clip then rewrite that same attempt in place.
  *
  * Only used for multi-scene batches; single-scene generation stays sequential,
  * where a phase split would save nothing and cost immediacy.
@@ -452,8 +465,15 @@ export async function generateProjectMediaPhased(
      * that spends an hour inside one phase can still show movement.
      */
     onPhase?: (phase: PhaseName, total: number) => void;
-    /** One unit of the current phase finished. */
-    onPhaseProgress?: (completed: number) => void;
+    /**
+     * Units of the current phase that have succeeded and failed. Counting an
+     * attempt as progress made the number disagree with what reached the disk.
+     */
+    onPhaseProgress?: (completed: number, failed: number) => void;
+    /** A scene began a phase. */
+    onSceneEnterPhase?: (sceneId: string, phase: PhaseName) => void;
+    /** A scene cleared a phase, and that phase's output is on the record. */
+    onSceneClearPhase?: (sceneId: string, phase: PhaseName) => void;
     onSceneComplete?: (sceneId: string) => void;
     /** A scene whose clip failed. The batch carries on with the rest. */
     onSceneFailed?: (sceneId: string, error: string) => void;
@@ -511,9 +531,11 @@ export async function generateProjectMediaPhased(
   let previousEnd: string | undefined;
   let previousScene: Scene | undefined;
   let done = 0;
+  let failedFrames = 0;
 
   for (const scene of scenes) {
     if (hooks.shouldCancel?.()) return;
+    hooks.onSceneEnterPhase?.(scene.id, "keyframes");
 
     try {
       // Reusing the previous end frame is what makes a seam match exactly; it also
@@ -543,7 +565,7 @@ export async function generateProjectMediaPhased(
         startId = rendered.id;
       }
 
-      const conditionOnStart = config.media.endFrameReferencesStartFrame && Boolean(inherited);
+      const conditionOnStart = referencesStartFrame(record, scene.id, Boolean(inherited));
       const matchInstruction = changingWardrobe(record, scene.id)
         ? MATCH_INSTRUCTION.inheritedChangingWardrobe
         : MATCH_INSTRUCTION.inherited;
@@ -560,15 +582,24 @@ export async function generateProjectMediaPhased(
         ),
       );
 
-      frames.set(scene.id, {
+      const rendered = {
         start: startPath,
         end: endRender.path,
         startId,
         endId: endRender.id,
         inherited: Boolean(inherited),
-      });
+      };
+
+      // Banked here rather than after the swap phase. Until the attempt exists
+      // the storyboard has nothing to show for hours of GPU time, and a cancel
+      // discards it; phase 2 rewrites this same attempt with the swapped face.
+      const attemptId = await bankKeyframes(projectId, scene, rendered);
+      frames.set(scene.id, { ...rendered, attemptId });
+
       previousEnd = endRender.path;
       previousScene = scene;
+      hooks.onPhaseProgress?.((done += 1), failedFrames);
+      hooks.onSceneClearPhase?.(scene.id, "keyframes");
     } catch (err) {
       // Same reasoning as the clip phase: one scene must not cost the rest. The
       // chain resets so the next scene renders its own start frame rather than
@@ -579,8 +610,8 @@ export async function generateProjectMediaPhased(
         scene.id,
         err instanceof Error ? err.message : "Keyframe generation failed",
       );
+      hooks.onPhaseProgress?.(done, (failedFrames += 1));
     }
-    hooks.onPhaseProgress?.((done += 1));
   }
 
   // ---- Phase 2: swap every distinct frame, on the edit model ---------------
@@ -616,70 +647,56 @@ export async function generateProjectMediaPhased(
     }
 
     hooks.onPhase?.("face_swap", distinct.size);
+
+    // Which of a scene's frames are still waiting on the swap model. A scene
+    // clears the phase when its last one lands, which under a continuous seam
+    // can be a frame its neighbour was waiting on too.
+    const outstanding = new Map<string, Set<string>>();
+    for (const [sceneId, entry] of frames) {
+      const mine = [entry.start, entry.end].filter(
+        (path): path is string => path !== undefined && distinct.has(path),
+      );
+      outstanding.set(sceneId, new Set(mine));
+      if (mine.length) hooks.onSceneEnterPhase?.(sceneId, "face_swap");
+      else hooks.onSceneClearPhase?.(sceneId, "face_swap");
+    }
+
     const swapped = new Map<string, string>();
     let swappedCount = 0;
     for (const original of distinct) {
       if (hooks.shouldCancel?.()) return;
       const result = await swapFace(original, swapSubject, { sceneId: "batch", purpose: "keyframe" });
       swapped.set(original, result ?? original);
-      hooks.onPhaseProgress?.((swappedCount += 1));
+      hooks.onPhaseProgress?.((swappedCount += 1), 0);
+
+      // Rewrite a scene's banked attempt as soon as every frame of it is
+      // corrected, so the storyboard shows the swapped face rather than the
+      // render it replaced.
+      for (const [sceneId, waiting] of outstanding) {
+        if (!waiting.delete(original) || waiting.size) continue;
+        const entry = frames.get(sceneId);
+        if (!entry) continue;
+        const next = withSwappedFrames(entry, swapped);
+        frames.set(sceneId, next);
+        if (next.attemptId) await rebankSwappedFrames(projectId, sceneId, next.attemptId, next);
+        hooks.onSceneClearPhase?.(sceneId, "face_swap");
+      }
     }
-
-    for (const [sceneId, entry] of frames) {
-      // A frame left out of the swap set keeps its original path.
-      const start = entry.start ? (swapped.get(entry.start) ?? entry.start) : undefined;
-      const end = entry.end ? (swapped.get(entry.end) ?? entry.end) : undefined;
-      frames.set(sceneId, {
-        ...entry,
-        start,
-        end,
-        startSource: start !== entry.start ? entry.start : undefined,
-        endSource: end !== entry.end ? entry.end : undefined,
-      });
-    }
-  }
-
-  // Bank the frames before any video work starts.
-  //
-  // Phase 1 is hours of GPU time on a full storyboard, and until this point it
-  // lived only in the `frames` map — a dropped connection during phase 3 threw
-  // every rendered keyframe away. Writing them as attempts now means a batch
-  // that dies later leaves its images attached to their scenes, and phase 3
-  // completes those attempts in place rather than opening new ones.
-  for (const [sceneId, entry] of frames) {
-    if (hooks.shouldCancel?.()) return;
-    if (!entry.start && !entry.end) continue;
-    const scene = scenes.find((s) => s.id === sceneId);
-    if (!scene) continue;
-
-    record = await getProjectRecord(projectId);
-    const existing = record.attempts?.[sceneId] ?? [];
-    const attempt: SceneAttempt = {
-      id: randomUUID(),
-      sceneId,
-      attemptNumber: existing.length + 1,
-      startImagePath: entry.start,
-      endImagePath: entry.end,
-      startImageSourcePath: entry.startSource,
-      endImageSourcePath: entry.endSource,
-      startImageInherited: entry.inherited || undefined,
-      settingsIds: [entry.startId, entry.endId].filter((id): id is string => id !== undefined),
-      approved: false,
-      createdAt: new Date().toISOString(),
-    };
-    record = await persistAttempt(projectId, scene, attempt, existing, record);
-    frames.set(sceneId, { ...entry, attemptId: attempt.id });
   }
 
   // ---- Phase 3: every clip, on the video model -----------------------------
-  hooks.onPhase?.("video", scenes.length);
+  // Scenes whose keyframes failed are left out of the total: it states what this
+  // phase can actually deliver, not how many scenes were asked for.
+  hooks.onPhase?.("video", frames.size);
   const scored: { scene: Scene; attempt: SceneAttempt }[] = [];
   let clips = 0;
+  let failedClips = 0;
 
   for (const scene of scenes) {
     if (hooks.shouldCancel?.()) return;
     const entry = frames.get(scene.id);
     if (!entry) continue;
+    hooks.onSceneEnterPhase?.(scene.id, "video");
 
     try {
       // `keyframes_only` stops here: the attempt is the two frames, and no video
@@ -712,6 +729,8 @@ export async function generateProjectMediaPhased(
       });
       record = await getProjectRecord(projectId);
       scored.push({ scene, attempt });
+      hooks.onPhaseProgress?.((clips += 1), failedClips);
+      hooks.onSceneClearPhase?.(scene.id, "video");
       hooks.onSceneComplete?.(scene.id);
     } catch (err) {
       // One clip failing must not cost the scenes behind it. Their keyframes are
@@ -719,8 +738,8 @@ export async function generateProjectMediaPhased(
       // of the batch throws away far more work than it saves.
       const message = err instanceof Error ? err.message : "Video generation failed";
       hooks.onSceneFailed?.(scene.id, message);
+      hooks.onPhaseProgress?.(clips, (failedClips += 1));
     }
-    hooks.onPhaseProgress?.((clips += 1));
   }
 
   // ---- Phase 4: score every finished scene, on the planning model ----------
@@ -735,10 +754,93 @@ export async function generateProjectMediaPhased(
     hooks.onPhase?.("qc", scored.length);
     let judged = 0;
     for (const { scene, attempt } of scored) {
+      hooks.onSceneEnterPhase?.(scene.id, "qc");
       await scoreAttempt(projectId, scene, attempt, stages.video);
-      hooks.onPhaseProgress?.((judged += 1));
+      hooks.onPhaseProgress?.((judged += 1), 0);
+      hooks.onSceneClearPhase?.(scene.id, "qc");
     }
   }
+}
+
+/**
+ * Write a scene's freshly rendered keyframes to the record as an attempt.
+ *
+ * Called the moment phase 1 clears a scene rather than at the end of the batch,
+ * so the storyboard fills in while the run is still going and a cancel keeps
+ * the frames already paid for.
+ */
+async function bankKeyframes(
+  projectId: string,
+  scene: Scene,
+  frames: { start?: string; end?: string; startId?: string; endId?: string; inherited?: boolean },
+): Promise<string> {
+  const record = await getProjectRecord(projectId);
+  const existing = record.attempts?.[scene.id] ?? [];
+  const attempt: SceneAttempt = {
+    id: randomUUID(),
+    sceneId: scene.id,
+    attemptNumber: existing.length + 1,
+    startImagePath: frames.start,
+    endImagePath: frames.end,
+    startImageInherited: frames.inherited || undefined,
+    settingsIds: [frames.startId, frames.endId].filter((id): id is string => id !== undefined),
+    approved: false,
+    createdAt: new Date().toISOString(),
+  };
+  await persistAttempt(projectId, scene, attempt, existing, record);
+  return attempt.id;
+}
+
+/** A scene's frame paths after the swap phase, with the originals preserved. */
+function withSwappedFrames<T extends { start?: string; end?: string }>(
+  entry: T,
+  swapped: Map<string, string>,
+): T & { startSource?: string; endSource?: string } {
+  // A frame left out of the swap set keeps its original path.
+  const start = entry.start ? (swapped.get(entry.start) ?? entry.start) : undefined;
+  const end = entry.end ? (swapped.get(entry.end) ?? entry.end) : undefined;
+  return {
+    ...entry,
+    start,
+    end,
+    startSource: start !== entry.start ? entry.start : undefined,
+    endSource: end !== entry.end ? entry.end : undefined,
+  };
+}
+
+/**
+ * Point a banked attempt at its swapped frames, keeping the pre-swap renders in
+ * the `*SourcePath` fields.
+ */
+async function rebankSwappedFrames(
+  projectId: string,
+  sceneId: string,
+  attemptId: string,
+  frames: { start?: string; end?: string; startSource?: string; endSource?: string },
+): Promise<void> {
+  const record = await getProjectRecord(projectId);
+  const attempts = record.attempts?.[sceneId] ?? [];
+  if (!attempts.some((a) => a.id === attemptId)) return;
+
+  const updated: ProjectRecord = {
+    ...record,
+    attempts: {
+      ...(record.attempts ?? {}),
+      [sceneId]: attempts.map((a) =>
+        a.id === attemptId
+          ? {
+              ...a,
+              startImagePath: frames.start,
+              endImagePath: frames.end,
+              startImageSourcePath: frames.startSource,
+              endImageSourcePath: frames.endSource,
+            }
+          : a,
+      ),
+    },
+    project: { ...record.project, updatedAt: new Date().toISOString() },
+  };
+  await repository.update(projectId, updated);
 }
 
 /**
@@ -1037,7 +1139,7 @@ export async function generateSceneMedia(
    * reference may dictate depends on where it came from: see MATCH_INSTRUCTION.
    */
   const inheritedStart = Boolean(continuity.startImagePath);
-  const conditionOnStartFrame = config.media.endFrameReferencesStartFrame && inheritedStart;
+  const conditionOnStartFrame = referencesStartFrame(record, sceneId, inheritedStart);
   const matchInstruction = changingWardrobe(record, sceneId)
     ? MATCH_INSTRUCTION.inheritedChangingWardrobe
     : MATCH_INSTRUCTION.inherited;

@@ -45,6 +45,12 @@ type SceneCardProps = {
   onNewSeed?: () => void;
   /** Correct the planner when a shot's framing was called wrong. */
   onFaceVisibleChange?: (next: boolean) => void;
+  /**
+   * Whether this scene's end frame is rendered against the carried-over start
+   * frame. Undefined hides the control — it only applies where a frame carries.
+   */
+  endFrameReference?: boolean;
+  onEndFrameReferenceChange?: (next: boolean) => void;
   /** Apply the face swap to one already-rendered frame. */
   onSwapFace?: (purpose: "start_frame" | "end_frame") => void;
   /** Discard a swap, restoring the frame as it was rendered. */
@@ -104,6 +110,8 @@ export function SceneCard({
   seed,
   onNewSeed,
   onFaceVisibleChange,
+  endFrameReference,
+  onEndFrameReferenceChange,
   onSwapFace,
   onRevertFace,
 }: SceneCardProps) {
@@ -153,6 +161,25 @@ export function SceneCard({
             Face in frame
             <span className="ml-1 text-slate-500">
               — off skips the face swap, which otherwise grafts a head onto shots that have none
+            </span>
+          </span>
+        </label>
+      ) : null}
+      {endFrameReference !== undefined && onEndFrameReferenceChange ? (
+        <label className="mt-2 flex items-center gap-2 text-xs text-slate-400">
+          <input
+            type="checkbox"
+            checked={endFrameReference}
+            disabled={busy}
+            onChange={(e) => onEndFrameReferenceChange(e.target.checked)}
+            className="h-3.5 w-3.5 rounded border-white/20 bg-canvas accent-accent"
+            data-testid="scene-end-frame-reference"
+          />
+          <span>
+            Match the carried-over frame
+            <span className="ml-1 text-slate-500">
+              — holds wardrobe and location across the seam, but holds props too. Turn it off when
+              the action has to change something the start frame is still showing.
             </span>
           </span>
         </label>

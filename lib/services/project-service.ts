@@ -289,6 +289,7 @@ export async function duplicateProject(id: string): Promise<Project> {
     // deliberately changed — which is the whole point of comparing two runs.
     sceneSeeds: remap(source.project.sceneSeeds),
     sceneLoras: remap(source.project.sceneLoras),
+    sceneEndFrameRefs: remap(source.project.sceneEndFrameRefs),
     wardrobeChanges: remap(source.project.wardrobeChanges),
     status: source.storyboard ? "storyboard_ready" : "draft",
     createdAt: now,
@@ -421,6 +422,7 @@ export async function importProject(raw: unknown): Promise<ImportOutcome> {
     conceptImages: undefined,
     sceneSeeds: remap(source.project.sceneSeeds),
     sceneLoras: remap(source.project.sceneLoras),
+    sceneEndFrameRefs: remap(source.project.sceneEndFrameRefs),
     wardrobeChanges: remap(source.project.wardrobeChanges),
     createdAt: now,
     updatedAt: now,
@@ -700,7 +702,7 @@ export async function updateSceneFraming(
   sceneId: string,
   raw: unknown,
 ): Promise<ProjectRecord> {
-  const patch = sceneFramingPatchSchema.parse(raw);
+  const { endFrameReference, ...scenePatch } = sceneFramingPatchSchema.parse(raw);
   const record = await getProjectRecord(id);
   if (!record.storyboard) throw new ValidationError("Generate a storyboard before editing framing");
 
@@ -711,15 +713,36 @@ export async function updateSceneFraming(
     ...record,
     storyboard: {
       ...record.storyboard,
-      scenes: record.storyboard.scenes.map((s) => (s.id === sceneId ? { ...s, ...patch } : s)),
+      scenes: record.storyboard.scenes.map((s) => (s.id === sceneId ? { ...s, ...scenePatch } : s)),
     },
-    project: { ...record.project, updatedAt: new Date().toISOString() },
+    project: {
+      ...record.project,
+      sceneEndFrameRefs: withEndFrameRef(
+        record.project.sceneEndFrameRefs,
+        sceneId,
+        endFrameReference,
+      ),
+      updatedAt: new Date().toISOString(),
+    },
     history: appendHistory(record, "scene.framing_edited", `Scene ${scene.sceneNumber}`),
   };
 
   await repository.update(id, updated);
   logEvent("project.updated", { id, change: "scene_framing", sceneId });
   return updated;
+}
+
+/** Referencing the start frame is the default, so it is stored as an absent key. */
+function withEndFrameRef(
+  current: Record<string, boolean> | undefined,
+  sceneId: string,
+  value: boolean | undefined,
+): Record<string, boolean> | undefined {
+  if (value === undefined) return current;
+  const next = { ...(current ?? {}) };
+  if (value) delete next[sceneId];
+  else next[sceneId] = false;
+  return Object.keys(next).length ? next : undefined;
 }
 
 export async function updateScenePrompts(

@@ -149,6 +149,16 @@ export const projectSchema = z.object({
    * ever showed what the prompt *could* produce. Cleared to re-roll.
    */
   sceneSeeds: z.record(z.number().int().nonnegative()).optional(),
+  /**
+   * Scenes whose end frame must NOT be rendered against the carried-over start
+   * frame, keyed by scene id. Only `false` is ever stored — the default is on,
+   * so re-enabling drops the key.
+   *
+   * The reference is what holds wardrobe and location across a seam, but it
+   * holds everything else too: a strong reference model keeps a prop the scene's
+   * own action is meant to remove, and no wording defeats the image.
+   */
+  sceneEndFrameRefs: z.record(z.boolean()).optional(),
   status: projectStatusSchema,
   createdAt: z.string(),
   updatedAt: z.string(),

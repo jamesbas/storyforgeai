@@ -686,9 +686,25 @@ export default function HelpPage() {
             outright.
           </p>
           <p className={p}>
+            The reference is only ever the frame a scene <em>carried over</em> from the one before.
+            A scene that renders its own start frame is never shown it: an edit model handed a
+            picture returns that picture, so both keyframes came back identical and the clip between
+            them had nothing to move through.
+          </p>
+          <p className={p}>
+            The reference holds props as firmly as it holds wardrobe, which is a problem when the
+            scene&apos;s own action is supposed to change one — a glass that should be set down stays
+            in the character&apos;s hand. Clear <strong>Match the carried-over frame</strong> on that
+            scene&apos;s card to render its end frame from the prompt alone. It costs the wardrobe
+            and location lock for that one scene, and applies from the next render on. Wording does
+            not substitute for it: telling the model what to change while showing it a picture of the
+            thing unchanged is what fails.
+          </p>
+          <p className={p}>
             End-frame conditioning needs an image model that accepts reference images; it is skipped
             automatically when continuity is set to continue from the previous clip, since no frames
-            are rendered then. Set <code>END_FRAME_REFERENCES_START_FRAME=false</code> to turn it off.
+            are rendered then. Set <code>END_FRAME_REFERENCES_START_FRAME=false</code> to turn it off
+            for every project at once.
           </p>
         </section>
 
