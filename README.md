@@ -101,6 +101,15 @@ agent crew; everything below was rendered by WanGP from those prompts.*
 - Node.js 20.9+ (enforced by `engines`; built and verified on Node 24)
 - npm 10+
 
+LM Studio is optional and is needed only for live AI planning; demo mode uses the
+deterministic agents. For live planning, install LM Studio (or another compatible
+OpenAI-style local server) and load an instruction-tuned model that can reliably
+produce structured JSON. There is no fixed GPU or VRAM minimum: the machine needs
+enough combined VRAM/RAM for the chosen model, quantization, and context window.
+CPU-only inference can work but may be slow. If LM Studio and WanGP share one GPU,
+leave enough headroom for generation or configure the LM Studio unload support
+described under [Local LLM](#local-llm-lm-studio-ollama-llamacpp).
+
 ### Install & run
 
 ```bash
@@ -444,8 +453,12 @@ When the audience is *Adults only (explicit)* or the tone is erotic or raw/carna
 the Director, Storyboard Artist and both prompt agents are told so directly, using
 the same wording the settings screen showed. Without it they write euphemism, and
 an image model has nothing to draw from an implication — it renders nouns. The app
-applies no content filtering of its own; what you can actually produce depends on
-your planning model and the licence of each WanGP model you generate with.
+applies no content filtering of its own. **Adult projects require an uncensored
+planning model in LM Studio that will follow explicit-content instructions; a
+censored or safety-aligned model may refuse, sanitize, or omit the required adult
+prompts.** The image/video checkpoints used by WanGP must likewise support the
+intended content. You are responsible for using lawful content and for checking
+the licence and acceptable-use terms of every model and checkpoint.
 
 ### One take or an edit
 
@@ -481,6 +494,12 @@ OPENAI_BASE_URL=http://127.0.0.1:1234/v1
 OPENAI_MODEL=<model id from the server>
 OPENAI_API_KEY=lm-studio
 ```
+
+Use an instruction-tuned model with enough context for the project and support for
+structured output. StoryForgeAI defaults to a 12,000-token completion budget and a
+240-second timeout; smaller/slower models may need the corresponding
+`OPENAI_MAX_TOKENS` and `OPENAI_TIMEOUT_MS` settings adjusted. For adult projects,
+the loaded model must be uncensored and willing to generate explicit prompts.
 
 The response format is negotiated at runtime down a ladder — `json_schema`,
 then `json_object`, then plain text — and a rung is abandoned only when the
