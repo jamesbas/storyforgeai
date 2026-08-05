@@ -1142,9 +1142,12 @@ export function StoryboardView({ projectId }: { projectId: string }) {
 
           <section className="space-y-4">
             <h2 className="text-lg font-semibold">Scenes</h2>
-            {storyboard.scenes.map((scene) => {
+            {storyboard.scenes.map((scene, index) => {
               const attempts = record.attempts?.[scene.id] ?? [];
               const latest = attempts[attempts.length - 1];
+              // Only the immediate predecessor can be copied from: an inheriting
+              // scene in between means there is no adjacent selection to carry.
+              const previousScene = index > 0 ? storyboard.scenes[index - 1] : undefined;
               // Mirrors what generation does: resolve the scene's effective LoRAs,
               // then collect only the trigger words each one will contribute — a
               // multi-concept LoRA contributes nothing until a trigger is chosen.
@@ -1175,6 +1178,9 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   onApprove={latest ? () => approveScene(scene.id, latest.id) : undefined}
                   projectId={projectId}
                   loraOverride={record.project.sceneLoras?.[scene.id]}
+                  previousLoraOverride={
+                    previousScene ? record.project.sceneLoras?.[previousScene.id] : undefined
+                  }
                   onLoraSave={(next) => void saveSceneLoras(scene.id, next)}
                   triggerWords={{ image: triggerWordsFor("image"), video: triggerWordsFor("video") }}
                   promptExecution={latestExecution(record.executions, `${scene.id}.image_prompt`)}

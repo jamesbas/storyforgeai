@@ -24,6 +24,8 @@ type SceneCardProps = {
    */
   projectId?: string;
   loraOverride?: SceneLoraOverride;
+  /** The preceding scene's override, so this one can copy it. */
+  previousLoraOverride?: SceneLoraOverride;
   onLoraSave?: (next: SceneLoraOverride) => void;
   /** Trigger words appended automatically at generation, by prompt kind. */
   triggerWords?: { image: string[]; video: string[] };
@@ -98,6 +100,7 @@ export function SceneCard({
   onApprove,
   projectId,
   loraOverride,
+  previousLoraOverride,
   onLoraSave,
   triggerWords,
   promptExecution,
@@ -233,6 +236,7 @@ export function SceneCard({
         <SceneLoraPanel
           projectId={projectId}
           value={loraOverride}
+          previousLoras={previousLoraOverride}
           busy={busy}
           onSave={onLoraSave}
         />

@@ -1184,11 +1184,13 @@ export default function HelpPage() {
           <h3 className={h3}>LoRAs</h3>
           <p className={p}>
             A LoRA is a small add-on trained onto a base model to push it toward a particular look,
-            subject or motion. You can select them at two scopes:
+            subject or motion. You can select them at two scopes, with a shortcut for repeating a
+            scene-level choice:
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             <li className={li}><strong>Whole storyboard</strong> — in <em>Settings</em> for the project. Applies to every scene.</li>
             <li className={li}><strong>One scene</strong> — the <em>LoRAs</em> panel on any scene card. Choose &quot;Override for this scene&quot; and the scene uses your selection <em>instead of</em> the storyboard-wide one, not in addition to it.</li>
+            <li className={li}><strong>Copied from the scene before it</strong> — when the preceding scene has its own override, a third choice, &quot;Copy previous scene&apos;s LoRAs&quot;, fills this scene&apos;s image and video lists from it. It is a one-time copy you can edit before saving; changing the earlier scene later does not change this one.</li>
           </ul>
           <p className={p}>
             Image and video LoRAs are chosen separately, because a project pins an image model and a
