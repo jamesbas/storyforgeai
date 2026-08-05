@@ -56,6 +56,12 @@ export type ManifestOverrides = {
   steps?: number;
   /** Audio models: clip length in seconds. Video: segment length for frame maths. */
   durationSeconds?: number;
+  /**
+   * Post-generation upscaler (WanGP `spatial_upsampling`). Not a declared
+   * field on any model, so it is written straight onto the settings when the
+   * model carries one — the same treatment `batch_size` needs.
+   */
+  spatialUpsampling?: string;
 };
 
 /**
@@ -158,6 +164,12 @@ export function buildSettingsManifest(
     if (field in schema.defaultSettings) settings[field] = 1;
   }
 
+  // Same class of inherited UI state, and the one the low-resolution strategy
+  // depends on: generating at 480p without the upscale is half the recipe.
+  if (overrides.spatialUpsampling !== undefined && "spatial_upsampling" in schema.defaultSettings) {
+    settings.spatial_upsampling = overrides.spatialUpsampling;
+  }
+
   // Frame count and frame rate are independent controls. Some models expose
   // `force_fps` (often as an empty string meaning "model native"), some expose
   // none at all — LTX-2 19B has `video_length` but no fps field whatsoever.
@@ -234,8 +246,12 @@ export function buildSettingsManifest(
   }
 
   // Audio models express length in seconds, clamped to any published bounds.
+  //
+  // Gated on purpose because video models declare this field too and mean
+  // something else by it: writing a clip's length here sent `duration_seconds`
+  // on every video job against a WanGP default of 0.
   const durationField = schema.fields.find((f) => f.name === "duration_seconds");
-  if (durationField && overrides.durationSeconds !== undefined) {
+  if (overrides.purpose === "audio" && durationField && overrides.durationSeconds !== undefined) {
     let seconds = overrides.durationSeconds;
     if (durationField.min !== undefined) seconds = Math.max(durationField.min, seconds);
     if (durationField.max !== undefined) seconds = Math.min(durationField.max, seconds);

@@ -757,13 +757,49 @@ Four properties this encodes:
    generation) and the browser (previewing which trigger words a scene will
    receive) apply the identical rule; two implementations would drift and the
    preview would misreport what is about to be generated.
-4. **`activated_loras` is written on every job, empty list included.** WanGP's
-   published defaults are its own saved UI state, so copying them verbatim — which
-   a complete settings payload requires — silently inherits whichever LoRAs were
-   last selected in the WanGP window. Writing the field unconditionally is what
-   makes a render reproducible from the project alone. `loras_multipliers` is
-   written alongside it, index-aligned, or a stale multiplier would mis-weight a
-   fresh stack.
+4. **Anything WanGP carries as saved UI state is written explicitly, not
+   inherited.** WanGP's published defaults are a copy of whatever was last set in
+   its own window, and a job is a complete settings payload rather than a patch —
+   so copying them verbatim silently imports another application's UI. This has
+   bitten repeatedly and is now a standing rule. `activated_loras` is written on
+   every job, empty list included, or a render is not reproducible from the
+   project alone; `loras_multipliers` goes with it, index-aligned, or a stale
+   multiplier mis-weights a fresh stack. `batch_size` and `repeat_generation` are
+   pinned to 1 (a stack left at 2 rendered every keyframe twice and used the
+   first). `prompt_enhancer` is cleared (several models ship it on, which rewrites
+   the prompt the agents wrote). `spatial_upsampling` is written when a model
+   ceiling held the clip resolution down, because rendering small without the
+   upscale is half a strategy. None of these are *declared* fields, so `setIf`
+   cannot reach them — they are set directly, guarded on the key existing in
+   `defaultSettings`.
+5. **Field names collide across model types.** `duration_seconds` is the real
+   length control on an audio model and means something unrelated on a video one,
+   so it is written only for `purpose === "audio"`. Sharing the canonical name
+   without gating the purpose sent a clip's length to every video model as a
+   setting it interpreted differently.
+
+### 4.1a Frame size
+
+`resolveResolution(aspectRatio, preset)` maps the project's shape and quality onto
+a fixed size table rather than computing one: diffusion resolutions are
+conventional and must be multiples of 16, and a computed 1920x1080 is wrong where
+the convention is 1920x1088. If the model publishes a list of accepted sizes the
+target is snapped to the nearest of the *same orientation* — never a landscape
+size for a portrait project, which would be a worse answer than failing. Most
+models publish no such list, so in practice the table's value is sent verbatim.
+
+Keyframes and clips carry **separate presets**. `project.videoResolutionPreset` is
+optional and falls back to `resolutionPreset`, so projects predating the split are
+unchanged. They are separate because the two are different budgets: a video model
+can be slow enough that large clips are impractical while the keyframes — which
+are what fix identity, wardrobe and set — have no reason to be small.
+
+`videoResolutionCeiling(family)` holds a family's clips at or below a preset.
+`clampPreset` only ever lowers: a project that deliberately chose `draft` is not
+raised to a model's ceiling, the same one-directional rule the per-scene end-frame
+override follows. A clamp emits `wangp.resolution.clamped`, because a render that
+quietly came out at a different size than the settings screen shows is invisible
+otherwise.
 
 Scene prompts are hand-editable via `PATCH /scenes/:sceneId/prompts`, which writes
 into the storyboard snapshot rather than beside it. That preserves the invariant
@@ -1051,6 +1087,8 @@ classDiagram
         int segmentCount
         int finalTrimSeconds
         string aspectRatio
+        string resolutionPreset
+        string videoResolutionPreset
         string modelStrategy
         string imageModel
         string videoModel

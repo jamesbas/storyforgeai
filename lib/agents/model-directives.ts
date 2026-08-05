@@ -85,6 +85,21 @@ export function videoPromptDirective(
             "advantage. Only trim when the scene genuinely carries more than will fit."
           : "")
       );
+    case "minimax":
+      return (
+        " This clip renders on MiniMax H3, which takes a first and last frame and generates the " +
+        "motion between them. Describe the journey, not the endpoints: the two frames already fix " +
+        "how the shot starts and finishes, so spend the prompt on what changes in between and how " +
+        "fast. Name one dominant action with its pace, then the camera move relative to the " +
+        "subject." +
+        (nativeAudio
+          ? " H3 writes the soundtrack from this same prompt. Describe the ambience and any " +
+            "Foley, and put every spoken line in quotation marks with the delivery named. " +
+            `About ${Math.round(segmentSeconds * 2)} words of speech fill ${segmentSeconds} ` +
+            "seconds at a natural pace — use that budget rather than reducing an exchange to a " +
+            "single remark."
+          : "")
+      );
     case "flux":
     case "qwen":
     case "krea":
@@ -96,9 +111,10 @@ export function videoPromptDirective(
 /**
  * Whether this video model writes audio from the prompt.
  *
- * Only LTX does among the families in use, and only its current releases. The
- * project's own audio pipeline still mixes music and cues over the result.
+ * Family-derived rather than read from WanGP's `returns_audio` capability,
+ * because prompts are written without a WanGP round trip and must work in demo
+ * mode. Adding a family here is the cost of that.
  */
 export function hasNativeAudio(family: ModelFamily): boolean {
-  return family === "ltx";
+  return family === "ltx" || family === "minimax";
 }

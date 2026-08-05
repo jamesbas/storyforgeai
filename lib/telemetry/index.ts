@@ -45,6 +45,7 @@ export type TelemetryEvent =
   | "wangp.negative.folded"
   | "wangp.steps.resolved"
   | "wangp.resolution.resolved"
+  | "wangp.resolution.clamped"
   | "scene.qc"
   | "qc.mode"
   | "qc.image_skipped"

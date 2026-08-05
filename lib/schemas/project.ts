@@ -47,6 +47,14 @@ export const projectSchema = z.object({
   finalTrimSeconds: z.number().int().nonnegative(),
   aspectRatio: z.enum(ASPECT_RATIOS),
   resolutionPreset: z.enum(RESOLUTION_PRESETS),
+  /**
+   * Frame quality for clips, when it should differ from the keyframes. Absent
+   * means clips follow `resolutionPreset`, which is how every project behaved
+   * before this existed. Split because a heavy video model can force a low
+   * clip resolution without dragging the keyframes down with it — and the
+   * keyframes are what establish identity, wardrobe and set.
+   */
+  videoResolutionPreset: z.enum(RESOLUTION_PRESETS).optional(),
   style: z.string(),
   tone: z.string(),
   audience: z.string().optional(),

@@ -208,6 +208,16 @@ export const config = {
      */
     removeReferenceBackground: bool(process.env.WANGP_REMOVE_REFERENCE_BACKGROUND, true),
     /**
+     * Upscaler written onto a clip whose resolution was held down by a model
+     * ceiling.
+     *
+     * Generating at 480p is only half of the recommendation for a heavy model;
+     * without the upscale it is just a small video. WanGP carries this as saved
+     * UI state, so left alone it silently changes when someone clicks something
+     * in another application. Set empty to leave it inherited.
+     */
+    videoSpatialUpsampling: str(process.env.WANGP_VIDEO_SPATIAL_UPSAMPLING, "flashvsr2"),
+    /**
      * Run a face-swap pass over generated keyframes for characters that ask for
      * it. Off here disables the feature globally regardless of character setup.
      */

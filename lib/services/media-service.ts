@@ -32,8 +32,14 @@ function stagesOf(record: ProjectRecord) {
 }
 
 /** Frame shape and quality, which together decide the render resolution. */
-function frameOf(project: ProjectRecord["project"]): FrameOptions {
-  return { aspectRatio: project.aspectRatio, resolutionPreset: project.resolutionPreset };
+function frameOf(project: ProjectRecord["project"], kind: "image" | "video" = "image"): FrameOptions {
+  return {
+    aspectRatio: project.aspectRatio,
+    resolutionPreset:
+      kind === "video"
+        ? (project.videoResolutionPreset ?? project.resolutionPreset)
+        : project.resolutionPreset,
+  };
 }
 
 /** Refuse rather than silently render past what the project asked for. */
@@ -711,7 +717,7 @@ export async function generateProjectMediaPhased(
             modelStrategy: record.project.modelStrategy,
             modelType: record.project.videoModel,
             steps: record.project.videoSteps,
-            frame: frameOf(record.project),
+            frame: frameOf(record.project, "video"),
             loras: resolveSceneLoras(record.project, scene.id, "video"),
             durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
           })
@@ -1039,7 +1045,7 @@ export async function regenerateSceneVideo(
     modelStrategy: loaded.project.modelStrategy,
     modelType: loaded.project.videoModel,
     steps: loaded.project.videoSteps,
-    frame: frameOf(loaded.project),
+    frame: frameOf(loaded.project, "video"),
     loras: resolveSceneLoras(loaded.project, sceneId, "video"),
     durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
   });
@@ -1169,7 +1175,7 @@ export async function generateSceneMedia(
         modelStrategy,
         modelType: videoModel,
         steps: record.project.videoSteps,
-        frame: frameOf(record.project),
+        frame: frameOf(record.project, "video"),
         loras: videoLoras,
         // The final scene is often shorter than a full segment.
         durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,

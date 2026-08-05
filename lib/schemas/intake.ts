@@ -78,6 +78,14 @@ export const updateProjectModelsSchema = z.object({
    * rough out a storyboard cheaply, then re-render the keepers at high.
    */
   resolutionPreset: z.enum(RESOLUTION_PRESETS).optional(),
+  /** Clip frame quality, when it should differ from the keyframes. */
+  videoResolutionPreset: z.enum(RESOLUTION_PRESETS).optional(),
+  /**
+   * Clip length. Editable after creation because the video model is, and a
+   * model pinned later can want a different length than the one chosen at
+   * intake. Rewrites every existing scene's target duration.
+   */
+  segmentSeconds: z.number().int().min(MIN_SEGMENT_SECONDS).max(MAX_SEGMENT_SECONDS).optional(),
   /** Whether finished scenes are graded by the QC agent. */
   qcEnabled: z.boolean().optional(),
   /**

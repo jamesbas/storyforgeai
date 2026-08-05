@@ -12,7 +12,7 @@ import { buildSettingsManifest } from "@/lib/wangp/settings";
 import { familyOfModel, supportsNegativePrompt } from "@/lib/wangp/family";
 import { normaliseNegative, positiveConstraintClause } from "@/lib/agents/negative-prompt";
 import { resolveSteps } from "@/lib/wangp/steps";
-import { resolveResolution, stepFloorFor } from "@/lib/wangp/resolution";
+import { resolveResolution, stepFloorFor, clampPreset, videoResolutionCeiling } from "@/lib/wangp/resolution";
 import { appendTriggerWords, catalogForModel, reconcileLoras } from "@/lib/services/lora-service";
 import type { ResolvedLora } from "@/lib/services/lora-service";
 import type { LoraKind, LoraSelection } from "@/lib/schemas/lora";
@@ -174,6 +174,23 @@ export async function buildVideoManifest(args: {
     args.negativePrompt,
     context,
   );
+
+  // A heavy model can make its own quality preset impractical, so the request
+  // is held at the model's ceiling. Only ever downward — see `clampPreset`.
+  const requested = args.frame?.resolutionPreset ?? "standard";
+  const ceiling = videoResolutionCeiling(familyOfModel(model));
+  const preset = clampPreset(requested, ceiling);
+  const clamped = preset !== requested;
+  if (clamped) {
+    logEvent("wangp.resolution.clamped", {
+      ...context,
+      modelType: model.modelType,
+      requested,
+      preset,
+    });
+  }
+  const frame = args.frame ? { ...args.frame, resolutionPreset: preset } : undefined;
+
   return buildSettingsManifest(schema, {
     sceneId: args.sceneId,
     purpose: "video_segment",
@@ -185,13 +202,17 @@ export async function buildVideoManifest(args: {
     loras,
     fps: args.fps ?? config.defaults.fps,
     durationSeconds: args.durationSeconds,
-    resolution: resolutionFor(schema, args.frame, { ...context, modelType: model.modelType }),
+    resolution: resolutionFor(schema, frame, { ...context, modelType: model.modelType }),
+    // Rendering small is only half of the low-resolution strategy; without the
+    // upscale it is just a small clip. WanGP holds this as saved UI state, so
+    // it is written rather than inherited.
+    spatialUpsampling: clamped ? config.media.videoSpatialUpsampling : undefined,
     steps: stepsFor(
       model.modelType,
       schema,
       loras,
       args.steps,
-      stepFloorFor(args.frame?.resolutionPreset ?? "standard", config.wangp.minVideoSteps),
+      stepFloorFor(preset, config.wangp.minVideoSteps),
       context,
     ),
   });

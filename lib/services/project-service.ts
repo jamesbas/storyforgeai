@@ -30,6 +30,7 @@ import { storyboardExportSchema } from "@/lib/schemas/exports";
 import type { SceneAttempt } from "@/lib/schemas/generation";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { Scene } from "@/lib/schemas/storyboard";
+import type { StoryboardSnapshot } from "@/lib/schemas/storyboard";
 import type {
   ArtDirectionPlan,
   CinematographyPlan,
@@ -157,6 +158,51 @@ export async function createProject(raw: unknown): Promise<Project> {
  * selection. An empty string is treated as null so a "use automatic" option in
  * a <select> needs no special casing.
  */
+/**
+ * Apply a new clip length to the project's segmentation.
+ *
+ * Before a storyboard exists the scene count is re-derived from the requested
+ * runtime, because nothing has been planned yet. Once scenes exist they carry
+ * prompts, seeds and media, so the count is held and the piece simply runs
+ * shorter or longer — re-deriving it would orphan finished work.
+ */
+function resegment(record: ProjectRecord, seconds: number | undefined): Partial<Project> {
+  if (seconds === undefined || seconds === record.project.segmentSeconds) return {};
+
+  if (!record.storyboard) {
+    const seg = computeSegmentation(record.project.requestedDurationSeconds, seconds);
+    return {
+      segmentSeconds: seg.segmentSeconds,
+      segmentCount: seg.segmentCount,
+      generatedDurationSeconds: seg.generatedDurationSeconds,
+      finalTrimSeconds: seg.finalTrimSeconds,
+    };
+  }
+
+  const generated = record.project.segmentCount * seconds;
+  return {
+    segmentSeconds: seconds,
+    generatedDurationSeconds: generated,
+    finalTrimSeconds: Math.max(0, generated - record.project.requestedDurationSeconds),
+  };
+}
+
+/** Hold every planned scene to a new clip length. */
+function retimeScenes(storyboard: StoryboardSnapshot, seconds: number): StoryboardSnapshot {
+  return {
+    ...storyboard,
+    scenes: storyboard.scenes.map((scene) => ({
+      ...scene,
+      targetDurationSeconds: seconds,
+      // A trim longer than the clip it trims is meaningless.
+      trimAtEndSeconds:
+        scene.trimAtEndSeconds === undefined
+          ? undefined
+          : Math.min(scene.trimAtEndSeconds, seconds),
+    })),
+  };
+}
+
 export async function updateProjectModels(id: string, raw: unknown): Promise<ProjectRecord> {
   const patch = updateProjectModelsSchema.parse(raw);
   const record = await getProjectRecord(id);
@@ -208,6 +254,8 @@ export async function updateProjectModels(id: string, raw: unknown): Promise<Pro
       generationMode: patch.generationMode ?? record.project.generationMode,
       qcEnabled: patch.qcEnabled ?? record.project.qcEnabled,
       resolutionPreset: patch.resolutionPreset ?? record.project.resolutionPreset,
+      videoResolutionPreset: patch.videoResolutionPreset ?? record.project.videoResolutionPreset,
+      ...resegment(record, patch.segmentSeconds),
       sceneContinuity: patch.sceneContinuity ?? record.project.sceneContinuity,
       characterWardrobe: patch.characterWardrobe ?? record.project.characterWardrobe,
       useCharacterReferenceImages:
@@ -219,6 +267,9 @@ export async function updateProjectModels(id: string, raw: unknown): Promise<Pro
       ),
       updatedAt: new Date().toISOString(),
     },
+    ...(patch.segmentSeconds !== undefined && record.storyboard
+      ? { storyboard: retimeScenes(record.storyboard, patch.segmentSeconds) }
+      : {}),
     history: appendHistory(record, "project.models_updated"),
   };
 

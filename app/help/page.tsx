@@ -197,6 +197,15 @@ export default function HelpPage() {
             give you more cuts and tighter control but multiply render time; longer clips cover more
             ground per render but drift more within a shot.
           </p>
+          <p className={p}>
+            Clip length stays editable on the project settings screen, because the video model does
+            too and a model pinned later can want a different length. Changing it after the
+            storyboard exists retimes every scene without adding or removing any, so the finished
+            piece gets shorter or longer rather than being re-planned. Some models also have a
+            length past which they stop rendering a clip in one pass and start stitching it together
+            from overlapping passes internally — settings names that boundary for whichever model you
+            have pinned, because a seam inside a clip is one StoryForgeAI can neither tune nor see.
+          </p>
 
           <h3 className={h3}>Aspect ratio</h3>
           <p className={p}>
@@ -245,6 +254,15 @@ export default function HelpPage() {
           <p className={p}>
             Quality, which sets both the frame size and the floor on denoising steps. At 16:9 that
             is 848×480, 1280×720 and 1920×1088; the step floor scales with it.
+          </p>
+          <p className={p}>
+            Keyframes and clips are set separately on the project settings screen. They are different
+            budgets: a video model can be slow enough that large clips are impractical, while the
+            keyframes — which are what fix identity, wardrobe and set — have no reason to be rendered
+            small. Some video models are held at a maximum whatever you pick, because their own
+            developers recommend rendering small and upscaling afterwards rather than generating
+            large; where that applies, StoryForgeAI also asks WanGP for the upscale rather than
+            leaving it to whatever was last selected there.
           </p>
           <p className={p}>
             The floor exists because WanGP reports whatever was last set in its own UI as a
@@ -1325,6 +1343,12 @@ export default function HelpPage() {
               what the body does rather than named, and the camera&apos;s final framing stated. LTX
               also writes its own soundtrack from that prompt, so ambience and any spoken line are
               described there. Your audio cues still mix over the top.
+            </li>
+            <li className={li}>
+              <strong>MiniMax H3</strong> generates the motion between a first and a last frame, so
+              its prompts describe the journey rather than the endpoints — the two keyframes already
+              fix how the shot starts and finishes. It writes its own soundtrack too, so ambience,
+              Foley and quoted dialogue are described in the same prompt.
             </li>
           </ul>
           <p className={p}>

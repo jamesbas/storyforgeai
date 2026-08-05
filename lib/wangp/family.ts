@@ -10,7 +10,7 @@ import type { WangpModel } from "@/lib/schemas/wangp";
  * LTX generates audio from the same prompt that drives the picture. Sending one
  * undifferentiated prompt to all of them means writing for none of them.
  */
-export type ModelFamily = "flux" | "qwen" | "wan" | "ltx" | "krea" | "unknown";
+export type ModelFamily = "flux" | "qwen" | "wan" | "ltx" | "krea" | "minimax" | "unknown";
 
 /** Longest tokens first, so `ltxv` is not mistaken for something shorter. */
 const FAMILY_TOKENS: ReadonlyArray<readonly [ModelFamily, readonly string[]]> = [
@@ -19,6 +19,7 @@ const FAMILY_TOKENS: ReadonlyArray<readonly [ModelFamily, readonly string[]]> = 
   ["ltx", ["ltxv", "ltx"]],
   ["wan", ["wan"]],
   ["krea", ["krea"]],
+  ["minimax", ["minimax", "_h3_"]],
 ];
 
 /**

@@ -1,4 +1,5 @@
 import type { AspectRatio, ResolutionPreset } from "@/lib/types";
+import type { ModelFamily } from "@/lib/wangp/family";
 
 /**
  * The frame size a job should render at.
@@ -86,4 +87,37 @@ export function resolveResolution(args: {
  */
 export function stepFloorFor(preset: ResolutionPreset, floor: number): number {
   return Math.max(1, Math.round(floor * STEP_SCALE[preset]));
+}
+
+/** Ascending cost order, so a ceiling can be compared against a request. */
+const PRESET_ORDER: readonly ResolutionPreset[] = ["draft", "standard", "high"];
+
+/**
+ * Hold a preset at or below a model's practical ceiling.
+ *
+ * Only ever lowers. A project that deliberately chose `draft` is not raised to
+ * a model's ceiling — the same rule the per-scene end-frame override follows,
+ * where an override can disable but never force on.
+ */
+export function clampPreset(
+  preset: ResolutionPreset,
+  ceiling: ResolutionPreset | undefined,
+): ResolutionPreset {
+  if (!ceiling) return preset;
+  return PRESET_ORDER.indexOf(preset) > PRESET_ORDER.indexOf(ceiling) ? ceiling : preset;
+}
+
+/**
+ * The highest video preset a family renders in practical time.
+ *
+ * MiniMax H3 at 720p or 1080p is slow enough that its own developers recommend
+ * generating at 480p and upscaling instead. Nothing else is capped: a family
+ * absent from here is unconstrained.
+ */
+const VIDEO_CEILINGS: Partial<Record<ModelFamily, ResolutionPreset>> = {
+  minimax: "draft",
+};
+
+export function videoResolutionCeiling(family: ModelFamily): ResolutionPreset | undefined {
+  return VIDEO_CEILINGS[family];
 }

@@ -4,14 +4,17 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { LoraSelector } from "@/components/settings/lora-selector";
 import { ConceptImages } from "@/components/settings/concept-images";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import type { LoraSelectionSet } from "@/lib/schemas/lora";
 import type { WangpModel } from "@/lib/schemas/wangp";
 import type { Character } from "@/lib/schemas/character";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { ResolutionPreset } from "@/lib/types";
-import { RESOLUTION_PRESETS } from "@/lib/types";
+import { MAX_SEGMENT_SECONDS, MIN_SEGMENT_SECONDS, RESOLUTION_PRESETS } from "@/lib/types";
 import { RESOLUTION_DOCS } from "@/lib/presets";
-import { resolveResolution } from "@/lib/wangp/resolution";
+import { clampPreset, resolveResolution, videoResolutionCeiling } from "@/lib/wangp/resolution";
+import { clipLengthGuidance } from "@/lib/wangp/clip-length";
+import { familyOf } from "@/lib/wangp/family";
 
 type ModelsResponse = { models: WangpModel[]; total: number };
 
@@ -34,6 +37,8 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
   const [cast, setCast] = useState<Character[]>([]);
   const [wardrobe, setWardrobe] = useState<Record<string, string>>({});
   const [loras, setLoras] = useState<LoraSelectionSet>({ image: [], video: [] });
+  const [clipSeconds, setClipSeconds] = useState<number | null>(null);
+  const [confirmClip, setConfirmClip] = useState(false);
 
   const loadModels = useCallback(async (all: boolean) => {
     const suffix = all ? "" : "&installed=1";
@@ -86,6 +91,8 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
       imageSteps?: number | null;
       videoSteps?: number | null;
       resolutionPreset?: ResolutionPreset;
+      videoResolutionPreset?: ResolutionPreset;
+      segmentSeconds?: number;
       qcEnabled?: boolean;
       characterWardrobe?: Record<string, string>;
       useCharacterReferenceImages?: boolean;
@@ -123,6 +130,18 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
 
   const { project } = record;
   const usesCharacters = Boolean(project.useCharacterLibrary && project.characterIds?.length);
+
+  // Guidance is keyed on the pinned video model. An unpinned project gets none,
+  // deliberately: advice written for one model and applied to another is worse
+  // than silence.
+  const videoFamily = familyOf(
+    project.videoModel,
+    videoModels.find((m) => m.modelType === project.videoModel)?.metadata.family,
+  );
+  const videoCeiling = videoResolutionCeiling(videoFamily);
+  const clipAdvice = clipLengthGuidance(videoFamily);
+  const videoPreset = project.videoResolutionPreset ?? project.resolutionPreset;
+  const pendingClip = clipSeconds ?? project.segmentSeconds;
 
   const picker = (
     label: string,
@@ -270,44 +289,136 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           </div>
         ) : null}
 
-        <div className="space-y-2 border-t border-white/10 pt-4">
+        <div className="space-y-3 border-t border-white/10 pt-4">
           <h3 className="text-sm font-semibold">Resolution</h3>
           <p className="text-xs text-slate-500">
             Sets the frame size and the floor on automatic steps. The shape comes from the
             project&apos;s {project.aspectRatio} aspect ratio, so only the quality changes here.
-            Existing media is left alone — re-render a scene to pick up a new size.
+            Keyframes and clips are set separately because a heavy video model can make a large
+            clip impractical without there being any reason to render the keyframes small — and the
+            keyframes are what fix identity, wardrobe and set. Existing media is left alone —
+            re-render a scene to pick up a new size.
           </p>
-          <div className="flex flex-wrap gap-2">
-            {RESOLUTION_PRESETS.map((preset) => {
-              const active = project.resolutionPreset === preset;
-              return (
-                <button
-                  key={preset}
-                  type="button"
-                  disabled={busy}
-                  title={RESOLUTION_DOCS[preset]}
-                  onClick={() => {
-                    if (!active) void save({ resolutionPreset: preset });
-                  }}
-                  className={`rounded-md border px-3 py-1.5 text-xs capitalize disabled:opacity-50 ${
-                    active
-                      ? "border-accent bg-accent/15 text-accent"
-                      : "border-white/10 text-slate-400 hover:border-white/25"
-                  }`}
-                >
-                  {preset}
-                  <span className="ml-2 font-mono text-[10px] text-slate-500">
-                    {resolveResolution({
-                      aspectRatio: project.aspectRatio,
-                      preset,
-                      fallback: "model default",
-                    })}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
+
+          {(
+            [
+              ["Keyframes", project.resolutionPreset, undefined] as const,
+              ["Clips", videoPreset, videoCeiling] as const,
+            ]
+          ).map(([label, current, ceiling]) => (
+            <div key={label} className="space-y-1">
+              <span className="text-xs text-slate-400">{label}</span>
+              <div className="flex flex-wrap gap-2">
+                {RESOLUTION_PRESETS.map((preset) => {
+                  const active = current === preset;
+                  const held = clampPreset(preset, ceiling) !== preset;
+                  return (
+                    <button
+                      key={preset}
+                      type="button"
+                      disabled={busy}
+                      title={held ? `${RESOLUTION_DOCS[preset]} — held down for this model` : RESOLUTION_DOCS[preset]}
+                      onClick={() => {
+                        if (active) return;
+                        void save(
+                          label === "Keyframes"
+                            ? { resolutionPreset: preset }
+                            : { videoResolutionPreset: preset },
+                        );
+                      }}
+                      className={`rounded-md border px-3 py-1.5 text-xs capitalize disabled:opacity-50 ${
+                        active
+                          ? "border-accent bg-accent/15 text-accent"
+                          : "border-white/10 text-slate-400 hover:border-white/25"
+                      } ${held ? "line-through decoration-slate-500" : ""}`}
+                    >
+                      {preset}
+                      <span className="ml-2 font-mono text-[10px] text-slate-500">
+                        {resolveResolution({
+                          aspectRatio: project.aspectRatio,
+                          preset,
+                          fallback: "model default",
+                        })}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+
+          {videoCeiling ? (
+            <p className="text-xs text-slate-400" data-testid="video-resolution-ceiling">
+              This video model is held at <strong>{videoCeiling}</strong> for clips however this is
+              set: it is slow enough at larger sizes that its own developers recommend rendering
+              small and upscaling afterwards, which is what happens here.
+            </p>
+          ) : null}
         </div>
+
+        <div className="space-y-2 border-t border-white/10 pt-4">
+          <h3 className="text-sm font-semibold">Clip length</h3>
+          <p className="text-xs text-slate-500">
+            How long each scene&apos;s clip runs. The scene count does not change, so making clips
+            shorter makes the whole piece shorter. Only affects clips rendered from here on.
+          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="number"
+              aria-label="Clip length in seconds"
+              min={MIN_SEGMENT_SECONDS}
+              max={MAX_SEGMENT_SECONDS}
+              value={pendingClip}
+              disabled={busy}
+              onChange={(e) => setClipSeconds(Number(e.target.value))}
+              className="w-20 rounded-md border border-white/10 bg-black/30 px-2 py-1 text-xs"
+            />
+            <span className="text-xs text-slate-500">
+              seconds · {MIN_SEGMENT_SECONDS}–{MAX_SEGMENT_SECONDS}
+            </span>
+            <button
+              type="button"
+              disabled={busy || pendingClip === project.segmentSeconds}
+              onClick={() => setConfirmClip(true)}
+              className="rounded-md border border-white/15 px-3 py-1 text-xs font-semibold text-slate-200 hover:border-accent disabled:opacity-50"
+            >
+              Change clip length
+            </button>
+          </div>
+          {clipAdvice ? (
+            <p className="text-xs text-slate-400" data-testid="clip-length-advice">
+              This model renders up to {clipAdvice.singleWindowSeconds}s in one pass. Longer clips
+              are stitched together from overlapping passes inside WanGP, where StoryForgeAI can
+              neither tune the join nor see that it happened —{" "}
+              <strong>{clipAdvice.recommendedSeconds}s</strong> is recommended so every seam is one
+              you control between scenes.
+            </p>
+          ) : null}
+        </div>
+
+        <ConfirmDialog
+          open={confirmClip}
+          title="Change clip length?"
+          confirmLabel={`Use ${pendingClip}s clips`}
+          busy={busy}
+          busyLabel="Saving…"
+          onCancel={() => setConfirmClip(false)}
+          onConfirm={() => {
+            setConfirmClip(false);
+            void save({ segmentSeconds: pendingClip });
+          }}
+        >
+          <p>
+            Every one of this project&apos;s {project.segmentCount} scenes will be retimed from{" "}
+            {project.segmentSeconds}s to {pendingClip}s, taking the finished piece from{" "}
+            {project.segmentCount * project.segmentSeconds}s to{" "}
+            {project.segmentCount * pendingClip}s.
+          </p>
+          <p className="mt-2">
+            The storyboard is not re-planned and no scene is added or removed. Clips already
+            rendered keep their current length until you render them again.
+          </p>
+        </ConfirmDialog>
 
         <div className="space-y-2 border-t border-white/10 pt-4">
           <h3 className="text-sm font-semibold">Denoising steps</h3>
