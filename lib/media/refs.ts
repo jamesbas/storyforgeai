@@ -135,22 +135,33 @@ function describe(
 
   let available = false;
   let sizeBytes: number | undefined;
+  let version = "0";
   try {
     const stats = fs.statSync(/*turbopackIgnore: true*/ resolved);
     available = stats.isFile();
     sizeBytes = available ? stats.size : undefined;
+    if (available) version = `${Math.trunc(stats.mtimeMs)}-${stats.size}`;
   } catch {
     available = false;
   }
 
   const assetId = encodeMediaRef(ref);
-  const url = mediaUrl(projectId, assetId);
+  /**
+   * The asset id names a slot, not a picture.
+   *
+   * Replacing an attempt's frame in place — a face swap, an imported image, the
+   * carried-over start frame of the next scene — leaves the id, and so the URL,
+   * byte for byte what it was. Nothing then tells the browser its `<img>` is out
+   * of date, and it goes on showing the picture it has already painted. Stamping
+   * the file's identity into the URL is what makes the two distinguishable.
+   */
+  const url = `${mediaUrl(projectId, assetId)}?v=${version}`;
   return {
     assetId,
     label,
     kind: mediaKindFor(resolved),
     url,
-    downloadUrl: `${url}?download=1`,
+    downloadUrl: `${url}&download=1`,
     available,
     ...(sizeBytes === undefined ? {} : { sizeBytes }),
     ...extra,

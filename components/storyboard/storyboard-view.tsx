@@ -1189,6 +1189,20 @@ export function StoryboardView({ projectId }: { projectId: string }) {
               // Only the immediate predecessor can be copied from: an inheriting
               // scene in between means there is no adjacent selection to carry.
               const previousScene = index > 0 ? storyboard.scenes[index - 1] : undefined;
+              // Which scene, if any, is actually showing this one's end frame as
+              // its start frame. Read off the attempts rather than inferred from
+              // the continuity setting, which says what would happen on a fresh
+              // render and not what the scene after this one is holding now.
+              const nextScene = storyboard.scenes[index + 1];
+              const nextLatest = nextScene
+                ? (record.attempts?.[nextScene.id] ?? []).at(-1)
+                : undefined;
+              const endFrameCarriedToScene =
+                latest?.endImagePath &&
+                nextLatest?.startImageInherited &&
+                nextLatest.startImagePath === latest.endImagePath
+                  ? nextScene!.sceneNumber
+                  : undefined;
               // Mirrors what generation does: resolve the scene's effective LoRAs,
               // then collect only the trigger words each one will contribute — a
               // multi-concept LoRA contributes nothing until a trigger is chosen.
@@ -1259,10 +1273,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                       ? (purpose, file) => void importSceneFrame(scene.id, purpose, file)
                       : undefined
                   }
-                  carriesEndFrameForward={
-                    continuity === "reuse_end_frame" &&
-                    index < storyboard.scenes.length - 1
-                  }
+                  endFrameCarriedToScene={endFrameCarriedToScene}
                 />
               );
             })}

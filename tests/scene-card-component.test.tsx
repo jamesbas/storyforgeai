@@ -132,13 +132,12 @@ describe("SceneCard imported frames", () => {
     expect(screen.getByTestId("imported-seed-note")).toBeInTheDocument();
   });
 
-  it("says the next scene went with it only when the end frame carries forward", () => {
+  it("names the scene that went with it, and only when one actually did", () => {
     const { rerender } = render(
       <SceneCard
         scene={scene}
         attempt={attempt({ endImageImported: true })}
         onImportFrame={vi.fn()}
-        carriesEndFrameForward={false}
       />,
     );
     expect(screen.queryByTestId("imported-frame-cascade")).toBeNull();
@@ -148,10 +147,10 @@ describe("SceneCard imported frames", () => {
         scene={scene}
         attempt={attempt({ endImageImported: true })}
         onImportFrame={vi.fn()}
-        carriesEndFrameForward
+        endFrameCarriedToScene={2}
       />,
     );
-    expect(screen.getByTestId("imported-frame-cascade")).toBeInTheDocument();
+    expect(screen.getByTestId("imported-frame-cascade")).toHaveTextContent(/Scene 2/);
   });
 
   it("hands the chosen file to the parent with the frame it belongs to", async () => {

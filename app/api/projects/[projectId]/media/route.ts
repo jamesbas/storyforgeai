@@ -8,7 +8,10 @@ export const dynamic = "force-dynamic";
 export async function GET(_request: Request, props: { params: Promise<{ projectId: string }> }) {
   const params = await props.params;
   try {
-    return NextResponse.json({ media: await listMedia(params.projectId) });
+    return NextResponse.json(
+      { media: await listMedia(params.projectId) },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (err) {
     return toErrorResponse(err);
   }

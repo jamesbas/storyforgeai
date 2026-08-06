@@ -60,10 +60,11 @@ type SceneCardProps = {
   /** Put a supplied image in place of one of this attempt's keyframes. */
   onImportFrame?: (purpose: "start_frame" | "end_frame", file: File) => void;
   /**
-   * This scene's end frame becomes the next scene's start frame, so replacing
-   * it reaches further than this card.
+   * The scene now showing this attempt's end frame as its own start frame.
+   * Derived from the record rather than from the continuity setting, so the
+   * card never claims a scene changed that did not.
    */
-  carriesEndFrameForward?: boolean;
+  endFrameCarriedToScene?: number;
 };
 
 /** Render a player for media that exists on disk; fall back to the path. */
@@ -125,7 +126,7 @@ export function SceneCard({
   onSwapFace,
   onRevertFace,
   onImportFrame,
-  carriesEndFrameForward = false,
+  endFrameCarriedToScene,
 }: SceneCardProps) {
   const playable = media.filter((m) => m.available && m.sceneId === scene.id);
   const hasPreviews = playable.some((m) => m.preview);
@@ -321,7 +322,7 @@ export function SceneCard({
               data-testid="scene-media-players"
             >
               {playable.map((descriptor) => (
-                <MediaTile key={descriptor.assetId} descriptor={descriptor} />
+                <MediaTile key={descriptor.url} descriptor={descriptor} />
               ))}
             </div>
           )}
@@ -438,11 +439,11 @@ export function SceneCard({
                       the video does not show the imported image yet.
                     </p>
                   ) : null}
-                  {attempt.endImageImported && carriesEndFrameForward ? (
+                  {attempt.endImageImported && endFrameCarriedToScene !== undefined ? (
                     <p data-testid="imported-frame-cascade">
-                      This project carries the end frame forward, so the next scene&apos;s start
-                      frame was replaced with this image too — its clip is now out of date for the
-                      same reason.
+                      Scene {endFrameCarriedToScene} carries this end frame as its own start frame,
+                      so it shows the imported image too — and its clip is out of date for the same
+                      reason.
                     </p>
                   ) : null}
                 </div>

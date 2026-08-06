@@ -107,7 +107,11 @@ describe.skipIf(!hasFfmpeg)("assembly pipeline with native ffmpeg (integration)"
       const media = await listMedia(project.id);
       const roughDescriptor = media.find((m) => m.role === "rough_cut");
       expect(roughDescriptor?.available).toBe(true);
-      expect(roughDescriptor!.url).toBe(`/api/projects/${project.id}/media/rough-cut`);
+      // Versioned by file identity so replacing the cut in place is visible to
+      // the browser; the ref itself is still the whole of the path.
+      expect(roughDescriptor!.url).toMatch(
+        new RegExp(`^/api/projects/${project.id}/media/rough-cut\\?v=\\d+-\\d+$`),
+      );
       // The descriptor must not leak a filesystem path to the browser.
       expect(JSON.stringify(roughDescriptor)).not.toContain(clipDir);
       expect(JSON.stringify(roughDescriptor)).not.toContain("assembly");

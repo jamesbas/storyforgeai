@@ -129,6 +129,41 @@ describe("media refs", () => {
     expect(media.every((m) => m.attemptId === "a2")).toBe(true);
     expect(media.some((m) => m.role === "video")).toBe(true);
   });
+
+  /**
+   * A face swap, an imported frame and a carried-over start frame all replace an
+   * attempt's image without opening a new attempt, so the asset id is unchanged.
+   * When the URL was the id alone, nothing told the browser its `<img>` was out
+   * of date and it went on showing the picture it had already painted — the new
+   * image was on the record and invisible on the screen.
+   */
+  it("gives a replaced frame a different URL even though its asset id is unchanged", async () => {
+    const inside = path.resolve(config.dataDir, "p1");
+    await fs.mkdir(inside, { recursive: true });
+    const before = path.join(inside, "rendered.png");
+    const after = path.join(inside, "imported.png");
+    await fs.writeFile(before, Buffer.alloc(64, 1));
+    await fs.writeFile(after, Buffer.alloc(4096, 2));
+
+    const at = (framePath: string) =>
+      ({
+        project: { id: "p1" },
+        storyboard: { scenes: [{ id: "s1", sceneNumber: 1 }] },
+        attempts: { s1: [{ id: "a1", approved: false, startImagePath: framePath }] },
+      }) as unknown as ProjectRecord;
+
+    const [original] = listProjectMedia(at(before));
+    const [replaced] = listProjectMedia(at(after));
+
+    expect(replaced!.assetId).toBe(original!.assetId);
+    expect(replaced!.url).not.toBe(original!.url);
+    expect(replaced!.downloadUrl).toMatch(/[?&]download=1$/);
+    // The version rides on the query, so the route still parses the same ref.
+    expect(parseMediaRef(original!.assetId)).not.toBeNull();
+
+    await fs.rm(before, { force: true });
+    await fs.rm(after, { force: true });
+  });
 });
 
 describe("range parsing", () => {
