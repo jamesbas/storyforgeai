@@ -20,12 +20,13 @@ export type ClipLengthGuidance = {
  * `singleWindowSeconds`. The numbers exist so the operator is choosing rather
  * than discovering.
  *
- * MiniMax H3 reports `sliding_window_size: 481` at a native 24fps, which is
- * 20.04s — exactly where StoryForge's own 20s default lands, with no margin.
- * 15s is recommended to sit clear of that edge.
+ * MiniMax H3's FL2VA variants report `sliding_window_size: 362` at a native
+ * 24fps, which is 15.1s — so StoryForge's own 20s default already crosses it.
+ * 15s is recommended to sit just inside. (Ref2VA reports 124 frames, but it
+ * takes no start or end frame and is not a model this pipeline can drive.)
  */
 const GUIDANCE: Partial<Record<ModelFamily, ClipLengthGuidance>> = {
-  minimax: { recommendedSeconds: 15, singleWindowSeconds: 20 },
+  minimax: { recommendedSeconds: 15, singleWindowSeconds: 15 },
 };
 
 export function clipLengthGuidance(family: ModelFamily): ClipLengthGuidance | undefined {

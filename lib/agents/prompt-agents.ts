@@ -178,6 +178,11 @@ const imagePartSchema = scenePromptsSchema.pick({
 const videoPartSchema = scenePromptsSchema.pick({
   videoPromptSegment: true,
   videoNegativePrompt: true,
+  // Optional in the schema, so a family that folds sound into the prose simply
+  // omits them; without them here the H3 directive would ask for two fields the
+  // response could not carry.
+  videoSoundscape: true,
+  videoScore: true,
   promptQualityChecklist: true,
 });
 

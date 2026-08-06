@@ -88,13 +88,15 @@ describe("identifying the model family", () => {
   });
 
   /**
-   * The routing decision. FLUX and Krea have no dependable negative prompt;
-   * an unknown model keeps one, because WanGP only sets fields a schema
-   * declares, so an unusable negative is discarded harmlessly anyway.
+   * The routing decision. FLUX and Krea have no dependable negative prompt, and
+   * a live schema dump shows MiniMax H3 declares no such field at all; an
+   * unknown model keeps one, because WanGP only sets fields a schema declares,
+   * so an unusable negative is discarded harmlessly anyway.
    */
   it("withholds a negative prompt only from the families that discard it", () => {
     expect(supportsNegativePrompt("flux")).toBe(false);
     expect(supportsNegativePrompt("krea")).toBe(false);
+    expect(supportsNegativePrompt("minimax")).toBe(false);
     expect(supportsNegativePrompt("qwen")).toBe(true);
     expect(supportsNegativePrompt("wan")).toBe(true);
     expect(supportsNegativePrompt("ltx")).toBe(true);

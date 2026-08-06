@@ -43,6 +43,7 @@ export type TelemetryEvent =
   | "wangp.job.polled"
   | "wangp.reference_images.trimmed"
   | "wangp.negative.folded"
+  | "wangp.h3_format.applied"
   | "wangp.steps.resolved"
   | "wangp.resolution.resolved"
   | "wangp.resolution.clamped"

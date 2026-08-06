@@ -29,6 +29,14 @@ export const scenePromptsSchema = z.object({
    */
   videoPromptSegment: z.string(),
   videoNegativePrompt: z.string(),
+  /**
+   * The two audio layers MiniMax H3 keeps in fields of their own: ambience and
+   * physical sound, and score only the audience can hear. Optional because
+   * every other family folds sound into the prose, and because a storyboard
+   * written before this existed has to keep parsing.
+   */
+  videoSoundscape: maybe(z.string()),
+  videoScore: maybe(z.string()),
   /** Advisory review notes; defaulted for the same reason as continuityNotes. */
   promptQualityChecklist: z.array(z.string()).default([]),
 });
@@ -48,6 +56,8 @@ export const scenePromptsPatchSchema = z
     imageNegativePrompt: z.string().max(4000),
     videoPromptSegment: z.string().max(8000),
     videoNegativePrompt: z.string().max(4000),
+    videoSoundscape: z.string().max(2000),
+    videoScore: z.string().max(2000),
   })
   .partial()
   .refine((patch) => Object.keys(patch).length > 0, {

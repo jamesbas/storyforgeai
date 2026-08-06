@@ -721,6 +721,8 @@ export async function generateProjectMediaPhased(
             frame: frameOf(record.project, "video"),
             loras: resolveSceneLoras(record.project, scene.id, "video"),
             durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
+            soundscape: scene.prompts.videoSoundscape ?? scene.sfxNotes,
+            score: scene.prompts.videoScore ?? scene.musicNotes,
           })
         : undefined;
       const videoJob = videoManifest
@@ -1049,6 +1051,8 @@ export async function regenerateSceneVideo(
     frame: frameOf(loaded.project, "video"),
     loras: resolveSceneLoras(loaded.project, sceneId, "video"),
     durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
+    soundscape: scene.prompts.videoSoundscape ?? scene.sfxNotes,
+    score: scene.prompts.videoScore ?? scene.musicNotes,
   });
   const job = await runToCompletion(manifest.settings);
 
@@ -1180,6 +1184,8 @@ export async function generateSceneMedia(
         loras: videoLoras,
         // The final scene is often shorter than a full segment.
         durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
+        soundscape: scene.prompts.videoSoundscape ?? scene.sfxNotes,
+        score: scene.prompts.videoScore ?? scene.musicNotes,
       })
     : undefined;
   const videoJob = videoManifest

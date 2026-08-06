@@ -15,6 +15,7 @@ export default function AboutPage() {
     ["Animatic assembly", config.flags.animaticAssembly],
     ["Platform derivatives", config.flags.platformDerivatives],
     ["Media prompt composer v2", config.flags.mediaPromptComposerV2],
+    ["MiniMax H3 native prompt format", config.flags.h3NativePromptFormat],
     ["Durable tasks", config.flags.durableTasks],
   ];
 

@@ -17,10 +17,16 @@ documented contract:**
    for a user deciding whether to update — the problem it solves, not the files it
    touched.
 3. **Keep only the five most recent rows.** Delete the oldest.
-4. Update `APP_VERSION` in [lib/version.ts](../lib/version.ts) to match. It is the
+4. Add the **same row, word for word**, to the top of the table in
+   [CHANGELOG.md](../CHANGELOG.md). Nothing is ever deleted from there — it is the
+   permanent record, and it is the only reason trimming the README is safe.
+5. Update `APP_VERSION` in [lib/version.ts](../lib/version.ts) to match. It is the
    single source for the footer, and it must never disagree with the top row of
    the log.
-5. Sweep the rest of the README for anything the change has made untrue.
+6. Sweep the rest of the README for anything the change has made untrue.
+
+[tests/version.test.ts](../tests/version.test.ts) enforces all of this — including
+that a row dropped from the README still exists in the changelog unchanged.
 
 Skip the bump only for changes that alter nothing a user could observe — a typo in
 a comment, a test-only refactor. When in doubt, bump.

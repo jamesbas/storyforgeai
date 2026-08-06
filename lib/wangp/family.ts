@@ -49,10 +49,14 @@ export function familyOfModel(model: Pick<WangpModel, "modelType" | "metadata">)
  * consistently expose negative conditioning either, so it is treated the same
  * way — the exclusion still travels, but as a positive constraint.
  *
+ * MiniMax H3 is here on direct evidence rather than documentation: a live WanGP
+ * schema dump of `minimax_h3_fl2va` declares no `negative_prompt` field, so
+ * `setIf` drops it and every exclusion was being discarded in silence.
+ *
  * `unknown` keeps the negative prompt: WanGP only sets fields a model's schema
  * declares, so an unrecognised model that has no negative field ignores it
  * harmlessly, whereas dropping it from one that does would lose the constraint.
  */
 export function supportsNegativePrompt(family: ModelFamily): boolean {
-  return family !== "flux" && family !== "krea";
+  return family !== "flux" && family !== "krea" && family !== "minimax";
 }

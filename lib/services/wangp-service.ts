@@ -11,12 +11,21 @@ import { resolveModel } from "@/lib/wangp/resolve-model";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
 import { familyOfModel, supportsNegativePrompt } from "@/lib/wangp/family";
 import { normaliseNegative, positiveConstraintClause } from "@/lib/agents/negative-prompt";
+import {
+  appendAudioProse,
+  h3Mode,
+  isH3Prompt,
+  renderH3Prompt,
+  stripH3Envelope,
+  usesH3PromptFormat,
+} from "@/lib/agents/h3-prompt";
 import { resolveSteps } from "@/lib/wangp/steps";
 import { resolveResolution, stepFloorFor, clampPreset, videoResolutionCeiling } from "@/lib/wangp/resolution";
 import { appendTriggerWords, catalogForModel, reconcileLoras } from "@/lib/services/lora-service";
 import type { ResolvedLora } from "@/lib/services/lora-service";
 import type { LoraKind, LoraSelection } from "@/lib/schemas/lora";
 import type { AspectRatio, ResolutionPreset } from "@/lib/types";
+import { SEGMENT_SECONDS } from "@/lib/types";
 import type {
   WangpGenerationSettings,
   WangpJob,
@@ -133,6 +142,63 @@ function routeNegative(
 }
 
 /**
+ * Put the prompt in MiniMax H3's native envelope, or take it back out again.
+ *
+ * Decided here for the same reason as `routeNegative`: a prompt is written for
+ * the pinned family, and a pin missing from the catalogue falls through to the
+ * router, so the family that renders is not always the one it was written for.
+ * Handing `integrated_multimodal_description:` to a Wan model would render
+ * those words rather than obey them, so the envelope is stripped back off
+ * anywhere it does not belong.
+ *
+ * Doing it at render time also means the suffixes every prompt collects —
+ * look, cast continuity, scene direction — are already appended and land
+ * inside the timeline field, rather than after the last label where they would
+ * break the format.
+ */
+function routeH3Format(
+  model: Pick<WangpModel, "modelType" | "metadata">,
+  prompt: string,
+  args: {
+    imageStart?: string;
+    imageEnd?: string;
+    durationSeconds?: number;
+    soundscape?: string;
+    score?: string;
+  },
+  context: { sceneId: string; purpose: string },
+): string {
+  const family = familyOfModel(model);
+  const wanted = config.flags.h3NativePromptFormat && usesH3PromptFormat(family);
+  if (!wanted) {
+    const plain = stripH3Envelope(prompt);
+    // Dropping the layers here would leave H3 writing a soundtrack from no
+    // direction at all, because its directive keeps them out of the timeline.
+    return usesH3PromptFormat(family)
+      ? appendAudioProse(plain, args.soundscape, args.score)
+      : plain;
+  }
+  if (isH3Prompt(prompt)) return prompt;
+
+  const hasStart = Boolean(args.imageStart);
+  const hasEnd = Boolean(args.imageEnd);
+  logEvent("wangp.h3_format.applied", {
+    ...context,
+    modelType: model.modelType,
+    mode: h3Mode(hasStart, hasEnd),
+  });
+
+  return renderH3Prompt({
+    body: prompt,
+    soundscape: args.soundscape,
+    score: args.score,
+    durationSeconds: args.durationSeconds ?? SEGMENT_SECONDS,
+    hasStart,
+    hasEnd,
+  });
+}
+
+/**
  * Discovery-first manifest build: pick a video model that supports start frames,
  * fetch its schema, then override only validated fields (spec Section 11.3).
  */
@@ -156,6 +222,9 @@ export async function buildVideoManifest(args: {
   steps?: number;
   /** Project aspect ratio and quality preset. */
   frame?: FrameOptions;
+  /** Ambience and audience-only score, for the families that field them apart. */
+  soundscape?: string;
+  score?: string;
 }): Promise<WangpGenerationSettings> {
   const client = getWangpClient();
   const videoModels = await client.listModels("video");
@@ -175,6 +244,8 @@ export async function buildVideoManifest(args: {
     context,
   );
 
+  const prompt = routeH3Format(model, routed.prompt, args, context);
+
   // A heavy model can make its own quality preset impractical, so the request
   // is held at the model's ceiling. Only ever downward — see `clampPreset`.
   const requested = args.frame?.resolutionPreset ?? "standard";
@@ -189,12 +260,18 @@ export async function buildVideoManifest(args: {
       preset,
     });
   }
-  const frame = args.frame ? { ...args.frame, resolutionPreset: preset } : undefined;
+  // Built rather than only patched: a caller with no frame options still has a
+  // preset — the default one — and dropping the object here threw the clamp
+  // away while the telemetry above went on reporting that it had been applied.
+  const frame: FrameOptions = {
+    aspectRatio: args.frame?.aspectRatio ?? (config.defaults.aspectRatio as AspectRatio),
+    resolutionPreset: preset,
+  };
 
   return buildSettingsManifest(schema, {
     sceneId: args.sceneId,
     purpose: "video_segment",
-    prompt: routed.prompt,
+    prompt,
     negativePrompt: routed.negativePrompt,
     imageStart: args.imageStart,
     imageEnd: args.imageEnd,

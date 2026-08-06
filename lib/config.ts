@@ -73,6 +73,15 @@ export const config = {
      */
     mediaPromptComposerV2: bool(process.env.MEDIA_PROMPT_COMPOSER_V2, false),
     /**
+     * MiniMax H3's native prompt envelope.
+     *
+     * Off until fixed-seed comparisons have been run on `minimax_h3_fl2va`.
+     * The format is MiniMax's own published one, but "documented" and "renders
+     * better through WanGP" are different claims and only a render settles the
+     * second.
+     */
+    h3NativePromptFormat: bool(process.env.H3_NATIVE_PROMPT_FORMAT, false),
+    /**
      * Durable task state and recovery (SPEC-008).
      *
      * Off until live reconciliation is proven. While off the legacy in-memory

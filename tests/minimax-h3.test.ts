@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
-import { familyOf } from "@/lib/wangp/family";
+import { familyOf, supportsNegativePrompt } from "@/lib/wangp/family";
 import { hasNativeAudio, videoPromptDirective } from "@/lib/agents/model-directives";
+import { positiveConstraintClause } from "@/lib/agents/negative-prompt";
 import { clampPreset, videoResolutionCeiling } from "@/lib/wangp/resolution";
 import { clipLengthGuidance, recommendedSegmentSeconds } from "@/lib/wangp/clip-length";
 import type { WangpModelSchema } from "@/lib/schemas/wangp";
@@ -9,27 +10,27 @@ import type { WangpModelSchema } from "@/lib/schemas/wangp";
 /**
  * MiniMax H3 support.
  *
- * The schema fixture mirrors the live dump of `minimax_h3_fl2va_pruned`: it
- * declares `duration_seconds` (which video models mean something else by) and
- * carries `spatial_upsampling` as a bare default rather than a declared field.
+ * The schema fixture mirrors a live dump of `minimax_h3_fl2va`: it declares
+ * `duration_seconds` (which video models mean something else by), carries
+ * `spatial_upsampling` as a bare default rather than a declared field, and
+ * declares **no** `negative_prompt` — which is why exclusions have to travel
+ * inside the positive prompt.
  */
 const h3Schema: WangpModelSchema = {
   modelType: "minimax_h3_fl2va_pruned",
   defaultSettings: {
     prompt: "",
-    negative_prompt: "",
     resolution: "832x480",
-    video_length: 362,
+    video_length: 124,
     duration_seconds: 0,
     spatial_upsampling: "flashvsr2",
-    sliding_window_size: 481,
+    sliding_window_size: 362,
     flow_shift: 12,
     batch_size: 1,
     model_type: "minimax_h3_fl2va_pruned",
   },
   fields: [
     { name: "prompt", type: "string" },
-    { name: "negative_prompt", type: "string" },
     { name: "resolution", type: "string" },
     { name: "video_length", type: "number" },
     { name: "duration_seconds", type: "number" },
@@ -152,6 +153,106 @@ describe("MiniMax prompt guidance", () => {
     const directive = videoPromptDirective("minimax", { segmentSeconds: 15, nativeAudio: false });
     expect(directive).not.toContain("soundtrack");
   });
+
+  /**
+   * From MiniMax's own VIDEO_PROMPT_WRITING_GUIDE. The camera terms are a
+   * controlled vocabulary, and the three audio layers are separate fields in
+   * H3's native format — an agent that blurs them writes score into the
+   * ambience and loses both.
+   */
+  it("carries MiniMax's camera vocabulary and its amplitude/speed qualifiers", () => {
+    const directive = videoPromptDirective("minimax", { segmentSeconds: 15, nativeAudio: true });
+    for (const term of ["push in", "truck left", "arc shot", "static shot"]) {
+      expect(directive).toContain(term);
+    }
+    expect(directive).toContain("with small amplitude");
+    expect(directive).toContain("at slow speed");
+  });
+
+  it("keeps ambience, audience-only score and speech apart, and bans mood words for score", () => {
+    const directive = videoPromptDirective("minimax", { segmentSeconds: 15, nativeAudio: true });
+    expect(directive).toMatch(/soundscape/i);
+    expect(directive).toMatch(/only the audience can hear/i);
+    expect(directive).toMatch(/instrumentation/i);
+    expect(directive).toMatch(/never by the mood/i);
+  });
+
+  it("tells the agent to write exclusions positively, since H3 has no negative prompt", () => {
+    const directive = videoPromptDirective("minimax", { segmentSeconds: 15, nativeAudio: false });
+    expect(directive).toMatch(/no negative prompt/i);
+  });
+
+  /**
+   * MiniMax ask for 350-500 words and their own worked examples run that long.
+   * The instruction has to say the length is descriptive density, or an agent
+   * hits the count by inventing events the motion budget cannot pay for.
+   */
+  it("asks for the length MiniMax's guide asks for, without inviting more action", () => {
+    const directive = videoPromptDirective("minimax", { segmentSeconds: 15, nativeAudio: false });
+    expect(directive).toMatch(/350 to 500 words/);
+    expect(directive).toMatch(/never by adding more events/i);
+  });
+});
+
+/**
+ * A live `minimax_h3_fl2va` schema declares no `negative_prompt`, so `setIf`
+ * dropped every exclusion without a word — the same failure FLUX had.
+ */
+describe("MiniMax has no negative prompt", () => {
+  it("is excluded from negative-prompt support", () => {
+    expect(supportsNegativePrompt("minimax")).toBe(false);
+  });
+
+  it("folds the exclusion into the positive prompt instead of losing it", () => {
+    const terms = "flicker, identity drift";
+    expect(positiveConstraintClause(terms)).toBeTruthy();
+  });
+
+  it("never writes the field onto a model that does not declare it", () => {
+    const manifest = buildSettingsManifest(h3Schema, {
+      sceneId: "s1",
+      purpose: "video_segment",
+      prompt: "a clip",
+      negativePrompt: "flicker, identity drift",
+      imageStart: "start.png",
+      imageEnd: "end.png",
+    });
+    expect(manifest.settings.negative_prompt).toBeUndefined();
+  });
+});
+
+/**
+ * Ref2VA reports the same family as FL2VA but declares `image_refs` in place of
+ * the keyframe inputs, so a project pinned to it would have both frames dropped
+ * by `setIf` and render a text-to-video clip that merely looks disappointing.
+ */
+describe("a video model that cannot take keyframes", () => {
+  const ref2va: WangpModelSchema = {
+    modelType: "minimax_h3_ref2va",
+    defaultSettings: { prompt: "", model_type: "minimax_h3_ref2va" },
+    fields: [
+      { name: "prompt", type: "string" },
+      { name: "image_refs", type: "string" },
+    ],
+  };
+
+  const clip = { sceneId: "s1", purpose: "video_segment" } as const;
+
+  it("is refused rather than silently rendered from the prompt alone", () => {
+    expect(() =>
+      buildSettingsManifest(ref2va, { ...clip, prompt: "a clip", imageStart: "start.png" }),
+    ).toThrow(/FL2VA variant, not Ref2VA/);
+  });
+
+  it("still builds when no keyframes were supplied", () => {
+    expect(() => buildSettingsManifest(ref2va, { ...clip, prompt: "a clip" })).not.toThrow();
+  });
+
+  it("leaves a model that does take keyframes alone", () => {
+    expect(() =>
+      buildSettingsManifest(h3Schema, { ...clip, prompt: "a clip", imageStart: "start.png" }),
+    ).not.toThrow();
+  });
 });
 
 describe("video resolution ceiling", () => {
@@ -175,11 +276,16 @@ describe("video resolution ceiling", () => {
 });
 
 describe("clip length guidance", () => {
+  /**
+   * 362 frames at H3's native 24fps, read from a live `minimax_h3_fl2va`
+   * schema. The earlier 20s figure came from a stale reading and made the
+   * project settings screen promise a single pass it would not get.
+   */
   it("recommends staying inside MiniMax's single window", () => {
     const advice = clipLengthGuidance("minimax");
-    expect(advice?.singleWindowSeconds).toBe(20);
+    expect(advice?.singleWindowSeconds).toBe(15);
     expect(advice?.recommendedSeconds).toBe(15);
-    expect(advice!.recommendedSeconds).toBeLessThan(advice!.singleWindowSeconds);
+    expect(advice!.recommendedSeconds).toBeLessThanOrEqual(advice!.singleWindowSeconds);
   });
 
   it("has no opinion about families without a known boundary", () => {

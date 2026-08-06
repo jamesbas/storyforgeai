@@ -191,6 +191,26 @@ export function buildSettingsManifest(
     settings.video_length = frames;
   }
 
+  // Refuse rather than quietly render a text-to-video clip.
+  //
+  // `setIf` drops any field the model does not declare, so a video model with
+  // no conditioning inputs turns a clip built from keyframes into one built
+  // from the prompt alone — which looks disappointing rather than broken, and
+  // so gets blamed on the prompt. MiniMax H3 is the live example: its FL2VA
+  // variants declare image_start/image_end, its Ref2VA variants declare
+  // neither, and both report the same family.
+  const conditioning = [overrides.imageStart, overrides.imageEnd, overrides.videoSource];
+  if (
+    conditioning.some((value) => value !== undefined) &&
+    !["image_start", "image_end", "video_source"].some((name) => fieldNames.has(name))
+  ) {
+    throw new Error(
+      `Model ${schema.modelType} accepts no start frame, end frame or source video, so this ` +
+        "clip would be rendered from the prompt alone. Pin a video model that takes keyframes — " +
+        "for MiniMax H3 that is an FL2VA variant, not Ref2VA.",
+    );
+  }
+
   setIf("image_start", overrides.imageStart);
   setIf("image_end", overrides.imageEnd);
 
