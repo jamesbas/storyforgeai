@@ -32,11 +32,11 @@ recent updates are kept.
 
 | Version | Date | What changed |
 | --- | --- | --- |
+| **1.05** | 2026-08-06 | **Import a keyframe instead of rendering one.** Sometimes the picture already exists — a photograph, or StoryForge's own render taken away and edited — and no amount of re-rolling a seed will get the model back to it. Each scene card now takes an image for its start or end frame, and everything downstream reads it: the end-frame reference, the clip, and the next scene's carried-over start frame, which is replaced along with it where the project carries end frames forward. The card says what the import costs: the pinned seed no longer describes that frame, and **Regenerate media** re-renders both frames and throws the image away — **Regenerate video for selected scenes** rebuilds the clip and keeps it. |
 | **1.04** | 2026-08-05 | **MiniMax H3 support, and a fix for every video model.** H3 was unrecognised, so its clips were prompted with no guidance at all and nothing was written for the soundtrack it generates from the same prompt — it now gets both. Keyframe and clip resolution are separate settings, since a slow video model is no reason to render the frames that fix identity and wardrobe small; H3 is held at 480p and asks WanGP for the upscale rather than inheriting whatever was last selected there. Clip length is editable after creation and names the length past which a model stitches a clip from overlapping passes. Affecting every project: clip length was being sent to WanGP as an audio setting the model meant something else by. |
 | **1.03** | 2026-08-05 | **Copy the previous scene's LoRAs.** Setting the same override on a run of scenes meant picking every LoRA again on each card. Where the preceding scene has its own selection, its LoRA panel now offers **Copy previous scene's LoRAs**, which fills in both the image and video lists so you can save them as they are or adjust first. It is a one-time copy — later edits to the earlier scene leave this one alone. |
 | **1.02** | 2026-08-04 | **Per-scene end-frame reference override.** A carried-over start frame is handed to the end-frame render as a reference image, which holds wardrobe and location across the seam — but holds props too, so an action meant to put a glass down left it in shot. **Match the carried-over frame** on the scene card turns it off for that scene alone. Also: corrected the README's claim that clips are a fixed 20 seconds, and added this log. |
 | **1.01** | 2026-08-04 | **Live batch progress.** A phased run banks each scene's keyframes as it renders them instead of at the end of the phase, so the storyboard fills in while the batch is still going and cancelling no longer discards hours of finished frames. Per-scene chips now name the phase, the counter reports renders that succeeded with failures listed apart from them, and the clip phase stops calling itself that in a keyframes-only project. |
-| **1.00** | 2026-08-03 | Baseline release: the agent crew, storyboard, WanGP media generation, character library and wardrobe timeline, LoRA selection, assembly and export, provenance, durable tasks, and the accessibility pass. |
 
 ---
 
@@ -59,6 +59,11 @@ recent updates are kept.
 - **Media generation** — per-scene start/end keyframes + a clip of the project's
   segment length, scene attempts
   with retry/regeneration, QC results, and human approval.
+- **Imported keyframes** — a scene's start or end frame can be supplied as an image
+  file instead of rendered, for a picture you already have or a render you edited
+  outside the app. The clip, the end-frame reference and the next scene's
+  carried-over start frame all read the imported image. Regenerating a scene's media
+  re-renders both frames and discards it; rebuilding only the clip keeps it.
 - **Character library** — reusable cast with up to two reference images each,
   a separable facial description that steps aside for a photo, and an optional
   face-swap pass over generated keyframes. Description, photograph and face swap

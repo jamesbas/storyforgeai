@@ -32,6 +32,13 @@ export const sceneAttemptSchema = z.object({
    * would otherwise show text that had no effect on the image.
    */
   startImageInherited: maybe(z.boolean()),
+  /**
+   * The frame was supplied by hand rather than rendered. Same reason as
+   * `startImageInherited`: the scene's prompt, seed and LoRAs describe an image
+   * that is not the one on the record, and the card has to say so.
+   */
+  startImageImported: maybe(z.boolean()),
+  endImageImported: maybe(z.boolean()),
   videoPath: maybe(z.string()),
   audioPath: maybe(z.string()),
   settingsIds: z.array(z.string()),

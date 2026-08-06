@@ -10,6 +10,7 @@ import { faceSwapSubject, swapFace } from "@/lib/services/face-swap-service";
 import { referenceImagesOf } from "@/lib/schemas/character";
 import type { Character } from "@/lib/schemas/character";
 import { seamBreak } from "@/lib/media/seam";
+import { saveImportedFrame } from "@/lib/media/imported-frames";
 import { DEFAULT_SCENE_CONTINUITY, generationStages } from "@/lib/types";
 import { resolveProjectCast } from "@/lib/services/character-service";
 import { charactersInScene } from "@/lib/agents/scene-cast";
@@ -1342,6 +1343,148 @@ export async function revertAttemptFrame(
   await repository.update(projectId, updated);
   logEvent("face_swap.reverted", { projectId, sceneId, purpose });
   return updated;
+}
+
+export type ImportFrameResult = {
+  record: ProjectRecord;
+  /** The following scene whose carried-over start frame was replaced as well. */
+  cascadedTo?: { sceneId: string; sceneNumber: number };
+  /** This attempt's clip was built from the frame that has just been replaced. */
+  clipStale: boolean;
+};
+
+/**
+ * Put a supplied image in place of one of an attempt's rendered keyframes.
+ *
+ * Sometimes the picture already exists — a photograph, a still from elsewhere,
+ * or StoryForge's own first render taken away and edited. Re-rolling a seed
+ * until the model reproduces it is not a realistic way to get there.
+ *
+ * The frame is replaced on the latest attempt in place, exactly as a face swap
+ * is, so everything that reads a frame path — the end-frame reference, the clip
+ * build, the carried-over start frame of the next scene — picks it up without
+ * knowing where the bytes came from. What it deliberately does not do is
+ * re-render anything: the clip on this attempt was built from the frame that
+ * has just been replaced, and saying so is the caller's job.
+ */
+export async function importAttemptFrame(
+  projectId: string,
+  sceneId: string,
+  purpose: "start_frame" | "end_frame",
+  file: File,
+): Promise<ImportFrameResult> {
+  const record = await getProjectRecord(projectId);
+  const scene = findScene(record, sceneId);
+  const attempts = record.attempts?.[sceneId] ?? [];
+  const target = attempts.at(-1);
+  if (!target) {
+    throw new ValidationError(
+      "Generate this scene's media first — an imported frame replaces one of an attempt's " +
+        "keyframes, so there has to be an attempt to put it on.",
+    );
+  }
+
+  const imported = await saveImportedFrame(projectId, file);
+
+  // The swap provenance described the frame that has just gone. Left in place,
+  // "undo" would quietly replace the imported image with an old render.
+  const replaced: SceneAttempt = {
+    ...target,
+    ...(purpose === "start_frame"
+      ? {
+          startImagePath: imported,
+          startImageSourcePath: undefined,
+          startImageImported: true,
+        }
+      : {
+          endImagePath: imported,
+          endImageSourcePath: undefined,
+          endImageImported: true,
+        }),
+  };
+
+  const nextAttempts: Record<string, SceneAttempt[]> = {
+    ...(record.attempts ?? {}),
+    [sceneId]: attempts.map((a) => (a.id === target.id ? replaced : a)),
+  };
+
+  const cascadedTo = cascadeImportedEndFrame(record, scene, purpose, imported, nextAttempts);
+
+  const updated: ProjectRecord = {
+    ...record,
+    attempts: nextAttempts,
+    project: { ...record.project, updatedAt: new Date().toISOString() },
+    history: [
+      ...(record.history ?? []),
+      {
+        at: new Date().toISOString(),
+        action: "scene.frame_imported",
+        detail: `Scene ${scene.sceneNumber} ${purpose.replace("_", " ")}`,
+      },
+    ],
+  };
+
+  await repository.update(projectId, updated);
+  logEvent("scene.frame_imported", {
+    projectId,
+    sceneId,
+    purpose,
+    bytes: file.size,
+    cascadedToSceneNumber: cascadedTo?.sceneNumber,
+  });
+
+  return {
+    record: updated,
+    cascadedTo,
+    clipStale: Boolean(target.videoPath),
+  };
+}
+
+/**
+ * Carry an imported end frame into the next scene's start frame.
+ *
+ * On `reuse_end_frame` the next scene does not render a start frame at all — it
+ * shows this one. Leaving its already-generated attempt pointing at the picture
+ * that was just replaced would put the two scenes visibly out of step at the
+ * cut, which is the single thing that mode exists to prevent.
+ *
+ * Only an attempt that actually carried the frame is touched. A scene that
+ * rendered its own start frame owns it, and the seam rules that stopped it
+ * inheriting the first time still apply.
+ *
+ * Mutates `attempts` in place; returns the scene it reached, if any.
+ */
+function cascadeImportedEndFrame(
+  record: ProjectRecord,
+  scene: Scene,
+  purpose: "start_frame" | "end_frame",
+  imported: string,
+  attempts: Record<string, SceneAttempt[]>,
+): { sceneId: string; sceneNumber: number } | undefined {
+  if (purpose !== "end_frame") return undefined;
+  if ((record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY) !== "reuse_end_frame") {
+    return undefined;
+  }
+
+  const next = record.storyboard?.scenes.find((s) => s.sceneNumber === scene.sceneNumber + 1);
+  if (!next) return undefined;
+  if (seamBreak(scene, next)) return undefined;
+
+  const nextAttempts = attempts[next.id] ?? [];
+  const nextTarget = nextAttempts.at(-1);
+  if (!nextTarget?.startImageInherited) return undefined;
+
+  attempts[next.id] = nextAttempts.map((a) =>
+    a.id === nextTarget.id
+      ? {
+          ...a,
+          startImagePath: imported,
+          startImageSourcePath: undefined,
+          startImageImported: true,
+        }
+      : a,
+  );
+  return { sceneId: next.id, sceneNumber: next.sceneNumber };
 }
 
 export async function approveAttempt(

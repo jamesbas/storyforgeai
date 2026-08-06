@@ -972,6 +972,29 @@ export default function HelpPage() {
             <a href="#wangp" className="text-accent underline underline-offset-2">WanGP &amp; generation</a>.
           </p>
 
+          <h3 className={h3}>Importing a keyframe instead of rendering one</h3>
+          <p className={p}>
+            Once a scene has an attempt, its card offers <strong>Import an image in place of a
+            rendered frame</strong> for the start frame, the end frame, or both. Use it when the
+            picture already exists — a photograph, a still from elsewhere, or one of StoryForge&apos;s
+            own renders taken into an image editor and fixed by hand. Re-rolling a seed until the
+            model reproduces something you already have is not a realistic way to get there.
+          </p>
+          <p className={p}>
+            The image is copied into the project and replaces the frame on the latest attempt, so
+            everything that reads a frame reads the new one: the end-frame reference, the clip, and —
+            where the project carries end frames forward — the next scene&apos;s start frame, which is
+            replaced along with it. The card tells you when that has happened.
+          </p>
+          <p className={p}>
+            Two consequences worth knowing before you use it. The scene&apos;s <strong>pinned seed no
+            longer describes that frame</strong>; it describes what a regeneration would render in its
+            place. And <strong>Regenerate media re-renders both keyframes</strong>, which throws the
+            imported image away — to rebuild the clip and keep the image, use <strong>Regenerate video
+            for selected scenes</strong> at the top of the Storyboard screen. Until you do, the clip
+            still shows the frame that was replaced.
+          </p>
+
           <h3 className={h3}>Variant Review</h3>
           <p className={p}>
             Generates 3 distinct creative directions (hook, story angle, visual style, strengths,

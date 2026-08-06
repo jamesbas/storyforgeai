@@ -608,6 +608,47 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     [projectId, failureMessage],
   );
 
+  /**
+   * Replace one of a scene's rendered keyframes with a supplied image.
+   *
+   * The server reports whether the next scene's carried-over start frame went
+   * with it, so the notice is a fact rather than a guess — that scene's card
+   * may be a long way down the page.
+   */
+  const importSceneFrame = useCallback(
+    async (sceneId: string, purpose: "start_frame" | "end_frame", file: File) => {
+      setSceneBusy(sceneId);
+      setError(null);
+      setCascadeNotice(null);
+      try {
+        const body = new FormData();
+        body.append("file", file);
+        body.append("purpose", purpose);
+        const res = await fetch(`/api/projects/${projectId}/scenes/${sceneId}/import-frame`, {
+          method: "POST",
+          body,
+        });
+        if (!res.ok) throw new Error(await failureMessage(res, "Failed to import the image"));
+        const result = (await res.json()) as {
+          record: ProjectRecord;
+          cascadedTo?: { sceneId: string; sceneNumber: number };
+        };
+        setRecord(result.record);
+        await loadMedia();
+        if (result.cascadedTo) {
+          setCascadeNotice(
+            `This project carries each scene's end frame into the next one's start frame, so scene ${result.cascadedTo.sceneNumber} now shows the imported image as its start frame too. Its clip was built from the old frame — rebuild it from "Regenerate video for selected scenes" above.`,
+          );
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to import the image");
+      } finally {
+        setSceneBusy(null);
+      }
+    },
+    [projectId, failureMessage, loadMedia],
+  );
+
   const approveScene = useCallback(
     async (sceneId: string, attemptId: string) => {
       setSceneBusy(sceneId);
@@ -1212,6 +1253,15 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                     stages.keyframes
                       ? (purpose) => void revertSceneFace(scene.id, purpose)
                       : undefined
+                  }
+                  onImportFrame={
+                    stages.keyframes
+                      ? (purpose, file) => void importSceneFrame(scene.id, purpose, file)
+                      : undefined
+                  }
+                  carriesEndFrameForward={
+                    continuity === "reuse_end_frame" &&
+                    index < storyboard.scenes.length - 1
                   }
                 />
               );

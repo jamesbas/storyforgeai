@@ -55,6 +55,7 @@ export type TelemetryEvent =
   | "scene.keyframe_preview"
   | "scene.keyframe_preview_cleared"
   | "scene.seed_cleared"
+  | "scene.frame_imported"
   | "face_swap.applied"
   | "face_swap.manual"
   | "face_swap.reverted"

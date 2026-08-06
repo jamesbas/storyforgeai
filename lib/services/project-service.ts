@@ -45,6 +45,7 @@ import {
   deleteConceptImages,
   resolveConceptImageFiles,
 } from "@/lib/media/concept-image-files";
+import { deleteImportedFrames } from "@/lib/media/imported-frames";
 import { runStoryboardOrchestrator } from "@/lib/agents/orchestrator";
 import { intakeAgent } from "@/lib/agents/intake-agent";
 import { storyArchitectAgent } from "@/lib/agents/story-architect-agent";
@@ -1567,6 +1568,7 @@ export async function deleteProject(
   // than left to depend on which store is configured.
   if (!options.keepMedia) {
     await deleteConceptImages(id);
+    await deleteImportedFrames(id);
   }
 
   logEvent("project.deleted", { id, keptMedia: Boolean(options.keepMedia), cancelledScenes: cancelled });

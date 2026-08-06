@@ -57,6 +57,13 @@ type SceneCardProps = {
   onSwapFace?: (purpose: "start_frame" | "end_frame") => void;
   /** Discard a swap, restoring the frame as it was rendered. */
   onRevertFace?: (purpose: "start_frame" | "end_frame") => void;
+  /** Put a supplied image in place of one of this attempt's keyframes. */
+  onImportFrame?: (purpose: "start_frame" | "end_frame", file: File) => void;
+  /**
+   * This scene's end frame becomes the next scene's start frame, so replacing
+   * it reaches further than this card.
+   */
+  carriesEndFrameForward?: boolean;
 };
 
 /** Render a player for media that exists on disk; fall back to the path. */
@@ -117,9 +124,12 @@ export function SceneCard({
   onEndFrameReferenceChange,
   onSwapFace,
   onRevertFace,
+  onImportFrame,
+  carriesEndFrameForward = false,
 }: SceneCardProps) {
   const playable = media.filter((m) => m.available && m.sceneId === scene.id);
   const hasPreviews = playable.some((m) => m.preview);
+  const hasImportedFrame = Boolean(attempt?.startImageImported || attempt?.endImageImported);
 
   return (
     <article
@@ -275,7 +285,12 @@ export function SceneCard({
                   ) : null}
                 </div>
               ) : null}
-              <div className="truncate">start: {attempt.startImagePath ?? "—"}</div>
+              <div className="truncate">
+                start: {attempt.startImagePath ?? "—"}
+                {attempt.startImageImported ? (
+                  <span className="text-sky-300/80"> · imported</span>
+                ) : null}
+              </div>
               {attempt.startImageInherited && (
                 <p
                   data-testid="scene-inherited-start"
@@ -286,7 +301,12 @@ export function SceneCard({
                   scenes&rdquo; if this scene is a separate shot.
                 </p>
               )}
-              <div className="truncate">end: {attempt.endImagePath ?? "—"}</div>
+              <div className="truncate">
+                end: {attempt.endImagePath ?? "—"}
+                {attempt.endImageImported ? (
+                  <span className="text-sky-300/80"> · imported</span>
+                ) : null}
+              </div>
               <div className="truncate" data-testid="scene-video-path">
                 video: {attempt.videoPath ?? "—"}
               </div>
@@ -361,6 +381,75 @@ export function SceneCard({
             </div>
           )}
 
+          {onImportFrame && attempt && (
+            <div
+              className="mt-2 rounded-md border border-white/10 bg-black/20 p-2.5"
+              data-testid="import-frame"
+            >
+              <p className="text-[11px] text-slate-500">
+                Import an image in place of a rendered frame — a picture you already have, or this
+                scene&apos;s own render taken away and edited.
+              </p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {(
+                  [
+                    ["start_frame", "Start", attempt.startImageImported],
+                    ["end_frame", "End", attempt.endImageImported],
+                  ] as const
+                ).map(([purpose, label, imported]) => (
+                  <label
+                    key={purpose}
+                    className="flex flex-col gap-1 text-[11px] text-slate-400"
+                  >
+                    <span>
+                      {label} frame
+                      {imported ? <span className="text-sky-300/80"> · imported</span> : null}
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      disabled={busy}
+                      data-testid={`import-${purpose}`}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        // Cleared so re-picking the same file fires onChange again.
+                        e.target.value = "";
+                        if (file) onImportFrame(purpose, file);
+                      }}
+                      className="text-[11px] text-slate-400 file:mr-2 file:rounded-md file:border file:border-white/10 file:bg-panel/60 file:px-2.5 file:py-1 file:text-[11px] file:text-slate-200 disabled:opacity-50"
+                    />
+                  </label>
+                ))}
+              </div>
+
+              {hasImportedFrame ? (
+                <div
+                  className="mt-2 space-y-1 border-t border-white/10 pt-2 text-[10px] text-amber-300/80"
+                  data-testid="imported-frame-notes"
+                >
+                  <p>
+                    &ldquo;Regenerate media&rdquo; re-renders both keyframes and will discard the
+                    imported image. To rebuild this scene&apos;s clip and keep the image, use
+                    &ldquo;Regenerate video for selected scenes&rdquo; at the top of this page.
+                  </p>
+                  {attempt.videoPath ? (
+                    <p>
+                      This attempt&apos;s clip was built from the frame that has been replaced, so
+                      the video does not show the imported image yet.
+                    </p>
+                  ) : null}
+                  {attempt.endImageImported && carriesEndFrameForward ? (
+                    <p data-testid="imported-frame-cascade">
+                      This project carries the end frame forward, so the next scene&apos;s start
+                      frame was replaced with this image too — its clip is now out of date for the
+                      same reason.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          )}
+
           {onSwapFace && attempt && (attempt.startImagePath || attempt.endImagePath) && (
             <div className="mt-2 flex flex-wrap items-center gap-2" data-testid="manual-face-swap">
               <span className="text-[11px] text-slate-500">Swap face on:</span>
@@ -421,6 +510,12 @@ export function SceneCard({
                 Pinned so a preview predicts the keyframe. Regenerating reproduces the same image —
                 take a new seed to get a different one.
               </span>
+              {hasImportedFrame ? (
+                <span className="text-[10px] text-amber-300/80" data-testid="imported-seed-note">
+                  An imported frame was not sampled from this seed, so the seed says nothing about
+                  it. It describes what a regeneration would render in its place.
+                </span>
+              ) : null}
             </div>
           )}
         </div>
