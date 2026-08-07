@@ -37,6 +37,15 @@ export type ManifestOverrides = {
    */
   imageRefsLeadWithScene?: boolean;
   /**
+   * Leave `video_prompt_type` at whatever the model ships with.
+   *
+   * The letters are a WanGP convention, not a universal one, and a model can
+   * publish an empty default because it consumes `image_refs` directly. MiniMax
+   * H3's reference variant is that case: forcing "KI" onto it changed which
+   * picture the model treated as the opening frame.
+   */
+  keepModelReferenceGroup?: boolean;
+  /**
    * Clip this generation continues from (WanGP `video_source`). Absolute path
    * readable by the WanGP process; it is ffprobed on submission, so a missing
    * file fails the job immediately rather than silently rendering a fresh shot.
@@ -291,8 +300,14 @@ export function buildSettingsManifest(
     // because the other letter groups in this field select guide and mask
     // inputs this pathway never sends. Flux 2 Klein ships "MV" (mask + video
     // guide); keeping that would make WanGP demand images we do not provide.
-    setIf("video_prompt_type", overrides.imageRefsLeadWithScene ? "KI" : "I");
-  } else {
+    //
+    // Except where the model publishes an empty default and takes `image_refs`
+    // directly — then the letters are not its language and writing them changes
+    // how it reads the pictures.
+    if (!overrides.keepModelReferenceGroup) {
+      setIf("video_prompt_type", overrides.imageRefsLeadWithScene ? "KI" : "I");
+    }
+  } else if (!overrides.keepModelReferenceGroup) {
     // Same reason in reverse: left alone, Flux 2 Klein's "MV" default demands a
     // control image this pathway never sends.
     setIf("video_prompt_type", "");

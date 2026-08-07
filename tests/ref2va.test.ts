@@ -290,7 +290,7 @@ class Ref2vaClient extends MockWangpClient {
   async getModelSchema(modelType: string): Promise<WangpModelSchema> {
     return {
       modelType,
-      defaultSettings: { prompt: "", resolution: "832x480" },
+      defaultSettings: { prompt: "", resolution: "832x480", video_prompt_type: "" },
       fields: [
         { name: "prompt", type: "string" },
         { name: "resolution", type: "string" },
@@ -333,9 +333,12 @@ describe("the Ref2VA manifest", () => {
     expect(manifest.settings.image_end).toBeUndefined();
   });
 
-  it("declares the first reference a scene rather than a person", async () => {
+  it("leaves the reference group at the model's own default", async () => {
+    // H3 Ref2VA ships `video_prompt_type: ""` and consumes image_refs directly.
+    // Forcing WanGP's "KI" onto it moved which picture the model read as the
+    // opening frame, so the supplied start frame came back at the end.
     const manifest = await ref2vaManifest();
-    expect(manifest.settings.video_prompt_type).toBe("KI");
+    expect(manifest.settings.video_prompt_type).toBe("");
   });
 
   it("enables Spectrum, which the schema does not declare", async () => {

@@ -504,11 +504,12 @@ export async function buildVideoManifest(args: {
     imageStart: reference ? undefined : args.imageStart,
     imageEnd: reference ? undefined : args.imageEnd,
     imageRefs: reference?.imageRefs,
-    // The first reference is the opening frame, not a person, and WanGP's
-    // reference group distinguishes the two by letter: "KI" says the first is
-    // the main subject or landscape. Sending "I" here would offer a composition
-    // as though it were a face.
-    imageRefsLeadWithScene: reference ? true : undefined,
+    // H3's reference variant publishes an empty `video_prompt_type` and reads
+    // `image_refs` directly, so WanGP's letter groups are not its language.
+    // Writing "KI" onto it changed which picture the model took as the opening
+    // frame — a supplied start frame surfaced at the end of the clip and the
+    // opening was invented.
+    keepModelReferenceGroup: reference ? true : undefined,
     videoSource: args.videoSource,
     loras,
     fps: args.fps ?? config.defaults.fps,
