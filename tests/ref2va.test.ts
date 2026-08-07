@@ -113,6 +113,37 @@ describe("family split", () => {
   });
 });
 
+describe("LoRAs on a variant that takes none", () => {
+  const schema: WangpModelSchema = {
+    modelType: "minimax_h3_ref2va",
+    defaultSettings: { prompt: "" },
+    fields: [{ name: "prompt", type: "string" }],
+  } as unknown as WangpModelSchema;
+
+  const build = (loras: { name: string; strength: number }[]) =>
+    buildSettingsManifest(schema, {
+      sceneId: "s1",
+      purpose: "video_segment",
+      prompt: "x",
+      loras,
+    });
+
+  it("names the LoRAs and says where to clear them", () => {
+    // The old message said only that the model "does not accept LoRAs", which
+    // leaves someone staring at a failed chip with nothing to act on.
+    expect(() => build([{ name: "minimax_h3_turbo_4step", strength: 1 }])).toThrow(
+      /minimax_h3_turbo_4step/,
+    );
+    expect(() => build([{ name: "minimax_h3_turbo_4step", strength: 1 }])).toThrow(
+      /project settings screen/,
+    );
+  });
+
+  it("stays silent when nothing is selected", () => {
+    expect(() => build([])).not.toThrow();
+  });
+});
+
 describe("the six-section prompt", () => {
   const rendered = renderH3ReferencePrompt({
     body: 'Tracey turns from the window and says, "We should go."',

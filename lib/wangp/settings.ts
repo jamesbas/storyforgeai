@@ -127,7 +127,11 @@ function applyLoras(
     // LoRA applied and nothing to debug, so refuse instead.
     if (loras.length) {
       throw new Error(
-        `Model ${schema.modelType} does not accept LoRAs, but ${loras.length} were selected.`,
+        `Model ${schema.modelType} accepts no LoRAs, but ${loras.length} ` +
+          `${loras.length === 1 ? "is" : "are"} selected: ${loras.map((l) => l.name).join(", ")}. ` +
+          "Clear the video LoRAs on the project settings screen, or on this scene if it overrides " +
+          "them, and render again. MiniMax H3's reference variant is the common case — it takes " +
+          "no LoRAs at all, and accelerators destroy the identity binding it exists to provide.",
       );
     }
     return;

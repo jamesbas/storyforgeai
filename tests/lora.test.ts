@@ -316,7 +316,7 @@ describe("writing LoRAs into the settings manifest", () => {
         prompt: "a lighthouse",
         loras: [{ name: "a.safetensors", strength: 1 }],
       }),
-    ).toThrow(/does not accept LoRAs/i);
+    ).toThrow(/accepts no LoRAs/i);
   });
 
   it("stays quiet when the model has no LoRA field and nothing was selected", () => {

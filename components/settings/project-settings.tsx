@@ -623,6 +623,14 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
 
         <div className="space-y-1">
           <span className="text-sm text-slate-300">Video LoRAs (clips)</span>
+          {videoFamily === "minimax_ref2va" && loras.video.length ? (
+            <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+              Reference mode takes no LoRAs, so every clip will fail until these are cleared. The
+              checkpoint declares no LoRA field at all, and accelerators are worse than useless
+              here — a 4-step LoRA finished in a quarter of the time and scattered the referenced
+              face across several people, which is the one thing this mode exists to prevent.
+            </p>
+          ) : null}
           <LoraSelector
             projectId={projectId}
             kind="video"
