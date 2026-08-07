@@ -33,8 +33,13 @@ const ACCELERATOR_PATTERNS = [
 /**
  * A step count written into a LoRA's filename — `Lightning-8steps`, `4-step`,
  * `8_steps`. Authors put it there because the LoRA only works at that count.
+ *
+ * The trailing guard is "not followed by a letter" rather than `\b`, because
+ * `_` is a word character: `\b` matched `Lightning-8steps.safetensors` but not
+ * `minimax_h3_turbo_4step_ckpt500.safetensors`, and missing the hint runs a
+ * 4-step LoRA at the model's 20 — five times the wait for a burnt frame.
  */
-const STEP_HINT = /(\d{1,2})[\s_-]*steps?\b/i;
+const STEP_HINT = /(\d{1,2})[\s_-]*steps?(?![a-z])/i;
 
 const isAccelerator = (name: string): boolean => {
   const lower = name.toLocaleLowerCase();

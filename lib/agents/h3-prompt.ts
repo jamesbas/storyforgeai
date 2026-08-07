@@ -10,34 +10,45 @@ import type { ModelFamily } from "@/lib/wangp/family";
  * untouched and `prompt_enhancer` is forced off, so nothing between StoryForge
  * and the model will produce this shape if we do not.
  *
- * **Off by default, and the reason is unresolved.** Three A/B pairs on
- * `minimax_h3_fl2va_pruned` produced no spoken dialogue at all in the enveloped
- * arm, while the plain-prose arm spoke the line correctly every time. Picture,
- * timing, end-frame landing and audio levels were indistinguishable throughout.
+ * **Off by default, but the earlier verdict against it was wrong.** Three A/B
+ * pairs on `minimax_h3_fl2va_pruned` at 20 steps produced no spoken dialogue in
+ * the enveloped arm while plain prose spoke the line every time, and that was
+ * recorded here as the envelope suppressing speech. It is not.
  *
- * That is not explained by the format being wrong for this model. H3 is three
- * modules: a hosted **H3-Context-IR** that turns free-form input into exactly
- * this structure, **H3-Base** (what WanGP runs) which consumes it, and a hosted
- * 2K regenerator. MiniMax's own worked examples post this structure to a
- * locally deployed H3-Base, so it is the documented input here.
+ * The test scene was a robot, and because H3 declares no `negative_prompt` its
+ * exclusions are folded into positive text — so the prompt stated the subject
+ * had no mouth, and then asked it to speak. Running the same enveloped prompt
+ * with the 4-step turbo accelerator produced speech *and* a moving mouth, and
+ * so did 8 steps. Every result sits on one axis: the envelope makes the model
+ * follow instructions more literally, distillation makes it follow them less.
+ * At 20 steps the envelope honoured the visual constraint and stayed silent;
+ * the accelerator overrode it. The same looseness scattered a referenced face
+ * onto several people in a Ref2VA run, so it is not a virtue — just a
+ * different trade.
  *
- * Eliminated across the three runs:
- *   - *Audio direction.* Run 1's arms differed because only the enveloped one
- *     carried ambience and score; both have carried it since, and the gap in
- *     stereo width vanished with it.
+ * The envelope was therefore obeying a contradiction we authored, not failing.
+ * Silence is confined to one cell — envelope at full step count — and doubling
+ * the accelerator's steps did not begin to recover it, so nothing on the
+ * shipping fast path will hit it. What remains untested is the case that would
+ * settle it: an enveloped prompt at full step count on a character whose
+ * description does not forbid the thing being asked of them.
+ *
+ * H3 is three modules: a hosted **H3-Context-IR** that turns free-form input
+ * into exactly this structure, **H3-Base** (what WanGP runs) which consumes it,
+ * and a hosted 2K regenerator. MiniMax's own worked examples post this
+ * structure to a locally deployed H3-Base, so it is the documented input here.
+ *
+ * Also eliminated along the way, and still worth not repeating:
+ *   - *Audio direction.* The first pair differed because only the enveloped arm
+ *     carried ambience and score; both have carried it since.
  *   - *Tokenisation.* WanGP ships MiniMax's tokenizer config, and
  *     `Qwen3-VL-32B-Instruct` declares `<d>` and `</d>` as special tokens.
  *   - *Prompt length.* Raising the timeline from ~120 to ~294 words changed
  *     nothing.
  *
- * Untested, and the only candidate left: the test subject is a robot whose
- * prompt states it has no mouth, which the stricter structured reading may be
- * honouring by declining to speak. Resolving it needs a human character.
- *
- * One loose end for anyone who picks this up: WanGP's `text_encoder.py` emits
- * images as `<Picture 1>:` with angle brackets, while the guide's FL2VA
- * alignment sentence — reproduced verbatim here — names them bare. Whether the
- * bare form binds to the image token is unverified.
+ * One loose end: WanGP's `text_encoder.py` emits images as `<Picture 1>:` with
+ * angle brackets, while the guide's FL2VA alignment sentence — reproduced
+ * verbatim here — names them bare. Whether the bare form binds is unverified.
  *
  * Everything here is pure string work over facts the caller already has, so the
  * format can be verified without a GPU.

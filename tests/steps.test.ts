@@ -75,6 +75,11 @@ describe("when something is accelerating the model", () => {
       ["model-lightning-4step.safetensors", 4],
       ["Hyper-SD-12_steps.safetensors", 12],
       ["lcm-lora-6 steps.safetensors", 6],
+      // `_` is a word character, so a `\b` guard missed every hint buried
+      // mid-filename. This is MiniMax's own H3 accelerator.
+      ["minimax_h3_turbo_4step_ckpt500.safetensors", 4],
+      ["minimax_h3_turbo_4steps_ckpt500.safetensors", 4],
+      ["hyper_8_steps_bar.safetensors", 8],
     ] as const) {
       expect(
         resolveSteps({
@@ -86,6 +91,19 @@ describe("when something is accelerating the model", () => {
         }),
       ).toEqual({ steps, reason: "lora_step_hint" });
     }
+  });
+
+  /** A number that only looks like a hint must not be read as one. */
+  it("ignores a count that runs straight into another word", () => {
+    expect(
+      resolveSteps({
+        modelType: "m",
+        modelDefault: 6,
+        loras: [lora("turbo_4stepsize.safetensors")],
+        override: undefined,
+        floor: FLOOR,
+      }),
+    ).toEqual({ steps: 6, reason: "accelerated" });
   });
 
   /** No readable count, but the stack is clearly tuned — do not raise it. */
