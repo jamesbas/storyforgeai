@@ -363,7 +363,7 @@ export async function attachScenePrompts(
     scenes.push({
       ...draft,
       charactersPresent: sceneCast.map((c) => c.name),
-      prompts: { ...imagePart, ...videoPart },
+      prompts: { ...imagePart, ...videoPart, videoPromptFamily: videoFamily },
     });
     previousEndFramePrompt = imagePart.endFramePrompt;
   }

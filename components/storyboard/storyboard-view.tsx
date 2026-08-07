@@ -23,6 +23,7 @@ import type { PhaseProgress, SceneQueueEntry } from "@/lib/services/scene-queue"
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { Character } from "@/lib/schemas/character";
 import { handEditedSinceGeneration } from "@/lib/history";
+import { familyLabel, familyOf } from "@/lib/wangp/family";
 import type { MediaDescriptor } from "@/lib/media/refs";
 
 type QueueSnapshot = { entries: SceneQueueEntry[]; active: boolean; phase?: PhaseProgress };
@@ -33,6 +34,24 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rewritingAll, setRewritingAll] = useState(false);
+
+  const rewriteAllPrompts = useCallback(async () => {
+    setRewritingAll(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/prompts`, { method: "POST" });
+      if (!res.ok) {
+        const detail = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(detail?.error ?? "Failed to rewrite prompts");
+      }
+      setRecord((await res.json()) as ProjectRecord);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to rewrite prompts");
+    } finally {
+      setRewritingAll(false);
+    }
+  }, [projectId]);
 
   const loadMedia = useCallback(async () => {
     const res = await fetch(`/api/projects/${projectId}/media`);
@@ -677,6 +696,16 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const stages = generationStages(project.generationMode);
   const continuity = project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY;
 
+  // Only a pinned model can make a prompt stale, and only a stamped prompt can
+  // be found stale: an unpinned project falls through to the router, and a
+  // storyboard written before the stamp existed claims nothing about itself.
+  const videoFamily = project.videoModel ? familyOf(project.videoModel) : undefined;
+  const stalePromptFamily = videoFamily
+    ? storyboard?.scenes
+        .map((scene) => scene.prompts.videoPromptFamily)
+        .find((family) => family && family !== videoFamily)
+    : undefined;
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -745,6 +774,39 @@ export function StoryboardView({ projectId }: { projectId: string }) {
       </div>
 
       {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+
+      {stalePromptFamily ? (
+        <section
+          data-testid="stale-prompt-family"
+          className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4"
+        >
+          <h2 className="text-sm font-semibold text-amber-100">
+            These prompts were written for a different video model
+          </h2>
+          <p className="mt-1 text-sm text-amber-100/80">
+            The clip prompts were written for{" "}
+            <strong>{familyLabel(stalePromptFamily)}</strong>, and this project now renders on{" "}
+            <strong>{familyLabel(videoFamily)}</strong>. They will still render, but each family
+            wants a different kind of writing — length, camera vocabulary, and whether the
+            soundtrack is described in fields of its own — so the clips will be worse than they
+            need to be. Rewriting re-runs the prompt agents against the scene cards you already
+            have; the story, shot list and cards are untouched.
+          </p>
+          <button
+            type="button"
+            disabled={busy || rewritingAll}
+            onClick={() => void rewriteAllPrompts()}
+            className="mt-3 rounded-md bg-accent-solid px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+          >
+            {rewritingAll
+              ? "Rewriting every scene…"
+              : `Rewrite all ${storyboard?.scenes.length ?? 0} scenes' prompts`}
+          </button>
+          <p className="mt-2 text-[11px] text-amber-100/60">
+            Two agent calls per scene. Any prompt wording you typed by hand is replaced.
+          </p>
+        </section>
+      ) : null}
 
       {remoteAgent && !busy ? (
         <p

@@ -33,6 +33,22 @@ export function isMinimaxFamily(family: ModelFamily): boolean {
   return family === "minimax" || family === "minimax_ref2va";
 }
 
+const FAMILY_LABELS: Record<ModelFamily, string> = {
+  flux: "FLUX",
+  qwen: "Qwen",
+  wan: "Wan",
+  ltx: "LTX",
+  krea: "Krea",
+  minimax: "MiniMax H3, first and last frame",
+  minimax_ref2va: "MiniMax H3, reference mode",
+  unknown: "an unrecognised model",
+};
+
+/** How a family is named to the user. */
+export function familyLabel(family: string | undefined): string {
+  return FAMILY_LABELS[(family ?? "unknown") as ModelFamily] ?? "an unrecognised model";
+}
+
 /** Longest tokens first, so `ltxv` is not mistaken for something shorter. */
 const FAMILY_TOKENS: ReadonlyArray<readonly [ModelFamily, readonly string[]]> = [
   ["flux", ["flux"]],

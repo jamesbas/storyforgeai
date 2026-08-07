@@ -37,6 +37,20 @@ export const scenePromptsSchema = z.object({
    */
   videoSoundscape: maybe(z.string()),
   videoScore: maybe(z.string()),
+  /**
+   * The video family these prompts were written for.
+   *
+   * A clip prompt is not portable between families: LTX asks for four to eight
+   * sentences, MiniMax H3 for 350 to 500 words and its own camera vocabulary,
+   * and H3 wants the two audio layers in fields of their own. Changing the
+   * pinned model therefore leaves every existing prompt written for the wrong
+   * one, which is invisible — the render succeeds and is merely worse. Stamped
+   * here so the storyboard can say so.
+   *
+   * Optional: a storyboard written before this existed has no stamp, and an
+   * absent stamp claims nothing rather than claiming a mismatch.
+   */
+  videoPromptFamily: maybe(z.string()),
   /** Advisory review notes; defaulted for the same reason as continuityNotes. */
   promptQualityChecklist: z.array(z.string()).default([]),
 });

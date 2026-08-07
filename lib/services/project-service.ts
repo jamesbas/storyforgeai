@@ -1169,6 +1169,51 @@ export async function regenerateScenePrompts(
 }
 
 /**
+ * Rewrite every scene's prompts against the models pinned right now.
+ *
+ * The per-scene rewrite exists for editing one card. This exists for the case
+ * that made it necessary: changing the video model after the storyboard was
+ * written leaves every scene phrased for the previous family, and asking
+ * someone to visit nine cards in turn is how they end up rendering half a piece
+ * with the wrong prompts.
+ */
+export async function regenerateAllScenePrompts(id: string): Promise<ProjectRecord> {
+  return trackAgentRun(id, "storyboard", "Image & Video Prompt Agents", async () => {
+    const record = await getProjectRecord(id);
+    if (!record.storyboard) throw new ValidationError("Generate a storyboard before writing prompts");
+
+    const cast = await resolveProjectCast(record.project);
+    const drafts = record.storyboard.scenes.map(({ prompts: _prompts, ...draft }) => draft);
+
+    const rebuilt = await attachScenePrompts(record.project, drafts, getPlanningProvider(), {
+      cast,
+      visualBible: record.storyboard.visualBible,
+      plans: {
+        worldBible: record.worldBible,
+        directorialPlan: record.directorialPlan,
+        cinematographyPlan: record.cinematographyPlan,
+        artDirectionPlan: record.artDirectionPlan,
+      },
+    });
+
+    const updated: ProjectRecord = {
+      ...record,
+      storyboard: { ...record.storyboard, scenes: rebuilt },
+      project: { ...record.project, updatedAt: new Date().toISOString() },
+      history: appendHistory(
+        record,
+        "scene.prompts_rewritten",
+        `All ${rebuilt.length} scenes`,
+      ),
+    };
+
+    await repository.update(id, updated);
+    logEvent("project.updated", { id, change: "all_scene_prompts_rewritten" });
+    return updated;
+  });
+}
+
+/**
  * Set or clear the costume changes at one scene.
  *
  * A change takes effect from this scene onward, so editing one rewrites what

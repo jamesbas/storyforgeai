@@ -276,6 +276,28 @@ export default function HelpPage() {
           </p>
           <DocList docs={RESOLUTION_DOCS} />
 
+          <h3 className={h3}>Changing the video model after the storyboard exists</h3>
+          <p className={p}>
+            Clip prompts are written for a specific model family, at the moment the prompt agents
+            run. LTX wants four to eight sentences; MiniMax H3 wants 350 to 500 words, its own
+            camera vocabulary, and the soundtrack split into ambience and score. Swap the pinned
+            video model afterwards and every existing prompt is still phrased for the old one.
+          </p>
+          <p className={p}>
+            Nothing fails when that happens, which is the problem — the clip renders, it is just
+            worse than it should be. So the Storyboard screen watches for it: when the prompts were
+            written for a different family than the project now renders on, it says so and offers{" "}
+            <strong>Rewrite all scenes&apos; prompts</strong>. That re-runs the two prompt agents
+            against the scene cards you already have, so the story, the shot list and the cards
+            survive and only the wording changes. Prompt text you typed by hand is replaced.
+          </p>
+          <p className={p}>
+            A single scene can be done on its own with <strong>Regenerate these prompts</strong> in
+            the scene card&apos;s Prompts panel. One thing the rewrite does not touch is clip
+            length: if the new model renders shorter clips than the old one, set that on the
+            project settings screen, which retimes every scene.
+          </p>
+
           <h3 className={h3}>How MiniMax H3 is given the shot</h3>
           <p className={p}>
             H3 comes in two variants that share a name and almost nothing else, and the project
