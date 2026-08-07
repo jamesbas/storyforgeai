@@ -14,8 +14,12 @@ import { MAX_SEGMENT_SECONDS, MIN_SEGMENT_SECONDS, RESOLUTION_PRESETS } from "@/
 import { RESOLUTION_DOCS } from "@/lib/presets";
 import { clampPreset, resolveResolution, videoResolutionCeiling } from "@/lib/wangp/resolution";
 import { clipLengthGuidance } from "@/lib/wangp/clip-length";
-import { FL2VA_ESTIMATE_MINUTES, ref2vaEstimateMinutes } from "@/lib/wangp/render-estimate";
-import { familyOf, type ModelFamily } from "@/lib/wangp/family";
+import {
+  ESTIMATE_HARDWARE,
+  FL2VA_ESTIMATE_MINUTES,
+  ref2vaEstimateMinutes,
+} from "@/lib/wangp/render-estimate";
+import { familyOf, isMinimaxFamily, type ModelFamily } from "@/lib/wangp/family";
 
 type ModelsResponse = { models: WangpModel[]; total: number };
 
@@ -305,7 +309,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           choice?.video,
         )}
 
-        {h3Fl2va || h3Ref2va ? (
+        {isMinimaxFamily(videoFamily) && (h3Fl2va || h3Ref2va) ? (
           <div className="space-y-2 rounded-md border border-white/10 bg-canvas/40 p-3">
             <h4 className="text-sm font-semibold">How MiniMax H3 is given the shot</h4>
             <label className="flex items-start gap-2 text-xs text-slate-300">
@@ -334,13 +338,17 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
               />
               <span>
                 <strong>Reference mode</strong> — about {ref2vaEstimateMinutes(castSize)} min per
-                clip with {castSize === 1 ? "1 character" : `${castSize} characters`} in the scene.
-                Holds each pinned character&apos;s face for the whole clip, not just at its two
-                ends. Costs roughly 5 more minutes per character, and clips are capped at{" "}
-                {clipLengthGuidance("minimax_ref2va")?.recommendedSeconds}s.
+                clip with {castSize === 1 ? "1 character" : `${castSize} characters`}{" "}
+                in the scene. Holds each pinned character&apos;s face for the whole clip, not just
+                at its two ends. Costs roughly 5 more minutes per character, and clips are capped
+                at {clipLengthGuidance("minimax_ref2va")?.recommendedSeconds}s.
                 {h3Ref2va ? "" : " No reference-mode checkpoint is installed."}
               </span>
             </label>
+            <p className="text-[11px] text-slate-500">
+              Times measured on {ESTIMATE_HARDWARE} at 848×480. Yours will differ — the ratio
+              between the two is the part that travels.
+            </p>
           </div>
         ) : null}
 

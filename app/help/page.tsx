@@ -11,6 +11,7 @@ import {
   TONE_PRESETS,
   type PresetOption,
 } from "@/lib/presets";
+import { ESTIMATE_HARDWARE } from "@/lib/wangp/render-estimate";
 
 export const metadata = {
   title: "Help · StoryForgeAI",
@@ -306,6 +307,12 @@ export default function HelpPage() {
             about 6 with little visible loss. On reference mode the same LoRA finishes in four
             minutes and scatters the referenced face onto several people, which is the one thing
             that tier exists to prevent.
+          </p>
+          <p className={p}>
+            Every time quoted above was measured on {ESTIMATE_HARDWARE} at 848×480, and yours will
+            differ — a faster card moves all of them together. What travels between machines is the
+            ratio: reference mode costs roughly three times first-and-last-frame, and each extra
+            character adds about a third again.
           </p>
 
           <h3 className={h3}>Creative mode</h3>

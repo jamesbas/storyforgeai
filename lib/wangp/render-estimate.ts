@@ -3,13 +3,19 @@
  *
  * Derived from live runs rather than guessed, because the number exists to stop
  * someone starting a nine-scene batch that will take four hours without knowing
- * it. Measured at 832x480 / 328 frames on one machine, so treat it as the shape
- * of the cost rather than a promise about anyone else's GPU.
+ * it. Measured at 832x480 / 328 frames on the machine named in
+ * `ESTIMATE_HARDWARE`, which is why that string is shown wherever these numbers
+ * are: they are one workstation's figures, and the ratios between them travel
+ * better than the absolute values do.
  *
  * Ref2VA's cost is per *reference*, not per pixel: downscaling an identity
  * photograph by roughly 8x in area changed a 28:59 render to 28:56. Everything
  * shares one packed multimodal sequence, and each image lengthens it.
  */
+
+/** The workstation every figure here was measured on. */
+export const ESTIMATE_HARDWARE =
+  "Intel Core 9, 64 GB RAM, RTX 5070 Ti 16 GB";
 
 /** Fixed cost before any reference is encoded. */
 const REF2VA_BASE_MINUTES = 8;
