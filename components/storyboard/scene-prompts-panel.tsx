@@ -181,16 +181,6 @@ export function ScenePromptsPanel({
         </p>
       ) : null}
 
-      {videoFamily === "minimax_ref2va" ? (
-        <p className="mt-2 rounded-md border border-white/10 bg-canvas/40 px-3 py-2 text-[11px] text-slate-400">
-          Reference mode wraps the video prompt at generation. What reaches WanGP is this text
-          inside MiniMax&apos;s labelled structure, with lines naming each reference picture — the
-          two keyframes and one photograph per character in the scene — built from the cast. Those
-          lines are derived, not stored, so they are not editable here. Everything else about this
-          prompt is sent as written.
-        </p>
-      ) : null}
-
       <div className="mt-2 space-y-3">
         {FIELDS.map((field) => {
           const words = triggerWords?.[field.kind] ?? [];
@@ -199,36 +189,52 @@ export function ScenePromptsPanel({
             ? []
             : words.filter((w) => !new RegExp(`\\b${escapeRegExp(w)}\\b`, "i").test(draft[field.key]));
           const notes = lintField(field.key, draft[field.key], scene);
+          // Placed against the field it describes: reference mode reshapes the
+          // clip prompt and nothing else, so a note at the top of the panel
+          // reads as though it applied to the keyframes too.
+          const wrapped = field.key === "videoPromptSegment" && videoFamily === "minimax_ref2va";
 
           return (
-            <label key={field.key} className="block space-y-1">
-              <span className="text-[11px] uppercase tracking-wide text-slate-500">
-                {field.label}
-              </span>
-              <textarea
-                rows={field.rows}
-                disabled={disabled}
-                value={draft[field.key]}
-                onChange={(e) =>
-                  setDraft((current) => ({ ...current, [field.key]: e.target.value }))
-                }
-                className="w-full rounded-md border border-white/10 bg-canvas px-3 py-2 text-sm leading-relaxed outline-none focus:border-accent disabled:opacity-60"
-              />
-              {notes.length ? (
-                <ul data-testid="prompt-lint" className="space-y-0.5">
-                  {notes.map((note) => (
-                    <li key={note} className="text-[10px] text-amber-300/90">
-                      Warning: {note}
-                    </li>
-                  ))}
-                </ul>
+            <div key={field.key} className="space-y-1">
+              {wrapped ? (
+                <p className="rounded-md border border-white/10 bg-canvas/40 px-3 py-2 text-[11px] text-slate-400">
+                  <strong className="text-slate-300">Reference mode reshapes this at generation.</strong>{" "}
+                  What reaches WanGP is this text inside MiniMax&apos;s six labelled sections, led
+                  by lines naming each reference picture — the two keyframes, then one photograph
+                  per character in the scene. Those lines are built from the cast at render time
+                  rather than stored, because the cast can change after a prompt is written; they
+                  are not editable here. The prose below is sent as you write it.
+                </p>
               ) : null}
-              {pending.length ? (
-                <span className="block text-[10px] text-amber-300/80">
-                  LoRA trigger words appended at generation: {pending.join(", ")}
+              <label className="block space-y-1">
+                <span className="text-[11px] uppercase tracking-wide text-slate-500">
+                  {field.label}
                 </span>
-              ) : null}
-            </label>
+                <textarea
+                  rows={field.rows}
+                  disabled={disabled}
+                  value={draft[field.key]}
+                  onChange={(e) =>
+                    setDraft((current) => ({ ...current, [field.key]: e.target.value }))
+                  }
+                  className="w-full rounded-md border border-white/10 bg-canvas px-3 py-2 text-sm leading-relaxed outline-none focus:border-accent disabled:opacity-60"
+                />
+                {notes.length ? (
+                  <ul data-testid="prompt-lint" className="space-y-0.5">
+                    {notes.map((note) => (
+                      <li key={note} className="text-[10px] text-amber-300/90">
+                        Warning: {note}
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                {pending.length ? (
+                  <span className="block text-[10px] text-amber-300/80">
+                    LoRA trigger words appended at generation: {pending.join(", ")}
+                  </span>
+                ) : null}
+              </label>
+            </div>
           );
         })}
 
