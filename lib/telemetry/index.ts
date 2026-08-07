@@ -44,6 +44,8 @@ export type TelemetryEvent =
   | "wangp.reference_images.trimmed"
   | "wangp.negative.folded"
   | "wangp.h3_format.applied"
+  | "wangp.ref2va.composed"
+  | "wangp.ref2va.short_prompt"
   | "wangp.steps.resolved"
   | "wangp.resolution.resolved"
   | "wangp.resolution.clamped"

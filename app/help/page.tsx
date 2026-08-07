@@ -275,6 +275,39 @@ export default function HelpPage() {
           </p>
           <DocList docs={RESOLUTION_DOCS} />
 
+          <h3 className={h3}>How MiniMax H3 is given the shot</h3>
+          <p className={p}>
+            H3 comes in two variants that share a name and almost nothing else, and the project
+            settings screen offers them as a choice when both are installed.
+          </p>
+          <p className={p}>
+            <strong>First and last frame</strong> is the default. The two keyframes are pinned to
+            the opening and closing moments and the model generates the path between them. It is
+            the faster of the two and it can render longer clips. What it cannot do is stop a face
+            drifting <em>between</em> those two points: a character can leave the start frame
+            correct, deform through the middle of the shot, and arrive correct again at the end.
+            Swapping the face on the keyframes does not help, because the keyframes were never the
+            problem.
+          </p>
+          <p className={p}>
+            <strong>Reference mode</strong> is the lever against exactly that. It hands the model
+            the same two frames as references rather than as anchors, alongside one photograph of
+            each character in the shot, and the likeness holds for the whole clip. It costs roughly
+            three times as much time — about 20 minutes for one character, and five more for each
+            additional one — and clips are capped at 14 seconds, because this variant renders in a
+            single pass with no stitching. It needs both keyframes: with only one, there is nothing
+            holding the composition and the shot is refused rather than rendered from the prompt
+            alone. Scenes are limited to three characters, and a fourth is reported rather than
+            quietly dropped.
+          </p>
+          <p className={p}>
+            Accelerator LoRAs are worth having on the first variant and worth avoiding on the
+            second. The 4-step turbo LoRA takes a first-and-last-frame clip from about 17 minutes to
+            about 6 with little visible loss. On reference mode the same LoRA finishes in four
+            minutes and scatters the referenced face onto several people, which is the one thing
+            that tier exists to prevent.
+          </p>
+
           <h3 className={h3}>Creative mode</h3>
           <p className={p}>
             The format you are making. Its definition below is handed to the Story Architect and

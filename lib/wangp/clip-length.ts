@@ -11,22 +11,33 @@ export type ClipLengthGuidance = {
    * configurable nor visible, unlike a seam between two scenes.
    */
   singleWindowSeconds: number;
+  /**
+   * A frame count the model cannot exceed at all, as opposed to one past which
+   * it stitches. Only set where the variant has no sliding-window support, so
+   * there is no longer clip to be had at any quality.
+   */
+  maxFrames?: number;
 };
 
 /**
  * Per-family clip-length advice.
  *
- * Advice, not a limit: every model here will render longer than
- * `singleWindowSeconds`. The numbers exist so the operator is choosing rather
- * than discovering.
+ * Advice, not a limit — except where `maxFrames` says otherwise. Every model
+ * here will render longer than `singleWindowSeconds`. The numbers exist so the
+ * operator is choosing rather than discovering.
  *
  * MiniMax H3's FL2VA variants report `sliding_window_size: 362` at a native
  * 24fps, which is 15.1s — so StoryForge's own 20s default already crosses it.
- * 15s is recommended to sit just inside. (Ref2VA reports 124 frames, but it
- * takes no start or end frame and is not a model this pipeline can drive.)
+ * 15s is recommended to sit just inside.
+ *
+ * Ref2VA is the exception, and the reason `maxFrames` exists: Wan2GP's own
+ * documentation states it supports no sliding windows, so its 337-frame ceiling
+ * is where the clip stops rather than where stitching begins. At 24fps that is
+ * 14.04s, and 14 is recommended to land inside it after 8-frame alignment.
  */
 const GUIDANCE: Partial<Record<ModelFamily, ClipLengthGuidance>> = {
   minimax: { recommendedSeconds: 15, singleWindowSeconds: 15 },
+  minimax_ref2va: { recommendedSeconds: 14, singleWindowSeconds: 14, maxFrames: 337 },
 };
 
 export function clipLengthGuidance(family: ModelFamily): ClipLengthGuidance | undefined {

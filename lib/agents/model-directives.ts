@@ -1,4 +1,4 @@
-import type { ModelFamily } from "@/lib/wangp/family";
+import { isMinimaxFamily, type ModelFamily } from "@/lib/wangp/family";
 
 /**
  * Per-family prompt rules for the Image and Video Prompt Agents.
@@ -86,6 +86,7 @@ export function videoPromptDirective(
           : "")
       );
     case "minimax":
+    case "minimax_ref2va":
       return (
         " This clip renders on MiniMax H3 in first-and-last-frame mode: the two keyframes are " +
         "pinned to the opening and closing moments and the model generates the path between " +
@@ -156,5 +157,5 @@ export function videoPromptDirective(
  * mode. Adding a family here is the cost of that.
  */
 export function hasNativeAudio(family: ModelFamily): boolean {
-  return family === "ltx" || family === "minimax";
+  return family === "ltx" || isMinimaxFamily(family);
 }

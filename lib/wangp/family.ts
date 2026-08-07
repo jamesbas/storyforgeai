@@ -9,8 +9,29 @@ import type { WangpModel } from "@/lib/schemas/wangp";
  * its own Diffusers example; Wan asks for motion and camera and little else;
  * LTX generates audio from the same prompt that drives the picture. Sending one
  * undifferentiated prompt to all of them means writing for none of them.
+ *
+ * MiniMax H3 is split because its two variants share a lineage and almost
+ * nothing else. `minimax` is the keyframe side — FL2VA and its one-ended
+ * relatives — which takes `image_start` / `image_end` positionally, supports
+ * sliding windows and accepts accelerator LoRAs. `minimax_ref2va` takes
+ * `image_refs` instead, has no sliding windows at all, and is destroyed by the
+ * same accelerator. A single family value would have to be wrong about one of
+ * them at every decision point.
  */
-export type ModelFamily = "flux" | "qwen" | "wan" | "ltx" | "krea" | "minimax" | "unknown";
+export type ModelFamily =
+  | "flux"
+  | "qwen"
+  | "wan"
+  | "ltx"
+  | "krea"
+  | "minimax"
+  | "minimax_ref2va"
+  | "unknown";
+
+/** Both H3 variants, for the traits the lineage really does share. */
+export function isMinimaxFamily(family: ModelFamily): boolean {
+  return family === "minimax" || family === "minimax_ref2va";
+}
 
 /** Longest tokens first, so `ltxv` is not mistaken for something shorter. */
 const FAMILY_TOKENS: ReadonlyArray<readonly [ModelFamily, readonly string[]]> = [
@@ -32,7 +53,10 @@ const FAMILY_TOKENS: ReadonlyArray<readonly [ModelFamily, readonly string[]]> = 
 export function familyOf(modelType: string | undefined, declared?: string): ModelFamily {
   const haystack = `${declared ?? ""} ${modelType ?? ""}`.toLocaleLowerCase();
   for (const [family, tokens] of FAMILY_TOKENS) {
-    if (tokens.some((token) => haystack.includes(token))) return family;
+    if (!tokens.some((token) => haystack.includes(token))) continue;
+    // Anchored to the H3 lineage rather than matched on its own, so a `ref2va`
+    // appearing in some unrelated checkpoint name cannot claim the variant.
+    return family === "minimax" && haystack.includes("ref2va") ? "minimax_ref2va" : family;
   }
   return "unknown";
 }
@@ -58,5 +82,5 @@ export function familyOfModel(model: Pick<WangpModel, "modelType" | "metadata">)
  * harmlessly, whereas dropping it from one that does would lose the constraint.
  */
 export function supportsNegativePrompt(family: ModelFamily): boolean {
-  return family !== "flux" && family !== "krea" && family !== "minimax";
+  return family !== "flux" && family !== "krea" && !isMinimaxFamily(family);
 }

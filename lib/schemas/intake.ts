@@ -80,6 +80,8 @@ export const updateProjectModelsSchema = z.object({
   resolutionPreset: z.enum(RESOLUTION_PRESETS).optional(),
   /** Clip frame quality, when it should differ from the keyframes. */
   videoResolutionPreset: z.enum(RESOLUTION_PRESETS).optional(),
+  /** Which MiniMax H3 variant clips render on. See `projectSchema.videoTier`. */
+  videoTier: z.enum(["fl2va", "ref2va"]).optional(),
   /**
    * Clip length. Editable after creation because the video model is, and a
    * model pinned later can want a different length than the one chosen at

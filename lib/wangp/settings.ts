@@ -57,6 +57,22 @@ export type ManifestOverrides = {
   /** Audio models: clip length in seconds. Video: segment length for frame maths. */
   durationSeconds?: number;
   /**
+   * A hard ceiling on `video_length`, for variants with no sliding-window
+   * support. No H3 variant publishes field bounds, so nothing in the schema
+   * will stop an over-long request — it is accepted and then fails or truncates
+   * at render time.
+   */
+  maxFrames?: number;
+  /**
+   * WanGP's step-skipping cache (`skip_steps_cache_type`), e.g. `"spectrum"`.
+   *
+   * Only ever set alongside the model's full step count. The one run that
+   * appeared to show it degrading a clip's tail was confounded by a step count
+   * left over from LoRA testing; under-denoising looks identical and is what
+   * `resolveSteps` exists to prevent.
+   */
+  skipStepsCacheType?: string;
+  /**
    * Post-generation upscaler (WanGP `spatial_upsampling`). Not a declared
    * field on any model, so it is written straight onto the settings when the
    * model carries one — the same treatment `batch_size` needs.
@@ -188,7 +204,20 @@ export function buildSettingsManifest(
     let frames = frameCountForFps(fps, overrides.durationSeconds ?? SEGMENT_SECONDS);
     if (lengthField?.min !== undefined) frames = Math.max(lengthField.min, frames);
     if (lengthField?.max !== undefined) frames = Math.min(lengthField.max, frames);
+    if (overrides.maxFrames !== undefined) frames = Math.min(overrides.maxFrames, frames);
     settings.video_length = frames;
+  }
+
+  // Written directly rather than through `setIf`, and deliberately.
+  //
+  // Ref2VA offers Spectrum in the WanGP UI while declaring it in neither
+  // `fields` nor `defaultSettings`, so both `setIf` and the `in defaultSettings`
+  // guard used for `spatial_upsampling` would drop it in silence and the job
+  // would simply run 1.45x slower with nothing to point at. Writing it
+  // unconditionally is safe because `wgp.py` validates the value and returns an
+  // explicit error for a type the model does not support — a loud failure.
+  if (overrides.skipStepsCacheType !== undefined) {
+    settings.skip_steps_cache_type = overrides.skipStepsCacheType;
   }
 
   // Refuse rather than quietly render a text-to-video clip.

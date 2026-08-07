@@ -73,6 +73,20 @@ export const projectSchema = z.object({
   imageModel: z.string().optional(),
   videoModel: z.string().optional(),
   /**
+   * Which MiniMax H3 variant a clip renders on.
+   *
+   * Not a second model pin — `videoModel` already names the checkpoint. This
+   * selects which of H3's two variants that pin resolves within, because they
+   * take their conditioning in incompatible ways: `fl2va` pins the two
+   * keyframes positionally, `ref2va` supplies them as references alongside each
+   * pinned character's photograph and holds identity for the whole clip rather
+   * than only at its two ends.
+   *
+   * Absent means `fl2va`. Ref2VA costs roughly three times as much per clip and
+   * caps at 14 seconds, so it is chosen rather than inferred.
+   */
+  videoTier: z.enum(["fl2va", "ref2va"]).optional(),
+  /**
    * Denoising steps per pinned model. Absent means the count is derived from
    * the model and its LoRA stack — see `resolveSteps`. Set one only to overrule
    * that, because a wrong step count is the difference between a clean frame

@@ -14,7 +14,8 @@ import { MAX_SEGMENT_SECONDS, MIN_SEGMENT_SECONDS, RESOLUTION_PRESETS } from "@/
 import { RESOLUTION_DOCS } from "@/lib/presets";
 import { clampPreset, resolveResolution, videoResolutionCeiling } from "@/lib/wangp/resolution";
 import { clipLengthGuidance } from "@/lib/wangp/clip-length";
-import { familyOf } from "@/lib/wangp/family";
+import { FL2VA_ESTIMATE_MINUTES, ref2vaEstimateMinutes } from "@/lib/wangp/render-estimate";
+import { familyOf, type ModelFamily } from "@/lib/wangp/family";
 
 type ModelsResponse = { models: WangpModel[]; total: number };
 
@@ -88,6 +89,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
     async (patch: {
       imageModel?: string;
       videoModel?: string;
+      videoTier?: "fl2va" | "ref2va";
       imageSteps?: number | null;
       videoSteps?: number | null;
       resolutionPreset?: ResolutionPreset;
@@ -140,6 +142,22 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
   );
   const videoCeiling = videoResolutionCeiling(videoFamily);
   const clipAdvice = clipLengthGuidance(videoFamily);
+
+  // The tier is offered only where a checkpoint exists to serve it, and only
+  // where WanGP says the weights are actually present: an unavailable model
+  // renders nothing until it has downloaded tens of gigabytes (FR-10).
+  const h3Of = (family: ModelFamily) =>
+    videoModels.find(
+      (m) =>
+        familyOf(m.modelType, m.metadata.family) === family &&
+        (m.metadata.availability ?? "available") === "available",
+    );
+  const h3Fl2va = h3Of("minimax");
+  const h3Ref2va = h3Of("minimax_ref2va");
+  // Scene casts vary; the project's opted-in cast is the only count available
+  // here, held at the per-scene cap so the estimate cannot promise less than
+  // the renderer will refuse.
+  const castSize = Math.min(usesCharacters ? project.characterIds?.length ?? 1 : 1, 3);
   const videoPreset = project.videoResolutionPreset ?? project.resolutionPreset;
   const pendingClip = clipSeconds ?? project.segmentSeconds;
 
@@ -244,6 +262,45 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
         {picker("Video model (clips)", project.videoModel, videoModels, counts.video, (next) =>
           save({ videoModel: next }),
         )}
+
+        {h3Fl2va || h3Ref2va ? (
+          <div className="space-y-2 rounded-md border border-white/10 bg-canvas/40 p-3">
+            <h4 className="text-sm font-semibold">How MiniMax H3 is given the shot</h4>
+            <label className="flex items-start gap-2 text-xs text-slate-300">
+              <input
+                type="radio"
+                name="video-tier"
+                className="mt-0.5 accent-accent"
+                disabled={busy || !h3Fl2va}
+                checked={project.videoTier !== "ref2va"}
+                onChange={() => save({ videoTier: "fl2va", videoModel: h3Fl2va?.modelType })}
+              />
+              <span>
+                <strong>First and last frame</strong> — about {FL2VA_ESTIMATE_MINUTES} min per clip.
+                The two keyframes are pinned to the opening and closing moments and the model
+                generates the path between them.
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-xs text-slate-300">
+              <input
+                type="radio"
+                name="video-tier"
+                className="mt-0.5 accent-accent"
+                disabled={busy || !h3Ref2va}
+                checked={project.videoTier === "ref2va"}
+                onChange={() => save({ videoTier: "ref2va", videoModel: h3Ref2va?.modelType })}
+              />
+              <span>
+                <strong>Reference mode</strong> — about {ref2vaEstimateMinutes(castSize)} min per
+                clip with {castSize === 1 ? "1 character" : `${castSize} characters`} in the scene.
+                Holds each pinned character&apos;s face for the whole clip, not just at its two
+                ends. Costs roughly 5 more minutes per character, and clips are capped at{" "}
+                {clipLengthGuidance("minimax_ref2va")?.recommendedSeconds}s.
+                {h3Ref2va ? "" : " No reference-mode checkpoint is installed."}
+              </span>
+            </label>
+          </div>
+        ) : null}
 
         {usesCharacters ? (
           <div className="space-y-2 rounded-md border border-white/10 bg-canvas/40 p-3">

@@ -19,6 +19,15 @@ import {
   stripH3Envelope,
   usesH3PromptFormat,
 } from "@/lib/agents/h3-prompt";
+import {
+  H3_REFERENCE_MIN_WORDS,
+  countWords,
+  renderH3ReferencePrompt,
+  stripH3ReferencePrompt,
+  usesH3ReferenceFormat,
+  type H3ReferenceSubject,
+} from "@/lib/agents/h3-reference-prompt";
+import { clipLengthGuidance } from "@/lib/wangp/clip-length";
 import { resolveSteps } from "@/lib/wangp/steps";
 import { resolveResolution, stepFloorFor, clampPreset, videoResolutionCeiling } from "@/lib/wangp/resolution";
 import { appendTriggerWords, catalogForModel, reconcileLoras } from "@/lib/services/lora-service";
@@ -171,7 +180,7 @@ function routeH3Format(
   const family = familyOfModel(model);
   const wanted = config.flags.h3NativePromptFormat && usesH3PromptFormat(family);
   if (!wanted) {
-    const plain = stripH3Envelope(prompt);
+    const plain = stripH3Envelope(stripH3ReferencePrompt(prompt));
     // Dropping the layers here would leave H3 writing a soundtrack from no
     // direction at all, because its directive keeps them out of the timeline.
     return usesH3PromptFormat(family)
@@ -196,6 +205,80 @@ function routeH3Format(
     hasStart,
     hasEnd,
   });
+}
+
+/**
+ * A character whose face this clip has to hold, and the photograph that fixes it.
+ */
+export type CastReference = {
+  name: string;
+  description?: string;
+  /** Absolute path, readable by the WanGP process. */
+  imagePath: string;
+};
+
+/**
+ * How many characters one Ref2VA scene may pin.
+ *
+ * Every reference lengthens the same packed multimodal sequence, and the
+ * measured cost is roughly seven minutes each: three characters is already a
+ * thirty-minute clip. The cap is a refusal rather than a trim because quietly
+ * dropping a character produces a clip where someone's face is simply wrong,
+ * which looks like the model failing rather than a limit being hit.
+ */
+const REF2VA_MAX_CHARACTERS = 3;
+
+/** WanGP's step-skipping cache. Measured at 1.45x on Ref2VA with no visible cost. */
+const REF2VA_CACHE = "spectrum";
+
+/**
+ * Build the reference list and the subjects that name it.
+ *
+ * Order is the contract (FR-3): start frame, end frame, then one photograph per
+ * character. WanGP emits `<Picture N>` in exactly this order and the prompt
+ * refers to those numbers, so a reordering here silently re-labels every
+ * reference in the prose.
+ */
+function composeRef2vaReferences(
+  args: { imageStart?: string; imageEnd?: string; cast?: readonly CastReference[] },
+  context: { sceneId: string; purpose: string },
+): { imageRefs: string[]; subjects: H3ReferenceSubject[] } {
+  // Both anchors, or none of this works. Ref2VA has no positional first frame —
+  // the role is asserted in prose — and a live run with only a start frame lost
+  // the composition entirely and pushed the referenced character into the
+  // background. Falling back to FL2VA is the caller's decision, not ours.
+  if (!args.imageStart || !args.imageEnd) {
+    throw new ValidationError(
+      "Reference mode needs both a start and an end frame: with only one anchor the model has " +
+        "nothing holding the composition and renders the shot from the prompt alone. Render both " +
+        "keyframes, or switch this project to first-and-last-frame mode.",
+    );
+  }
+
+  const cast = args.cast ?? [];
+  if (cast.length > REF2VA_MAX_CHARACTERS) {
+    throw new ValidationError(
+      `Reference mode holds at most ${REF2VA_MAX_CHARACTERS} characters per scene, and this one ` +
+        `pins ${cast.length}. Each adds about seven minutes to the clip. Reduce the cast in this ` +
+        "scene, or switch this project to first-and-last-frame mode.",
+    );
+  }
+
+  const imageRefs = [args.imageStart, args.imageEnd, ...cast.map((member) => member.imagePath)];
+  const subjects = cast.map((member, index) => ({
+    name: member.name,
+    description: member.description,
+    // Two anchors occupy pictures 1 and 2, so the cast starts at 3.
+    pictureIndex: index + 3,
+  }));
+
+  logEvent("wangp.ref2va.composed", {
+    ...context,
+    referenceCount: imageRefs.length,
+    characterCount: cast.length,
+  });
+
+  return { imageRefs, subjects };
 }
 
 /**
@@ -225,6 +308,12 @@ export async function buildVideoManifest(args: {
   /** Ambience and audience-only score, for the families that field them apart. */
   soundscape?: string;
   score?: string;
+  /**
+   * Characters whose identity this clip must hold throughout, with their
+   * photographs. Only consumed by the reference variant; the keyframe variants
+   * inherit identity from the two frames and are sent none.
+   */
+  cast?: readonly CastReference[];
 }): Promise<WangpGenerationSettings> {
   const client = getWangpClient();
   const videoModels = await client.listModels("video");
@@ -244,12 +333,40 @@ export async function buildVideoManifest(args: {
     context,
   );
 
-  const prompt = routeH3Format(model, routed.prompt, args, context);
+  const family = familyOfModel(model);
+
+  // Reference mode replaces the keyframe pathway rather than adding to it: this
+  // checkpoint declares no image_start or image_end at all, so the two frames
+  // have to travel as references or not at all.
+  const reference = usesH3ReferenceFormat(family)
+    ? composeRef2vaReferences(args, context)
+    : undefined;
+
+  const prompt = reference
+    ? renderH3ReferencePrompt({
+        body: stripH3Envelope(routed.prompt),
+        subjects: reference.subjects,
+        hasStart: true,
+        hasEnd: true,
+        soundscape: args.soundscape,
+        score: args.score,
+      })
+    : routeH3Format(model, routed.prompt, args, context);
+
+  if (reference && countWords(routed.prompt) < H3_REFERENCE_MIN_WORDS) {
+    // Not padded to reach the floor: length has to come from describing more
+    // closely, and the only thing a renderer could add is filler.
+    logEvent("wangp.ref2va.short_prompt", {
+      ...context,
+      words: countWords(routed.prompt),
+      floor: H3_REFERENCE_MIN_WORDS,
+    });
+  }
 
   // A heavy model can make its own quality preset impractical, so the request
   // is held at the model's ceiling. Only ever downward — see `clampPreset`.
   const requested = args.frame?.resolutionPreset ?? "standard";
-  const ceiling = videoResolutionCeiling(familyOfModel(model));
+  const ceiling = videoResolutionCeiling(family);
   const preset = clampPreset(requested, ceiling);
   const clamped = preset !== requested;
   if (clamped) {
@@ -273,12 +390,25 @@ export async function buildVideoManifest(args: {
     purpose: "video_segment",
     prompt,
     negativePrompt: routed.negativePrompt,
-    imageStart: args.imageStart,
-    imageEnd: args.imageEnd,
+    imageStart: reference ? undefined : args.imageStart,
+    imageEnd: reference ? undefined : args.imageEnd,
+    imageRefs: reference?.imageRefs,
+    // The first reference is the opening frame, not a person, and WanGP's
+    // reference group distinguishes the two by letter: "KI" says the first is
+    // the main subject or landscape. Sending "I" here would offer a composition
+    // as though it were a face.
+    imageRefsLeadWithScene: reference ? true : undefined,
     videoSource: args.videoSource,
     loras,
     fps: args.fps ?? config.defaults.fps,
     durationSeconds: args.durationSeconds,
+    // A hard stop rather than a stitch point: this variant has no sliding
+    // windows, so there is no longer clip to be had at any quality.
+    maxFrames: clipLengthGuidance(family)?.maxFrames,
+    // Only ever alongside the model's full step count — see FR-5d. `stepsFor`
+    // below is what guarantees that, which is why this is not offered as a
+    // speed/quality trade the caller can get wrong.
+    skipStepsCacheType: reference ? REF2VA_CACHE : undefined,
     resolution: resolutionFor(schema, frame, { ...context, modelType: model.modelType }),
     // Rendering small is only half of the low-resolution strategy; without the
     // upscale it is just a small clip. WanGP holds this as saved UI state, so

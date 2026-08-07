@@ -256,6 +256,7 @@ export async function updateProjectModels(id: string, raw: unknown): Promise<Pro
       qcEnabled: patch.qcEnabled ?? record.project.qcEnabled,
       resolutionPreset: patch.resolutionPreset ?? record.project.resolutionPreset,
       videoResolutionPreset: patch.videoResolutionPreset ?? record.project.videoResolutionPreset,
+      videoTier: patch.videoTier ?? record.project.videoTier,
       ...resegment(record, patch.segmentSeconds),
       sceneContinuity: patch.sceneContinuity ?? record.project.sceneContinuity,
       characterWardrobe: patch.characterWardrobe ?? record.project.characterWardrobe,

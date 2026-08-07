@@ -116,6 +116,7 @@ export function clampPreset(
  */
 const VIDEO_CEILINGS: Partial<Record<ModelFamily, ResolutionPreset>> = {
   minimax: "draft",
+  minimax_ref2va: "draft",
 };
 
 export function videoResolutionCeiling(family: ModelFamily): ResolutionPreset | undefined {

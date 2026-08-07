@@ -4,7 +4,7 @@ import type { SceneAttempt } from "@/lib/schemas/generation";
 import { repository } from "@/lib/db/store";
 import { getProjectRecord } from "@/lib/services/project-service";
 import { buildImageManifest, buildVideoManifest, runToCompletion } from "@/lib/services/wangp-service";
-import type { FrameOptions } from "@/lib/services/wangp-service";
+import type { CastReference, FrameOptions } from "@/lib/services/wangp-service";
 import { resolveSceneLoras } from "@/lib/services/lora-service";
 import { faceSwapSubject, swapFace } from "@/lib/services/face-swap-service";
 import { referenceImagesOf } from "@/lib/schemas/character";
@@ -93,6 +93,33 @@ function referenceImagePathsOf(cast: readonly Character[]): string[] {
     .flatMap((character) => referenceImagesOf(character))
     .map((filename) => resolveReferenceImagePath(filename))
     .filter((filePath): filePath is string => filePath !== null);
+}
+
+/**
+ * The cast of one shot, each with the single photograph that fixes their face.
+ *
+ * One photograph per character, not all of them: on the reference variant every
+ * image lengthens the same packed sequence at roughly seven minutes each, and a
+ * second photo of the same person was measured as marginally better identity
+ * for that whole cost. The written description travels alongside so the prompt
+ * can name who each reference *is*, which is the only thing telling the model
+ * that picture 3 is a person rather than another composition to reproduce.
+ */
+async function resolveCastSubjects(
+  record: ProjectRecord,
+  scene: Scene,
+): Promise<CastReference[]> {
+  if (record.project.useCharacterReferenceImages === false) return [];
+  const cast = await resolveProjectCast(record.project);
+  return charactersInScene(scene, cast)
+    .map((character): CastReference | null => {
+      const filename = referenceImagesOf(character)[0];
+      const imagePath = filename ? resolveReferenceImagePath(filename) : null;
+      return imagePath
+        ? { name: character.name, description: character.description, imagePath }
+        : null;
+    })
+    .filter((subject): subject is CastReference => subject !== null);
 }
 
 /** The face-swap target for one shot, or null when its subject is not in it. */
@@ -723,6 +750,7 @@ export async function generateProjectMediaPhased(
             durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
             soundscape: scene.prompts.videoSoundscape ?? scene.sfxNotes,
             score: scene.prompts.videoScore ?? scene.musicNotes,
+            cast: await castFor(record, scene),
           })
         : undefined;
       const videoJob = videoManifest
@@ -1053,6 +1081,7 @@ export async function regenerateSceneVideo(
     durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
     soundscape: scene.prompts.videoSoundscape ?? scene.sfxNotes,
     score: scene.prompts.videoScore ?? scene.musicNotes,
+    cast: await castFor(loaded, scene),
   });
   const job = await runToCompletion(manifest.settings);
 
@@ -1092,6 +1121,18 @@ export type SceneMediaOptions = {
    */
   onJobSubmitted?: (jobId: string) => Promise<void> | void;
 };
+
+/**
+ * The cast a clip has to carry, or nothing when the tier does not use one.
+ *
+ * Gated on the tier rather than resolved unconditionally: the keyframe variants
+ * inherit identity through `image_start` / `image_end` and are deliberately
+ * sent no references, so resolving the cast for them is work with nowhere to go.
+ */
+async function castFor(record: ProjectRecord, scene: Scene): Promise<CastReference[] | undefined> {
+  if (record.project.videoTier !== "ref2va") return undefined;
+  return resolveCastSubjects(record, scene);
+}
 
 export async function generateSceneMedia(
   projectId: string,
@@ -1186,6 +1227,7 @@ export async function generateSceneMedia(
         durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
         soundscape: scene.prompts.videoSoundscape ?? scene.sfxNotes,
         score: scene.prompts.videoScore ?? scene.musicNotes,
+        cast: await castFor(record, scene),
       })
     : undefined;
   const videoJob = videoManifest
