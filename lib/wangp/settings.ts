@@ -75,10 +75,10 @@ export type ManifestOverrides = {
   /**
    * WanGP's step-skipping cache (`skip_steps_cache_type`), e.g. `"spectrum"`.
    *
-   * Only ever set alongside the model's full step count. The one run that
-   * appeared to show it degrading a clip's tail was confounded by a step count
-   * left over from LoRA testing; under-denoising looks identical and is what
-   * `resolveSteps` exists to prevent.
+   * Applied only where the model publishes the control, and only ever alongside
+   * the model's full step count. A reduced step count with no accelerator
+   * active is the failure `resolveSteps` exists to prevent, and it looks
+   * identical to a cache set too aggressively.
    */
   skipStepsCacheType?: string;
   /**
@@ -221,15 +221,18 @@ export function buildSettingsManifest(
     settings.video_length = frames;
   }
 
-  // Written directly rather than through `setIf`, and deliberately.
+  // Only where the model has this control at all.
   //
-  // Ref2VA offers Spectrum in the WanGP UI while declaring it in neither
-  // `fields` nor `defaultSettings`, so both `setIf` and the `in defaultSettings`
-  // guard used for `spatial_upsampling` would drop it in silence and the job
-  // would simply run 1.45x slower with nothing to point at. Writing it
-  // unconditionally is safe because `wgp.py` validates the value and returns an
-  // explicit error for a type the model does not support — a loud failure.
-  if (overrides.skipStepsCacheType !== undefined) {
+  // This was written unconditionally on the reasoning that `wgp.py` validates
+  // the value and would fail loudly for a model that does not support it. That
+  // was wrong: a Ref2VA job accepted `"spectrum"` — a key absent from both its
+  // declared fields and its saved settings — and returned a clip bearing no
+  // relation to its prompt. An optimisation is never worth a silent risk of
+  // that, so it now follows the same rule as every other undeclared field.
+  if (
+    overrides.skipStepsCacheType !== undefined &&
+    (fieldNames.has("skip_steps_cache_type") || "skip_steps_cache_type" in schema.defaultSettings)
+  ) {
     settings.skip_steps_cache_type = overrides.skipStepsCacheType;
   }
 

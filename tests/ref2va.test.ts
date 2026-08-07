@@ -341,9 +341,11 @@ describe("the Ref2VA manifest", () => {
     expect(manifest.settings.video_prompt_type).toBe("");
   });
 
-  it("enables Spectrum, which the schema does not declare", async () => {
+  it("does not force a cache the model publishes no control for", async () => {
+    // Forcing "spectrum" onto a checkpoint that declares it nowhere produced a
+    // clip unrelated to its prompt, with no error to point at.
     const manifest = await ref2vaManifest();
-    expect(manifest.settings.skip_steps_cache_type).toBe("spectrum");
+    expect(manifest.settings.skip_steps_cache_type).toBeUndefined();
   });
 
   it("caps the clip where the variant stops", async () => {
