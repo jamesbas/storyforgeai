@@ -16,11 +16,11 @@ export const dynamic = "force-dynamic";
  */
 export async function GET(
   _request: Request,
-  { params }: { params: Promise<{ id: string }> },
+  { params }: { params: Promise<{ projectId: string }> },
 ) {
   try {
-    const { id } = await params;
-    const { project } = await getProjectRecord(id);
+    const { projectId } = await params;
+    const { project } = await getProjectRecord(projectId);
     const status = await getWangpStatus();
 
     const choice = status.ok
