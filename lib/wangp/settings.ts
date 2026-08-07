@@ -39,10 +39,9 @@ export type ManifestOverrides = {
   /**
    * Leave `video_prompt_type` at whatever the model ships with.
    *
-   * The letters are a WanGP convention, not a universal one, and a model can
-   * publish an empty default because it consumes `image_refs` directly. MiniMax
-   * H3's reference variant is that case: forcing "KI" onto it changed which
-   * picture the model treated as the opening frame.
+   * Rarely right. A model can publish an empty default simply because nothing
+   * has been saved against it in the WanGP UI, and an empty value means the
+   * reference images are ignored rather than that they are read plainly.
    */
   keepModelReferenceGroup?: boolean;
   /**
@@ -73,14 +72,15 @@ export type ManifestOverrides = {
    */
   maxFrames?: number;
   /**
-   * WanGP's step-skipping cache (`skip_steps_cache_type`), e.g. `"spectrum"`.
+   * WanGP's step-skipping cache, and the strength it runs at.
    *
-   * Applied only where the model publishes the control, and only ever alongside
-   * the model's full step count. A reduced step count with no accelerator
-   * active is the failure `resolveSteps` exists to prevent, and it looks
-   * identical to a cache set too aggressively.
+   * Both halves or neither. `skip_steps_multiplier` arrives from WanGP's saved
+   * state and is meaningless on its own, so a cache switched on beside an
+   * inherited multiplier is a lottery: 1.75 gave a clean clip in 20 minutes and
+   * the 0.08 sitting in the saved state skipped so much of the denoising that
+   * the model abandoned the prompt and produced generic animation in 8.
    */
-  skipStepsCacheType?: string;
+  stepSkipping?: { cacheType: string; multiplier: number; startStepPerc?: number };
   /**
    * Post-generation upscaler (WanGP `spatial_upsampling`). Not a declared
    * field on any model, so it is written straight onto the settings when the
@@ -221,19 +221,36 @@ export function buildSettingsManifest(
     settings.video_length = frames;
   }
 
-  // Only where the model has this control at all.
+  // One prompt, however many lines it has.
   //
-  // This was written unconditionally on the reasoning that `wgp.py` validates
-  // the value and would fail loudly for a model that does not support it. That
-  // was wrong: a Ref2VA job accepted `"spectrum"` — a key absent from both its
-  // declared fields and its saved settings — and returned a clip bearing no
-  // relation to its prompt. An optimisation is never worth a silent risk of
-  // that, so it now follows the same rule as every other undeclared field.
+  // `multi_prompts_gen_type` decides what a carriage return in the prompt
+  // means. WanGP's saved state for MiniMax H3 arrives as "PG", and a labelled
+  // multi-section prompt sent under it came back as a clip bearing no relation
+  // to any of its sections. A hand-made run of the same model that worked has
+  // "FG", so that is what a multi-line prompt is sent with. Written directly
+  // because it is saved UI state rather than a declared field, exactly like
+  // `batch_size`.
   if (
-    overrides.skipStepsCacheType !== undefined &&
-    (fieldNames.has("skip_steps_cache_type") || "skip_steps_cache_type" in schema.defaultSettings)
+    String(overrides.prompt).includes("\n") &&
+    "multi_prompts_gen_type" in schema.defaultSettings
   ) {
-    settings.skip_steps_cache_type = overrides.skipStepsCacheType;
+    settings.multi_prompts_gen_type = "FG";
+  }
+
+  // Written directly, because the MCP schema under-reports this one.
+  //
+  // Neither `skip_steps_cache_type` nor `skip_steps_multiplier` appears in the
+  // declared fields or the default settings for MiniMax H3, yet both are
+  // present in the metadata WanGP writes beside every render it makes of that
+  // model — so the controls exist and the schema simply does not mention them.
+  // The multiplier travels with the cache type for the reason given on the
+  // override: apart, the inherited value decides how much denoising is skipped.
+  if (overrides.stepSkipping) {
+    settings.skip_steps_cache_type = overrides.stepSkipping.cacheType;
+    settings.skip_steps_multiplier = overrides.stepSkipping.multiplier;
+    if (overrides.stepSkipping.startStepPerc !== undefined) {
+      settings.skip_steps_start_step_perc = overrides.stepSkipping.startStepPerc;
+    }
   }
 
   // Refuse rather than quietly render a text-to-video clip.

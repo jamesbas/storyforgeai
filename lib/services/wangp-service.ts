@@ -228,8 +228,18 @@ export type CastReference = {
  */
 const REF2VA_MAX_CHARACTERS = 3;
 
-/** WanGP's step-skipping cache. Measured at 1.45x on Ref2VA with no visible cost. */
-const REF2VA_CACHE = "spectrum";
+/**
+ * WanGP's step-skipping cache, at the strength a clean live run used.
+ *
+ * 28:56 -> 20:00 at 20 steps with no visible cost. The multiplier is not
+ * optional decoration: the same cache at the 0.08 WanGP had saved skipped so
+ * much of the denoising that the model dropped the prompt entirely.
+ */
+const REF2VA_STEP_SKIPPING = {
+  cacheType: "spectrum",
+  multiplier: 1.75,
+  startStepPerc: 25,
+} as const;
 
 /**
  * Build the reference list and the subjects that name it.
@@ -504,12 +514,11 @@ export async function buildVideoManifest(args: {
     imageStart: reference ? undefined : args.imageStart,
     imageEnd: reference ? undefined : args.imageEnd,
     imageRefs: reference?.imageRefs,
-    // H3's reference variant publishes an empty `video_prompt_type` and reads
-    // `image_refs` directly, so WanGP's letter groups are not its language.
-    // Writing "KI" onto it changed which picture the model took as the opening
-    // frame — a supplied start frame surfaced at the end of the clip and the
-    // opening was invented.
-    keepModelReferenceGroup: reference ? true : undefined,
+    // "I" — references are people and objects. Taken from the metadata WanGP
+    // wrote beside a hand-made Ref2VA render that came out correct, on this
+    // same checkpoint. "KI" moved which picture the model read as the opening
+    // frame, and an empty value had the references ignored altogether.
+    imageRefsLeadWithScene: reference ? false : undefined,
     videoSource: args.videoSource,
     loras,
     fps: args.fps ?? config.defaults.fps,
@@ -520,7 +529,7 @@ export async function buildVideoManifest(args: {
     // Only ever alongside the model's full step count — see FR-5d. `stepsFor`
     // below is what guarantees that, which is why this is not offered as a
     // speed/quality trade the caller can get wrong.
-    skipStepsCacheType: reference ? REF2VA_CACHE : undefined,
+    stepSkipping: reference ? REF2VA_STEP_SKIPPING : undefined,
     resolution: resolutionFor(schema, frame, { ...context, modelType: model.modelType }),
     // Rendering small is only half of the low-resolution strategy; without the
     // upscale it is just a small clip. WanGP holds this as saved UI state, so

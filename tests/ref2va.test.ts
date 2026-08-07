@@ -290,7 +290,12 @@ class Ref2vaClient extends MockWangpClient {
   async getModelSchema(modelType: string): Promise<WangpModelSchema> {
     return {
       modelType,
-      defaultSettings: { prompt: "", resolution: "832x480", video_prompt_type: "" },
+      defaultSettings: {
+        prompt: "",
+        resolution: "832x480",
+        video_prompt_type: "",
+        multi_prompts_gen_type: "PG",
+      },
       fields: [
         { name: "prompt", type: "string" },
         { name: "resolution", type: "string" },
@@ -333,19 +338,29 @@ describe("the Ref2VA manifest", () => {
     expect(manifest.settings.image_end).toBeUndefined();
   });
 
-  it("leaves the reference group at the model's own default", async () => {
-    // H3 Ref2VA ships `video_prompt_type: ""` and consumes image_refs directly.
-    // Forcing WanGP's "KI" onto it moved which picture the model read as the
-    // opening frame, so the supplied start frame came back at the end.
+  it("declares the references people and objects, as a working run did", async () => {
+    // Read from the metadata WanGP wrote beside a correct hand-made render on
+    // this checkpoint. "KI" moved which picture became the opening frame; ""
+    // had the references ignored entirely.
     const manifest = await ref2vaManifest();
-    expect(manifest.settings.video_prompt_type).toBe("");
+    expect(manifest.settings.video_prompt_type).toBe("I");
   });
 
-  it("does not force a cache the model publishes no control for", async () => {
-    // Forcing "spectrum" onto a checkpoint that declares it nowhere produced a
-    // clip unrelated to its prompt, with no error to point at.
+  it("stops a multi-section prompt being split into several", async () => {
+    // WanGP's saved state arrives as "PG", under which a carriage return starts
+    // a new prompt — so six labelled sections became six prompts.
     const manifest = await ref2vaManifest();
-    expect(manifest.settings.skip_steps_cache_type).toBeUndefined();
+    expect(manifest.settings.multi_prompts_gen_type).toBe("FG");
+  });
+
+  it("enables Spectrum with the multiplier it was measured at", async () => {
+    // The cache alone is not the setting. WanGP's saved multiplier of 0.08 with
+    // spectrum on skipped most of the denoising and the clip lost its prompt;
+    // 1.75 is the value from the clean 20-minute run.
+    const manifest = await ref2vaManifest();
+    expect(manifest.settings.skip_steps_cache_type).toBe("spectrum");
+    expect(manifest.settings.skip_steps_multiplier).toBe(1.75);
+    expect(manifest.settings.skip_steps_start_step_perc).toBe(25);
   });
 
   it("caps the clip where the variant stops", async () => {
