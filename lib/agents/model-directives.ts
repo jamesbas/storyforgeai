@@ -62,8 +62,9 @@ export function videoPromptDirective(
     case "wan":
       return (
         " This clip renders on Wan, whose published image-to-video formula is motion plus camera " +
-        "movement and nothing more. Keep the prompt short and literal: one dominant action with " +
-        "its direction and speed, at most one secondary movement, then the camera. Qualify every " +
+        "movement and nothing more. Keep the prompt short and literal: one thing that happens with " +
+        "its direction and speed, at most one smaller movement alongside it, then the camera. " +
+        "Qualify every " +
         'movement with pace — "slowly turns", "takes one cautious step" — because an unqualified ' +
         "verb renders as an average of every speed it could mean. If the camera is locked, say " +
         '"fixed camera, unchanged framing" rather than leaving it unsaid.'
@@ -107,8 +108,8 @@ export function videoPromptDirective(
             "reached. ") +
         "Keep " +
         "it to one continuous shot with no cuts. Open by naming the visual style and the " +
-        "framing, then give one dominant action and at most one secondary movement, each " +
-        "qualified with its pace. " +
+        "framing, then give one thing that happens and at most one smaller movement alongside " +
+        "it, each qualified with its pace. " +
         // MiniMax publishes a controlled camera vocabulary and asks for the move
         // to be written as an action inside the shot rather than appended as
         // labels. Amplitude and speed are stated only when not ordinary.

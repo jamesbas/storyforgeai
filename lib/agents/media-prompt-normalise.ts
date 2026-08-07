@@ -99,3 +99,26 @@ export function missingDialogue(
     .map((d) => d.line.trim())
     .filter((line) => line && !haystack.includes(line.replace(/['"“”‘’]/g, "").toLowerCase()));
 }
+
+/**
+ * Phrases that mean the model narrated its brief instead of writing the scene.
+ *
+ * A video model renders these words rather than obeying them, so "the robot
+ * performs its dominant action" puts the instruction in the picture and spends
+ * part of a finite prompt budget doing it. The directives avoid naming the
+ * structure for this reason; this catches it when a model names it anyway.
+ */
+const INSTRUCTION_ECHOES = [
+  /\b(dominant|primary) (action|motion|movement)\b/i,
+  /\bsecondary (action|motion|movement)\b/i,
+  /\bthe (prompt|scene|shot|clip) (should|must|will)\b/i,
+  /\bas (instructed|directed|requested)\b/i,
+  /\bper the (brief|instructions?|directive)\b/i,
+];
+
+export function echoesInstructions(text: string): string[] {
+  return INSTRUCTION_ECHOES.flatMap((pattern) => {
+    const hit = pattern.exec(text);
+    return hit ? [hit[0]] : [];
+  });
+}

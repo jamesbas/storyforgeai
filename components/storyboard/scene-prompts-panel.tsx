@@ -6,7 +6,7 @@ import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { ArtifactExecution } from "@/lib/schemas/provenance";
 import { ExecutionBadge } from "@/components/shared/execution-badge";
 import { dedupeSentences, hasPunctuationArtifact } from "@/lib/agents/media-prompt-spec";
-import { missingDialogue, opensWithFraming } from "@/lib/agents/media-prompt-normalise";
+import { missingDialogue, opensWithFraming, echoesInstructions } from "@/lib/agents/media-prompt-normalise";
 
 /** The prompt fields a user may edit. The quality checklist is agent review notes. */
 const FIELDS = [
@@ -36,6 +36,10 @@ function lintField(key: FieldKey, text: string, scene: Scene): string[] {
   if (!text.trim()) return ["Empty — generation will fall back to whatever the model invents."];
   if (dedupeSentences(text) !== text) notes.push("A sentence is repeated; the model weights it twice.");
   if (hasPunctuationArtifact(text)) notes.push("Punctuation artifact, usually from concatenation.");
+
+  for (const echo of echoesInstructions(text)) {
+    notes.push(`"${echo}" narrates the brief rather than the scene; the model renders those words.`);
+  }
 
   if (key === "startFramePrompt" || key === "endFramePrompt") {
     if (!opensWithFraming(text)) {

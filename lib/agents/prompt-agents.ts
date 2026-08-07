@@ -135,9 +135,16 @@ export const videoPromptSystem = (segmentSeconds: number) =>
   // Every published image-to-video guide says the same thing in different
   // words: a clip has a finite motion budget, and each additional independent
   // change is drawn from the same account as identity and anatomy.
-  "Give the clip one dominant action and at most one secondary movement, and qualify each with " +
-  "its direction and pace. One camera move at a time; if the camera is locked, say so " +
+  //
+  // Described rather than named. Given the words "dominant action" a model will
+  // write "the robot performs its dominant action:" and the video model renders
+  // that phrase as description — the instruction arrives in the picture.
+  "Give the clip one thing that happens, and at most one smaller movement alongside it, each " +
+  "with its direction and pace. One camera move at a time; if the camera is locked, say so " +
   "explicitly rather than omitting it. " +
+  "Write only the scene itself. Never restate these instructions, label the parts of your own " +
+  "answer, or announce what a sentence is about to do — the video model renders those words " +
+  "rather than obeying them. " +
   "Include a negative prompt and generation notes. Return only valid JSON.";
 
 /** The family a project's prompts are being written for, from its model pin. */

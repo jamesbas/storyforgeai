@@ -5,6 +5,7 @@ import { clipLengthGuidance } from "@/lib/wangp/clip-length";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
 import { ref2vaEstimateMinutes } from "@/lib/wangp/render-estimate";
 import { videoPromptDirective } from "@/lib/agents/model-directives";
+import { echoesInstructions } from "@/lib/agents/media-prompt-normalise";
 import {
   H3_REFERENCE_MIN_WORDS,
   countWords,
@@ -60,6 +61,33 @@ describe("the directive the prompt agents are given", () => {
       expect(directive).toContain("350 to 500 words");
       expect(directive).toContain("videoSoundscape");
     }
+  });
+
+  it("asks for the shape without handing over a name for it", () => {
+    // Given the phrase, a model writes "the robot performs its dominant
+    // action:" and the video model renders that sentence as description.
+    for (const directive of [reference, keyframe]) {
+      expect(directive).not.toMatch(/dominant action|secondary movement/i);
+      expect(directive).toContain("one thing that happens");
+    }
+  });
+});
+
+describe("catching an instruction a model narrated anyway", () => {
+  it("flags the phrasings that mean the brief leaked into the prose", () => {
+    expect(echoesInstructions("The Robot performs its dominant action: it tilts its head.")).toEqual(
+      ["dominant action"],
+    );
+    expect(echoesInstructions("As a secondary movement, it reaches down.")).toEqual([
+      "secondary movement",
+    ]);
+    expect(echoesInstructions("The prompt should convey warmth.")).toHaveLength(1);
+  });
+
+  it("leaves ordinary prose alone", () => {
+    expect(echoesInstructions("She tilts her head and reaches for the brush.")).toEqual([]);
+    // "action" and "movement" are perfectly good words on their own.
+    expect(echoesInstructions("The action moves left as the crowd movement slows.")).toEqual([]);
   });
 });
 
