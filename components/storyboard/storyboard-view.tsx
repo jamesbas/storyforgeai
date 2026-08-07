@@ -780,9 +780,11 @@ export function StoryboardView({ projectId }: { projectId: string }) {
           className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4"
         >
           <h2 className="text-sm font-semibold text-amber-100">
-            {promptFamily.certainty === "stamped"
-              ? "These prompts were written for a different video model"
-              : "These prompts may have been written for a different video model"}
+            {promptFamily.staleScenes === promptFamily.totalScenes
+              ? promptFamily.certainty === "stamped"
+                ? "These prompts were written for a different video model"
+                : "These prompts may have been written for a different video model"
+              : `${promptFamily.staleScenes} of ${promptFamily.totalScenes} scenes have prompts written for a different video model`}
           </h2>
           <p className="mt-1 text-sm text-amber-100/80">
             {promptFamily.certainty === "stamped" ? (
@@ -793,8 +795,8 @@ export function StoryboardView({ projectId }: { projectId: string }) {
               </>
             ) : (
               <>
-                This storyboard predates the record of which model its prompts were written for,
-                and they do not read like prompts written for{" "}
+                Those scenes predate the record of which model their prompts were written for, and
+                they do not read like prompts written for{" "}
                 <strong>{familyLabel(videoFamily)}</strong>.
               </>
             )}{" "}

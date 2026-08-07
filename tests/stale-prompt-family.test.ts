@@ -10,7 +10,11 @@ import { familyLabel } from "@/lib/wangp/family";
  * wrong camera words. Nothing in the output says so.
  */
 
-const scene = (prompts: { videoSoundscape?: string; videoPromptFamily?: string }) => ({ prompts });
+const scene = (prompts: {
+  videoSoundscape?: string;
+  videoScore?: string;
+  videoPromptFamily?: string;
+}) => ({ prompts });
 
 describe("a stamped storyboard", () => {
   it("spots prompts written for another family", () => {
@@ -18,7 +22,12 @@ describe("a stamped storyboard", () => {
       videoModel: "minimax_h3_fl2va",
       scenes: [scene({ videoPromptFamily: "ltx" })],
     });
-    expect(check).toEqual({ writtenFor: "ltx", certainty: "stamped" });
+    expect(check).toEqual({
+      writtenFor: "ltx",
+      certainty: "stamped",
+      staleScenes: 1,
+      totalScenes: 1,
+    });
   });
 
   it("says nothing when the family still matches", () => {
@@ -65,7 +74,7 @@ describe("a storyboard written before the stamp existed", () => {
       videoModel: "ltx2_22B_distilled_1_1",
       scenes: [scene({ videoSoundscape: "Rain on glass." })],
     });
-    expect(check).toEqual({ writtenFor: "minimax", certainty: "inferred" });
+    expect(check).toMatchObject({ writtenFor: "minimax", certainty: "inferred" });
   });
 
   it("stays quiet where the inference proves nothing", () => {
@@ -82,6 +91,43 @@ describe("a storyboard written before the stamp existed", () => {
         scenes: [scene({ videoPromptFamily: "minimax" })],
       }),
     ).toBeNull();
+  });
+});
+
+describe("a partly stale storyboard", () => {
+  // The case that motivated counting: one good scene used to silence the rest.
+  it("warns when only some scenes look wrong", () => {
+    const check = checkPromptFamily({
+      videoModel: "minimax_h3_fl2va",
+      scenes: [scene({ videoSoundscape: "Rain on glass." }), scene({}), scene({})],
+    });
+    expect(check).toMatchObject({ staleScenes: 2, totalScenes: 3, certainty: "inferred" });
+  });
+
+  it("counts a half-rewritten storyboard", () => {
+    const check = checkPromptFamily({
+      videoModel: "minimax_h3_fl2va",
+      scenes: [scene({ videoPromptFamily: "minimax" }), scene({ videoPromptFamily: "ltx" })],
+    });
+    expect(check).toMatchObject({ staleScenes: 1, totalScenes: 2, writtenFor: "ltx" });
+  });
+
+  it("accepts a score alone as evidence H3 wrote the scene", () => {
+    // A shot with no ambience but a score is still an H3-written scene.
+    expect(
+      checkPromptFamily({
+        videoModel: "minimax_h3_fl2va",
+        scenes: [scene({ videoScore: "Low strings, slow." })],
+      }),
+    ).toBeNull();
+  });
+
+  it("ignores whitespace masquerading as an answer", () => {
+    const check = checkPromptFamily({
+      videoModel: "minimax_h3_fl2va",
+      scenes: [scene({ videoSoundscape: "   " })],
+    });
+    expect(check?.staleScenes).toBe(1);
   });
 });
 
