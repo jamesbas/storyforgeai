@@ -88,11 +88,24 @@ export function videoPromptDirective(
     case "minimax":
     case "minimax_ref2va":
       return (
-        " This clip renders on MiniMax H3 in first-and-last-frame mode: the two keyframes are " +
-        "pinned to the opening and closing moments and the model generates the path between " +
-        "them. Describe that path, not the endpoints — the frames already fix how the shot " +
-        "opens and closes, so write the opening state, then the visible changes in the order " +
-        "they happen, then how the differences narrow until the closing frame is reached. Keep " +
+        // The two variants take their conditioning in opposite ways, and the
+        // prompt is the only thing that tells Ref2VA what its pictures are.
+        (family === "minimax_ref2va"
+          ? " This clip renders on MiniMax H3 in reference mode. The opening frame, the closing " +
+            "frame and a photograph of each character are handed to the model as reference " +
+            "images, and none of them is positional: the model knows what a picture is only " +
+            "because the prose says so. Describe the whole shot, including how it opens and how " +
+            "it ends — an endpoint left unstated is fixed by nothing here, unlike the other " +
+            "variant. Name each character exactly as the scene card names them and describe how " +
+            "they look, because that description is what binds a photograph to a person in the " +
+            "shot; without it the likeness lands on whoever the model chooses. "
+          : " This clip renders on MiniMax H3 in first-and-last-frame mode: the two keyframes " +
+            "are pinned to the opening and closing moments and the model generates the path " +
+            "between them. Describe that path, not the endpoints — the frames already fix how " +
+            "the shot opens and closes, so write the opening state, then the visible changes in " +
+            "the order they happen, then how the differences narrow until the closing frame is " +
+            "reached. ") +
+        "Keep " +
         "it to one continuous shot with no cuts. Open by naming the visual style and the " +
         "framing, then give one dominant action and at most one secondary movement, each " +
         "qualified with its pace. " +

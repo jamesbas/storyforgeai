@@ -4,6 +4,7 @@ import { familyOf } from "@/lib/wangp/family";
 import { clipLengthGuidance } from "@/lib/wangp/clip-length";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
 import { ref2vaEstimateMinutes } from "@/lib/wangp/render-estimate";
+import { videoPromptDirective } from "@/lib/agents/model-directives";
 import {
   H3_REFERENCE_MIN_WORDS,
   countWords,
@@ -26,6 +27,41 @@ import type { WangpModel, WangpModelSchema } from "@/lib/schemas/wangp";
  */
 
 const TRACEY = { name: "Tracey", description: "Late thirties, dark curls.", pictureIndex: 3 };
+
+describe("the directive the prompt agents are given", () => {
+  const reference = videoPromptDirective("minimax_ref2va", {
+    segmentSeconds: 14,
+    nativeAudio: true,
+  });
+  const keyframe = videoPromptDirective("minimax", { segmentSeconds: 15, nativeAudio: true });
+
+  it("does not tell reference mode its frames are pinned", () => {
+    // Ref2VA declares no image_start or image_end at all, so describing the
+    // frames as pinned would have the agent write for conditioning that never
+    // arrives — and leave the endpoints unstated, fixed by nothing.
+    expect(keyframe).toContain("first-and-last-frame mode");
+    expect(reference).not.toContain("first-and-last-frame mode");
+    expect(reference).toContain("reference mode");
+  });
+
+  it("asks for the whole shot rather than only the path between the ends", () => {
+    expect(keyframe).toContain("Describe that path, not the endpoints");
+    expect(reference).toContain("including how it opens and how it ends");
+  });
+
+  it("asks for characters to be named and described, since that binds the photograph", () => {
+    expect(reference).toContain("Name each character");
+  });
+
+  it("keeps everything the two variants genuinely share", () => {
+    for (const directive of [reference, keyframe]) {
+      expect(directive).toContain("one continuous shot with no cuts");
+      expect(directive).toContain("no negative prompt");
+      expect(directive).toContain("350 to 500 words");
+      expect(directive).toContain("videoSoundscape");
+    }
+  });
+});
 
 describe("family split", () => {
   it("separates the two H3 variants", () => {

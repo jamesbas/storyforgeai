@@ -1313,6 +1313,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   }
                   onLoraSave={(next) => void saveSceneLoras(scene.id, next)}
                   triggerWords={{ image: triggerWordsFor("image"), video: triggerWordsFor("video") }}
+                  videoFamily={videoFamily}
                   promptExecution={latestExecution(record.executions, `${scene.id}.image_prompt`)}
                   onPromptsSaved={(next) => setRecord(next)}
                   cast={cast}

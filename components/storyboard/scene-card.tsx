@@ -29,6 +29,8 @@ type SceneCardProps = {
   onLoraSave?: (next: SceneLoraOverride) => void;
   /** Trigger words appended automatically at generation, by prompt kind. */
   triggerWords?: { image: string[]; video: string[] };
+  /** Pinned video family, so the prompts panel can say what generation adds. */
+  videoFamily?: string;
   /** SPEC-004 record for this scene's image-prompt pass; owns source and version. */
   promptExecution?: ArtifactExecution;
   onPromptsSaved?: (record: ProjectRecord) => void;
@@ -113,6 +115,7 @@ export function SceneCard({
   triggerWords,
   promptExecution,
   onPromptsSaved,
+  videoFamily,
   cast = [],
   wardrobeChanges = [],
   continuousTake = false,
@@ -211,6 +214,7 @@ export function SceneCard({
           scene={scene}
           projectId={projectId}
           triggerWords={triggerWords}
+          videoFamily={videoFamily}
           busy={busy}
           execution={promptExecution}
           onSaved={onPromptsSaved}

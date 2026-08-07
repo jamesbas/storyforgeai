@@ -74,6 +74,7 @@ export function ScenePromptsPanel({
   scene,
   projectId,
   triggerWords,
+  videoFamily,
   busy = false,
   execution,
   onSaved,
@@ -82,6 +83,8 @@ export function ScenePromptsPanel({
   projectId: string;
   /** Trigger words that will be appended automatically, by prompt kind. */
   triggerWords?: { image: string[]; video: string[] };
+  /** Pinned video family, so the panel can say what generation will add. */
+  videoFamily?: string;
   busy?: boolean;
   /** SPEC-004 record for this scene's prompt pass; owns source and version. */
   execution?: ArtifactExecution;
@@ -175,6 +178,16 @@ export function ScenePromptsPanel({
           <ExecutionBadge execution={execution} />
           {execution.composerVersion ? <span>Composer {execution.composerVersion}</span> : null}
           {execution.promptVersion ? <span>Prompt {execution.promptVersion}</span> : null}
+        </p>
+      ) : null}
+
+      {videoFamily === "minimax_ref2va" ? (
+        <p className="mt-2 rounded-md border border-white/10 bg-canvas/40 px-3 py-2 text-[11px] text-slate-400">
+          Reference mode wraps the video prompt at generation. What reaches WanGP is this text
+          inside MiniMax&apos;s labelled structure, with lines naming each reference picture — the
+          two keyframes and one photograph per character in the scene — built from the cast. Those
+          lines are derived, not stored, so they are not editable here. Everything else about this
+          prompt is sent as written.
         </p>
       ) : null}
 
