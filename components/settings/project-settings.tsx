@@ -19,6 +19,13 @@ import { familyOf, type ModelFamily } from "@/lib/wangp/family";
 
 type ModelsResponse = { models: WangpModel[]; total: number };
 
+/** What a job would actually run on, and whether WanGP is answering. */
+type ModelChoice = {
+  status: { enabled: boolean; mode: "mock" | "live"; url: string; ok: boolean };
+  image: { modelType: string; name: string } | null;
+  video: { modelType: string; name: string } | null;
+};
+
 /**
  * Per-project settings.
  *
@@ -40,6 +47,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
   const [loras, setLoras] = useState<LoraSelectionSet>({ image: [], video: [] });
   const [clipSeconds, setClipSeconds] = useState<number | null>(null);
   const [confirmClip, setConfirmClip] = useState(false);
+  const [choice, setChoice] = useState<ModelChoice | null>(null);
 
   const loadModels = useCallback(async (all: boolean) => {
     const suffix = all ? "" : "&installed=1";
@@ -69,6 +77,12 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
         await loadModels(showAll);
       } catch {
         setError("Failed to reach WanGP. Model lists are unavailable.");
+      }
+      try {
+        const res = await fetch(`/api/projects/${projectId}/model-choice`);
+        if (res.ok) setChoice((await res.json()) as ModelChoice);
+      } catch {
+        // Advisory only: the pickers still work without knowing the default.
       }
     })();
   }, [projectId, showAll, loadModels]);
@@ -158,6 +172,8 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
   // here, held at the per-scene cap so the estimate cannot promise less than
   // the renderer will refuse.
   const castSize = Math.min(usesCharacters ? project.characterIds?.length ?? 1 : 1, 3);
+
+  const wangpReachable = choice ? choice.status.ok : undefined;
   const videoPreset = project.videoResolutionPreset ?? project.resolutionPreset;
   const pendingClip = clipSeconds ?? project.segmentSeconds;
 
@@ -169,6 +185,8 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
     onChange: (next: string) => void,
     /** Annotate reference-image support (image models only). */
     showReferenceSupport = false,
+    /** What this picker resolves to when left on Automatic. */
+    resolved?: { modelType: string; name: string } | null,
   ) => (
     <label className="block space-y-1">
       <span className="text-sm text-slate-300">{label}</span>
@@ -189,8 +207,18 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           </option>
         ))}
       </select>
+      {!value && resolved ? (
+        <span className="block text-[11px] text-slate-400">
+          Currently renders on <strong className="text-slate-200">{resolved.name}</strong> —{" "}
+          <code>{resolved.modelType}</code>
+        </span>
+      ) : null}
       <span className="text-[11px] text-slate-500">
-        {options.length} of {total} shown
+        {total === 0
+          ? wangpReachable === false
+            ? "WanGP is not answering, so no models can be listed."
+            : "WanGP reported no models of this kind."
+          : `${options.length} of ${total} shown`}
         {value && !options.some((m) => m.modelType === value)
           ? ` · current pin "${value}" is not in this list`
           : ""}
@@ -251,6 +279,13 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           often tens of gigabytes, with no progress shown here.
         </p>
 
+        {wangpReachable === false ? (
+          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            WanGP is not answering at <code>{choice?.status.url}</code>, so no models can be listed
+            and nothing will render. Your existing pins are kept — start WanGP and reload this page.
+          </p>
+        ) : null}
+
         {picker(
           "Image model (start and end frames)",
           project.imageModel,
@@ -258,9 +293,16 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           counts.image,
           (next) => save({ imageModel: next }),
           true,
+          choice?.image,
         )}
-        {picker("Video model (clips)", project.videoModel, videoModels, counts.video, (next) =>
-          save({ videoModel: next }),
+        {picker(
+          "Video model (clips)",
+          project.videoModel,
+          videoModels,
+          counts.video,
+          (next) => save({ videoModel: next }),
+          false,
+          choice?.video,
         )}
 
         {h3Fl2va || h3Ref2va ? (

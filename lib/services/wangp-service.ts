@@ -282,6 +282,122 @@ function composeRef2vaReferences(
 }
 
 /**
+ * Which video model a job will actually run on.
+ *
+ * Extracted so the settings screen can name what "Automatic" resolves to. A
+ * picker that says "best ranked" without saying what that is leaves the user
+ * unable to tell a sensible default from a wrong one, and the only thing worse
+ * than not showing it is showing a second implementation's guess — so both go
+ * through here.
+ */
+function pickVideoModel(
+  models: WangpModel[],
+  args: { modelType?: string; modelStrategy: import("@/lib/schemas/project").Project["modelStrategy"] },
+  options?: { log?: boolean },
+): WangpModel {
+  return resolveModel(
+    models,
+    args.modelType || config.wangp.videoModel,
+    () => selectVideoModel(models, { modelStrategy: args.modelStrategy }),
+    "video_segment",
+    options,
+  );
+}
+
+/**
+ * Which image model a job will actually run on, references included.
+ *
+ * A pinned model that cannot accept references would silently drop them:
+ * `buildSettingsManifest` only writes fields the schema declares, so the job
+ * would render happily with no character conditioning and nothing to debug.
+ * Model choice is therefore constrained while references are in play, and the
+ * substitution is logged so it is visible rather than mysterious.
+ */
+function pickImageModel(
+  models: WangpModel[],
+  args: {
+    modelType?: string;
+    modelStrategy: import("@/lib/schemas/project").Project["modelStrategy"];
+    needsRefs: boolean;
+    purpose: string;
+  },
+  options?: { log?: boolean },
+): WangpModel {
+  const pin = args.modelType || config.wangp.imageModel;
+  const pinnedModel = findPinned(models, pin);
+  const pinRejected = args.needsRefs && pinnedModel !== null && !supportsReferenceImages(pinnedModel);
+  if (pinRejected && (options?.log ?? true)) {
+    logEvent("wangp.model.selected", {
+      purpose: args.purpose,
+      pinned: pin,
+      resolved: false,
+      reason: "pinned_model_cannot_accept_reference_images",
+    });
+  }
+
+  return resolveModel(
+    models,
+    pinRejected ? undefined : pin,
+    () =>
+      selectImageModel(models, { modelStrategy: args.modelStrategy }, {
+        requireReferenceImages: args.needsRefs,
+      }),
+    args.purpose,
+    options,
+  );
+}
+
+/**
+ * What the pickers above would choose right now, without choosing it.
+ *
+ * Returns null rather than throwing when nothing fits: this answers a question
+ * the settings screen asked, and a screen that fails to load because no model
+ * is installed is less useful than one that says so.
+ */
+export async function previewModelChoice(args: {
+  modelStrategy: import("@/lib/schemas/project").Project["modelStrategy"];
+  imageModel?: string;
+  videoModel?: string;
+  needsReferenceImages?: boolean;
+}): Promise<{ image: WangpModel | null; video: WangpModel | null }> {
+  const client = getWangpClient();
+  const [imageModels, videoModels] = await Promise.all([
+    client.listModels("image"),
+    client.listModels("video"),
+  ]);
+
+  const attempt = <T>(pick: () => T): T | null => {
+    try {
+      return pick();
+    } catch {
+      return null;
+    }
+  };
+
+  return {
+    image: attempt(() =>
+      pickImageModel(
+        imageModels,
+        {
+          modelType: args.imageModel,
+          modelStrategy: args.modelStrategy,
+          needsRefs: Boolean(args.needsReferenceImages),
+          purpose: "start_frame",
+        },
+        { log: false },
+      ),
+    ),
+    video: attempt(() =>
+      pickVideoModel(
+        videoModels,
+        { modelType: args.videoModel, modelStrategy: args.modelStrategy },
+        { log: false },
+      ),
+    ),
+  };
+}
+
+/**
  * Discovery-first manifest build: pick a video model that supports start frames,
  * fetch its schema, then override only validated fields (spec Section 11.3).
  */
@@ -317,12 +433,7 @@ export async function buildVideoManifest(args: {
 }): Promise<WangpGenerationSettings> {
   const client = getWangpClient();
   const videoModels = await client.listModels("video");
-  const model = resolveModel(
-    videoModels,
-    args.modelType || config.wangp.videoModel,
-    () => selectVideoModel(videoModels, { modelStrategy: args.modelStrategy }),
-    "video_segment",
-  );
+  const model = pickVideoModel(videoModels, args);
   const schema = await client.getModelSchema(model.modelType);
   const loras = await lorasFor(model, args.loras, args.sceneId, "video");
   const context = { sceneId: args.sceneId, purpose: "video_segment" as const };
@@ -646,31 +757,12 @@ export async function buildImageManifest(args: {
   const imageModels = await client.listModels("image");
   const needsRefs = Boolean(args.imageRefs?.length);
 
-  // A pinned model that cannot accept references would silently drop them:
-  // `buildSettingsManifest` only writes fields the schema declares, so the job
-  // would render happily with no character conditioning and nothing to debug.
-  // Model choice is therefore constrained while references are in play, and the
-  // substitution is logged so it is visible rather than mysterious.
-  const pin = args.modelType || config.wangp.imageModel;
-  const pinnedModel = findPinned(imageModels, pin);
-  const pinRejected = needsRefs && pinnedModel !== null && !supportsReferenceImages(pinnedModel);
-  if (pinRejected) {
-    logEvent("wangp.model.selected", {
-      purpose: args.purpose,
-      pinned: pin,
-      resolved: false,
-      reason: "pinned_model_cannot_accept_reference_images",
-    });
-  }
-
-  const model = resolveModel(
-    imageModels,
-    pinRejected ? undefined : pin,
-    () => selectImageModel(imageModels, { modelStrategy: args.modelStrategy }, {
-      requireReferenceImages: needsRefs,
-    }),
-    args.purpose,
-  );
+  const model = pickImageModel(imageModels, {
+    modelType: args.modelType,
+    modelStrategy: args.modelStrategy,
+    needsRefs,
+    purpose: args.purpose,
+  });
 
   if (needsRefs && !supportsReferenceImages(model)) {
     throw new ValidationError(
