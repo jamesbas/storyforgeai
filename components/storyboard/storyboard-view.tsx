@@ -24,6 +24,7 @@ import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { Character } from "@/lib/schemas/character";
 import { handEditedSinceGeneration } from "@/lib/history";
 import { familyLabel, familyOf } from "@/lib/wangp/family";
+import { checkPromptFamily } from "@/lib/agents/prompt-family";
 import type { MediaDescriptor } from "@/lib/media/refs";
 
 type QueueSnapshot = { entries: SceneQueueEntry[]; active: boolean; phase?: PhaseProgress };
@@ -696,15 +697,13 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const stages = generationStages(project.generationMode);
   const continuity = project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY;
 
-  // Only a pinned model can make a prompt stale, and only a stamped prompt can
-  // be found stale: an unpinned project falls through to the router, and a
-  // storyboard written before the stamp existed claims nothing about itself.
+  // Only a pinned model can make a prompt stale — an unpinned project falls
+  // through to the router, so there is no family to disagree with.
   const videoFamily = project.videoModel ? familyOf(project.videoModel) : undefined;
-  const stalePromptFamily = videoFamily
-    ? storyboard?.scenes
-        .map((scene) => scene.prompts.videoPromptFamily)
-        .find((family) => family && family !== videoFamily)
-    : undefined;
+  const promptFamily = checkPromptFamily({
+    videoModel: project.videoModel,
+    scenes: storyboard?.scenes ?? [],
+  });
 
   return (
     <div className="space-y-6">
@@ -775,22 +774,34 @@ export function StoryboardView({ projectId }: { projectId: string }) {
 
       {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
 
-      {stalePromptFamily ? (
+      {promptFamily ? (
         <section
           data-testid="stale-prompt-family"
           className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4"
         >
           <h2 className="text-sm font-semibold text-amber-100">
-            These prompts were written for a different video model
+            {promptFamily.certainty === "stamped"
+              ? "These prompts were written for a different video model"
+              : "These prompts may have been written for a different video model"}
           </h2>
           <p className="mt-1 text-sm text-amber-100/80">
-            The clip prompts were written for{" "}
-            <strong>{familyLabel(stalePromptFamily)}</strong>, and this project now renders on{" "}
-            <strong>{familyLabel(videoFamily)}</strong>. They will still render, but each family
-            wants a different kind of writing — length, camera vocabulary, and whether the
-            soundtrack is described in fields of its own — so the clips will be worse than they
-            need to be. Rewriting re-runs the prompt agents against the scene cards you already
-            have; the story, shot list and cards are untouched.
+            {promptFamily.certainty === "stamped" ? (
+              <>
+                The clip prompts were written for{" "}
+                <strong>{familyLabel(promptFamily.writtenFor)}</strong>, and this project now
+                renders on <strong>{familyLabel(videoFamily)}</strong>.
+              </>
+            ) : (
+              <>
+                This storyboard predates the record of which model its prompts were written for,
+                and they do not read like prompts written for{" "}
+                <strong>{familyLabel(videoFamily)}</strong>.
+              </>
+            )}{" "}
+            They will still render, but each family wants a different kind of writing — length,
+            camera vocabulary, and whether the soundtrack is described in fields of its own — so
+            the clips will be worse than they need to be. Rewriting re-runs the prompt agents
+            against the scene cards you already have; the story, shot list and cards are untouched.
           </p>
           <button
             type="button"
