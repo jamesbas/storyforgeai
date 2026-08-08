@@ -117,17 +117,28 @@ export function h3ReferenceTaskType(hasAnchors: boolean, hasSubjects: boolean): 
 /** Where each anchor frame sits in the reference list, per FR-3. */
 function anchorLines(hasStart: boolean, hasEnd: boolean): string[] {
   const lines: string[] = [];
-  if (hasStart) lines.push("<Picture 1>: the first frame of the target video.");
-  if (hasEnd) lines.push(`<Picture ${hasStart ? 2 : 1}>: the last frame of the target video.`);
+  if (hasStart) lines.push("<Picture 1> is the first frame of [Shot 1].");
+  if (hasEnd) {
+    lines.push(`<Picture ${hasStart ? 2 : 1}> is the last frame of [Shot 1].`);
+  }
   return lines;
+}
+
+/** The picture number an anchor occupies, or null when it was not supplied. */
+function anchorRefs(hasStart: boolean, hasEnd: boolean) {
+  return {
+    start: hasStart ? "<Picture 1>" : null,
+    end: hasEnd ? `<Picture ${hasStart ? 2 : 1}>` : null,
+  };
 }
 
 function subjectLine(subject: H3ReferenceSubject, index: number): string {
   const described = tidy(subject.description);
   const detail = described ? ` ${described}` : "";
   return (
-    `<Subject ${index + 1}>: ${tidy(subject.name)}, whose appearance is defined by ` +
-    `<Picture ${subject.pictureIndex}>.${detail}`
+    `<Subject ${index + 1}> is ${tidy(subject.name)}, shown in ` +
+    `<Picture ${subject.pictureIndex}>, which defines their facial structure, hair, skin tone ` +
+    `and clothing.${detail}`
   );
 }
 
@@ -136,23 +147,36 @@ function subjectLine(subject: H3ReferenceSubject, index: number): string {
  *
  * The guide wants this stated rather than inferred, and the two kinds of
  * reference want opposite answers: an anchor frame is reproduced, a face is
- * transferred onto a person the anchor already composed.
+ * transferred onto a person the anchor already composed. Each anchor also names
+ * *when* it applies, because "preserved" alone does not say at which end.
  */
 function retentionLines(
   hasStart: boolean,
   hasEnd: boolean,
   subjects: readonly H3ReferenceSubject[],
 ): string[] {
-  const lines = anchorLines(hasStart, hasEnd).map((line) => {
-    const label = line.slice(0, line.indexOf(":"));
-    return `${label}: fully_preserved — composition, setting and lighting are reproduced exactly.`;
-  });
+  const { start, end } = anchorRefs(hasStart, hasEnd);
+  const lines: string[] = [];
+
+  if (start) {
+    lines.push(
+      `${start} ([Shot 1] first frame): fully_preserved — the opening composition, camera ` +
+        "position, set dressing and lighting are reproduced exactly at the start of the shot.",
+    );
+  }
+  if (end) {
+    lines.push(
+      `${end} ([Shot 1] last frame): fully_preserved — the closing framing, subject position and ` +
+        "lighting are reached exactly at the end of the shot.",
+    );
+  }
 
   subjects.forEach((subject, index) => {
     const marker = subject.retention ?? "attribute_transfer";
     lines.push(
-      `<Subject ${index + 1}>: ${marker} — facial identity is carried over; the photograph's ` +
-        "own pose, framing, wardrobe and background are not.",
+      `<Subject ${index + 1}> (appears in [Shot 1]): ${marker} — facial identity is carried over ` +
+        "with no drift across the clip; the photograph's own pose, framing, wardrobe and " +
+        "background are not.",
     );
   });
 
@@ -169,28 +193,52 @@ function retentionLines(
 export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
   const hasAnchors = parts.hasStart || parts.hasEnd;
   const subjects = parts.subjects;
+  const { start, end } = anchorRefs(parts.hasStart, parts.hasEnd);
 
   const definitions = [
     ...anchorLines(parts.hasStart, parts.hasEnd),
     ...subjects.map(subjectLine),
   ];
 
-  const body = markDialogue(tidy(parts.body));
-  const timeline = body.startsWith(SHOT) ? body : `${SHOT} ${body}`;
+  // Where the anchoring actually has to be said.
+  //
+  // A hand-made render that came out correct states it four times over — in the
+  // summary, in the retention lines, and at both ends of the description — and
+  // the one place it cannot be left to the writing agent is the description,
+  // because the agent is describing a scene and not a set of pictures. A build
+  // that named the anchors only in the bookkeeping sections produced a clip
+  // that reached its closing frame correctly and opened on something invented.
+  const opening = start
+    ? `The shot begins from ${start}, holding its composition, camera position, framing and ` +
+      "lighting exactly."
+    : "";
+  const closing = end
+    ? `The shot settles into the exact framing, subject position and lighting established by ` +
+      `${end}, which is its final frame.`
+    : "";
+
+  const body = markDialogue(tidy(parts.body)).replace(/^\[Shot 1\]\s*/, "");
   const style = tidy(parts.style);
+  const timeline = [SHOT, opening, body, closing].filter(Boolean).join(" ");
+
+  const journey =
+    start && end
+      ? `The target video is a single continuous shot that begins from ${start} and ends on ${end}.`
+      : "The target video is a single continuous shot.";
 
   const values: Record<(typeof SECTIONS)[number], string> = {
     subject_definitions: definitions.join("\n") || "N/A",
-    summary: `${h3ReferenceTaskType(hasAnchors, subjects.length > 0)} ${
-      tidy(parts.summary) || "Continuous single shot."
+    summary: `${h3ReferenceTaskType(hasAnchors, subjects.length > 0)} ${journey} ${
+      tidy(parts.summary)
     }`.trim(),
     retention_analysis: retentionLines(parts.hasStart, parts.hasEnd, subjects).join("\n") || "N/A",
-    detailed_description: style ? `${style} ${timeline}` : timeline,
+    detailed_description: style ? `${style}\n${timeline}` : timeline,
     overall_soundscape: tidy(parts.soundscape) || "N/A",
     non_diegetic_music: tidy(parts.score) || "N/A",
   };
 
-  return SECTIONS.map((section) => `${section}: ${values[section]}`).join("\n\n");
+  // Label on its own line, matching the layout of the render that worked.
+  return SECTIONS.map((section) => `${section}:\n${values[section]}`).join("\n\n");
 }
 
 /** Whether a prompt is already in this format. */
@@ -221,12 +269,32 @@ export function stripH3ReferencePrompt(prompt: string): string {
   };
 
   return [
-    section("detailed_description").replace(/\[Shot 1\]\s*/g, ""),
+    dropReferenceSentences(section("detailed_description")),
     section("overall_soundscape"),
     section("non_diegetic_music"),
   ]
     .filter((value) => value && value !== "N/A")
     .map(stripDialogueMarkup)
+    .join(" ")
+    .trim();
+}
+
+/**
+ * Remove the sentences that only make sense while references are attached.
+ *
+ * The anchoring assertions name pictures by number. Handed to a model that is
+ * not being sent them, they are instructions about images that do not exist,
+ * which is worse than losing them.
+ */
+function dropReferenceSentences(text: string): string {
+  return text
+    .replace(/\[Shot 1\]\s*/g, "")
+    // Also break after a closing dialogue tag: a spoken line ends `go.</d>`,
+    // with no space before the period, so splitting on sentences alone leaves
+    // the speech joined to whatever follows — and it was being discarded along
+    // with the reference sentence it had been glued to.
+    .split(/(?<=\.|<\/d>)\s+/)
+    .filter((sentence) => !/<(Picture|Subject)\s*\d*>/i.test(sentence))
     .join(" ")
     .trim();
 }

@@ -170,6 +170,25 @@ describe("the six-section prompt", () => {
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
   });
 
+  it("anchors both ends in the description itself, not only the bookkeeping", () => {
+    // A build that named the anchors only in subject_definitions and
+    // retention_analysis reached its closing frame correctly and opened on
+    // something invented.
+    const description = rendered.slice(rendered.indexOf("detailed_description:"));
+    expect(description).toContain("begins from <Picture 1>");
+    expect(description).toContain("established by <Picture 2>");
+  });
+
+  it("says which picture the shot starts and ends on in the summary", () => {
+    const summary = rendered.slice(rendered.indexOf("summary:"), rendered.indexOf("retention"));
+    expect(summary).toContain("begins from <Picture 1> and ends on <Picture 2>");
+  });
+
+  it("says when each anchor applies, not merely that it is preserved", () => {
+    expect(rendered).toContain("at the start of the shot");
+    expect(rendered).toContain("at the end of the shot");
+  });
+
   it("names the task type both halves of the job", () => {
     expect(rendered).toContain("[keyframe completion + reference generation]");
     expect(h3ReferenceTaskType(true, false)).toBe("[keyframe completion]");
@@ -177,18 +196,18 @@ describe("the six-section prompt", () => {
   });
 
   it("gives anchors their own entry and cites a character's photo inside its subject", () => {
-    expect(rendered).toContain("<Picture 1>: the first frame");
-    expect(rendered).toContain("<Picture 2>: the last frame");
+    expect(rendered).toContain("<Picture 1> is the first frame");
+    expect(rendered).toContain("<Picture 2> is the last frame");
     // The character's photograph is picture 3, but must not get a standalone
     // entry of its own — that would offer the photo's setting as composition.
-    expect(rendered).toContain("<Subject 1>: Tracey");
-    expect(rendered).toContain("<Picture 3>.");
-    expect(rendered).not.toContain("<Picture 3>: ");
+    expect(rendered).toContain("<Subject 1> is Tracey");
+    expect(rendered).toContain("<Picture 3>");
+    expect(rendered).not.toMatch(/<Picture 3> is the (first|last) frame/);
   });
 
   it("states retention per label", () => {
     expect(rendered).toContain("fully_preserved");
-    expect(rendered).toContain("<Subject 1>: attribute_transfer");
+    expect(rendered).toContain("attribute_transfer");
   });
 
   it("puts the style sentences before the shot marker", () => {
@@ -207,13 +226,15 @@ describe("the six-section prompt", () => {
       hasStart: true,
       hasEnd: true,
     });
-    expect(silent).toContain("overall_soundscape: N/A");
-    expect(silent).toContain("non_diegetic_music: N/A");
+    expect(silent).toContain("overall_soundscape:\nN/A");
+    expect(silent).toContain("non_diegetic_music:\nN/A");
   });
 
   it("recovers plain prose when the format has to be taken back off", () => {
     const plain = stripH3ReferencePrompt(rendered);
     expect(isH3ReferencePrompt(plain)).toBe(false);
+    // The anchoring sentences name pictures a non-reference model is not sent,
+    // so they go rather than travel as instructions about nothing.
     expect(plain).not.toContain("<Picture 1>");
     expect(plain).not.toContain("[Shot 1]");
     expect(plain).toContain('"We should go."');
