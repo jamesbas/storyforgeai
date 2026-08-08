@@ -270,7 +270,11 @@ describe("the six-section prompt", () => {
   });
 
   it("trims a keyframe prompt to a clause rather than restating the scene", () => {
-    expect(summariseFrame("One. Two. Three.")).toBe("One");
+    // Not the first sentence: a keyframe prompt must open with shot size and
+    // camera height, so its first sentence names a lens and nothing else.
+    expect(summariseFrame("Medium close-up, eye level, 35mm lens. Mike sits at the table.")).toBe(
+      "Medium close-up, eye level, 35mm lens. Mike sits at the table",
+    );
     expect(summariseFrame(undefined)).toBe("");
     expect(summariseFrame("a b c d e", 3)).toBe("a b c");
   });

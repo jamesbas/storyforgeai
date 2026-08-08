@@ -242,6 +242,15 @@ export async function clearSceneSeed(projectId: string, sceneId: string): Promis
 type Continuity = {
   /** Reused start frame; when set, no start frame is rendered. */
   startImagePath?: string;
+  /**
+   * What that reused frame shows — the *previous* scene's end-frame prompt.
+   *
+   * This scene's own start-frame prompt describes a picture that was never
+   * rendered, so anything asking "what is in the opening frame" has to be told
+   * this instead. Reference mode does exactly that, and a clip built from the
+   * wrong answer opens on a shot nobody supplied.
+   */
+  startImagePrompt?: string;
   /** Previous clip to continue from; when set, no keyframes are rendered. */
   videoSource?: string;
 };
@@ -277,7 +286,7 @@ function resolveContinuity(record: ProjectRecord, scene: Scene): Continuity {
       });
       return {};
     }
-    return { startImagePath: attempt.endImagePath };
+    return { startImagePath: attempt.endImagePath, startImagePrompt: previous.prompts.endFramePrompt };
   }
   if (mode === "continue_video" && attempt.videoPath) {
     return { videoSource: attempt.videoPath };
@@ -554,6 +563,8 @@ export async function generateProjectMediaPhased(
       attemptId?: string;
       /** Start frame came from the previous scene, so this scene's prompt was not rendered. */
       inherited?: boolean;
+      /** What the inherited frame shows: the previous scene's end-frame prompt. */
+      inheritedPrompt?: string;
       /** Pre-swap renders, set when phase 2 replaces a frame. */
       startSource?: string;
       endSource?: string;
@@ -622,6 +633,7 @@ export async function generateProjectMediaPhased(
         startId,
         endId: endRender.id,
         inherited: Boolean(inherited),
+        inheritedPrompt: inherited ? previousScene?.prompts.endFramePrompt : undefined,
       };
 
       // Banked here rather than after the swap phase. Until the attempt exists
@@ -750,7 +762,7 @@ export async function generateProjectMediaPhased(
             durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
             soundscape: scene.prompts.videoSoundscape ?? scene.sfxNotes,
             score: scene.prompts.videoScore ?? scene.musicNotes,
-            startFramePrompt: scene.prompts.startFramePrompt,
+            startFramePrompt: entry.inheritedPrompt ?? scene.prompts.startFramePrompt,
             endFramePrompt: scene.prompts.endFramePrompt,
             cast: await castFor(record, scene),
           })
@@ -1083,7 +1095,7 @@ export async function regenerateSceneVideo(
     durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
     soundscape: scene.prompts.videoSoundscape ?? scene.sfxNotes,
     score: scene.prompts.videoScore ?? scene.musicNotes,
-    startFramePrompt: scene.prompts.startFramePrompt,
+    startFramePrompt: continuity.startImagePrompt ?? scene.prompts.startFramePrompt,
     endFramePrompt: scene.prompts.endFramePrompt,
     cast: await castFor(loaded, scene),
   });
@@ -1231,7 +1243,7 @@ export async function generateSceneMedia(
         durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
         soundscape: scene.prompts.videoSoundscape ?? scene.sfxNotes,
         score: scene.prompts.videoScore ?? scene.musicNotes,
-        startFramePrompt: scene.prompts.startFramePrompt,
+        startFramePrompt: continuity.startImagePrompt ?? scene.prompts.startFramePrompt,
         endFramePrompt: scene.prompts.endFramePrompt,
         cast: await castFor(record, scene),
       })

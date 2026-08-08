@@ -85,12 +85,14 @@ export type H3ReferencePromptParts = {
 /**
  * Enough of a keyframe's prompt to say what its picture contains.
  *
- * The whole prompt would restate the scene a second time and crowd out the
- * shot; a clause is what the guide's own examples use.
+ * Taken as a word budget across sentences rather than as the first sentence,
+ * because a keyframe prompt is required to open with shot size and camera
+ * height — so its first sentence is reliably "Medium close-up, eye level, 35mm
+ * lens" and reliably says nothing about what is in the shot. The whole prompt
+ * would restate the scene a second time and crowd out the description.
  */
 export function summariseFrame(text: string | undefined, maxWords = 45): string {
-  const first = tidy(text).split(/(?<=\.)\s+/)[0] ?? "";
-  const words = first.split(" ").filter(Boolean);
+  const words = tidy(text).split(" ").filter(Boolean);
   if (!words.length) return "";
   const trimmed = words.slice(0, maxWords).join(" ");
   return trimmed.replace(/[.,;:]+$/, "");
