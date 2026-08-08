@@ -182,6 +182,20 @@ function subjectLine(subject: H3ReferenceSubject, index: number): string {
 /** Everything inside `<d>…</d>`, which is spoken aloud and must not be edited. */
 const SPEECH = /<d>[\s\S]*?<\/d>/g;
 
+/**
+ * Where the scene's own description ends and the appended clauses begin.
+ *
+ * Those clauses talk *about* the character rather than showing them, so a tag
+ * lands badly in all of them and dangerously in one: "the frame is free of …
+ * Athletic/muscular Tracey" became "free of … `<Subject 1>`", which reads as an
+ * instruction to leave the subject out of the shot.
+ */
+const APPENDED_CLAUSES = [
+  " The start frame fixes how ",
+  " Character continuity — ",
+  " The frame is free of ",
+];
+
 function escapeForRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -201,8 +215,14 @@ function escapeForRegExp(value: string): string {
 function bindSubjects(body: string, subjects: readonly H3ReferenceSubject[]): string {
   if (!subjects.length) return body;
 
+  const cut = APPENDED_CLAUSES.map((marker) => body.indexOf(marker))
+    .filter((at) => at >= 0)
+    .reduce((lowest, at) => Math.min(lowest, at), body.length);
+  const head = body.slice(0, cut);
+  const tail = body.slice(cut);
+
   const spoken: string[] = [];
-  const masked = body.replace(SPEECH, (match) => {
+  const masked = head.replace(SPEECH, (match) => {
     spoken.push(match);
     return `\u0000${spoken.length - 1}\u0000`;
   });
@@ -216,7 +236,7 @@ function bindSubjects(body: string, subjects: readonly H3ReferenceSubject[]): st
     );
   }, masked);
 
-  return bound.replace(/\u0000(\d+)\u0000/g, (_match, i: string) => spoken[Number(i)] ?? "");
+  return bound.replace(/\u0000(\d+)\u0000/g, (_match, i: string) => spoken[Number(i)] ?? "") + tail;
 }
 
 /**

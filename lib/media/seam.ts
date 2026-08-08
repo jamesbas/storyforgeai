@@ -93,6 +93,14 @@ export type SeamBreak = {
 };
 
 /**
+ * A scene card as this check needs it — prompts optional, because the same
+ * question is asked before they are written and after.
+ */
+type SeamScene = Pick<Scene, "visualDescription" | "transitionIn"> & {
+  prompts?: { startFramePrompt?: string; endFramePrompt?: string };
+};
+
+/**
  * Report why this scene cannot inherit the previous scene's end frame, or null
  * when the seam is continuous.
  *
@@ -107,7 +115,7 @@ export type SeamBreak = {
  * rendered by the seam working as intended — the start frame is the frame
  * before they arrive, the clip carries them in, and the end frame has them.
  */
-export function seamBreak(previous: Scene, scene: Scene): SeamBreak | null {
+export function seamBreak(previous: SeamScene, scene: SeamScene): SeamBreak | null {
   const from = shotSizeOf(previous.prompts?.endFramePrompt) ?? shotSizeOf(previous.visualDescription);
   const to = shotSizeOf(scene.prompts?.startFramePrompt) ?? shotSizeOf(scene.visualDescription);
   if (from && to && from !== to) {

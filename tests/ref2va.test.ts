@@ -4,7 +4,7 @@ import { familyOf } from "@/lib/wangp/family";
 import { clipLengthGuidance } from "@/lib/wangp/clip-length";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
 import { ref2vaAcceleratedMinutes, ref2vaEstimateMinutes } from "@/lib/wangp/render-estimate";
-import { videoPromptDirective } from "@/lib/agents/model-directives";
+import { inheritedOpeningDirective, videoPromptDirective } from "@/lib/agents/model-directives";
 import { echoesInstructions } from "@/lib/agents/media-prompt-normalise";
 import {
   H3_REFERENCE_MIN_WORDS,
@@ -92,6 +92,23 @@ describe("catching an instruction a model narrated anyway", () => {
     expect(echoesInstructions("She tilts her head and reaches for the brush.")).toEqual([]);
     // "action" and "movement" are perfectly good words on their own.
     expect(echoesInstructions("The action moves left as the crowd movement slows.")).toEqual([]);
+  });
+});
+
+describe("a scene that opens on the previous scene's final frame", () => {
+  // Under reuse_end_frame the start frame is not rendered from this scene's
+  // start-frame prompt, so an agent left to write an opening describes a shot
+  // that was never supplied — and the prose is what gets rendered.
+  it("tells the agent not to write an opening, and what the frame holds", () => {
+    const directive = inheritedOpeningDirective("Close-up of a woman at a rain-streaked window.");
+    expect(directive).toContain("does not open on its own start-frame prompt");
+    expect(directive).toContain("Close-up of a woman at a rain-streaked window.");
+    expect(directive).toContain("Do not describe the opening");
+  });
+
+  it("says nothing when there is no previous frame to describe", () => {
+    expect(inheritedOpeningDirective(undefined)).toBe("");
+    expect(inheritedOpeningDirective("   ")).toBe("");
   });
 });
 
@@ -331,6 +348,17 @@ describe("binding a character to their photograph", () => {
       hasEnd: true,
     });
     expect(rendered).toContain("the album spin");
+  });
+
+  it("leaves the appended clauses alone", () => {
+    // "the frame is free of ... Athletic/muscular Tracey" became "free of ...
+    // <Subject 1>", which reads as an instruction to leave her out of the shot.
+    const rendered = withCast(
+      "Tracey waits. The start frame fixes how Tracey look. The frame is free of muscular Tracey.",
+    );
+    expect(rendered).toContain("The start frame fixes how Tracey look");
+    expect(rendered).toContain("The frame is free of muscular Tracey");
+    expect(rendered).toContain("<Subject 1> waits.");
   });
 
   it("names both halves of the job when a cast is present", () => {

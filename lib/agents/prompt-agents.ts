@@ -34,12 +34,13 @@ import { normaliseNegative } from "@/lib/agents/negative-prompt";
 import {
   hasNativeAudio,
   imagePromptDirective,
+  inheritedOpeningDirective,
   videoPromptDirective,
 } from "@/lib/agents/model-directives";
 import { familyOf, type ModelFamily } from "@/lib/wangp/family";
 import { charactersInScene } from "@/lib/agents/scene-cast";
 import { explicitnessDirective } from "@/lib/agents/explicitness";
-import { isTightShot } from "@/lib/media/seam";
+import { isTightShot, seamBreak } from "@/lib/media/seam";
 import { wardrobeChangeClause, othersWardrobeSuffix, wardrobeTimeline } from "@/lib/agents/wardrobe";
 import type { SceneWardrobe } from "@/lib/schemas/wardrobe";
 import { config } from "@/lib/config";
@@ -49,7 +50,7 @@ import {
   sceneCreativeSlice,
   type CreativePlans,
 } from "@/lib/agents/creative-context";
-import { SEGMENT_SECONDS } from "@/lib/types";
+import { DEFAULT_SCENE_CONTINUITY, SEGMENT_SECONDS } from "@/lib/types";
 import type { Character } from "@/lib/schemas/character";
 import type { VisualBible } from "@/lib/schemas/agents";
 import type { Project } from "@/lib/schemas/project";
@@ -240,6 +241,16 @@ export async function attachScenePrompts(
     let imagePart = buildImagePrompts(project, draft, sceneCast, plans, wardrobe, imageFamily);
     let videoPart = buildVideoPrompts(project, draft, sceneCast, plans, wardrobe, videoFamily);
 
+    // Whether this scene's clip will actually open on the previous scene's end
+    // frame. Decided the same way `resolveContinuity` decides it at render
+    // time, from the cards alone, so the agent is told before it writes rather
+    // than contradicted afterwards.
+    const inheritsOpening =
+      (project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY) === "reuse_end_frame" &&
+      index > 0 &&
+      previousEndFramePrompt !== undefined &&
+      !seamBreak(drafts[index - 1]!, draft);
+
     if (!provider) {
       // Demo mode still reports itself, or a scene written by a template would
       // be indistinguishable from one nobody has provenance for at all.
@@ -349,6 +360,7 @@ export async function attachScenePrompts(
               segmentSeconds: project.segmentSeconds,
               nativeAudio: hasNativeAudio(videoFamily),
             }) +
+            (inheritsOpening ? inheritedOpeningDirective(previousEndFramePrompt) : "") +
             castSystemDirective(sceneCast, true) +
             precedenceDirective(sceneCast, plans),
           user,

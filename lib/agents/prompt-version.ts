@@ -11,10 +11,9 @@ export const PROMPT_VERSIONS = {
   visualBible: "visual-bible-v1",
   storyboard: "storyboard-v1",
   imagePrompt: "image-prompt-v2",
-  // v2: per-variant guidance for MiniMax H3's two modes, the shape of a shot
-  // asked for without naming it, and reference mode told not to write an
-  // opening it is handed as a picture.
-  videoPrompt: "video-prompt-v2",
+  // v3: scenes that inherit their opening frame are told so, and stop writing
+  // an opening that contradicts the picture they are handed.
+  videoPrompt: "video-prompt-v3",
   variants: "variants-v2",
   worldBible: "world-bible-v1",
   director: "director-v1",

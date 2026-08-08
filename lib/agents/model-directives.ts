@@ -176,3 +176,25 @@ export function videoPromptDirective(
 export function hasNativeAudio(family: ModelFamily): boolean {
   return family === "ltx" || isMinimaxFamily(family);
 }
+
+/**
+ * What to say when a scene opens on the frame the previous one ended with.
+ *
+ * Under `reuse_end_frame` continuity the start frame is not rendered from this
+ * scene's start-frame prompt — it *is* the previous scene's end frame. Left
+ * unsaid, the agent writes an opening from its own start-frame prompt and the
+ * two describe different shots: one clip was told to hold a picture of a woman
+ * leaning over a table while its prose opened on a close-up of a man reading
+ * cards. Both cannot be first, and prose wins.
+ */
+export function inheritedOpeningDirective(previousEndFramePrompt: string | undefined): string {
+  const shows = (previousEndFramePrompt ?? "").replace(/\s+/g, " ").trim();
+  if (!shows) return "";
+  return (
+    " This clip does not open on its own start-frame prompt. It continues straight out of the " +
+    `previous scene, whose final frame is: "${shows}" — that image is the first frame of this ` +
+    "clip. Do not describe the opening: begin at what that frame already shows and write only " +
+    "what changes from there. An opening you describe differently is what gets rendered instead " +
+    "of the frame."
+  );
+}
