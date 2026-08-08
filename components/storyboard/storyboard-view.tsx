@@ -819,10 +819,21 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                 <strong>{familyLabel(videoFamily)}</strong>.
               </>
             )}{" "}
-            They will still render, but each family wants a different kind of writing — length,
-            camera vocabulary, and whether the soundtrack is described in fields of its own — so
-            the clips will be worse than they need to be. Rewriting re-runs the prompt agents
-            against the scene cards you already have; the story, shot list and cards are untouched.
+            {promptFamily ? (
+              <>
+                They will still render, but each family wants a different kind of writing — length,
+                camera vocabulary, and whether the soundtrack is described in fields of its own — so
+                the clips will be worse than they need to be.
+              </>
+            ) : (
+              <>
+                They will still render. What has changed is what the agents are told to do with a
+                scene — most recently, that a shot continuing from the one before it opens on that
+                scene&apos;s final frame rather than on its own.
+              </>
+            )}{" "}
+            Rewriting re-runs the prompt agents against the scene cards you already have; the story,
+            shot list and cards are untouched.
           </p>
           <button
             type="button"
