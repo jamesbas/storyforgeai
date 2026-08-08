@@ -394,14 +394,15 @@ describe("binding a character to their photograph", () => {
 
 describe("the cost estimate", () => {
   it("matches the measured runs", () => {
-    // Un-accelerated, because the app does not enable the step-skipping cache.
-    expect(ref2vaEstimateMinutes(1)).toBe(29);
-    expect(ref2vaEstimateMinutes(2)).toBe(36);
-    expect(ref2vaEstimateMinutes(3)).toBe(43);
+    // One character is three references, measured at 15:26 un-accelerated.
+    expect(ref2vaEstimateMinutes(1)).toBe(15);
+    expect(ref2vaEstimateMinutes(2)).toBe(19);
+    expect(ref2vaEstimateMinutes(3)).toBe(23);
   });
 
   it("says what Spectrum would save if it were switched on in WanGP", () => {
-    expect(ref2vaAcceleratedMinutes(1)).toBe(20);
+    // 15:26 -> 12:35 on the same clip.
+    expect(ref2vaAcceleratedMinutes(1)).toBe(12);
   });
 });
 
