@@ -237,21 +237,15 @@ export function buildSettingsManifest(
     settings.multi_prompts_gen_type = "FG";
   }
 
-  // Written directly, because the MCP schema under-reports this one.
+  // The step-skipping cache is deliberately not set here.
   //
-  // Neither `skip_steps_cache_type` nor `skip_steps_multiplier` appears in the
-  // declared fields or the default settings for MiniMax H3, yet both are
-  // present in the metadata WanGP writes beside every render it makes of that
-  // model — so the controls exist and the schema simply does not mention them.
-  // The multiplier travels with the cache type for the reason given on the
-  // override: apart, the inherited value decides how much denoising is skipped.
-  if (overrides.stepSkipping) {
-    settings.skip_steps_cache_type = overrides.stepSkipping.cacheType;
-    settings.skip_steps_multiplier = overrides.stepSkipping.multiplier;
-    if (overrides.stepSkipping.startStepPerc !== undefined) {
-      settings.skip_steps_start_step_perc = overrides.stepSkipping.startStepPerc;
-    }
-  }
+  // Switching it on is easy; setting how hard it skips is not. `skip_steps_
+  // multiplier` was submitted as 1.75 — the value a clean 20-minute render used
+  // — and WanGP recorded 0.08 on the job it ran, its own saved figure. At that
+  // strength the denoising is largely skipped and the clip stops following its
+  // prompt, which is the failure the whole tier exists to avoid. An
+  // optimisation whose strength cannot be controlled from here is not one worth
+  // taking, so the cache is left to whatever the WanGP UI is set to.
 
   // Refuse rather than quietly render a text-to-video clip.
   //

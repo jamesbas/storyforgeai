@@ -229,19 +229,6 @@ export type CastReference = {
 const REF2VA_MAX_CHARACTERS = 3;
 
 /**
- * WanGP's step-skipping cache, at the strength a clean live run used.
- *
- * 28:56 -> 20:00 at 20 steps with no visible cost. The multiplier is not
- * optional decoration: the same cache at the 0.08 WanGP had saved skipped so
- * much of the denoising that the model dropped the prompt entirely.
- */
-const REF2VA_STEP_SKIPPING = {
-  cacheType: "spectrum",
-  multiplier: 1.75,
-  startStepPerc: 25,
-} as const;
-
-/**
  * Build the reference list and the subjects that name it.
  *
  * Order is the contract (FR-3): start frame, end frame, then one photograph per
@@ -536,10 +523,6 @@ export async function buildVideoManifest(args: {
     // A hard stop rather than a stitch point: this variant has no sliding
     // windows, so there is no longer clip to be had at any quality.
     maxFrames: clipLengthGuidance(family)?.maxFrames,
-    // Only ever alongside the model's full step count — see FR-5d. `stepsFor`
-    // below is what guarantees that, which is why this is not offered as a
-    // speed/quality trade the caller can get wrong.
-    stepSkipping: reference ? REF2VA_STEP_SKIPPING : undefined,
     resolution: resolutionFor(schema, frame, { ...context, modelType: model.modelType }),
     // Rendering small is only half of the low-resolution strategy; without the
     // upscale it is just a small clip. WanGP holds this as saved UI state, so

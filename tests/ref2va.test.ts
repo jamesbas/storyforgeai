@@ -3,7 +3,7 @@ import { MockWangpClient } from "@/lib/wangp/mock-client";
 import { familyOf } from "@/lib/wangp/family";
 import { clipLengthGuidance } from "@/lib/wangp/clip-length";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
-import { ref2vaEstimateMinutes } from "@/lib/wangp/render-estimate";
+import { ref2vaAcceleratedMinutes, ref2vaEstimateMinutes } from "@/lib/wangp/render-estimate";
 import { videoPromptDirective } from "@/lib/agents/model-directives";
 import { echoesInstructions } from "@/lib/agents/media-prompt-normalise";
 import {
@@ -340,9 +340,14 @@ describe("binding a character to their photograph", () => {
 
 describe("the cost estimate", () => {
   it("matches the measured runs", () => {
-    expect(ref2vaEstimateMinutes(1)).toBe(20);
-    expect(ref2vaEstimateMinutes(2)).toBe(25);
-    expect(ref2vaEstimateMinutes(3)).toBe(30);
+    // Un-accelerated, because the app does not enable the step-skipping cache.
+    expect(ref2vaEstimateMinutes(1)).toBe(29);
+    expect(ref2vaEstimateMinutes(2)).toBe(36);
+    expect(ref2vaEstimateMinutes(3)).toBe(43);
+  });
+
+  it("says what Spectrum would save if it were switched on in WanGP", () => {
+    expect(ref2vaAcceleratedMinutes(1)).toBe(20);
   });
 });
 
@@ -463,14 +468,12 @@ describe("the Ref2VA manifest", () => {
     expect(manifest.settings.multi_prompts_gen_type).toBe("FG");
   });
 
-  it("enables Spectrum with the multiplier it was measured at", async () => {
-    // The cache alone is not the setting. WanGP's saved multiplier of 0.08 with
-    // spectrum on skipped most of the denoising and the clip lost its prompt;
-    // 1.75 is the value from the clean 20-minute run.
+  it("leaves the step-skipping cache alone", async () => {
+    // Its strength cannot be set from here: 1.75 was submitted and WanGP ran
+    // the job at its own saved 0.08, skipping most of the denoising.
     const manifest = await ref2vaManifest();
-    expect(manifest.settings.skip_steps_cache_type).toBe("spectrum");
-    expect(manifest.settings.skip_steps_multiplier).toBe(1.75);
-    expect(manifest.settings.skip_steps_start_step_perc).toBe(25);
+    expect(manifest.settings.skip_steps_cache_type).toBeUndefined();
+    expect(manifest.settings.skip_steps_multiplier).toBeUndefined();
   });
 
   it("caps the clip where the variant stops", async () => {

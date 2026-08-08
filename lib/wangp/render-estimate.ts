@@ -29,9 +29,11 @@ const REF2VA_ANCHORS = 2;
 /**
  * Spectrum step skipping, measured at 20 steps: 28:56 → 20:00.
  *
- * Only valid alongside the full step count. The one run that appeared to show
- * it degrading a clip was confounded by a reduced step count left over from
- * LoRA testing.
+ * Not applied by StoryForgeAI, and so not in the estimate. WanGP ignores the
+ * strength submitted with a job and uses its own saved figure, and at the value
+ * it had saved the denoising is skipped so heavily that the clip stops
+ * following its prompt. Enabling it from the WanGP UI, where the strength can
+ * be set, is worth roughly this much.
  */
 const SPECTRUM_FACTOR = 0.69;
 
@@ -46,6 +48,10 @@ export const FL2VA_ESTIMATE_MINUTES = 17;
 
 export function ref2vaEstimateMinutes(characters: number): number {
   const references = REF2VA_ANCHORS + Math.max(0, characters);
-  const minutes = REF2VA_BASE_MINUTES + references * REF2VA_PER_REFERENCE_MINUTES;
-  return Math.round(minutes * SPECTRUM_FACTOR);
+  return REF2VA_BASE_MINUTES + references * REF2VA_PER_REFERENCE_MINUTES;
+}
+
+/** What the same clip would cost with Spectrum enabled in the WanGP UI. */
+export function ref2vaAcceleratedMinutes(characters: number): number {
+  return Math.round(ref2vaEstimateMinutes(characters) * SPECTRUM_FACTOR);
 }

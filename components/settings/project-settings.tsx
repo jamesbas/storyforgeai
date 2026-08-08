@@ -17,6 +17,7 @@ import { clipLengthGuidance } from "@/lib/wangp/clip-length";
 import {
   ESTIMATE_HARDWARE,
   FL2VA_ESTIMATE_MINUTES,
+  ref2vaAcceleratedMinutes,
   ref2vaEstimateMinutes,
 } from "@/lib/wangp/render-estimate";
 import { familyOf, isMinimaxFamily, type ModelFamily } from "@/lib/wangp/family";
@@ -347,7 +348,10 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
             </label>
             <p className="text-[11px] text-slate-500">
               Times measured on {ESTIMATE_HARDWARE} at 848×480. Yours will differ — the ratio
-              between the two is the part that travels.
+              between the two is the part that travels. Turning on <em>Spectrum</em> step skipping
+              in the WanGP UI takes reference mode to about{" "}
+              {ref2vaAcceleratedMinutes(castSize)} min with no visible cost; StoryForgeAI does not
+              set it, because WanGP ignores the strength sent with a job and uses its own.
             </p>
           </div>
         ) : null}
