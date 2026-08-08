@@ -95,9 +95,12 @@ export function videoPromptDirective(
           ? " This clip renders on MiniMax H3 in reference mode. The opening frame, the closing " +
             "frame and a photograph of each character are handed to the model as reference " +
             "images, and none of them is positional: the model knows what a picture is only " +
-            "because the prose says so. Describe the whole shot, including how it opens and how " +
-            "it ends — an endpoint left unstated is fixed by nothing here, unlike the other " +
-            "variant. Name each character exactly as the scene card names them and describe how " +
+            "because the prose says so. Both frames are named for it separately, so do not " +
+            "re-describe the opening composition in your own words — a sentence describing the " +
+            "opening differently from the frame that was rendered is what the model builds " +
+            "instead of the frame. Open at the state the start-frame prompt describes, in the " +
+            "same pose and framing, and let the first thing you write be the first thing that " +
+            "changes. Name each character exactly as the scene card names them and describe how " +
             "they look, because that description is what binds a photograph to a person in the " +
             "shot; without it the likeness lands on whoever the model chooses. "
           : " This clip renders on MiniMax H3 in first-and-last-frame mode: the two keyframes " +

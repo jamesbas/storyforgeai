@@ -46,9 +46,12 @@ describe("the directive the prompt agents are given", () => {
     expect(reference).toContain("reference mode");
   });
 
-  it("asks for the whole shot rather than only the path between the ends", () => {
+  it("tells reference mode not to re-describe an opening it is handed", () => {
+    // The renderer names both frames itself. A body that also describes the
+    // opening in its own words competes with the picture, and the words win.
     expect(keyframe).toContain("Describe that path, not the endpoints");
-    expect(reference).toContain("including how it opens and how it ends");
+    expect(reference).toContain("do not re-describe the opening composition");
+    expect(reference).toContain("the first thing that changes");
   });
 
   it("asks for characters to be named and described, since that binds the photograph", () => {
@@ -244,6 +247,10 @@ describe("the six-section prompt", () => {
     });
     expect(described).toContain("showing wide shot, eye level, a woman stands at a rain-streaked window.");
     expect(described).toContain("showing close-up of her eyes as she turns away.");
+    // Repeated in the description, where the opening is actually built from.
+    const body = described.slice(described.indexOf("detailed_description:"));
+    expect(body).toContain("a woman stands at a rain-streaked window");
+    expect(body).toContain("Nothing happens before the first change");
   });
 
   it("holds the subject's pose, not just the framing", () => {

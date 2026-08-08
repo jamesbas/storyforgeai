@@ -244,9 +244,14 @@ export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
   // Pose is named alongside the framing because the two can disagree: a scene
   // whose keyframe already shows a tilted head was described as beginning with
   // the subject still, and prose beats a picture the model was only told about.
+  // For the same reason the frame's own description is repeated here rather
+  // than left in `subject_definitions` — this sentence sits immediately before
+  // the agent's prose, which is the text the opening actually gets built from.
+  const openingShows = summariseFrame(parts.startFrameDescription);
   const opening = start
-    ? `The shot begins from ${start}, holding its composition, camera position, framing, ` +
-      "lighting and the subject's exact pose in that frame."
+    ? `The shot begins from ${start}${openingShows ? ` — ${openingShows} —` : ""}, holding its ` +
+      "composition, camera position, framing, lighting and the subject's exact pose in that " +
+      "frame. Nothing happens before the first change described below."
     : "";
   const closing = end
     ? `The shot settles into the exact framing, subject position and lighting established by ` +
