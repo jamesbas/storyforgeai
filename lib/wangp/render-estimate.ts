@@ -29,11 +29,10 @@ const REF2VA_ANCHORS = 2;
 /**
  * Spectrum step skipping, measured at 20 steps: 28:56 → 20:00.
  *
- * Not applied by StoryForgeAI, and so not in the estimate. WanGP ignores the
- * strength submitted with a job and uses its own saved figure, and at the value
- * it had saved the denoising is skipped so heavily that the clip stops
- * following its prompt. Enabling it from the WanGP UI, where the strength can
- * be set, is worth roughly this much.
+ * Chosen per model in the WanGP UI rather than here, and inherited from that
+ * model's saved settings, so a project renders with whatever WanGP is
+ * configured for. Not assumed in the estimate below, which quotes the
+ * un-accelerated figure.
  */
 const SPECTRUM_FACTOR = 0.69;
 

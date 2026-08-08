@@ -239,13 +239,15 @@ export function buildSettingsManifest(
 
   // The step-skipping cache is deliberately not set here.
   //
-  // Switching it on is easy; setting how hard it skips is not. `skip_steps_
-  // multiplier` was submitted as 1.75 — the value a clean 20-minute render used
-  // — and WanGP recorded 0.08 on the job it ran, its own saved figure. At that
-  // strength the denoising is largely skipped and the clip stops following its
-  // prompt, which is the failure the whole tier exists to avoid. An
-  // optimisation whose strength cannot be controlled from here is not one worth
-  // taking, so the cache is left to whatever the WanGP UI is set to.
+  // It belongs to WanGP: the cache type is chosen per model in its own UI and
+  // arrives in `defaultSettings`, so a model configured for Spectrum gets it
+  // without this having to know. Setting it from here once meant switching on a
+  // cache for a model whose UI had never been configured for one, which is how
+  // a clip came back with no relation to its prompt.
+  //
+  // (`skip_steps_multiplier` travels in those defaults too and looks like the
+  // strength control. It is not one for Spectrum — that offers only a start
+  // percentage — so the value is leftover state from a different cache type.)
 
   // Refuse rather than quietly render a text-to-video clip.
   //
