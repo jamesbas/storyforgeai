@@ -62,6 +62,17 @@ export type H3ReferencePromptParts = {
   style?: string;
   /** One or two sentences of what happens, after the task-type marker. */
   summary?: string;
+  /**
+   * What the two anchor frames show.
+   *
+   * A render that came out correct describes the contents of each anchor —
+   * "showing the poker table, the seated players and the warm overhead
+   * practical light" — rather than only labelling it. Without that the model is
+   * told a picture is the opening frame but nothing about what it would mean
+   * for the opening to match it.
+   */
+  startFrameDescription?: string;
+  endFrameDescription?: string;
   subjects: readonly H3ReferenceSubject[];
   hasStart: boolean;
   hasEnd: boolean;
@@ -70,6 +81,20 @@ export type H3ReferencePromptParts = {
   /** Audience-only score. Empty means there is none, which the guide writes `N/A`. */
   score?: string;
 };
+
+/**
+ * Enough of a keyframe's prompt to say what its picture contains.
+ *
+ * The whole prompt would restate the scene a second time and crowd out the
+ * shot; a clause is what the guide's own examples use.
+ */
+export function summariseFrame(text: string | undefined, maxWords = 45): string {
+  const first = tidy(text).split(/(?<=\.)\s+/)[0] ?? "";
+  const words = first.split(" ").filter(Boolean);
+  if (!words.length) return "";
+  const trimmed = words.slice(0, maxWords).join(" ");
+  return trimmed.replace(/[.,;:]+$/, "");
+}
 
 /**
  * The length MiniMax ask `detailed_description` to reach.
@@ -115,11 +140,21 @@ export function h3ReferenceTaskType(hasAnchors: boolean, hasSubjects: boolean): 
 }
 
 /** Where each anchor frame sits in the reference list, per FR-3. */
-function anchorLines(hasStart: boolean, hasEnd: boolean): string[] {
+function anchorLines(parts: H3ReferencePromptParts): string[] {
   const lines: string[] = [];
-  if (hasStart) lines.push("<Picture 1> is the first frame of [Shot 1].");
-  if (hasEnd) {
-    lines.push(`<Picture ${hasStart ? 2 : 1}> is the last frame of [Shot 1].`);
+  const shows = (text: string | undefined) => {
+    const summary = summariseFrame(text);
+    return summary ? `, showing ${summary[0]!.toLowerCase()}${summary.slice(1)}` : "";
+  };
+
+  if (parts.hasStart) {
+    lines.push(`<Picture 1> is the first frame of [Shot 1]${shows(parts.startFrameDescription)}.`);
+  }
+  if (parts.hasEnd) {
+    lines.push(
+      `<Picture ${parts.hasStart ? 2 : 1}> is the last frame of [Shot 1]` +
+        `${shows(parts.endFrameDescription)}.`,
+    );
   }
   return lines;
 }
@@ -195,10 +230,7 @@ export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
   const subjects = parts.subjects;
   const { start, end } = anchorRefs(parts.hasStart, parts.hasEnd);
 
-  const definitions = [
-    ...anchorLines(parts.hasStart, parts.hasEnd),
-    ...subjects.map(subjectLine),
-  ];
+  const definitions = [...anchorLines(parts), ...subjects.map(subjectLine)];
 
   // Where the anchoring actually has to be said.
   //
@@ -208,9 +240,13 @@ export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
   // because the agent is describing a scene and not a set of pictures. A build
   // that named the anchors only in the bookkeeping sections produced a clip
   // that reached its closing frame correctly and opened on something invented.
+  //
+  // Pose is named alongside the framing because the two can disagree: a scene
+  // whose keyframe already shows a tilted head was described as beginning with
+  // the subject still, and prose beats a picture the model was only told about.
   const opening = start
-    ? `The shot begins from ${start}, holding its composition, camera position, framing and ` +
-      "lighting exactly."
+    ? `The shot begins from ${start}, holding its composition, camera position, framing, ` +
+      "lighting and the subject's exact pose in that frame."
     : "";
   const closing = end
     ? `The shot settles into the exact framing, subject position and lighting established by ` +

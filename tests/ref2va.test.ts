@@ -13,6 +13,7 @@ import {
   isH3ReferencePrompt,
   renderH3ReferencePrompt,
   stripH3ReferencePrompt,
+  summariseFrame,
   usesH3ReferenceFormat,
 } from "@/lib/agents/h3-reference-prompt";
 import type { WangpModel, WangpModelSchema } from "@/lib/schemas/wangp";
@@ -228,6 +229,43 @@ describe("the six-section prompt", () => {
     });
     expect(silent).toContain("overall_soundscape:\nN/A");
     expect(silent).toContain("non_diegetic_music:\nN/A");
+  });
+
+  it("says what each anchor picture shows, not only that it is an anchor", () => {
+    // A label alone tells the model a picture is the opening frame but nothing
+    // about what matching it would look like.
+    const described = renderH3ReferencePrompt({
+      body: "She turns from the window.",
+      subjects: [],
+      hasStart: true,
+      hasEnd: true,
+      startFrameDescription: "Wide shot, eye level, a woman stands at a rain-streaked window.",
+      endFrameDescription: "Close-up of her eyes as she turns away.",
+    });
+    expect(described).toContain("showing wide shot, eye level, a woman stands at a rain-streaked window.");
+    expect(described).toContain("showing close-up of her eyes as she turns away.");
+  });
+
+  it("holds the subject's pose, not just the framing", () => {
+    // A keyframe already showing a tilted head was described as opening with
+    // the subject still, and the prose won.
+    expect(rendered).toContain("the subject's exact pose in that frame");
+  });
+
+  it("keeps the anchor line clean when no description is available", () => {
+    const bare = renderH3ReferencePrompt({
+      body: "She turns from the window.",
+      subjects: [],
+      hasStart: true,
+      hasEnd: true,
+    });
+    expect(bare).toContain("<Picture 1> is the first frame of [Shot 1].");
+  });
+
+  it("trims a keyframe prompt to a clause rather than restating the scene", () => {
+    expect(summariseFrame("One. Two. Three.")).toBe("One");
+    expect(summariseFrame(undefined)).toBe("");
+    expect(summariseFrame("a b c d e", 3)).toBe("a b c");
   });
 
   it("recovers plain prose when the format has to be taken back off", () => {

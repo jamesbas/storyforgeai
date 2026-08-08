@@ -435,6 +435,14 @@ export async function buildVideoManifest(args: {
   soundscape?: string;
   score?: string;
   /**
+   * The prompts the two keyframes were rendered from. Only the reference
+   * variant uses them, to say what each anchor picture contains — a label alone
+   * tells the model a picture is the opening frame but not what matching it
+   * would look like.
+   */
+  startFramePrompt?: string;
+  endFramePrompt?: string;
+  /**
    * Characters whose identity this clip must hold throughout, with their
    * photographs. Only consumed by the reference variant; the keyframe variants
    * inherit identity from the two frames and are sent none.
@@ -467,6 +475,8 @@ export async function buildVideoManifest(args: {
     ? renderH3ReferencePrompt({
         body: stripH3Envelope(routed.prompt),
         subjects: reference.subjects,
+        startFrameDescription: args.startFramePrompt,
+        endFrameDescription: args.endFramePrompt,
         hasStart: true,
         hasEnd: true,
         soundscape: args.soundscape,

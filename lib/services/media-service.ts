@@ -750,6 +750,8 @@ export async function generateProjectMediaPhased(
             durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
             soundscape: scene.prompts.videoSoundscape ?? scene.sfxNotes,
             score: scene.prompts.videoScore ?? scene.musicNotes,
+            startFramePrompt: scene.prompts.startFramePrompt,
+            endFramePrompt: scene.prompts.endFramePrompt,
             cast: await castFor(record, scene),
           })
         : undefined;
@@ -1081,6 +1083,8 @@ export async function regenerateSceneVideo(
     durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
     soundscape: scene.prompts.videoSoundscape ?? scene.sfxNotes,
     score: scene.prompts.videoScore ?? scene.musicNotes,
+    startFramePrompt: scene.prompts.startFramePrompt,
+    endFramePrompt: scene.prompts.endFramePrompt,
     cast: await castFor(loaded, scene),
   });
   const job = await runToCompletion(manifest.settings);
@@ -1227,6 +1231,8 @@ export async function generateSceneMedia(
         durationSeconds: scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
         soundscape: scene.prompts.videoSoundscape ?? scene.sfxNotes,
         score: scene.prompts.videoScore ?? scene.musicNotes,
+        startFramePrompt: scene.prompts.startFramePrompt,
+        endFramePrompt: scene.prompts.endFramePrompt,
         cast: await castFor(record, scene),
       })
     : undefined;
