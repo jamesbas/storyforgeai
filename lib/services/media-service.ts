@@ -986,6 +986,21 @@ async function markGenerated(projectId: string, sceneId: string): Promise<Projec
   return updated;
 }
 
+/**
+ * Rendering a scene again supersedes whichever take was approved.
+ *
+ * Approval means "this is the one to use", and everything downstream reads it —
+ * the next scene inherits its end frame, assembly uses its clip. Asking for a
+ * fresh render is asking for a new one of those, so leaving the old approval
+ * standing points the whole pipeline at a take the user has just replaced: a
+ * scene rendered today can hand the next scene a frame from last week, with the
+ * card showing the new one. The record of what was approved is not lost, and
+ * Variant Review can approve any attempt again.
+ */
+function supersedeApprovals(attempts: readonly SceneAttempt[]): SceneAttempt[] {
+  return attempts.map((attempt) => (attempt.approved ? { ...attempt, approved: false } : attempt));
+}
+
 /** Write the attempt and its media into the record, unscored. */
 async function persistAttempt(
   projectId: string,
@@ -996,7 +1011,10 @@ async function persistAttempt(
 ): Promise<ProjectRecord> {
   const staged: ProjectRecord = {
     ...record,
-    attempts: { ...(record.attempts ?? {}), [scene.id]: [...existing, attempt] },
+    attempts: {
+      ...(record.attempts ?? {}),
+      [scene.id]: [...supersedeApprovals(existing), attempt],
+    },
     project: { ...record.project, status: "generating", updatedAt: new Date().toISOString() },
     history: [
       ...(record.history ?? []),
