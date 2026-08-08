@@ -25,6 +25,22 @@ export type PromptFamilyCheck = {
   totalScenes: number;
 };
 
+/**
+ * Whether the guidance that wrote these prompts is the guidance in force now.
+ *
+ * A separate question from which model they were written for, and one the
+ * family check cannot answer: the wording the agents are given changes between
+ * releases, and a prompt written under older wording is stale without anything
+ * about the project having moved. Version tags are recorded per execution
+ * exactly so this can be asked.
+ */
+export function promptsPredateGuidance(
+  versions: readonly (string | undefined)[],
+  current: string,
+): boolean {
+  return versions.some((version) => version !== undefined && version !== current);
+}
+
 type PromptLike = {
   videoSoundscape?: string;
   videoScore?: string;

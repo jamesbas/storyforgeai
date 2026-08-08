@@ -24,7 +24,8 @@ import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { Character } from "@/lib/schemas/character";
 import { handEditedSinceGeneration } from "@/lib/history";
 import { familyLabel, familyOf } from "@/lib/wangp/family";
-import { checkPromptFamily } from "@/lib/agents/prompt-family";
+import { checkPromptFamily, promptsPredateGuidance } from "@/lib/agents/prompt-family";
+import { PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import type { MediaDescriptor } from "@/lib/media/refs";
 
 type QueueSnapshot = { entries: SceneQueueEntry[]; active: boolean; phase?: PhaseProgress };
@@ -704,6 +705,16 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     videoModel: project.videoModel,
     scenes: storyboard?.scenes ?? [],
   });
+  // The wording the agents are given changes between releases, and a prompt
+  // written under the old wording is stale even when nothing about the project
+  // has moved. Only the video prompt is checked: it is the one whose guidance
+  // is model-specific and has actually changed.
+  const outdatedGuidance = promptsPredateGuidance(
+    (storyboard?.scenes ?? []).map(
+      (scene) => latestExecution(record.executions, `${scene.id}.video_prompt`)?.promptVersion,
+    ),
+    PROMPT_VERSIONS.videoPrompt,
+  );
 
   return (
     <div className="space-y-6">
@@ -774,20 +785,28 @@ export function StoryboardView({ projectId }: { projectId: string }) {
 
       {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
 
-      {promptFamily ? (
+      {promptFamily || outdatedGuidance ? (
         <section
           data-testid="stale-prompt-family"
           className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4"
         >
           <h2 className="text-sm font-semibold text-amber-100">
-            {promptFamily.staleScenes === promptFamily.totalScenes
-              ? promptFamily.certainty === "stamped"
-                ? "These prompts were written for a different video model"
-                : "These prompts may have been written for a different video model"
-              : `${promptFamily.staleScenes} of ${promptFamily.totalScenes} scenes have prompts written for a different video model`}
+            {promptFamily
+              ? promptFamily.staleScenes === promptFamily.totalScenes
+                ? promptFamily.certainty === "stamped"
+                  ? "These prompts were written for a different video model"
+                  : "These prompts may have been written for a different video model"
+                : `${promptFamily.staleScenes} of ${promptFamily.totalScenes} scenes have prompts written for a different video model`
+              : "These prompts were written under older guidance"}
           </h2>
           <p className="mt-1 text-sm text-amber-100/80">
-            {promptFamily.certainty === "stamped" ? (
+            {!promptFamily ? (
+              <>
+                The wording the prompt agents are given has changed since these were written, so
+                they do not follow the current guidance for{" "}
+                <strong>{familyLabel(videoFamily)}</strong>.
+              </>
+            ) : promptFamily.certainty === "stamped" ? (
               <>
                 The clip prompts were written for{" "}
                 <strong>{familyLabel(promptFamily.writtenFor)}</strong>, and this project now
@@ -1146,6 +1165,18 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                     Regenerate all video
                   </button>
                 ) : null}
+                {/* Not only inside the staleness warning: prompts also want
+                    rewriting after editing scene cards or changing the cast,
+                    and a control that appears only when something is wrong
+                    cannot be found when nothing is. */}
+                <button
+                  onClick={() => void rewriteAllPrompts()}
+                  disabled={busy || rewritingAll || queue?.active}
+                  title="Re-run the two prompt agents over every scene card, against the models pinned now. Scene cards, the story and the shot list are untouched; prompt wording you typed by hand is replaced."
+                  className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
+                >
+                  {rewritingAll ? "Rewriting prompts…" : "Rewrite all prompts"}
+                </button>
                 {queue?.active ? (
                   <button
                     onClick={() => void cancelQueue()}

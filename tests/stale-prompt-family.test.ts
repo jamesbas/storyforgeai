@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { checkPromptFamily } from "@/lib/agents/prompt-family";
+import { checkPromptFamily, promptsPredateGuidance } from "@/lib/agents/prompt-family";
 import { familyLabel } from "@/lib/wangp/family";
 
 /**
@@ -142,6 +142,32 @@ describe("cases that must never warn", () => {
 
   it("claims nothing without a storyboard", () => {
     expect(checkPromptFamily({ videoModel: "minimax_h3_fl2va", scenes: [] })).toBeNull();
+  });
+});
+
+describe("guidance that has moved on", () => {
+  // A prompt can be stale because the wording the agents were given changed,
+  // with nothing about the project having moved — which the family check
+  // cannot see, and which left the rewrite unreachable when it was the only
+  // thing wrong.
+  it("spots a scene written under an older version", () => {
+    expect(promptsPredateGuidance(["video-prompt-v1"], "video-prompt-v2")).toBe(true);
+  });
+
+  it("stays quiet when every scene is current", () => {
+    expect(promptsPredateGuidance(["video-prompt-v2", "video-prompt-v2"], "video-prompt-v2")).toBe(
+      false,
+    );
+  });
+
+  it("claims nothing for a scene with no recorded version", () => {
+    expect(promptsPredateGuidance([undefined, undefined], "video-prompt-v2")).toBe(false);
+  });
+
+  it("flags a partly rewritten storyboard", () => {
+    expect(promptsPredateGuidance(["video-prompt-v2", "video-prompt-v1"], "video-prompt-v2")).toBe(
+      true,
+    );
   });
 });
 
