@@ -315,6 +315,32 @@ describe("the six-section prompt", () => {
   });
 });
 
+describe("tagging a spoken line", () => {
+  const tagged = (body: string) =>
+    renderH3ReferencePrompt({ body, subjects: [], hasStart: true, hasEnd: true });
+
+  it("tags a line whose delivery sits between the verb and the quote", () => {
+    // Untagged speech inside this format is description: the model shows
+    // someone speaking and says nothing.
+    const rendered = tagged('Mike says in a steady, commanding voice, "New stakes."');
+    expect(rendered).toContain("<d>[English] New stakes.</d>");
+  });
+
+  it("keeps the delivery outside the tag, where it is direction not speech", () => {
+    const rendered = tagged('Mike says in a low, gravelly voice, "New stakes."');
+    expect(rendered).toContain("(S1) says in a low, gravelly voice: <d>");
+  });
+
+  it("still tags the plain form", () => {
+    expect(tagged('The robot says, "We should go."')).toContain("(S1) says: <d>");
+  });
+
+  it("leaves prose that merely reports speech alone", () => {
+    const rendered = tagged("She says the room is cold and nobody answers.");
+    expect(rendered).not.toContain("<d>");
+  });
+});
+
 describe("binding a character to their photograph", () => {
   const withCast = (body: string) =>
     renderH3ReferencePrompt({

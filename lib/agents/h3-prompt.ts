@@ -120,8 +120,16 @@ const SHOT = "[Shot 1]";
 /** Speech markup: `<d>[Language] words</d>`, per the guide. */
 const DIALOGUE_TAG = /<d>\s*\[[^\]]*\]\s*([\s\S]*?)<\/d>/g;
 
-/** A said/says clause with the spoken words quoted after it. */
-const SPOKEN_CLAUSE = /\b(says?|said)\b[,:]?\s*[""]([^""]+)[""]/g;
+/**
+ * A said/says clause with the spoken words quoted after it.
+ *
+ * The delivery usually sits between the two — `says in a low, gravelly voice,
+ * "…"` — so a clause of up to a line is allowed there, provided it ends in the
+ * comma or colon that introduces the quote. Requiring the quote immediately
+ * after the verb left real dialogue untagged, and an untagged line inside this
+ * format is description: the model shows someone speaking and says nothing.
+ */
+const SPOKEN_CLAUSE = /\b(says?|said)\b([^"“”\n]{0,80}?)[,:]?\s*["“]([^"”]+)["”]/g;
 
 /**
  * Tag spoken lines so H3 performs them instead of describing them.
@@ -140,10 +148,17 @@ export function markDialogue(text: string): string {
   if (DIALOGUE_TAG.test(text)) return text;
 
   let speaker = 0;
-  return text.replace(SPOKEN_CLAUSE, (_match, verb: string, line: string) => {
-    speaker += 1;
-    return `(S${speaker}) ${verb}: <d>[English] ${line.trim()}</d>`;
-  });
+  return text.replace(
+    SPOKEN_CLAUSE,
+    (_match, verb: string, delivery: string, line: string) => {
+      speaker += 1;
+      // How it is said belongs beside the verb, not inside the tag: the guide is
+      // explicit that only the words between `<d>` and `</d>` are uttered, so a
+      // delivery swept in there would be read out as part of the line.
+      const said = `${verb}${delivery.replace(/[\s,:]+$/, "")}`;
+      return `(S${speaker}) ${said}: <d>[English] ${line.trim()}</d>`;
+    },
+  );
 }
 
 /** Put tagged speech back to ordinary quoted prose for everything else. */
