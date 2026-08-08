@@ -177,6 +177,46 @@ function subjectLine(subject: H3ReferenceSubject, index: number): string {
   );
 }
 
+/** Everything inside `<d>…</d>`, which is spoken aloud and must not be edited. */
+const SPEECH = /<d>[\s\S]*?<\/d>/g;
+
+function escapeForRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Put the subject tag where the prose names the character.
+ *
+ * The writing agent describes a scene and calls people by name; it has no idea
+ * a photograph is being supplied for one of them. Left alone, the reference has
+ * nothing tying it to anyone in the shot, and the likeness lands wherever it
+ * likes — a run that referenced a face without binding it put copies of that
+ * head on several people around a table.
+ *
+ * Speech is stepped over: a name inside `<d>` is said out loud, and a spoken
+ * line reading "Subject 1" would be exactly as wrong as it sounds.
+ */
+function bindSubjects(body: string, subjects: readonly H3ReferenceSubject[]): string {
+  if (!subjects.length) return body;
+
+  const spoken: string[] = [];
+  const masked = body.replace(SPEECH, (match) => {
+    spoken.push(match);
+    return `\u0000${spoken.length - 1}\u0000`;
+  });
+
+  const bound = subjects.reduce((text, subject, index) => {
+    const name = tidy(subject.name);
+    if (!name) return text;
+    return text.replace(
+      new RegExp(`\\b${escapeForRegExp(name)}\\b`, "g"),
+      `<Subject ${index + 1}>`,
+    );
+  }, masked);
+
+  return bound.replace(/\u0000(\d+)\u0000/g, (_match, i: string) => spoken[Number(i)] ?? "");
+}
+
 /**
  * One retention line per label, with its marker.
  *
@@ -258,7 +298,10 @@ export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
       `${end}, which is its final frame.`
     : "";
 
-  const body = markDialogue(tidy(parts.body)).replace(/^\[Shot 1\]\s*/, "");
+  const body = bindSubjects(markDialogue(tidy(parts.body)), subjects).replace(
+    /^\[Shot 1\]\s*/,
+    "",
+  );
   const style = tidy(parts.style);
   const timeline = [SHOT, opening, body, closing].filter(Boolean).join(" ");
 
@@ -335,8 +378,14 @@ function dropReferenceSentences(text: string): string {
     // the speech joined to whatever follows — and it was being discarded along
     // with the reference sentence it had been glued to.
     .split(/(?<=\.|<\/d>)\s+/)
-    .filter((sentence) => !/<(Picture|Subject)\s*\d*>/i.test(sentence))
+    // Only the picture sentences go. A subject tag names someone the scene is
+    // about, so the sentence is worth keeping even though the tag is not — the
+    // name it stood in for is not recoverable here, and "the character" reads
+    // better than dropping the action they perform.
+    .filter((sentence) => !/<Picture\s*\d*>/i.test(sentence))
     .join(" ")
+    .replace(/<Subject\s*\d*>/gi, "the character")
+    .replace(/(^|[.!?]\s+)the character/g, (_match, lead: string) => `${lead}The character`)
     .trim();
 }
 

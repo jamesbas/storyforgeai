@@ -294,6 +294,46 @@ describe("the six-section prompt", () => {
   });
 });
 
+describe("binding a character to their photograph", () => {
+  const withCast = (body: string) =>
+    renderH3ReferencePrompt({
+      body,
+      subjects: [TRACEY],
+      hasStart: true,
+      hasEnd: true,
+    });
+
+  it("puts the subject tag where the prose names the character", () => {
+    // A reference with nothing tying it to a person in the shot scattered the
+    // referenced head across several people in a live run.
+    const rendered = withCast("Tracey turns from the window as Tracey lifts her cup.");
+    const body = rendered.slice(rendered.indexOf("detailed_description:"));
+    expect(body).toContain("<Subject 1> turns from the window as <Subject 1> lifts her cup.");
+  });
+
+  it("leaves the name alone inside spoken lines", () => {
+    // The tag would be read aloud.
+    const rendered = withCast('The man says, "Tracey, wait." Tracey stops.');
+    const body = rendered.slice(rendered.indexOf("detailed_description:"));
+    expect(body).toContain("<d>[English] Tracey, wait.</d>");
+    expect(body).toContain("<Subject 1> stops.");
+  });
+
+  it("does not match a name inside a longer word", () => {
+    const rendered = renderH3ReferencePrompt({
+      body: "Al watches the album spin.",
+      subjects: [{ name: "Al", pictureIndex: 3 }],
+      hasStart: true,
+      hasEnd: true,
+    });
+    expect(rendered).toContain("the album spin");
+  });
+
+  it("names both halves of the job when a cast is present", () => {
+    expect(withCast("She waits.")).toContain("[keyframe completion + reference generation]");
+  });
+});
+
 describe("the cost estimate", () => {
   it("matches the measured runs", () => {
     expect(ref2vaEstimateMinutes(1)).toBe(20);
