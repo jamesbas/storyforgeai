@@ -1335,6 +1335,12 @@ export function StoryboardView({ projectId }: { projectId: string }) {
             {storyboard.scenes.map((scene, index) => {
               const attempts = record.attempts?.[scene.id] ?? [];
               const latest = attempts[attempts.length - 1];
+              // Generation reads the approved attempt; the card shows the newest
+              // one so a fresh render can be judged. When they differ, the
+              // frames on screen are not the frames being used.
+              const approved = [...attempts].reverse().find((a) => a.approved);
+              const superseded =
+                approved && latest && approved.id !== latest.id ? approved.attemptNumber : undefined;
               // Only the immediate predecessor can be copied from: an inheriting
               // scene in between means there is no adjacent selection to carry.
               const previousScene = index > 0 ? storyboard.scenes[index - 1] : undefined;
@@ -1376,6 +1382,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   key={scene.id}
                   scene={scene}
                   attempt={latest}
+                  supersededBy={superseded}
                   media={media}
                   busy={sceneBusy === scene.id}
                   onGenerate={stages.keyframes ? () => generateSceneMedia(scene.id) : undefined}

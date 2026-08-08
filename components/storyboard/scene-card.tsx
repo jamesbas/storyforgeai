@@ -31,6 +31,15 @@ type SceneCardProps = {
   triggerWords?: { image: string[]; video: string[] };
   /** Pinned video family, so the prompts panel can say what generation adds. */
   videoFamily?: string;
+  /**
+   * The attempt everything downstream uses, when it is not the one shown.
+   *
+   * The card shows the newest attempt so a fresh render can be judged; the
+   * pipeline uses the approved one. Regenerate without approving and the two
+   * diverge, which is invisible until the next scene inherits a frame that is
+   * not the one on screen.
+   */
+  supersededBy?: number;
   /** SPEC-004 record for this scene's image-prompt pass; owns source and version. */
   promptExecution?: ArtifactExecution;
   onPromptsSaved?: (record: ProjectRecord) => void;
@@ -116,6 +125,7 @@ export function SceneCard({
   promptExecution,
   onPromptsSaved,
   videoFamily,
+  supersededBy,
   cast = [],
   wardrobeChanges = [],
   continuousTake = false,
@@ -330,6 +340,19 @@ export function SceneCard({
               ))}
             </div>
           )}
+
+          {supersededBy !== undefined ? (
+            <p
+              data-testid="attempt-not-in-use"
+              className="mt-3 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+            >
+              These are the newest frames, but generation is still using{" "}
+              <strong>attempt {supersededBy}</strong>, the one you approved — so the next scene
+              inherits that end frame rather than the one shown here, and assembly uses its clip.
+              Approve this attempt to put it in use, or leave it if the approved take is the one you
+              want.
+            </p>
+          ) : null}
 
           <div className="mt-3 flex gap-2">
             {onGenerate && (
