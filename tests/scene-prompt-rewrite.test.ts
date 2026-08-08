@@ -3,11 +3,13 @@ import {
   createProject,
   generateStoryboard,
   getProjectRecord,
+  regenerateAllScenePrompts,
   regenerateScenePrompts,
   updateScenePrompts,
 } from "@/lib/services/project-service";
 import { MockWangpClient } from "@/lib/wangp/mock-client";
 import { setWangpClient } from "@/lib/wangp/factory";
+import { latestExecution } from "@/lib/schemas/provenance";
 
 /**
  * Rewriting one scene's prompts.
@@ -78,9 +80,37 @@ describe("rewriting one scene's prompts", () => {
     expect(after.history?.some((h) => h.action === "scene.prompts_rewritten")).toBe(true);
   });
 
+  it("records the run that produced the new prompts", async () => {
+    // Without this the scene keeps the provenance of whichever run first wrote
+    // it, so the version the storyboard checks staleness against describes
+    // prompts that have since been replaced — and the warning never clears.
+    const record = await seeded();
+    const scene = record.storyboard!.scenes[0]!;
+    const before = latestExecution(record.executions, `${scene.id}.video_prompt`);
+    const after = await regenerateScenePrompts(record.project.id, scene.id);
+    const now = latestExecution(after.executions, `${scene.id}.video_prompt`);
+
+    expect(now).toBeDefined();
+    expect(now?.executionId).not.toBe(before?.executionId);
+  });
+
   it("refuses a scene that does not exist", async () => {
     const record = await seeded();
     await expect(regenerateScenePrompts(record.project.id, "no-such-scene")).rejects.toThrow();
+  });
+
+  it("records a run for every scene when the whole storyboard is rewritten", async () => {
+    const record = await seeded();
+    const before = record.storyboard!.scenes.map(
+      (scene) => latestExecution(record.executions, `${scene.id}.video_prompt`)?.executionId,
+    );
+    const after = await regenerateAllScenePrompts(record.project.id);
+
+    after.storyboard!.scenes.forEach((scene, index) => {
+      const now = latestExecution(after.executions, `${scene.id}.video_prompt`);
+      expect(now).toBeDefined();
+      expect(now?.executionId).not.toBe(before[index]);
+    });
   });
 
   it("refuses before there is a storyboard", async () => {

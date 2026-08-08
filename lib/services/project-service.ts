@@ -1141,6 +1141,11 @@ export async function regenerateScenePrompts(
       record.storyboard.scenes.map((s) => [s.id, s.prompts] as const),
     );
     const drafts = record.storyboard.scenes.map(({ prompts: _prompts, ...draft }) => draft);
+    // Without this the rewrite is invisible in the record: the scene keeps the
+    // provenance of whichever run first wrote it, so the badge on the card and
+    // the version the storyboard checks staleness against both describe prompts
+    // that no longer exist.
+    const run = executionRun();
 
     const rebuilt = await attachScenePrompts(record.project, drafts, getPlanningProvider(), {
       cast,
@@ -1153,11 +1158,14 @@ export async function regenerateScenePrompts(
       },
       only: new Set([sceneId]),
       existing,
+      onExecution: run.onExecution,
+      correlationId: run.correlationId,
     });
 
     const updated: ProjectRecord = {
       ...record,
       storyboard: { ...record.storyboard, scenes: rebuilt },
+      executions: withExecutions(record.executions, run.executions),
       project: { ...record.project, updatedAt: new Date().toISOString() },
       history: appendHistory(record, "scene.prompts_rewritten", `Scene ${scene.sceneNumber}`),
     };
@@ -1184,6 +1192,7 @@ export async function regenerateAllScenePrompts(id: string): Promise<ProjectReco
 
     const cast = await resolveProjectCast(record.project);
     const drafts = record.storyboard.scenes.map(({ prompts: _prompts, ...draft }) => draft);
+    const run = executionRun();
 
     const rebuilt = await attachScenePrompts(record.project, drafts, getPlanningProvider(), {
       cast,
@@ -1194,11 +1203,14 @@ export async function regenerateAllScenePrompts(id: string): Promise<ProjectReco
         cinematographyPlan: record.cinematographyPlan,
         artDirectionPlan: record.artDirectionPlan,
       },
+      onExecution: run.onExecution,
+      correlationId: run.correlationId,
     });
 
     const updated: ProjectRecord = {
       ...record,
       storyboard: { ...record.storyboard, scenes: rebuilt },
+      executions: withExecutions(record.executions, run.executions),
       project: { ...record.project, updatedAt: new Date().toISOString() },
       history: appendHistory(
         record,
