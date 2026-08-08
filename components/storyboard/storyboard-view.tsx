@@ -1098,6 +1098,20 @@ export function StoryboardView({ projectId }: { projectId: string }) {
               Applies to scenes generated from now on. Scene 1 always renders its own frames, and any
               scene whose predecessor has not been generated yet falls back to a cut.
             </p>
+            {videoFamily === "minimax_ref2va" &&
+            (record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY) === "reuse_end_frame" ? (
+              <p
+                data-testid="continuity-ref2va-warning"
+                className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+              >
+                Reference mode does not hold a carried-over frame the way the other models do. It
+                has no positional first frame at all — the opening is whatever the prompt describes,
+                and a scene that inherits its start frame is describing a shot it was not given. On
+                every model but this one the frame wins that argument; here the words do, and the
+                clip opens on something you never rendered. Use <strong>Cut</strong> while reference
+                mode is selected, so each scene renders the opening its own prompt describes.
+              </p>
+            ) : null}
           </section>
 
           <section className="rounded-lg border border-white/10 bg-panel/40 p-4">
