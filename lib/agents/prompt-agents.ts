@@ -281,6 +281,22 @@ export async function attachScenePrompts(
         project,
         scene: draft,
         previousEndFramePrompt,
+        // Named in the payload rather than left to the system prompt, because
+        // the scene card sitting beside it describes the opening the storyboard
+        // intended and that is what the agent follows. A scene continuing from
+        // the one before it does not open where its card says — it opens on the
+        // picture already rendered, and has to move from there to the shot the
+        // card describes.
+        openingFrame: inheritsOpening
+          ? {
+              isThisClipsFirstFrame: true,
+              shows: previousEndFramePrompt,
+              instruction:
+                "This clip begins on exactly this image, which is already rendered. Open the " +
+                "prompt at what it shows — not at the shot this scene's card describes — and " +
+                "write the move from there to that shot as the action of the clip.",
+            }
+          : undefined,
         visualBible: context.visualBible,
         cast: sceneCast,
         sceneIntent: slice.intent,

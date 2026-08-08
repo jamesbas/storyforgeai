@@ -11,9 +11,9 @@ export const PROMPT_VERSIONS = {
   visualBible: "visual-bible-v1",
   storyboard: "storyboard-v1",
   imagePrompt: "image-prompt-v2",
-  // v3: scenes that inherit their opening frame are told so, and stop writing
-  // an opening that contradicts the picture they are handed.
-  videoPrompt: "video-prompt-v3",
+  // v4: a scene continuing from the one before it is handed its actual opening
+  // frame in the payload, not just told about it in the system prompt.
+  videoPrompt: "video-prompt-v4",
   variants: "variants-v2",
   worldBible: "world-bible-v1",
   director: "director-v1",

@@ -1104,12 +1104,13 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                 data-testid="continuity-ref2va-warning"
                 className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
               >
-                Reference mode does not hold a carried-over frame the way the other models do. It
-                has no positional first frame at all — the opening is whatever the prompt describes,
-                and a scene that inherits its start frame is describing a shot it was not given. On
-                every model but this one the frame wins that argument; here the words do, and the
-                clip opens on something you never rendered. Use <strong>Cut</strong> while reference
-                mode is selected, so each scene renders the opening its own prompt describes.
+                Reference mode has no positional first frame — the opening is whatever the clip
+                prompt describes, so a carried-over frame only holds if the prompt opens on what
+                that frame shows. Scenes are written that way, but it depends on the writing agent
+                following it, and a scene card that describes a different opening can win. If a
+                clip does not begin on the frame above it, rewrite that scene&apos;s prompts before
+                reaching for <strong>Cut</strong> — cutting fixes it by removing the continuity you
+                chose this setting for.
               </p>
             ) : null}
           </section>
