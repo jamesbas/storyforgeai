@@ -1108,6 +1108,14 @@ export default function HelpPage() {
             it gives for a plan you regenerated late.
           </p>
           <p className={p}>
+            <strong>Rewriting the prompts is not a substitute.</strong> A plan shapes two things:
+            the scene cards — the beats, the shot list, the wardrobe — and the prompts written from
+            them. <em>Rewrite all prompts</em> re-runs only the second half, so the new direction
+            reaches the wording while the shot list it was meant to reshape stays as the old plan
+            left it. The two actions read alike, which is why the warning says so; only regenerating
+            the storyboard does both, and it rewrites the prompts as part of the job.
+          </p>
+          <p className={p}>
             <strong>Run core agents</strong> does the whole sequence for you: World Builder →
             Director → Cinematographer → Art Director, one at a time, then the storyboard if you
             leave that option ticked. Order is the point — the storyboard folds in whichever plans

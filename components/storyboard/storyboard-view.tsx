@@ -5,7 +5,7 @@ import { useAgentRun } from "@/components/shared/use-agent-run";
 import { useLoadEffect } from "@/components/shared/use-load-effect";
 import Link from "next/link";
 import { SceneCard } from "@/components/storyboard/scene-card";
-import { CreativePlansPanel } from "@/components/storyboard/creative-plans-panel";
+import { CreativePlansPanel, planStates } from "@/components/storyboard/creative-plans-panel";
 import { NegativePromptRepair } from "@/components/storyboard/negative-prompt-repair";
 import { TaskRecoveryPanel } from "@/components/storyboard/task-recovery-panel";
 import { chipLabel, phaseLabel } from "@/components/storyboard/phase-labels";
@@ -715,6 +715,9 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     ),
     PROMPT_VERSIONS.videoPrompt,
   );
+  // Regenerating the storyboard rewrites prompts as part of the job, so where
+  // plans are also out of step the prompt rewrite is the wrong button.
+  const plansStale = planStates(record).staleCount > 0;
 
   return (
     <div className="space-y-6">
@@ -835,9 +838,17 @@ export function StoryboardView({ projectId }: { projectId: string }) {
             Rewriting re-runs the prompt agents against the scene cards you already have; the story,
             shot list and cards are untouched.
           </p>
+          {/* Two amber banners offering near-identical verbs is how someone ends
+              up running the cheaper one twice. Regenerating covers both. */}
+          {plansStale ? (
+            <p className="mt-2 text-[11px] text-amber-100/70">
+              Creative plans have changed too — see below. Regenerating the storyboard rewrites the
+              prompts as part of the job, so do that instead and this clears with it.
+            </p>
+          ) : null}
           <button
             type="button"
-            disabled={busy || rewritingAll}
+            disabled={busy || rewritingAll || plansStale}
             onClick={() => void rewriteAllPrompts()}
             className="mt-3 rounded-md bg-accent-solid px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
           >

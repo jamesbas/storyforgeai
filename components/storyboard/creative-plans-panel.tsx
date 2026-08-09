@@ -161,6 +161,15 @@ export function CreativePlansPanel({
             Until you regenerate, none of that direction reaches the images or video. Scene ids are
             stable, so regenerating keeps your existing media, attempts and LoRA choices.
           </p>
+          {/* The two actions read alike and are not interchangeable; picking the
+              cheaper one and expecting this to clear is the obvious mistake. */}
+          <p className="mt-2 text-[11px] text-amber-200/80">
+            <strong>Rewrite all prompts is not enough here.</strong> A plan shapes two things: the
+            scene cards — the beats, the shot list, the wardrobe — and the prompts written from
+            them. Rewriting prompts applies the new direction to the wording only, so the shot list
+            it was meant to reshape stays as the old plan left it. Only regenerating the storyboard
+            does both.
+          </p>
           <button
             type="button"
             onClick={onRegenerate}
