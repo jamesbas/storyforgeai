@@ -481,7 +481,7 @@ checked against this before anything else.
 
 ---
 
-## 5. Model choice — reopened
+## 5. Model choice — Krea for this material, and why the first answer was wrong
 
 The project was on **`krea2_turbo_edit`** ("Krea 2 Turbo Identity Edit v1.2"), an
 **edit** model, and `docs/Discord Intro.md` had already recorded what that costs:
@@ -503,9 +503,29 @@ have been. The quoted warning still describes what an edit model *does*; what
 changed is that a compact, bound prompt no longer loses the argument to the
 reference.
 
-**Neither model is settled.** Both work on the fixed prompts; they have not been
-compared on equal terms across a full film. The one thing worth carrying forward
-is that a model comparison run on broken prompts measures the prompts.
+### The comparison, run properly
+
+An 18-scene run was then repeated on `flux2_klein_9b` against the existing Krea
+set: same build, references on in both, same pinned seeds, same prompts. Only the
+model differed. Two things separate them on this material.
+
+**Anatomy on entangled poses.** Klein distorted an intimate two-shot badly — an
+elongated ribcage, wrong proportions, a stray limb at the frame edge. Krea's
+version of the same seed is coherent.
+
+**Fidelity to the shot as written.** A scene asking for missionary with a watcher
+in a background corner chair came back from Klein with the man kneeling beside
+her and the watcher leaning in close over the bed. Krea placed both as described.
+
+Identity and wardrobe were correct on **both**, which is the part the prompt fix
+owns rather than the model.
+
+**Conclusion, scoped:** for this project — explicit, multi-person, intimate
+staging — `krea2_turbo_edit` is the better choice, and its name is a fair
+description of what it is good at. That is one project and one kind of content;
+a chase sequence or a crowd scene has not been tested and might well go the other
+way. The earlier advice to avoid it was wrong, and wrong for an instructive
+reason: it was measured on broken prompts.
 
 Of 97 image models on the server, **22 are installed**. The reference-capable
 non-edit options are `flux2_klein_9b` (8 default steps) and `flux2_klein_base_9b`
