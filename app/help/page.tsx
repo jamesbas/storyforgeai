@@ -521,11 +521,11 @@ export default function HelpPage() {
               <strong>Negative prompt terms</strong> — traits to actively suppress for this character,
               appended to the negative prompt of every scene they appear in.{" "}
               <strong>A negative prompt has no addressee.</strong> Writing &quot;dark skin for
-              Jaime&quot; does not aim anything at Jaime; the sampler sees &quot;dark skin&quot; and
-              steers the whole frame away from it, including the character who is supposed to have
-              it. Terms written that way are dropped from any shot holding more than one person, and
-              kept with the name stripped where only one person is in frame. State traits plainly,
-              and remember they apply to everybody in the picture.
+              &lt;character name&gt;&quot; does not aim anything at that character; the sampler sees
+              &quot;dark skin&quot; and steers the whole frame away from it, including the character
+              who is supposed to have it. Terms written that way are dropped from any shot holding
+              more than one person, and kept with the name stripped where only one person is in
+              frame. State traits plainly, and remember they apply to everybody in the picture.
             </li>
             <li className={li}>
               <strong>Facial description</strong> — optional, and the field to use for eyes, nose,

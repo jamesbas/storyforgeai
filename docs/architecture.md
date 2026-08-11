@@ -459,7 +459,7 @@ flowchart TB
    and anything still phrased as an absence is copied into the negative prompt by
    `withNegatedTraits`, where a sampler can act on it. The same rule explains why
    character-scoped exclusions are stripped: a negative prompt has no addressee,
-   so "dark skin for Jaime" suppresses dark skin for everybody in the frame.
+   so "dark skin for <character>" suppresses dark skin for everybody in the frame.
 7. **Some state flows backwards.** `foldWardrobeChanges` lifts costume changes the
    Storyboard Artist declared onto the project *before* any prompt is written,
    because a change carries forward to every later scene and so cannot live on the

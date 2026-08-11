@@ -40,7 +40,7 @@ frame file, and the end frame is rendered with that file supplied as a reference
 Afterwards a **face swap** pass runs per character to correct likenesses.
 
 The project this was debugged against: 18 scenes, `keyframes_only`,
-`reuse_end_frame`, three people on screen — Tracey and Jaime (both in the library,
+`reuse_end_frame`, three people on screen — the wife and the husband (both in the library,
 with photographs) and an unnamed third man described only in prose.
 
 ---
@@ -67,21 +67,21 @@ frame over from the previous scene, and it leads the list, flagged by
 
 | Frame | Inherited frame | Portraits | Total refs | Result |
 | --- | --- | --- | --- | --- |
-| s16 start — Jaime alone (seam broke) | no | 1 | **1** | **Correct.** Right man, right polo, right chair. |
+| s16 start — the husband alone (seam broke) | no | 1 | **1** | **Correct.** Right man, right polo, right chair. |
 | s3 start — three people (seam broke, Krea) | no | 2 | **2** | **Correct.** All three, right clothes. |
-| s12 end — Tracey + unnamed man | yes | 1 | **2** | **Correct.** Both right, both nude as specified. |
-| s14 end — Tracey + unnamed man | yes | 1 | **2** | **Correct.** Both right. |
-| s13 end — Jaime + Tracey + unnamed man | yes | 2 | **3** | **Catastrophic.** See below. |
+| s12 end — the wife + unnamed man | yes | 1 | **2** | **Correct.** Both right, both nude as specified. |
+| s14 end — the wife + unnamed man | yes | 1 | **2** | **Correct.** Both right. |
+| s13 end — the husband + the wife + unnamed man | yes | 2 | **3** | **Catastrophic.** See below. |
 
 The s13 end frame asked for: the unnamed man **fully nude** having sex with
-Tracey, and Jaime watching from a corner chair in a white polo and blue jeans.
+the wife, and the husband watching from a corner chair in a white polo and blue jeans.
 
 What rendered:
 
-- The man in the bed is **light-skinned, wearing Jaime's white polo and blue
+- The man in the bed is **light-skinned, wearing the husband's white polo and blue
   jeans** — during intercourse.
-- The person in the corner chair is **a second woman resembling Tracey**, not
-  Jaime.
+- The person in the corner chair is **a second woman resembling the wife**, not
+  the husband.
 - The unnamed black man is **absent entirely**.
 
 Every attribute crossed over. This single frame is the whole bug.
@@ -131,21 +131,21 @@ v1.50 shipped, `s13 end` was rendered again, and it was **still wrong**. That
 render is the most informative artefact produced so far, and it overturns part of
 the reasoning above.
 
-`s13 end` asked for three people: the unnamed man **fully nude** with Tracey, and
-Jaime watching from a corner chair in a white polo and blue jeans. Under v1.50
-exactly one portrait was sent — Tracey's, as the first-named. What came back:
+`s13 end` asked for three people: the unnamed man **fully nude** with the wife, and
+the husband watching from a corner chair in a white polo and blue jeans. Under v1.50
+exactly one portrait was sent — the wife's, as the first-named. What came back:
 
 - The unnamed man is **correctly black**, correctly built — his *identity* came
   through from prose alone with no photograph at all.
-- He is wearing **Jaime's white polo and blue jeans**.
-- The corner chair holds a **second Tracey**, in a polo and dark trousers.
-- **Jaime is not in the picture.**
+- He is wearing **the husband's white polo and blue jeans**.
+- The corner chair holds a **second wife**, in a polo and dark trousers.
+- **the husband is not in the picture.**
 
 Two things follow, and they matter more than the reference-count rule:
 
 **1. Prose identity works; capping the portraits did not help.** A man with no
-photograph rendered correctly. Dropping Jaime's portrait did not fix the frame —
-arguably it made the "no Jaime" symptom worse, because it removed the only thing
+photograph rendered correctly. Dropping the husband's portrait did not fix the frame —
+arguably it made the "no the husband" symptom worse, because it removed the only thing
 that made him a distinct body, leaving `Wearing exactly: blue jeans and a white
 polo shirt` as an **unbound attribute** free to attach to anyone.
 
@@ -218,9 +218,9 @@ not the lever; binding is.
 ## 2b. v1.51 did not fix it either — and the prompt itself is now the suspect
 
 `s13 end` was regenerated alone under v1.51, with the start-frame conditioning
-removed. It came back **still wrong**: Tracey nude and correct on the bed, the
-unnamed man correctly **black** but wearing **Jaime's white polo and blue jeans**,
-and a **second Tracey** sitting in the chair where Jaime should be.
+removed. It came back **still wrong**: the wife nude and correct on the bed, the
+unnamed man correctly **black** but wearing **the husband's white polo and blue jeans**,
+and a **second wife** sitting in the chair where the husband should be.
 
 So a completely free render — no conditioning frame, one portrait — still
 scrambles. That eliminates the conditioning image as the explanation for this
@@ -233,12 +233,12 @@ The full stored end-frame prompt is 2183 characters. Where that text goes:
 | Section | Characters |
 | --- | --- |
 | Scene description (the actual shot) | 600 |
-| Appended `Jaime:` block | 544 |
-| Appended `Tracey:` block | **966** |
+| Appended `husband:` block | 544 |
+| Appended `wife:` block | **966** |
 | Unnamed man, in the scene description | 183 |
 | Unnamed man, appended (`the muscular Black man: nude`) | 50 |
 
-**Tracey is described at four times the length of the man the shot is about.**
+**the wife is described at four times the length of the man the shot is about.**
 Two-thirds of the prompt is an appended cast sheet describing two people in
 minute anatomical detail, and the third person — the one performing the action —
 gets a single clause.
@@ -256,11 +256,11 @@ body prose already describes — and re-render `s13 end`. Nobody has tried it.
 The stored **negative** prompt for this scene contained:
 
 ```
-… athletic build for Tracey, flat midsection for Tracey, short hair for Tracey,
-dark skin for Jaime, blue eyes for Jaime, cool fluorescent lighting …
+… athletic build for the wife, flat midsection for the wife, short hair for the wife,
+dark skin for the husband, blue eyes for the husband, cool fluorescent lighting …
 ```
 
-`dark skin for Jaime` — in a scene whose leading man is black.
+`dark skin for <character>` — in a scene whose leading man is black.
 
 A negative prompt has **no addressee**. The sampler sees `dark skin` and steers
 the entire frame away from it. The prompt agents write these scoped exclusions
@@ -274,7 +274,7 @@ replaced altogether.
 matching `<trait> for <CastName>` unless the frame states exactly one person, in
 which case the scope is redundant and the trait is kept. Applied at render time,
 so stored prompts need no repair. For `s13 end` this removes five terms including
-both of Jaime's.
+both of the husband's.
 
 **Note this was found by reading the prompt end to end, which had not been done
 before.** Several earlier hypotheses would have been discarded sooner if it had.
@@ -298,7 +298,7 @@ and blue jeans**, a **woman in the corner chair** where the husband should be,
 and no husband anywhere.
 
 One detail kills the reference-photograph theory outright: the woman in the chair
-is a **brunette who does not resemble Tracey**. She is not a duplicated reference
+is a **brunette who does not resemble the wife**. She is not a duplicated reference
 subject. She is simply *a woman*, generated where the prompt asked for a man.
 
 So the failure survives with no images of any kind in the job. **The prompt is
@@ -311,7 +311,7 @@ sole surviving explanation rather than one of several.
 version — 2183 characters down to 1042 — built on three changes:
 
 1. **No names.** A name is an unbindable label; the model has no idea who
-   "Jaime" is. Each person is a self-contained physical description.
+   "the husband" is. Each person is a self-contained physical description.
 2. **Wardrobe bound inline**, adjacent to the body it belongs to, instead of
    appended in a separate sheet at the end.
 3. **An explicit contrast**: *"Only the older white man wears clothes. The two
@@ -334,7 +334,7 @@ watcher out of these frames.
 ## 2d. RESOLVED — it was the prompt format
 
 Test A rendered **correctly on the first attempt**: three distinct people, every
-attribute on the right body. The black man nude, Tracey nude, the husband clothed
+attribute on the right body. The black man nude, the wife nude, the husband clothed
 in the corner chair. Both face-swap passes then landed on the right heads.
 
 The same scene, same model, same seed, same settings had failed repeatedly for a
@@ -347,7 +347,7 @@ day. The only thing that changed was the shape of the prompt.
 | Length | 2183 chars | 1042 chars |
 | Cast sheet | appended block, 1510 chars | none |
 | Wardrobe | trailing `Wearing exactly: <outfit>` | inline, adjacent to the body |
-| Names | `Jaime:`, `Tracey:` | none — physical description only |
+| Names | `husband:`, `wife:` | none — physical description only |
 | Explicit contrast | absent | "Only the older white man wears clothes" |
 
 The diagnosis in §2b was right: **the appended cast sheet was two-thirds of the
@@ -367,7 +367,7 @@ an unanchored attribute that lands on whichever body can wear it.
 - **1.45–1.48, 1.51** — narrowing who a frame describes, and not conditioning a
   frame on a picture that contradicts it — were real defects and remain correct.
 - **1.52** (character-scoped negative terms) was a genuine defect: `dark skin for
-  Jaime` in a scene led by a black man. Keep.
+  the husband` in a scene led by a black man. Keep.
 - **1.49** (one photograph per character) is still sound: four pictures of one
   person is four subjects to place.
 - **1.50** (one portrait per frame) was built on a rule §2a disproved. With the
@@ -433,8 +433,8 @@ it works:
 The keyframe path does neither. It sends a bare list.
 
 An agent picking this up should look first at whether the keyframe cast sheet can
-be restructured as *"Picture 1 is Tracey: <description>, wearing X. Picture 2 is
-Jaime: <description>, wearing Y."* with the image order guaranteed to match. If
+be restructured as *"Picture 1 is the wife: <description>, wearing X. Picture 2 is
+the husband: <description>, wearing Y."* with the image order guaranteed to match. If
 that binds reliably, the v1.50 one-photo cap can be lifted and both likenesses
 kept. `resolveCastSubjects()` in `media-service.ts` is the existing shape to copy.
 
@@ -460,10 +460,10 @@ spend time re-deriving them.
 | 1.46 | An unnamed person's wardrobe pin leaked into shots they were not in | Same fault in the "Wardrobe continuity" clause. Now placed per frame, matched on describing words rather than the exact phrase. |
 | 1.47 | A character's **photograph** reached frames they were not in | Same fault again, in the image channel. This is why 1.45 and 1.46 did not help — the picture outranks the prompt. Face-swap planning had it too. |
 | 1.48 | A new person entering a scene never appeared | `reuse_end_frame` deliberately survives an arrival because *the clip carries them in*. On `keyframes_only` **there is no clip**, so the end frame had to introduce a stranger against an inherited picture of the old cast, and the picture won. A headcount change now breaks the seam. |
-| 1.49 | One character rendered twice in a frame | All four of Tracey's photographs were sent on every job. An edit model reads four pictures as four things to place, not four pieces of evidence about one face. Now one per person. |
+| 1.49 | One character rendered twice in a frame | All four of the wife's photographs were sent on every job. An edit model reads four pictures as four things to place, not four pieces of evidence about one face. Now one per person. |
 | 1.50 | Attributes crossing between people | Capped portraits at one per frame. **This did not fix it** — see §2a. |
 | 1.51 | A person joining a shot mid-scene replaced by a duplicate | The end frame is conditioned on its own start frame, whose population contradicts it. 1.48's failure at the within-scene join. **Did not fix `s13 end`** — see §2b. |
-| 1.52 | Character-scoped negative terms suppressing a trait globally | `dark skin for Jaime` in a scene led by a black man. A negative prompt has no addressee. |
+| 1.52 | Character-scoped negative terms suppressing a trait globally | `dark skin for <character>` in a scene led by a black man. A negative prompt has no addressee. |
 | 1.53 | The appended cast sheet crowding out the shot | Full stored descriptions plus a detached `Wearing exactly:`. Trimmed to a budget, wardrobe bound into the same clause. **This was the cause** — see §2d. |
 | — | A hand-edited project file invisible to the running app | The repository hydrated once per process and never re-read, so an external correction stayed unseen until a restart and was overwritten by the next save. |
 
@@ -612,8 +612,8 @@ The pattern in the wrong turns is consistent: each was a hypothesis formed by
 reading code, and each survived longer than it should have because the artefact
 was not examined first. Every turning point came from looking directly —
 
-- opening the rendered images, which showed the "black man in Jaime's clothes"
-  was sometimes Jaime and sometimes a stranger, and once a brunette woman where a
+- opening the rendered images, which showed the "black man in the husband's clothes"
+  was sometimes the husband and sometimes a stranger, and once a brunette woman where a
   man was asked for;
 - printing the prompt end to end, which exposed both the description imbalance
   and a negative term sabotaging every multi-person frame;
