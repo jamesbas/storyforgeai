@@ -6,7 +6,7 @@ import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { ArtifactExecution } from "@/lib/schemas/provenance";
 import { ExecutionBadge } from "@/components/shared/execution-badge";
 import { dedupeSentences, hasPunctuationArtifact } from "@/lib/agents/media-prompt-spec";
-import { missingDialogue, opensWithFraming, echoesInstructions } from "@/lib/agents/media-prompt-normalise";
+import { missingDialogue, opensWithFraming, echoesInstructions, mixesStandingAndSeated } from "@/lib/agents/media-prompt-normalise";
 
 /** The prompt fields a user may edit. The quality checklist is agent review notes. */
 const FIELDS = [
@@ -44,6 +44,12 @@ function lintField(key: FieldKey, text: string, scene: Scene): string[] {
   if (key === "startFramePrompt" || key === "endFramePrompt") {
     if (!opensWithFraming(text)) {
       notes.push("Does not open with shot size and camera height; the model will choose its own.");
+    }
+    if (mixesStandingAndSeated(text)) {
+      notes.push(
+        "Someone is standing while someone else is seated. At 16:9 a head gets cropped —" +
+          " widen the shot deliberately, or stage everyone at the same height.",
+      );
     }
   }
 

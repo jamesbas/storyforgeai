@@ -122,3 +122,30 @@ export function echoesInstructions(text: string): string[] {
     return hit ? [hit[0]] : [];
   });
 }
+
+const UPRIGHT = /\b(stands?|standing|walks?|walking|approach(?:es|ing)?|steps?|stepping|on (?:his|her|their) feet)\b/i;
+const LOWERED = /\b(sits?|sitting|seated|kneels?|kneeling|lies?|lying|lies back|reclin(?:es|ing)|crouch(?:es|ing)|perched)\b/i;
+
+/**
+ * Does one frame ask for a person on their feet and a person off them, in a
+ * shot too tight to hold both?
+ *
+ * Measured, not reasoned: at 16:9 a standing figure and seated figures cannot
+ * share a keyframe with every head in view. The model anchors the framing on
+ * whoever dominates and crops the outlier at the neck — and a head missing from
+ * a carried frame is a person deleted from the scene that inherits it. Holding
+ * the seed and changing one thing at a time, a lower camera did not fix it and
+ * neither did a wider shot; seating everyone did, first attempt.
+ *
+ * A shot already framed wide is left alone: it has room for the height
+ * difference, and warning about it would only teach people to ignore this.
+ *
+ * A warning rather than a rewrite. The staging is the author's, and mixed
+ * heights are legitimate — they just have to be framed deliberately.
+ */
+export function mixesStandingAndSeated(text: string): boolean {
+  const body = text.split(/\bCharacter continuity\b/i)[0] ?? text;
+  if (!UPRIGHT.test(body) || !LOWERED.test(body)) return false;
+  const shot = shotSizeOf(text.slice(0, LEAD_CHARS));
+  return shot !== "wide" && shot !== "extreme_wide" && shot !== "full";
+}

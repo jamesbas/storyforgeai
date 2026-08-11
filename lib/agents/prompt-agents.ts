@@ -102,6 +102,14 @@ export const IMAGE_PROMPT_SYSTEM =
   "with an explicit headcount — for example 'Exactly four people are in frame: one " +
   "man, one woman, one boy and one girl.' Do not count background crowds, which " +
   "are not individually described. " +
+  // A standing man behind a seated pair came back cropped at the neck in every
+  // attempt. A lower camera did not fix it and nor did a wider shot size; seating
+  // him did, first try. A cropped head is not cosmetic — the next scene inherits
+  // the frame, and a person the model cannot see there is deleted from it.
+  "Stage everyone in a frame at a compatible height: do not put one person on their feet " +
+  "while the others are seated, kneeling or lying down, because the frame crops the odd one " +
+  "out at the neck. If the action genuinely requires it, say so and choose a wide or full " +
+  "shot that can hold them all head to foot. " +
   "For any character who is not in the supplied cast, state the wardrobe as specific named " +
   "garments with colours and materials — never a vague placeholder such as 'casual attire', " +
   "'contemporary clothing' or 'appropriate outfit' — and repeat that same wardrobe wording " +

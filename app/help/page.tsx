@@ -1498,6 +1498,19 @@ export default function HelpPage() {
             It still reads the scenes before it, because wardrobe carries forward and a seam is
             matched against the prompt that precedes it. What it does not do is rewrite them.
           </p>
+          <p className={p}>
+            The panel lints what you type and shows warnings under the field — a repeated sentence,
+            a prompt that does not open with shot size and camera height, dialogue missing from a
+            motion prompt. One is worth knowing about in advance:{" "}
+            <strong>don&apos;t stand one person up while the others are sitting down.</strong> At
+            16:9 a standing figure and seated figures cannot share a keyframe with every head in
+            view; the model anchors the framing on whoever dominates and crops the odd one out at
+            the neck. That is not cosmetic, because the next scene inherits the frame and a person
+            it cannot see there gets deleted from the shot, wardrobe and all. Under test neither a
+            lower camera nor a wider shot size fixed it — seating everyone did, first attempt. So
+            sit the odd one down, or pick a wide or full shot that can hold them head to foot. A
+            shot already framed wide is not flagged.
+          </p>
 
           <h3 className={h3}>How prompts are written for each model</h3>
           <p className={p}>

@@ -33,11 +33,11 @@ recent updates are kept below — every release ever made is in
 
 | Version | Date | What changed |
 | --- | --- | --- |
+| **1.66** | 2026-08-11 | **A shot that mixes people on their feet with people off them now gets flagged before you render it.** At 16:9 a standing figure and seated figures cannot share a keyframe with every head in view — the model anchors the framing on whoever dominates and crops the outlier at the neck. That is not cosmetic: the next scene inherits the frame, and a person it cannot see there gets deleted from the shot along with their wardrobe. Holding the seed and changing one thing at a time, a lower camera did not fix it and neither did a wider shot size; seating everyone did, first attempt. The prompt panel now warns when a frame stages mixed heights in a shot too tight to hold them, and the Image Prompt agent is told to stage at a compatible height or choose a wide shot deliberately. A shot already framed wide is left alone. |
 | **1.65** | 2026-08-11 | **The keep-heads-in-frame instruction now sits where the framing is stated, and grants the wider shot it needs.** Added at the end of the prompt in 1.64 it was ignored: it landed behind the character continuity block, which is most of a render prompt's length and drowns whatever follows it — the same crowding that once made an over-described character render twice. It now follows the opening shot description instead. It also asks for a frame wide enough to hold everyone rather than only for the heads, because a medium shot at eye level holding a seated figure in front has nowhere to put a standing one's head, and no wording talks a model out of a shot size that cannot contain the staging. |
 | **1.64** | 2026-08-11 | **A person cropped out of one frame no longer vanishes from the next scene.** Where scenes carry a frame forward, that end frame is the only picture the following scene has of these people — and an edit model carries forward a person it can see while quietly deleting one it cannot. A man cut off at the neck in a carried frame was dropped from the scene that inherited him, and the outfit his prompt described arrived on somebody else; the face swap could not repair it, because it can only correct a face that is in shot. An end frame the next scene will inherit is now asked to keep every head inside the frame with the face unobstructed, background players included. Heads rather than whole bodies, so close-ups are still allowed, and a scene with **Face in frame** cleared is exempt. Applies to existing projects on the next render — no need to rewrite a storyboard. |
 | **1.63** | 2026-08-11 | **A new project now starts on a model that was actually measured, instead of whatever automatic selection lands on.** WanGP publishes around two hundred models with no quality ranking, so the router cannot tell a general image model from an inpainting or avatar variant — left alone it once picked an image *editor* for keyframes. New projects are pinned to Krea 2 Turbo Identity Edit, which on a like-for-like comparison — same prompts, same seeds, reference photographs on both sides — rendered multi-person staging more faithfully than the alternative and held anatomy together on poses that broke it. It is only a starting value: the Settings screen lists everything installed, a project keeps whatever you set, existing projects are untouched, and `DEFAULT_IMAGE_MODEL` changes it or empties it back to automatic. A pin that is not installed still falls back to automatic selection and says so in the log. |
 | **1.62** | 2026-08-11 | **Character names from a real project no longer appear in the documentation.** Examples in the update log, the README, the architecture notes and the in-app help had been written using the actual cast of the film they were found on. They now use `<character>` placeholders and role words, which reads no worse and belongs to nobody. |
-| **1.61** | 2026-08-11 | **The help pages and docs now explain the three things that decide whether a shot comes out right.** Everything learned this week was in the changelog and nowhere a user would look: keep descriptions short and the people in a shot roughly equal in length, because a model divides its attention by how much is written about each person; say what is there rather than what is absent, because a text encoder has no operator for "no" and "no sharp edges" draws sharp edges; and remember a negative prompt has no addressee, so "dark skin for <character>" suppresses dark skin for everyone in the frame. The face-swap section now covers what the app builds for you — a per-frame sentence naming which head to take — and why your own template should stay generic. One stale claim is gone with it: the README still said face swap ran only for a single character per scene, which stopped being true in 1.39. |
 
 ---
 
@@ -469,7 +469,7 @@ neutral one.
 - **LTX** wants one flowing present-tense paragraph, and writes its own soundtrack
   from that prompt, so ambience and dialogue belong in it.
 
-### Three rules that decide whether a shot comes out right
+### Four rules that decide whether a shot comes out right
 
 These are the ones worth knowing before writing a character, because the app can
 only compensate so far.
@@ -493,6 +493,15 @@ nothing at that character; the sampler sees "dark skin" and steers the whole fra
 away from it,
 including the character who is supposed to have it. Terms written that way are
 dropped from any shot holding more than one person.
+
+**Stage everyone in a shot at the same height.** At 16:9 a standing figure and
+seated figures cannot share a keyframe with every head in view. The model anchors
+the framing on whoever dominates and crops the outlier at the neck — and a head
+missing from a frame the next scene inherits is a person deleted from that scene,
+wardrobe and all. Neither a lower camera nor a wider shot size fixed it under
+test; seating everyone did. Sit the odd one down, or choose a wide or full shot
+that can hold them head to foot. The prompt panel warns when a frame stages mixed
+heights in a shot too tight for them.
 
 Wardrobe is bound into the sentence describing the person who wears it rather than
 stated afterwards, for the same reason: an outfit on its own is an attribute with
