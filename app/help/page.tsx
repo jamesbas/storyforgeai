@@ -854,6 +854,19 @@ export default function HelpPage() {
             thing unchanged is what fails.
           </p>
           <p className={p}>
+            <strong>Watch for a head cropped out of a carried frame.</strong> That frame is the only
+            picture the next scene has of these people, and an edit model carries forward a person it
+            can see while quietly deleting one it cannot — a man cut off at the neck was dropped from
+            the scene that inherited him, and the outfit his prompt described turned up on somebody
+            else. The face swap cannot repair it either, since it can only correct a face that is in
+            shot. An end frame the next scene will inherit is therefore asked to keep every head
+            inside the frame with the face unobstructed, background players included. Heads rather
+            than whole bodies, so a close-up is still allowed. A scene with{" "}
+            <strong>Face in frame</strong> cleared is exempt. If a carried frame still comes back with
+            someone cropped, regenerate <em>that</em> frame before the scene after it — fixing the
+            source is cheaper and more reliable than fighting the scene that inherited the problem.
+          </p>
+          <p className={p}>
             End-frame conditioning needs an image model that accepts reference images; it is skipped
             automatically when continuity is set to continue from the previous clip, since no frames
             are rendered then. Set <code>END_FRAME_REFERENCES_START_FRAME=false</code> to turn it off

@@ -344,6 +344,57 @@ function endFrameGainsPeople(scene: Scene): boolean {
   return start !== null && end !== null && end > start;
 }
 
+/**
+ * What a frame owes the scene that inherits it.
+ *
+ * A carried end frame is the only picture the next scene has of these people.
+ * An edit model carries forward a person it can see and quietly deletes one it
+ * cannot: a man cropped at the neck in a carried frame was dropped from the
+ * scene that inherited him, and his stated wardrobe arrived on somebody else.
+ * The face swap cannot rescue it either — it can only correct a face in shot.
+ *
+ * Heads, not whole bodies. Requiring head-to-feet would forbid every close-up
+ * the storyboard is entitled to ask for, while the failure is specifically a
+ * head outside the frame.
+ */
+const CARRY_INSTRUCTION =
+  " Every person in this shot has their whole head inside the frame, face visible and" +
+  " unobstructed, including anyone in the background or at the edge of the action." +
+  " No one is cropped at or above the neck, and no one is left as an unlit silhouette.";
+
+/**
+ * Whether this scene's end frame becomes the next scene's start frame.
+ *
+ * The same test `cascadeImportedEndFrame` uses, asked before the render rather
+ * than after an import.
+ */
+function endFrameIsCarried(record: ProjectRecord, scene: Scene): boolean {
+  if ((record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY) !== "reuse_end_frame") {
+    return false;
+  }
+  const next = record.storyboard?.scenes.find((s) => s.sceneNumber === scene.sceneNumber + 1);
+  if (!next) return false;
+  return !seamBreak(scene, next, { clipCarriesArrivals: clipCarriesArrivals(record) });
+}
+
+/**
+ * The end-frame prompt as rendered: stored text, plus whatever conditioning and
+ * being carried forward each demand of it.
+ *
+ * Shared so a preview and the generation it stands in for compose identically.
+ */
+function endFramePromptFor(record: ProjectRecord, scene: Scene, conditionOnStart: boolean): string {
+  const match = !conditionOnStart
+    ? ""
+    : changingWardrobe(record, scene.id)
+      ? MATCH_INSTRUCTION.inheritedChangingWardrobe
+      : MATCH_INSTRUCTION.inherited;
+  // A scene deliberately framed without a face is not asked to find one.
+  const carry =
+    scene.subjectFaceVisible !== false && endFrameIsCarried(record, scene) ? CARRY_INSTRUCTION : "";
+  return `${scene.prompts.endFramePrompt}${match}${carry}`;
+}
+
 /** Whether the end frame may be conditioned on the start frame it inherits. */
 function conditionEndOnStart(record: ProjectRecord, scene: Scene, inherited: boolean): boolean {
   if (!referencesStartFrame(record, scene.id, inherited)) return false;
@@ -556,12 +607,10 @@ export async function generateSceneKeyframe(
     const inheritedStart = chosenAttempt(seeded, sceneId)?.startImageInherited
       ? chosenAttempt(seeded, sceneId)?.startImagePath
       : undefined;
-    if (inheritedStart && referencesStartFrame(seeded, sceneId, true)) {
-      extraRefs = [inheritedStart];
-      prompt = changingWardrobe(seeded, sceneId)
-        ? `${prompt}${MATCH_INSTRUCTION.inheritedChangingWardrobe}`
-        : `${prompt}${MATCH_INSTRUCTION.inherited}`;
-    }
+    const conditionOnStart =
+      inheritedStart !== undefined && referencesStartFrame(seeded, sceneId, true);
+    if (conditionOnStart) extraRefs = [inheritedStart];
+    prompt = endFramePromptFor(seeded, scene, conditionOnStart);
   }
 
   const result = await renderKeyframe(seeded, scene, purpose, prompt, castRefs, extraRefs, swapSubjects);
@@ -790,16 +839,13 @@ export async function generateProjectMediaPhased(
       }
 
       const conditionOnStart = conditionEndOnStart(record, scene, Boolean(inherited));
-      const matchInstruction = changingWardrobe(record, scene.id)
-        ? MATCH_INSTRUCTION.inheritedChangingWardrobe
-        : MATCH_INSTRUCTION.inherited;
 
       const endRender = await run(() =>
         renderKeyframe(
           record,
           scene,
           "end_frame",
-          conditionOnStart ? `${scene.prompts.endFramePrompt}${matchInstruction}` : scene.prompts.endFramePrompt,
+          endFramePromptFor(record, scene, conditionOnStart),
           castRefsFor(scene, scene.prompts.endFramePrompt),
           conditionOnStart ? [startPath!] : [],
           [],
