@@ -72,6 +72,7 @@ import { resolveProjectCast } from "@/lib/services/character-service";
 import { trackAgentRun } from "@/lib/services/agent-runs";
 import { planOn, planSpecFor } from "@/lib/agents/plan-fields";
 import { NotFoundError, ValidationError } from "@/lib/errors";
+import { config } from "@/lib/config";
 import { logEvent } from "@/lib/telemetry";
 
 /**
@@ -132,7 +133,8 @@ export async function createProject(raw: unknown): Promise<Project> {
     generationMode: input.generationMode,
     qcEnabled: input.qcEnabled,
     modelStrategy: input.modelStrategy,
-    imageModel: input.imageModel,
+    // A new project starts on the default pin; an existing one is never moved.
+    imageModel: input.imageModel ?? config.defaults.imageModel ?? undefined,
     videoModel: input.videoModel,
     useCharacterLibrary: input.useCharacterLibrary,
     characterIds: input.useCharacterLibrary ? input.characterIds : [],

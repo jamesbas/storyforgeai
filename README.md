@@ -33,11 +33,11 @@ recent updates are kept below — every release ever made is in
 
 | Version | Date | What changed |
 | --- | --- | --- |
+| **1.63** | 2026-08-11 | **A new project now starts on a model that was actually measured, instead of whatever automatic selection lands on.** WanGP publishes around two hundred models with no quality ranking, so the router cannot tell a general image model from an inpainting or avatar variant — left alone it once picked an image *editor* for keyframes. New projects are pinned to Krea 2 Turbo Identity Edit, which on a like-for-like comparison — same prompts, same seeds, reference photographs on both sides — rendered multi-person staging more faithfully than the alternative and held anatomy together on poses that broke it. It is only a starting value: the Settings screen lists everything installed, a project keeps whatever you set, existing projects are untouched, and `DEFAULT_IMAGE_MODEL` changes it or empties it back to automatic. A pin that is not installed still falls back to automatic selection and says so in the log. |
 | **1.62** | 2026-08-11 | **Character names from a real project no longer appear in the documentation.** Examples in the update log, the README, the architecture notes and the in-app help had been written using the actual cast of the film they were found on. They now use `<character>` placeholders and role words, which reads no worse and belongs to nobody. |
 | **1.61** | 2026-08-11 | **The help pages and docs now explain the three things that decide whether a shot comes out right.** Everything learned this week was in the changelog and nowhere a user would look: keep descriptions short and the people in a shot roughly equal in length, because a model divides its attention by how much is written about each person; say what is there rather than what is absent, because a text encoder has no operator for "no" and "no sharp edges" draws sharp edges; and remember a negative prompt has no addressee, so "dark skin for <character>" suppresses dark skin for everyone in the frame. The face-swap section now covers what the app builds for you — a per-frame sentence naming which head to take — and why your own template should stay generic. One stale claim is gone with it: the README still said face swap ran only for a single character per scene, which stopped being true in 1.39. |
 | **1.60** | 2026-08-10 | **The face swap is now told which head to take in terms of the scene it is working on.** A character's swap prompt is a template meant to serve every scene they ever appear in, so it names its target generically — "the white woman". That is accurate and ambiguous at the same time: in a shot where the other man wore a white polo and faced the camera while she lay in profile, the pass took his head and gave him her face. Each pass now carries a sentence built from that frame — the target named by what separates them from the other people actually in it, wardrobe first because that settles almost every case, falling through to hair colour where two people are undressed. It also says to leave everyone else alone, which nothing did before: the passes chain, each editing the last one's output, so a second pass could quietly undo the first. Nothing changes in your character records, and a shot holding one person keeps its template exactly as written. |
 | **1.59** | 2026-08-10 | **A description that rules something out by naming it now rules it out in the one place that works.** "No sharp angular edges", "without a nose or mouth" — a text encoder has no operator for "no", so the phrase is embedded whole and the noun does the work by accident. This project's own robot, whose description says it has no mouth, has been rendering with one; it took a spoiled prompt-format experiment before anyone asked why. Those traits are now named in the **negative** prompt as well, where a sampler can act on them, and a pair like "no nose or mouth" is split so each is suppressed on its own. The positive text is left exactly as the agent wrote it — rewriting someone's sentence risks changing what it meant, and this does not need to. Across the projects on disk, 252 of 364 frames gain a term that had been doing nothing. |
-| **1.58** | 2026-08-10 | **An exclusion aimed at one character is now caught however the agent phrased it.** The rule that drops unaimable terms like `dark skin for <character>` only recognised "for". Checking the other projects on disk turned up `black hair on <character>` and `short hair on <character>` sitting in a negative prompt untouched, doing to that film exactly what the "for" version had been doing to this one — suppressing a trait for everybody in the shot, including whoever is supposed to have it. "on" and "to" are now recognised alongside "for". The match is anchored to a pinned character's name, so an ordinary exclusion that happens to contain a preposition is left alone. |
 
 ---
 
@@ -852,7 +852,19 @@ being re-synthesised per scene. It yields to a planned cut — see below.
 WanGP exposes ~200 models and publishes **no quality ranking**, so automatic
 selection cannot tell a general text-to-image model from an inpainting, editing,
 or avatar variant. Left to itself it picked an image *editor* for keyframes and a
-lip-sync avatar model for video. Pin the models you want:
+lip-sync avatar model for video.
+
+A new project therefore starts pinned to **`krea2_turbo_edit`** for images. On a
+like-for-like comparison — same prompts, same seeds, reference photographs on
+both sides — it rendered multi-person staging more faithfully than the
+alternative and held anatomy together on poses that broke it. That is a starting
+value and nothing more: the project's Settings screen lists every installed model
+and a project keeps whatever you set. Change the default for new projects with
+`DEFAULT_IMAGE_MODEL`, or set it to an empty string to go back to automatic
+selection. A pin that is not installed falls back to automatic selection and says
+so in the log.
+
+Pin models globally, for every project regardless of its own setting:
 
 ```
 WANGP_VIDEO_MODEL=ltx2_22B_distilled_1_1

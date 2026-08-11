@@ -56,6 +56,21 @@ export const config = {
     aspectRatio: str(process.env.DEFAULT_ASPECT_RATIO, "16:9"),
     fps: int(process.env.DEFAULT_FPS, 24),
     resolution: str(process.env.DEFAULT_RESOLUTION, "1280x720"),
+    /**
+     * The image model a new project starts pinned to.
+     *
+     * Automatic selection cannot rank ~200 published models, and the one it
+     * lands on is rarely the one you want. Compared on equal terms — same
+     * prompts, same seeds, references on both sides — Krea 2 Turbo Identity
+     * Edit rendered multi-person staging more faithfully than the alternative
+     * and held anatomy together on poses that broke it.
+     *
+     * Only a starting value: the Settings screen lists everything installed and
+     * a project keeps whatever it is set to. A pin that turns out not to be
+     * installed falls back to automatic selection and says so in the log, so
+     * this cannot strand a machine that lacks it.
+     */
+    imageModel: str(process.env.DEFAULT_IMAGE_MODEL, "krea2_turbo_edit"),
   },
   flags: {
     aiPlanning: bool(process.env.AI_PLANNING_ENABLED, false),

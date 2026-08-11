@@ -10,6 +10,7 @@ import {
 import { generateSceneMedia } from "@/lib/services/media-service";
 import { MockWangpClient } from "@/lib/wangp/mock-client";
 import { setWangpClient } from "@/lib/wangp/factory";
+import { config } from "@/lib/config";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 
 /**
@@ -33,8 +34,43 @@ beforeEach(() => {
   setWangpClient(new MockWangpClient());
 });
 
-describe("renaming", () => {
-  it("changes the title and nothing else", async () => {
+/**
+ * Automatic selection cannot rank the ~200 models WanGP publishes, so a new
+ * project starts on a known-good pin rather than whatever the router lands on.
+ * It is a starting value only: the Settings screen can move it, and an explicit
+ * choice at creation is never overridden.
+ */
+describe("the image model a new project starts on", () => {
+  it("pins the default", async () => {
+    const created = await createProject({
+      concept: "Two climbers wait out a storm in a bothy.",
+      requestedDurationSeconds: 40,
+    });
+    expect(created.imageModel).toBe(config.defaults.imageModel);
+  });
+
+  it("leaves an explicit choice alone", async () => {
+    const created = await createProject({
+      concept: "Two climbers wait out a storm in a bothy.",
+      requestedDurationSeconds: 40,
+      imageModel: "qwen_image_20B",
+    });
+    expect(created.imageModel).toBe("qwen_image_20B");
+  });
+
+  /** Changing it afterwards has to stick, or the default is a trap. */
+  it("can be changed afterwards", async () => {
+    const created = await createProject({
+      concept: "Two climbers wait out a storm in a bothy.",
+      requestedDurationSeconds: 40,
+    });
+    await updateProjectModels(created.id, { imageModel: "flux2_klein_9b" });
+    const record = await getProjectRecord(created.id);
+    expect(record.project.imageModel).toBe("flux2_klein_9b");
+  });
+});
+
+describe("renaming", () => {  it("changes the title and nothing else", async () => {
     const record = await seeded();
     const renamed = await renameProject(record.project.id, { title: "Lighthouse cut" });
 
