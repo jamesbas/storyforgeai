@@ -845,13 +845,17 @@ export default function HelpPage() {
             them had nothing to move through.
           </p>
           <p className={p}>
-            The reference holds props as firmly as it holds wardrobe, which is a problem when the
-            scene&apos;s own action is supposed to change one — a glass that should be set down stays
-            in the character&apos;s hand. Clear <strong>Match the carried-over frame</strong> on that
-            scene&apos;s card to render its end frame from the prompt alone. It costs the wardrobe
-            and location lock for that one scene, and applies from the next render on. Wording does
-            not substitute for it: telling the model what to change while showing it a picture of the
-            thing unchanged is what fails.
+            <strong>The reference outranks the prompt.</strong> It holds props as firmly as it holds
+            wardrobe, so a glass that the scene&apos;s own action should set down stays in the
+            character&apos;s hand — and it holds the <em>location</em> just as firmly. Asked for a
+            medium shot of two characters walking away from a doorway toward a bed, a conditioned end
+            frame returned the doorway, unchanged; the same prompt at the same seed with the
+            reference withheld obeyed it. So clear <strong>Match the carried-over frame</strong> on
+            any scene whose end frame has to show something the reference does not already
+            contain — a different part of the set, a person who is not in it, or a prop in a
+            different state. Conditioning is safe when the end frame is the same people in the same
+            place, framed differently. Wording is not a substitute: telling the model what to change
+            while showing it a picture of the thing unchanged is exactly what fails.
           </p>
           <p className={p}>
             <strong>Watch for a head cropped out of a carried frame.</strong> That frame is the only
@@ -873,7 +877,10 @@ export default function HelpPage() {
             End-frame conditioning needs an image model that accepts reference images; it is skipped
             automatically when continuity is set to continue from the previous clip, since no frames
             are rendered then. Set <code>END_FRAME_REFERENCES_START_FRAME=false</code> to turn it off
-            for every project at once.
+            for every project at once. That is worth considering for a storyboard that reframes in
+            every scene: conditioning is built for an end frame that is the same setup a moment
+            later, and a project whose every scene pushes, pulls or relocates the camera is asking it
+            to do the one thing it cannot.
           </p>
         </section>
 

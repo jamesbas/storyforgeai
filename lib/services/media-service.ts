@@ -290,8 +290,13 @@ function keyframeSeed(
  * the clip between them had nothing to move through. Wording did not fix it —
  * only withholding the image did.
  *
- * The inherited frame is the previous scene's *ending*, so character and
- * wardrobe have to carry, but this scene is entitled to happen somewhere else.
+ * The wording below asks the inherited frame to govern the people and yield on
+ * everything else. Measured, it does not: asked for a medium shot of two
+ * characters walking away from a doorway toward a bed, the end frame returned
+ * the doorway, and the same prompt at the same seed with the reference withheld
+ * obeyed it. So the instruction is a preference, not a guarantee, and a scene
+ * whose end frame must show a part of the set the reference does not contain
+ * needs `sceneEndFrameRefs[sceneId] = false` rather than better wording.
  */
 const MATCH_INSTRUCTION = {
   inherited:
