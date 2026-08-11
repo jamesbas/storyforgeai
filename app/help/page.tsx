@@ -859,12 +859,15 @@ export default function HelpPage() {
             can see while quietly deleting one it cannot — a man cut off at the neck was dropped from
             the scene that inherited him, and the outfit his prompt described turned up on somebody
             else. The face swap cannot repair it either, since it can only correct a face that is in
-            shot. An end frame the next scene will inherit is therefore asked to keep every head
-            inside the frame with the face unobstructed, background players included. Heads rather
-            than whole bodies, so a close-up is still allowed. A scene with{" "}
-            <strong>Face in frame</strong> cleared is exempt. If a carried frame still comes back with
-            someone cropped, regenerate <em>that</em> frame before the scene after it — fixing the
-            source is cheaper and more reliable than fighting the scene that inherited the problem.
+            shot. An end frame the next scene will inherit is therefore asked for a frame wide
+            enough to hold everyone, with every head inside it and faces unobstructed, background
+            players included. Heads rather than whole bodies, so a close-up is still allowed, and it
+            asks for the wider frame rather than only for the heads — a medium shot at eye level
+            holding a seated figure in front has nowhere to put a standing one&apos;s head. A scene
+            with <strong>Face in frame</strong> cleared is exempt. If a carried frame still comes
+            back with someone cropped, widen the shot size in <em>that</em> scene&apos;s end-frame
+            prompt before touching the scene after it — a shot size that cannot contain the staging
+            is not something wording will talk the model out of.
           </p>
           <p className={p}>
             End-frame conditioning needs an image model that accepts reference images; it is skipped

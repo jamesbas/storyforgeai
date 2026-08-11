@@ -75,6 +75,23 @@ describe("a frame the next scene inherits", () => {
     expect(carrying()).toHaveLength(0);
   });
 
+  /**
+   * A framing note appended after the cast sheet competes with the block that
+   * is most of a render prompt's length, and was ignored there. It goes with
+   * the shot description, which is the opening sentence.
+   */
+  it("states the framing with the framing, not at the end", async () => {
+    const record = await project("reuse_end_frame");
+    await generateProjectMediaPhased(record.project.id, sceneIdsOf(record));
+
+    for (const prompt of carrying()) {
+      const shot = prompt.split(". ")[0]!;
+      expect(prompt.startsWith(`${shot}. Frame wide enough to hold everyone:`)).toBe(true);
+      // Everything the scene originally said still follows it.
+      expect(prompt.indexOf(CARRY_MARKER)).toBeLessThan(prompt.length / 2);
+    }
+  });
+
   /** A scene framed without a face on purpose is not sent looking for one. */
   it("exempts a scene deliberately framed without a face", async () => {
     const record = await project("reuse_end_frame");

@@ -355,12 +355,31 @@ function endFrameGainsPeople(scene: Scene): boolean {
  *
  * Heads, not whole bodies. Requiring head-to-feet would forbid every close-up
  * the storyboard is entitled to ask for, while the failure is specifically a
- * head outside the frame.
+ * head outside the frame. It grants the wider framing rather than only asking
+ * for the heads: a medium shot at eye level holding a seated foreground figure
+ * has nowhere to put a standing one's head, and no wording resolves a shot size
+ * that cannot contain the staging.
  */
 const CARRY_INSTRUCTION =
-  " Every person in this shot has their whole head inside the frame, face visible and" +
-  " unobstructed, including anyone in the background or at the edge of the action." +
-  " No one is cropped at or above the neck, and no one is left as an unlit silhouette.";
+  " Frame wide enough to hold everyone: every person in this shot has their whole head" +
+  " inside the frame, face visible and unobstructed, including anyone in the background" +
+  " or at the edge of the action. No one is cropped at or above the neck, and no one is" +
+  " left as an unlit silhouette.";
+
+/**
+ * Place a framing note with the framing, ahead of the appended cast sheet.
+ *
+ * The sheet is most of a render prompt's length, and anything after it competes
+ * with a wall of appearance text — the same crowding that made an over-described
+ * character render twice. The opening sentence is the shot description, so a
+ * constraint on the shot belongs immediately after it.
+ */
+function afterFraming(prompt: string, clause: string): string {
+  const end = prompt.indexOf(". ");
+  return end < 0
+    ? `${prompt}${clause}`
+    : `${prompt.slice(0, end + 1)}${clause}${prompt.slice(end + 1)}`;
+}
 
 /**
  * Whether this scene's end frame becomes the next scene's start frame.
@@ -390,9 +409,11 @@ function endFramePromptFor(record: ProjectRecord, scene: Scene, conditionOnStart
       ? MATCH_INSTRUCTION.inheritedChangingWardrobe
       : MATCH_INSTRUCTION.inherited;
   // A scene deliberately framed without a face is not asked to find one.
-  const carry =
-    scene.subjectFaceVisible !== false && endFrameIsCarried(record, scene) ? CARRY_INSTRUCTION : "";
-  return `${scene.prompts.endFramePrompt}${match}${carry}`;
+  const body =
+    scene.subjectFaceVisible !== false && endFrameIsCarried(record, scene)
+      ? afterFraming(scene.prompts.endFramePrompt, CARRY_INSTRUCTION)
+      : scene.prompts.endFramePrompt;
+  return `${body}${match}`;
 }
 
 /** Whether the end frame may be conditioned on the start frame it inherits. */
