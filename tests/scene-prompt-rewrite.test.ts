@@ -5,6 +5,7 @@ import {
   getProjectRecord,
   regenerateAllScenePrompts,
   regenerateScenePrompts,
+  regenerateScenesPrompts,
   updateScenePrompts,
 } from "@/lib/services/project-service";
 import { MockWangpClient } from "@/lib/wangp/mock-client";
@@ -98,7 +99,6 @@ describe("rewriting one scene's prompts", () => {
     const record = await seeded();
     await expect(regenerateScenePrompts(record.project.id, "no-such-scene")).rejects.toThrow();
   });
-
   it("records a run for every scene when the whole storyboard is rewritten", async () => {
     const record = await seeded();
     const before = record.storyboard!.scenes.map(
@@ -122,5 +122,67 @@ describe("rewriting one scene's prompts", () => {
       /Generate a storyboard/,
     );
     expect(await getProjectRecord(project.id)).toBeDefined();
+  });
+});
+
+/**
+ * Rewriting a chosen few.
+ *
+ * The alternative to a selection is the all-scenes button, and reaching for
+ * that to fix five scenes discards the hand edits on the other thirteen.
+ */
+describe("rewriting the prompts of several scenes at once", () => {
+  beforeEach(() => {
+    setWangpClient(new MockWangpClient());
+  });
+
+  it("rewrites the ones picked and no others", async () => {
+    const record = await seeded();
+    const scenes = record.storyboard!.scenes;
+    const untouched = scenes[2]!;
+    await updateScenePrompts(record.project.id, untouched.id, {
+      startFramePrompt: "A hand-written prompt that must survive.",
+    });
+
+    const after = await regenerateScenesPrompts(record.project.id, [scenes[0]!.id, scenes[1]!.id]);
+    const byId = new Map(after.storyboard!.scenes.map((s) => [s.id, s] as const));
+
+    for (const scene of [scenes[0]!, scenes[1]!]) {
+      const now = latestExecution(after.executions, `${scene.id}.video_prompt`);
+      const before = latestExecution(record.executions, `${scene.id}.video_prompt`);
+      expect(now?.executionId).not.toBe(before?.executionId);
+    }
+    expect(byId.get(untouched.id)!.prompts.startFramePrompt).toBe(
+      "A hand-written prompt that must survive.",
+    );
+  });
+
+  it("names every scene it rewrote in the history", async () => {
+    const record = await seeded();
+    const [a, b] = record.storyboard!.scenes;
+    const after = await regenerateScenesPrompts(record.project.id, [a!.id, b!.id]);
+    const entry = after.history?.find((h) => h.action === "scene.prompts_rewritten");
+
+    expect(entry?.detail).toContain(`Scene ${a!.sceneNumber}`);
+    expect(entry?.detail).toContain(`Scene ${b!.sceneNumber}`);
+  });
+
+  /** An empty selection means "all" to the clip queue; here it would be a silent no-op. */
+  it("refuses an empty selection", async () => {
+    const record = await seeded();
+    await expect(regenerateScenesPrompts(record.project.id, [])).rejects.toThrow(/at least one/);
+  });
+
+  it("refuses the whole batch when one scene does not exist", async () => {
+    const record = await seeded();
+    const scene = record.storyboard!.scenes[0]!;
+    const before = scene.prompts.startFramePrompt;
+
+    await expect(
+      regenerateScenesPrompts(record.project.id, [scene.id, "no-such-scene"]),
+    ).rejects.toThrow();
+
+    const after = await getProjectRecord(record.project.id);
+    expect(after.storyboard!.scenes[0]!.prompts.startFramePrompt).toBe(before);
   });
 });

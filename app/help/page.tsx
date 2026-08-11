@@ -1506,6 +1506,14 @@ export default function HelpPage() {
             matched against the prompt that precedes it. What it does not do is rewrite them.
           </p>
           <p className={p}>
+            For several scenes at once without doing all of them, open{" "}
+            <strong>Rewrite prompts for selected scenes</strong> above the scene list. It takes a
+            tick-box selection with <strong>Select all</strong> and <strong>Clear all</strong>, the
+            same shape as <em>Regenerate video for selected scenes</em> beside it, and rewrites only
+            what you pick. Reaching for the all-scenes button to fix five scenes is how the hand
+            edits on the other thirteen get thrown away.
+          </p>
+          <p className={p}>
             The panel lints what you type and shows warnings under the field — a repeated sentence,
             a prompt that does not open with shot size and camera height, dialogue missing from a
             motion prompt. One is worth knowing about in advance:{" "}

@@ -5,6 +5,7 @@ import { useAgentRun } from "@/components/shared/use-agent-run";
 import { useLoadEffect } from "@/components/shared/use-load-effect";
 import Link from "next/link";
 import { SceneCard } from "@/components/storyboard/scene-card";
+import { ScenePicker } from "@/components/storyboard/scene-picker";
 import { CreativePlansPanel, planStates } from "@/components/storyboard/creative-plans-panel";
 import { NegativePromptRepair } from "@/components/storyboard/negative-prompt-repair";
 import { TaskRecoveryPanel } from "@/components/storyboard/task-recovery-panel";
@@ -38,22 +39,33 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const [error, setError] = useState<string | null>(null);
   const [rewritingAll, setRewritingAll] = useState(false);
 
-  const rewriteAllPrompts = useCallback(async () => {
-    setRewritingAll(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/projects/${projectId}/prompts`, { method: "POST" });
-      if (!res.ok) {
-        const detail = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(detail?.error ?? "Failed to rewrite prompts");
+  /** Empty means every scene, matching the clip queue. */
+  const rewritePrompts = useCallback(
+    async (sceneIds: string[] = []) => {
+      setRewritingAll(true);
+      setError(null);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/prompts`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sceneIds }),
+        });
+        if (!res.ok) {
+          const detail = (await res.json().catch(() => null)) as { error?: string } | null;
+          throw new Error(detail?.error ?? "Failed to rewrite prompts");
+        }
+        setRecord((await res.json()) as ProjectRecord);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to rewrite prompts");
+      } finally {
+        setRewritingAll(false);
       }
-      setRecord((await res.json()) as ProjectRecord);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to rewrite prompts");
-    } finally {
-      setRewritingAll(false);
-    }
-  }, [projectId]);
+    },
+    [projectId],
+  );
+
+  const rewriteAllPrompts = useCallback(() => rewritePrompts([]), [rewritePrompts]);
+
 
   const loadMedia = useCallback(async () => {
     const res = await fetch(`/api/projects/${projectId}/media`);
@@ -150,6 +162,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const [queueBusy, setQueueBusy] = useState(false);
   /** Scenes ticked for a clip-only rerun. Empty means the whole project. */
   const [videoPicks, setVideoPicks] = useState<string[]>([]);
+  const [promptPicks, setPromptPicks] = useState<string[]>([]);
   const [cascadeNotice, setCascadeNotice] = useState<string | null>(null);
   /**
    * LoRA catalogs, fetched once per model rather than per scene. They are only
@@ -1235,6 +1248,36 @@ export function StoryboardView({ projectId }: { projectId: string }) {
               </p>
             ) : null}
 
+            {storyboard.scenes.length > 0 ? (
+              <details className="mt-3 rounded-md border border-white/10 bg-black/20">
+                <summary className="cursor-pointer px-3 py-2 text-xs text-slate-400 hover:text-slate-200">
+                  Rewrite prompts for selected scenes
+                </summary>
+                <div className="space-y-2 px-3 pb-3">
+                  <p className="text-xs text-slate-500">
+                    Re-runs the two prompt agents for the scenes you pick, from their existing
+                    cards. Every other scene keeps its wording, including any hand edits — which is
+                    the reason to use this rather than rewriting all of them.
+                  </p>
+                  <ScenePicker
+                    scenes={storyboard.scenes}
+                    picked={promptPicks}
+                    onChange={setPromptPicks}
+                    testId="prompt-scene-picker"
+                  />
+                  <button
+                    onClick={() => void rewritePrompts(promptPicks)}
+                    disabled={rewritingAll || busy || promptPicks.length === 0}
+                    className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:border-accent disabled:opacity-50"
+                  >
+                    {rewritingAll
+                      ? "Rewriting prompts…"
+                      : `Rewrite ${promptPicks.length} scene${promptPicks.length === 1 ? "" : "s"}' prompts`}
+                  </button>
+                </div>
+              </details>
+            ) : null}
+
             {stages.video && storyboard.scenes.length > 0 ? (
               <details className="mt-3 rounded-md border border-white/10 bg-black/20">
                 <summary className="cursor-pointer px-3 py-2 text-xs text-slate-400 hover:text-slate-200">
@@ -1245,42 +1288,19 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                     Rebuilds only the clip, reusing each scene&apos;s existing keyframes — for when
                     a video prompt or a motion LoRA changed but the frames are fine.
                   </p>
-                  <ul className="flex flex-wrap gap-x-4 gap-y-1">
-                    {storyboard.scenes.map((scene) => (
-                      <li key={scene.id}>
-                        <label className="flex items-center gap-1.5 text-xs text-slate-300">
-                          <input
-                            type="checkbox"
-                            checked={videoPicks.includes(scene.id)}
-                            onChange={(e) =>
-                              setVideoPicks((current) =>
-                                e.target.checked
-                                  ? [...current, scene.id]
-                                  : current.filter((id) => id !== scene.id),
-                              )
-                            }
-                          />
-                          Scene {scene.sceneNumber}
-                        </label>
-                      </li>
-                    ))}
-                  </ul>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <button
-                      onClick={() => void regenerateVideo(videoPicks)}
-                      disabled={queueBusy || queue?.active || videoPicks.length === 0}
-                      className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:border-accent disabled:opacity-50"
-                    >
-                      Regenerate {videoPicks.length} clip{videoPicks.length === 1 ? "" : "s"}
-                    </button>
-                    <button
-                      onClick={() => setVideoPicks([])}
-                      disabled={videoPicks.length === 0}
-                      className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:border-accent disabled:opacity-50"
-                    >
-                      Clear
-                    </button>
-                  </div>
+                  <ScenePicker
+                    scenes={storyboard.scenes}
+                    picked={videoPicks}
+                    onChange={setVideoPicks}
+                    testId="video-scene-picker"
+                  />
+                  <button
+                    onClick={() => void regenerateVideo(videoPicks)}
+                    disabled={queueBusy || queue?.active || videoPicks.length === 0}
+                    className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:border-accent disabled:opacity-50"
+                  >
+                    Regenerate {videoPicks.length} clip{videoPicks.length === 1 ? "" : "s"}
+                  </button>
                 </div>
               </details>
             ) : null}

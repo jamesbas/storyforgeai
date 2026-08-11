@@ -1065,24 +1065,42 @@ export async function saveConceptImages(id: string, images: ConceptImage[]): Pro
 
 /**
  * Rewrite one scene's prompts, leaving its card and every other scene alone.
- *
- * Two model calls rather than the whole storyboard, and nothing else moves —
- * useful when one shot reads badly and regenerating everything would discard
- * seventeen scenes that are fine, along with any hand edits.
- *
- * The run still walks every scene: wardrobe carries forward and a seam is
- * matched against the prompt before it, so the scenes ahead of this one have to
- * be traversed even though they are not rewritten.
  */
 export async function regenerateScenePrompts(
   id: string,
   sceneId: string,
 ): Promise<ProjectRecord> {
+  return regenerateScenesPrompts(id, [sceneId]);
+}
+
+/**
+ * Rewrite the prompts of the scenes named, leaving their cards and every other
+ * scene alone.
+ *
+ * Two model calls per scene rather than the whole storyboard, and nothing else
+ * moves — useful when a few shots read badly and regenerating everything would
+ * discard the scenes that are fine, along with any hand edits. Taking a list
+ * rather than one id is the difference between one review pass and visiting
+ * five cards in turn, which is how people end up using the global rewrite and
+ * losing the edits they meant to keep.
+ *
+ * The run still walks every scene: wardrobe carries forward and a seam is
+ * matched against the prompt before it, so the scenes ahead of these have to be
+ * traversed even though they are not rewritten.
+ */
+export async function regenerateScenesPrompts(
+  id: string,
+  sceneIds: readonly string[],
+): Promise<ProjectRecord> {
   return trackAgentRun(id, "storyboard", "Image & Video Prompt Agents", async () => {
     const record = await getProjectRecord(id);
     if (!record.storyboard) throw new ValidationError("Generate a storyboard before writing prompts");
-    const scene = record.storyboard.scenes.find((s) => s.id === sceneId);
-    if (!scene) throw new NotFoundError(`Scene ${sceneId} not found`);
+    if (sceneIds.length === 0) throw new ValidationError("Pick at least one scene to rewrite");
+    const targets = sceneIds.map((sceneId) => {
+      const scene = record.storyboard!.scenes.find((s) => s.id === sceneId);
+      if (!scene) throw new NotFoundError(`Scene ${sceneId} not found`);
+      return scene;
+    });
 
     const cast = await resolveProjectCast(record.project);
     const existing = Object.fromEntries(
@@ -1104,22 +1122,27 @@ export async function regenerateScenePrompts(
         cinematographyPlan: record.cinematographyPlan,
         artDirectionPlan: record.artDirectionPlan,
       },
-      only: new Set([sceneId]),
+      only: new Set(sceneIds),
       existing,
       onExecution: run.onExecution,
       correlationId: run.correlationId,
     });
 
+    const detail = targets.map((s) => `Scene ${s.sceneNumber}`).join(", ");
     const updated: ProjectRecord = {
       ...record,
       storyboard: { ...record.storyboard, scenes: rebuilt },
       executions: withExecutions(record.executions, run.executions),
       project: { ...record.project, updatedAt: new Date().toISOString() },
-      history: appendHistory(record, "scene.prompts_rewritten", `Scene ${scene.sceneNumber}`),
+      history: appendHistory(record, "scene.prompts_rewritten", detail),
     };
 
     await repository.update(id, updated);
-    logEvent("project.updated", { id, change: "scene_prompts_rewritten", sceneId });
+    logEvent("project.updated", {
+      id,
+      change: "scene_prompts_rewritten",
+      sceneIds: [...sceneIds],
+    });
     return updated;
   });
 }
