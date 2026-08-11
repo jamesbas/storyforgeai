@@ -20,6 +20,7 @@ import {
 } from "@/lib/presets";
 import type { CreateProjectInput } from "@/lib/schemas/intake";
 import type { Character } from "@/lib/schemas/character";
+import { AsyncStatus } from "@/components/shared/async-status";
 
 export type NewProjectFormProps = {
   /**
@@ -52,6 +53,10 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
   const [characterIds, setCharacterIds] = useState<string[]>([]);
   const [characterWardrobe, setCharacterWardrobe] = useState<Record<string, string>>({});
   const [characters, setCharacters] = useState<Character[]>([]);
+  const [enhancing, setEnhancing] = useState(false);
+  const [suggestion, setSuggestion] = useState<string | null>(null);
+  const [enhanceStatus, setEnhanceStatus] = useState<string | null>(null);
+  const [enhanceFailed, setEnhanceFailed] = useState(false);
 
   useEffect(() => {
     void (async () => {
@@ -69,6 +74,45 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
       current.includes(id) ? current.filter((c) => c !== id) : [...current, id],
     );
   }, []);
+
+  /**
+   * Ask the planning model to expand the concept. The answer is shown for
+   * approval rather than written into the field: the concept is the one thing
+   * every downstream agent reads, so replacing it silently would hand the film
+   * to whatever the model happened to invent.
+   */
+  const requestSuggestion = useCallback(async () => {
+    setEnhancing(true);
+    setEnhanceFailed(false);
+    setSuggestion(null);
+    setEnhanceStatus("Expanding your concept\u2026");
+    try {
+      const res = await fetch("/api/concept/enhance", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          concept,
+          requestedDurationSeconds: Number(duration),
+          style,
+          tone,
+          audience,
+          creativeMode,
+        }),
+      });
+      if (!res.ok) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? "Could not expand the concept.");
+      }
+      const body = (await res.json()) as { concept: string };
+      setSuggestion(body.concept);
+      setEnhanceStatus("Suggestion ready. Review it below.");
+    } catch (e) {
+      setEnhanceFailed(true);
+      setEnhanceStatus(e instanceof Error ? e.message : "Could not expand the concept.");
+    } finally {
+      setEnhancing(false);
+    }
+  }, [concept, duration, style, tone, audience, creativeMode]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -156,9 +200,19 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
   return (
     <form onSubmit={handleSubmit} className="space-y-5" aria-label="New project">
       <div>
-        <label htmlFor="concept" className={label}>
-          Concept
-        </label>
+        <div className="flex items-baseline justify-between gap-3">
+          <label htmlFor="concept" className={label}>
+            Concept
+          </label>
+          <button
+            type="button"
+            onClick={() => void requestSuggestion()}
+            disabled={enhancing || concept.trim().length === 0}
+            className="text-xs text-accent underline underline-offset-2 disabled:no-underline disabled:opacity-40"
+          >
+            {enhancing ? "Expanding…" : "Expand with AI"}
+          </button>
+        </div>
         <textarea
           id="concept"
           name="concept"
@@ -169,6 +223,52 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
           placeholder="A short film about a lighthouse keeper who befriends a storm."
           className={`mt-1 w-full ${field}`}
         />
+        <p className="mt-1 text-xs text-slate-500">
+          Every agent downstream reads this and nothing else describes your idea, so a fuller
+          concept produces a fuller film. Write a sentence or two and expand it, or write the whole
+          thing yourself.
+        </p>
+        <AsyncStatus
+          message={enhanceStatus}
+          busy={enhancing}
+          failed={enhanceFailed}
+          className="mt-1"
+          testId="concept-enhance-status"
+        />
+        {suggestion !== null ? (
+          <div
+            data-testid="concept-suggestion"
+            className="mt-2 rounded-md border border-accent/40 bg-panel/60 p-3"
+          >
+            <p className="text-xs font-medium uppercase tracking-wide text-slate-400">
+              Suggested concept
+            </p>
+            <p className="mt-1 whitespace-pre-wrap text-sm text-slate-200">{suggestion}</p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setConcept(suggestion);
+                  setSuggestion(null);
+                  setEnhanceStatus("Concept replaced. Edit it freely before creating.");
+                }}
+                className="rounded-md bg-accent-solid px-3 py-1.5 text-xs font-semibold text-white"
+              >
+                Use this
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setSuggestion(null);
+                  setEnhanceStatus("Suggestion discarded. Your concept is unchanged.");
+                }}
+                className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-300"
+              >
+                Keep mine
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
       <div>

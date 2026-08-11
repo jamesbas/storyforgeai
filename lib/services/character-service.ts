@@ -48,6 +48,7 @@ export async function createCharacter(raw: unknown): Promise<Character> {
     wardrobe: input.wardrobe?.trim() || undefined,
     negativePrompt: input.negativePrompt?.trim() || undefined,
     faceSwap: input.faceSwap || undefined,
+    faceSwapPrompt: input.faceSwapPrompt?.trim() || undefined,
     createdAt: now,
     updatedAt: now,
   };
@@ -74,6 +75,10 @@ export async function updateCharacter(id: string, raw: unknown): Promise<Charact
         ? existing.negativePrompt
         : patch.negativePrompt.trim() || undefined,
     faceSwap: patch.faceSwap === undefined ? existing.faceSwap : patch.faceSwap || undefined,
+    faceSwapPrompt:
+      patch.faceSwapPrompt === undefined
+        ? existing.faceSwapPrompt
+        : patch.faceSwapPrompt.trim() || undefined,
     updatedAt: new Date().toISOString(),
   };
   await characterStore.save(updated);

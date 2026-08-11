@@ -99,6 +99,27 @@ describe("file-backed project repository", () => {
     expect(reloaded?.project.status).toBe("storyboard_ready");
   });
 
+  /**
+   * The cache was indexed once per process and never looked at the disk again,
+   * so a prompt corrected by hand stayed invisible until a restart — and the
+   * next save wrote the stale copy back over the correction.
+   */
+  it("picks up an edit made to the file behind its back", async () => {
+    const { dir, make } = await repositoryInTempDir();
+    const repo = make();
+    await repo.create(record("proj-1", "Before"));
+    expect((await repo.get("proj-1"))?.project.title).toBe("Before");
+
+    const file = path.join(dir, "proj-1", "project.json");
+    const edited = JSON.parse(await fs.readFile(file, "utf8"));
+    edited.project.title = "Edited by hand";
+    // Writes within the same millisecond would leave the timestamp unchanged.
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await fs.writeFile(file, JSON.stringify(edited, null, 2), "utf8");
+
+    expect((await repo.get("proj-1"))?.project.title).toBe("Edited by hand");
+  });
+
   it("removes the record but leaves generated media alone", async () => {
     const { dir, make } = await repositoryInTempDir();
     const repo = make();

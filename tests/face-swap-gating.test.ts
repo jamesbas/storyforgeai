@@ -154,7 +154,7 @@ describe("swapping one frame after the fact", () => {
     await media.generateSceneMedia(created.id, sceneId);
 
     await expect(media.swapAttemptFrame(created.id, sceneId, "start_frame")).rejects.toThrow(
-      /exactly one character/,
+      /at least one character/,
     );
   });
 });

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   continuousTakeWardrobeWarning,
   foldWardrobeChanges,
+  othersInFrame,
   othersWardrobeSuffix,
   wardrobeChangeClause,
   wardrobeTimeline,
@@ -194,11 +195,56 @@ describe("unnamed people", () => {
     expect(clause).toContain("the two men changes out of grey work shirts");
   });
 
+  /** Bound as a sentence, so the outfit stays with the subject it names. */
   it("reaches the prompt as its own continuity clause", () => {
-    expect(othersWardrobeSuffix({ "the two men": "bare-chested" })).toBe(
-      " Wardrobe continuity — the two men: bare-chested",
+    expect(othersWardrobeSuffix({ "the two men": "grey work shirts" })).toBe(
+      " Wardrobe continuity — the two men is dressed in grey work shirts.",
     );
     expect(othersWardrobeSuffix({})).toBe("");
+  });
+
+  /**
+   * A positive prompt has no operator for "no" either: "black silk trousers,
+   * no shirt" embeds `shirt`, and the render produced a man in a maroon polo
+   * that then migrated onto a different character in the next frame.
+   */
+  it("states an absent garment as the bare skin instead", () => {
+    expect(othersWardrobeSuffix({ "the man": "black silk trousers, no shirt" })).toContain(
+      "black silk trousers, bare chest",
+    );
+    expect(othersWardrobeSuffix({ "the man": "black silk trousers, no shirt" })).not.toContain(
+      "no shirt",
+    );
+  });
+
+  it("keeps nudity in the wording that was measured to work", () => {
+    expect(othersWardrobeSuffix({ "the man": "nude" })).toContain(
+      "completely naked with no clothing",
+    );
+  });
+
+  /**
+   * The clause ends on an outfit, so stating it into a shot the person is not
+   * in invites the model to draw them there. Prompts vary the wording, so the
+   * match is on the describing words rather than the subject phrase.
+   */
+  describe("narrowing unnamed subjects to the frame that shows them", () => {
+    const others = { "the muscular Black man": "black silk trousers" };
+
+    it("keeps a subject the frame describes in different words", () => {
+      const body = "Tracey lies back as a muscular Black man with cropped hair settles over her.";
+      expect(othersInFrame(body, others)).toEqual(others);
+    });
+
+    it("drops a subject the frame never mentions", () => {
+      const body = "A tight shot of Jaime's face. Exactly one person is in frame: Jaime.";
+      expect(othersInFrame(body, others)).toEqual({});
+    });
+
+    it("does not match on a partial description", () => {
+      const body = "A muscular dancer crosses the floor.";
+      expect(othersInFrame(body, others)).toEqual({});
+    });
   });
 
   /** Cast and unnamed subjects share a scene without colliding. */

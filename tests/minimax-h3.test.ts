@@ -27,6 +27,10 @@ const h3Schema: WangpModelSchema = {
     sliding_window_size: 362,
     flow_shift: 12,
     batch_size: 1,
+    // Live defaults always supply these two. Omitting them let `setIf` and the
+    // `image_prompt_type` derivation take branches production never reaches.
+    image_prompt_type: "",
+    multi_prompts_gen_type: "PG",
     model_type: "minimax_h3_fl2va_pruned",
   },
   fields: [
@@ -229,7 +233,12 @@ describe("MiniMax has no negative prompt", () => {
 describe("a video model that cannot take keyframes", () => {
   const ref2va: WangpModelSchema = {
     modelType: "minimax_h3_ref2va",
-    defaultSettings: { prompt: "", model_type: "minimax_h3_ref2va" },
+    defaultSettings: {
+      prompt: "",
+      image_prompt_type: "",
+      multi_prompts_gen_type: "PG",
+      model_type: "minimax_h3_ref2va",
+    },
     fields: [
       { name: "prompt", type: "string" },
       { name: "image_refs", type: "string" },

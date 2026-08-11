@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { seamBreak } from "@/lib/media/seam";
+import { seamBreak, statedHeadcount } from "@/lib/media/seam";
 import { seamDirective } from "@/lib/agents/continuity";
 import type { Scene } from "@/lib/schemas/storyboard";
 import type { Project } from "@/lib/schemas/project";
@@ -85,6 +85,86 @@ describe("the seam across an arrival", () => {
   it("still breaks on a named transition", () => {
     const next = scene({ sceneNumber: 2, transitionIn: "Cut to" });
     expect(seamBreak(scene(), next)?.reason).toBe("transition");
+  });
+
+  /**
+   * The arrival rule rests entirely on a clip existing to carry someone in.
+   * On a keyframes-only project there is none: the end frame has to introduce
+   * them against an inherited picture of the old cast, and the picture wins —
+   * a third man walking into a two-shot came back as the same two people, and
+   * every later scene inherited that.
+   */
+  describe("with no clip to carry an arrival", () => {
+    const twoThenThree = () => ({
+      previous: scene({
+        prompts: {
+          ...scene().prompts,
+          endFramePrompt: "Wide shot, eye level. Exactly two people are in frame.",
+        },
+      }),
+      next: scene({
+        sceneNumber: 2,
+        prompts: {
+          ...scene().prompts,
+          startFramePrompt: "Wide shot, eye level. Exactly three people are in frame.",
+        },
+      }),
+    });
+
+    it("breaks when the stated headcount changes", () => {
+      const { previous, next } = twoThenThree();
+      const broken = seamBreak(previous, next, { clipCarriesArrivals: false });
+      expect(broken?.reason).toBe("cast_change");
+      expect(broken?.detail).toBe("2 to 3 in frame");
+    });
+
+    it("holds when the headcount is unchanged", () => {
+      const { previous } = twoThenThree();
+      const next = scene({
+        sceneNumber: 2,
+        prompts: {
+          ...scene().prompts,
+          startFramePrompt: "Wide shot, eye level. Exactly two people are in frame.",
+        },
+      });
+      expect(seamBreak(previous, next, { clipCarriesArrivals: false })).toBeNull();
+    });
+
+    /** Unstated is not the same as changed; a missing clause must not cut. */
+    it("holds when a prompt does not state a headcount", () => {
+      const { next } = twoThenThree();
+      expect(seamBreak(scene(), next, { clipCarriesArrivals: false })).toBeNull();
+    });
+
+    it("leaves the seam alone when a clip will carry them in", () => {
+      const { previous, next } = twoThenThree();
+      expect(seamBreak(previous, next, { clipCarriesArrivals: true })).toBeNull();
+    });
+  });
+});
+
+/**
+ * The same join, one step earlier. A scene's end frame is rendered with its own
+ * start frame supplied as a reference, so a person the end frame adds has to be
+ * painted into a picture that does not contain them — and is not. The model
+ * duplicates somebody already in shot and gives the missing one's stated outfit
+ * to whoever is nearest.
+ */
+describe("counting the people a prompt states", () => {
+  it("reads the clause the prompt agents write", () => {
+    expect(statedHeadcount("Wide shot. Exactly two people are in frame: Tracey and Jaime.")).toBe(2);
+    expect(statedHeadcount("Close-up. Exactly one person is in frame: Tracey.")).toBe(1);
+  });
+
+  /** The agents also write it as "one woman" or "two men". */
+  it("reads a gendered count", () => {
+    expect(statedHeadcount("Exactly one woman is in frame: Tracey.")).toBe(1);
+    expect(statedHeadcount("Exactly three men are in frame.")).toBe(3);
+  });
+
+  it("is null when the prompt states no count", () => {
+    expect(statedHeadcount("Wide shot of a quiet street.")).toBeNull();
+    expect(statedHeadcount(undefined)).toBeNull();
   });
 });
 

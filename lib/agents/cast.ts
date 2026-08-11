@@ -1,4 +1,5 @@
 import { referenceImagesOf } from "@/lib/schemas/character";
+import { positiveGarments } from "@/lib/agents/wardrobe";
 import type { Character } from "@/lib/schemas/character";
 
 /**
@@ -54,6 +55,69 @@ function wardrobeClause(wardrobe: string): string {
   return NUDE.test(wardrobe) ? "Fully nude, wearing nothing." : `Wearing exactly: ${wardrobe}.`;
 }
 
+/**
+ * How much description the whole cast may contribute to one render prompt.
+ *
+ * A model divides its attention roughly by how much is written about each
+ * person. One character's stored description ran to 966 characters against 183
+ * for the man the shot was actually about, and the render obliged: it drew the
+ * character it had been told most about twice and left the other out. The same
+ * scene, cut to a compact description per person, came back correct first time.
+ *
+ * The budget is for the sheet rather than per character, because a per-person
+ * allowance grows with the cast: at 220 each, a six-hander is back to the 1500
+ * characters that failed. Sharing a fixed total means a crowd gets terse
+ * descriptions and a two-hander gets generous ones, and the prompt as a whole
+ * stays the size that works.
+ *
+ * Render prompts only. A planning agent is writing the document that records
+ * what someone looks like and needs all of it.
+ */
+const RENDER_SHEET_BUDGET = 620;
+/** Generous enough for one or two people without letting either run away. */
+const RENDER_APPEARANCE_CEILING = 240;
+/** Below this a description identifies nobody, so a crowd is trimmed no further. */
+const RENDER_APPEARANCE_FLOOR = 110;
+
+/** The share of the sheet budget each character in this shot may spend. */
+function appearanceBudgetFor(castSize: number): number {
+  if (castSize <= 0) return RENDER_APPEARANCE_CEILING;
+  const share = Math.floor(RENDER_SHEET_BUDGET / castSize);
+  return Math.min(RENDER_APPEARANCE_CEILING, Math.max(RENDER_APPEARANCE_FLOOR, share));
+}
+
+/** Trim to a budget on a sentence boundary where possible, a word boundary otherwise. */
+function compactForRender(text: string, budget: number): string {
+  const clean = text.trim().replace(/\s+/g, " ");
+  if (clean.length <= budget) return clean;
+
+  const window = clean.slice(0, budget + 1);
+  const sentence = window.lastIndexOf(". ");
+  if (sentence > budget / 2) return clean.slice(0, sentence + 1);
+  const word = window.lastIndexOf(" ");
+  return clean.slice(0, word > 0 ? word : budget);
+}
+
+/**
+ * Attach the wardrobe to the person rather than stating it afterwards.
+ *
+ * `Wearing exactly: <outfit>` as its own sentence is an attribute with nothing
+ * to anchor it: on a three-person prompt the outfit landed on whichever body
+ * could wear it, putting a husband's polo shirt and jeans on a man who was
+ * supposed to be naked. Inside the same clause as the description it belongs
+ * to, it stays with him.
+ */
+function boundAppearance(appearance: string, wardrobe: string | undefined): string {
+  const body = appearance.trim().replace(/[.,;\s]+$/, "");
+  if (!wardrobe) return `${body}.`;
+  // "dressed in" rather than "wearing": a description trimmed to a sentence
+  // boundary often already ends on one of the character's own garments, and
+  // "she wears small gold hoop earrings, wearing a bra" reads as two outfits.
+  return NUDE.test(wardrobe)
+    ? `${body}, completely naked with no clothing.`
+    : `${body}, dressed in ${positiveGarments(wardrobe)}.`;
+}
+
 /** How much of a character's sheet a shot can actually use. */
 export type SheetOptions = {
   /** False when the shot crops the head, so a written face only misleads. */
@@ -77,17 +141,16 @@ export function castSheet(
 ): string {
   if (cast.length === 0) return "";
   const faceVisible = options.faceVisible !== false;
+  const budget = appearanceBudgetFor(cast.length);
   return cast
     .map((c) => {
-      // Wardrobe is stated explicitly and last, so it is the most recent
-      // instruction the model reads about this character. Left unstated, the
-      // model invents an outfit per render and clothing changes between frames.
+      // Wardrobe is stated with the person rather than after them: an outfit on
+      // its own is an attribute the model attaches to whichever body suits it.
       //
       // `wardrobeAt` is this scene's point on the wardrobe timeline. Without one
       // the project constant applies, which is every project that has no
       // costume change.
       const wardrobe = (wardrobeAt?.[c.id] ?? c.wardrobe)?.trim().replace(/\s+/g, " ");
-      const clause = wardrobe ? ` ${wardrobeClause(wardrobe)}` : "";
 
       // On a tight shot the photograph is already carrying the likeness, so a
       // head-to-toe inventory of hair, nails and jewellery describes things
@@ -95,10 +158,15 @@ export function castSheet(
       // photograph: with text as the sole identity signal, trimming it is how
       // faces start drifting between scenes.
       if (forRender && options.tightShot && referenceImagesOf(c).length > 0) {
-        return `${c.name}.${clause}`;
+        return wardrobe ? `${c.name}: ${wardrobeClause(wardrobe)}` : `${c.name}.`;
       }
 
-      return `${c.name}: ${appearanceFor(c, forRender, faceVisible)}${clause}`;
+      const appearance = appearanceFor(c, forRender, faceVisible);
+      if (!forRender) {
+        const clause = wardrobe ? ` ${wardrobeClause(wardrobe)}` : "";
+        return `${c.name}: ${appearance}${clause}`;
+      }
+      return `${c.name}: ${boundAppearance(compactForRender(appearance, budget), wardrobe)}`;
     })
     .join(" ");
 }
@@ -124,10 +192,16 @@ export function castSystemDirective(cast: readonly Character[], forRender = fals
   // lost the instruction to describe anybody, and four men at a table became
   // a pair of hands.
   const describeOthers =
-    " Any person in the shot who is not in the pinned cast must be described in full in your " +
-    "own prompt — age, build, hair, face and specific named garments with colours and materials " +
-    "— because nothing is appended for them and an undescribed person is reinvented on every " +
-    "render.";
+    " Any person in the shot who is not in the pinned cast must be described in your own " +
+    "prompt, because nothing is appended for them: age, build, hair, skin and specific named " +
+    "garments with colours, in one compact clause of roughly twenty-five words rather than a " +
+    "paragraph. An undescribed person is reinvented on every render, or dressed in whatever " +
+    "clothing a carried-over reference frame happens to show, which is how a new character " +
+    "arrives wearing another character's outfit. Length is not safety: a model divides its " +
+    "attention by how much is written about each person, so describing one at four times the " +
+    "length of another renders that one twice and drops the other. Keep every person in a shot " +
+    "described to roughly the same length, and state each one's clothing in the same clause as " +
+    "the person, never as a separate sentence afterwards.";
 
   if (cast.length === 0) return forRender ? describeOthers : "";
   const names = cast.map((c) => c.name).join(", ");
@@ -140,12 +214,11 @@ export function castSystemDirective(cast: readonly Character[], forRender = fals
     return (
       locked +
       " Reuse each character's exact physical description whenever that character " +
-      "appears. Where a character has a stated wardrobe, describe that exact " +
-      "clothing and never substitute or vary it — unless the story genuinely " +
-      "requires a costume change, in which case narrate it plainly in that " +
-      "scene's action, naming the garments removed and the garments put on, and " +
-      "keep the new outfit for every scene after it. Introduce new characters " +
-      "only when the story needs someone who is not in the cast."
+      "appears. A stated wardrobe is what that character is wearing until the story " +
+      "changes it: describe that exact clothing, and never substitute or vary it for " +
+      "effect. A costume change belongs to the one scene where it happens, states the " +
+      "complete resulting outfit, and holds for every scene after it. Introduce new " +
+      "characters only when the story needs someone who is not in the cast."
     );
   }
 

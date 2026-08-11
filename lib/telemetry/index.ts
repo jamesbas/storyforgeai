@@ -60,6 +60,7 @@ export type TelemetryEvent =
   | "scene.seed_cleared"
   | "scene.frame_imported"
   | "face_swap.applied"
+  | "face_swap.pass"
   | "face_swap.manual"
   | "face_swap.reverted"
   | "face_swap.skipped"

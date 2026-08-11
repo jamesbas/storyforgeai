@@ -89,6 +89,25 @@ describe("spotting an outfit that contradicts the action", () => {
     const bare = project({ characterWardrobe: {} });
     expect(wardrobeContradictions(bare, [scene(1, "He penetrates her.")], [TRACEY])).toEqual([]);
   });
+
+  /**
+   * The act is scene-level, the undressing is per character. In a scene built
+   * around a watcher, the clothed one is deliberate — and the bulk action
+   * skips a scene that already carries a change, so flagging it would offer a
+   * fix that does nothing and a banner that never clears.
+   */
+  it("leaves a scene alone once someone has ruled on its wardrobe", () => {
+    const JAIME: Character = { ...TRACEY, id: "char-jaime", name: "Jaime" };
+    const watched = project({
+      characterWardrobe: { "char-tracey": "short black silk robe", "char-jaime": "blue jeans" },
+      wardrobeChanges: {
+        "p1-scene-002": [{ characterId: "char-tracey", wardrobe: "nude", mode: "between" }],
+      },
+    });
+    const scenes = [scene(2, "He watches as she climaxes.")];
+
+    expect(wardrobeContradictions(watched, scenes, [TRACEY, JAIME])).toEqual([]);
+  });
 });
 
 describe("recognising an undressed wardrobe", () => {

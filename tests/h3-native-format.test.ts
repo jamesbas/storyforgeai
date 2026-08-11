@@ -49,7 +49,13 @@ class TwoModelClient extends MockWangpClient {
   async getModelSchema(modelType: string): Promise<WangpModelSchema> {
     return {
       modelType,
-      defaultSettings: { prompt: "", resolution: "832x480", model_type: modelType },
+      defaultSettings: {
+        prompt: "",
+        resolution: "832x480",
+        image_prompt_type: "",
+        multi_prompts_gen_type: "PG",
+        model_type: modelType,
+      },
       fields: [
         { name: "prompt", type: "string" },
         { name: "resolution", type: "string" },

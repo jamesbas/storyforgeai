@@ -130,4 +130,154 @@ describe("choosing how a likeness reaches the frame", () => {
     const off = await refsSent(without, await pokerProject(without, false));
     expect(off.length).toBeLessThan(on.length);
   });
+
+  /**
+   * A photograph outranks the prompt, so one belonging to someone the shot
+   * frames out is the strongest instruction in the job to put them in it — and
+   * it arrives wearing their clothes. Presence was read from the scene card,
+   * which routinely disagrees with a frame: a watcher the card seats in the
+   * corner chair is one a close two-shot leaves out.
+   */
+  it("withholds a photograph from a frame that does not show them", async () => {
+    const env = await isolated();
+
+    const tracey = await env.characters.createCharacter({
+      name: "Tracey",
+      description: "A woman in her fifties.",
+    });
+    await env.characters.setReferenceImage(tracey.id, pngFile());
+    const jaime = await env.characters.createCharacter({
+      name: "Jaime",
+      description: "A man in his fifties, in a white polo shirt.",
+    });
+    await env.characters.setReferenceImage(jaime.id, pngFile());
+
+    const project = await env.projects.createProject({
+      concept: "Tracey and Jaime share a hotel suite.",
+      requestedDurationSeconds: 20,
+      useCharacterLibrary: true,
+      characterIds: [tracey.id, jaime.id],
+    });
+    const built = await env.projects.generateStoryboard(project.id);
+    const scene = built.storyboard!.scenes[0]!;
+
+    // The card holds both; only the end frame frames Jaime.
+    await env.projects.updateSceneCard(project.id, scene.id, {
+      visualDescription: "Tracey stands by the door. Jaime waits in a corner chair.",
+      actionDescription: "Tracey looks toward Jaime.",
+    });
+    await env.projects.updateScenePrompts(project.id, scene.id, {
+      startFramePrompt: "Close on Tracey alone at the door. Exactly one person is in frame.",
+      endFramePrompt: "Jaime rises from the corner chair as Tracey turns to look at him.",
+    });
+
+    const client = new env.MockWangpClient();
+    const submitted = vi.spyOn(client, "generate");
+    env.setWangpClient(client);
+    await env.media.generateSceneMedia(project.id, scene.id);
+
+    const jaimePhoto = (await env.characters.getCharacter(jaime.id)).referenceImages![0]!;
+    const refsFor = (needle: string) =>
+      submitted.mock.calls
+        .filter(([settings]) => String((settings as Record<string, unknown>).prompt ?? "").includes(needle))
+        .flatMap(([settings]) => ((settings as Record<string, unknown>).image_refs as string[]) ?? []);
+
+    expect(refsFor("alone at the door").some((p) => p.includes(jaimePhoto))).toBe(false);
+    expect(refsFor("rises from the corner chair").some((p) => p.includes(jaimePhoto))).toBe(true);
+  });
+
+  /**
+   * Nothing in the job says which reference is which person, so with two the
+   * binding between photograph, name and stated wardrobe collapses: a
+   * husband's portrait and a wife's on the same job produced her likeness in
+   * his chair and his shirt on a third man who was meant to be naked. One
+   * photograph gives the model no choice to get wrong, and the face swap
+   * recovers the rest one person at a time.
+   */
+  it("sends at most one photograph even when two characters are in the frame", async () => {
+    const env = await isolated();
+
+    const tracey = await env.characters.createCharacter({
+      name: "Tracey",
+      description: "A woman in her fifties.",
+    });
+    await env.characters.setReferenceImage(tracey.id, pngFile());
+    const jaime = await env.characters.createCharacter({
+      name: "Jaime",
+      description: "A man in his fifties.",
+    });
+    await env.characters.setReferenceImage(jaime.id, pngFile());
+
+    const project = await env.projects.createProject({
+      concept: "Tracey and Jaime share a hotel suite.",
+      requestedDurationSeconds: 20,
+      useCharacterLibrary: true,
+      characterIds: [tracey.id, jaime.id],
+    });
+    const built = await env.projects.generateStoryboard(project.id);
+    const scene = built.storyboard!.scenes[0]!;
+
+    await env.projects.updateSceneCard(project.id, scene.id, {
+      visualDescription: "Tracey and Jaime stand together by the window.",
+      actionDescription: "They look out at the street.",
+    });
+    await env.projects.updateScenePrompts(project.id, scene.id, {
+      startFramePrompt: "Wide shot. Tracey stands beside Jaime at the window.",
+      endFramePrompt: "Wide shot. Tracey leans on Jaime at the window.",
+    });
+
+    const client = new env.MockWangpClient();
+    const submitted = vi.spyOn(client, "generate");
+    env.setWangpClient(client);
+    await env.media.generateSceneMedia(project.id, scene.id);
+
+    const photos = [
+      (await env.characters.getCharacter(tracey.id)).referenceImages![0]!,
+      (await env.characters.getCharacter(jaime.id)).referenceImages![0]!,
+    ];
+    for (const [settings] of submitted.mock.calls) {
+      const refs = ((settings as Record<string, unknown>).image_refs as string[]) ?? [];
+      const portraits = refs.filter((p) => photos.some((f) => p.includes(f)));
+      expect(portraits.length).toBeLessThanOrEqual(1);
+    }
+  });
+
+  /**
+   * An edit model reads each reference as another element to place in the
+   * frame rather than more evidence about one face, so a character carrying
+   * four photographs was rendered twice in the same shot. The library still
+   * earns its keep on the face swap, which takes them one at a time.
+   */
+  it("sends one photograph per character however many are stored", async () => {
+    const env = await isolated();
+
+    const tracey = await env.characters.createCharacter({
+      name: "Tracey",
+      description: "A woman in her fifties.",
+    });
+    await env.characters.setReferenceImage(tracey.id, pngFile());
+    await env.characters.setReferenceImage(tracey.id, pngFile());
+    await env.characters.setReferenceImage(tracey.id, pngFile());
+    const stored = await env.characters.getCharacter(tracey.id);
+    expect(stored.referenceImages!.length).toBe(3);
+
+    const project = await env.projects.createProject({
+      concept: "Tracey waits alone in a hotel suite.",
+      requestedDurationSeconds: 20,
+      useCharacterLibrary: true,
+      characterIds: [tracey.id],
+    });
+    const built = await env.projects.generateStoryboard(project.id);
+
+    const client = new env.MockWangpClient();
+    const submitted = vi.spyOn(client, "generate");
+    env.setWangpClient(client);
+    await env.media.generateSceneMedia(project.id, built.storyboard!.scenes[0]!.id);
+
+    for (const [settings] of submitted.mock.calls) {
+      const refs = ((settings as Record<string, unknown>).image_refs as string[]) ?? [];
+      const hers = refs.filter((p) => stored.referenceImages!.some((f) => p.includes(f)));
+      expect(hers.length).toBeLessThanOrEqual(1);
+    }
+  });
 });

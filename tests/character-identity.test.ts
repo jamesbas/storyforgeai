@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { castPromptSuffix, castSheet } from "@/lib/agents/cast";
 import { referenceImagesOf, wantsFaceSwap } from "@/lib/schemas/character";
-import { faceSwapSubject } from "@/lib/services/face-swap-service";
+import { faceSwapSubjects } from "@/lib/services/face-swap-service";
 import { FACE_SWAP_LORAS, FACE_SWAP_SETTINGS } from "@/lib/wangp/face-swap-preset";
 import type { Character } from "@/lib/schemas/character";
 
@@ -57,7 +57,7 @@ describe("withholding the facial description", () => {
     const suffix = castPromptSuffix([
       character({ facialDescription: facial, referenceImages: ["c1.jpg"], wardrobe: "red coat" }),
     ]);
-    expect(suffix).toContain("Wearing exactly: red coat");
+    expect(suffix).toContain(", dressed in red coat");
   });
 });
 
@@ -87,30 +87,39 @@ describe("choosing a face-swap subject", () => {
     expect(wantsFaceSwap(character({ faceSwap: true, referenceImages: ["a.jpg"] }))).toBe(true);
   });
 
-  it("selects the single opted-in character", () => {
-    const subject = faceSwapSubject([
+  it("returns the opted-in character", () => {
+    const subjects = faceSwapSubjects([
       character({ id: "a", faceSwap: true, referenceImages: ["a.jpg"] }),
       character({ id: "b", name: "Other" }),
     ]);
-    expect(subject?.id).toBe("a");
+    expect(subjects.map((c) => c.id)).toEqual(["a"]);
   });
 
   /**
-   * The preset's prompt names "the woman" in each picture, so it assumes one
-   * subject. With two there is no way to say which face belongs where, and
-   * swapping the wrong one is worse than not swapping.
+   * One pass runs per character, each with its own prompt, so two opted-in
+   * characters are both corrected rather than neither. Ordered by id because
+   * the passes chain — the order decides the result, and a re-run of the same
+   * batch has to produce the same chain.
    */
-  it("declines when more than one character opts in", () => {
-    const subject = faceSwapSubject([
-      character({ id: "a", faceSwap: true, referenceImages: ["a.jpg"] }),
+  it("returns every opted-in character, in a stable order", () => {
+    const subjects = faceSwapSubjects([
       character({ id: "b", name: "Other", faceSwap: true, referenceImages: ["b.jpg"] }),
+      character({ id: "a", faceSwap: true, referenceImages: ["a.jpg"] }),
     ]);
-    expect(subject).toBeNull();
+    expect(subjects.map((c) => c.id)).toEqual(["a", "b"]);
   });
 
-  it("declines when nobody opts in", () => {
-    expect(faceSwapSubject([character({ referenceImages: ["a.jpg"] })])).toBeNull();
-    expect(faceSwapSubject([])).toBeNull();
+  it("excludes a character with the toggle but no photo", () => {
+    const subjects = faceSwapSubjects([
+      character({ id: "a", faceSwap: true }),
+      character({ id: "b", name: "Other", faceSwap: true, referenceImages: ["b.jpg"] }),
+    ]);
+    expect(subjects.map((c) => c.id)).toEqual(["b"]);
+  });
+
+  it("returns nothing when nobody opts in", () => {
+    expect(faceSwapSubjects([character({ referenceImages: ["a.jpg"] })])).toEqual([]);
+    expect(faceSwapSubjects([])).toEqual([]);
   });
 });
 

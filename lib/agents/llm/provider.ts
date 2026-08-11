@@ -144,9 +144,17 @@ export function extractJsonObject(content: string): unknown | null {
 /**
  * Whether a failure is the server rejecting the response_format we asked for.
  * LM Studio, for example, accepts only `json_schema` or `text`.
+ *
+ * Grammar failures count. llama.cpp compiles the JSON schema into GBNF to
+ * constrain decoding, and constructs it cannot express — `maxLength` is one —
+ * come back as `Failed to initialize samplers: failed to parse grammar`. That
+ * names neither the format nor the schema, so without this the ladder never
+ * advanced and a fixable schema looked like a dead server.
  */
 export function isResponseFormatRejection(message: string): boolean {
-  return /response_format|json_schema|response format/i.test(message);
+  return /response_format|json_schema|response format|parse grammar|initialize samplers/i.test(
+    message,
+  );
 }
 
 /**

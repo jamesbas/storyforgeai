@@ -7,6 +7,7 @@ import {
   FACE_SWAP_SETTINGS,
 } from "@/lib/wangp/face-swap-preset";
 import { referenceImagesOf, wantsFaceSwap } from "@/lib/schemas/character";
+import { isUndressed, positiveGarments } from "@/lib/agents/wardrobe";
 import { resolveReferenceImagePath } from "@/lib/db/character-store";
 import type { Character } from "@/lib/schemas/character";
 
@@ -28,25 +29,83 @@ import type { Character } from "@/lib/schemas/character";
  */
 
 /**
- * The single character a swap should target, if there is one.
+ * Every character a swap should target, in a stable order.
  *
- * The preset's prompt names "the woman" in each picture, so it assumes exactly
- * one subject. With two opted-in characters there is no way to say which face
- * belongs where, and swapping the wrong one is worse than not swapping, so the
- * scene is left alone and the reason is logged.
+ * One pass runs per character, each with its own prompt, so a frame holding two
+ * named people gets both faces corrected. Ordered by id rather than by cast or
+ * scene position: the passes chain, so the order decides the result, and a
+ * re-run of the same batch has to produce the same chain.
  */
-export function faceSwapSubject(cast: readonly Character[]): Character | null {
-  if (!config.media.faceSwapEnabled) return null;
-  const candidates = cast.filter((character) => wantsFaceSwap(character));
-  if (candidates.length === 1) return candidates[0]!;
+export function faceSwapSubjects(cast: readonly Character[]): Character[] {
+  if (!config.media.faceSwapEnabled) return [];
+  return cast.filter((character) => wantsFaceSwap(character)).sort((a, b) => a.id.localeCompare(b.id));
+}
 
-  if (candidates.length > 1) {
-    logEvent("face_swap.skipped", {
-      reason: "multiple_characters_opted_in",
-      characters: candidates.map((c) => c.name),
-    });
+/** One person the frame shows, as the swap needs to tell them apart. */
+export type FramePerson = { wardrobe?: string; description?: string };
+
+/** "completely naked" or "dressed in a white polo shirt", from a wardrobe. */
+function wardrobePhrase(wardrobe: string | undefined): string | undefined {
+  const text = wardrobe?.trim();
+  if (!text) return undefined;
+  return isUndressed(text) ? "completely naked" : `dressed in ${positiveGarments(text)}`;
+}
+
+/** Words that sit in front of "hair" without describing it. */
+const NOT_A_HAIR_WORD = /^(?:with|and|her|his|their|the|a|an|of|in|has|have|long|short|medium)$/i;
+
+/** The hair colour out of a description, as a last resort for telling two nudes apart. */
+function hairToken(description: string | undefined): string | undefined {
+  const run = description?.match(/((?:[a-z-]+\s+){1,4})hair\b/i);
+  if (!run) return undefined;
+  const colour = run[1]!
+    .trim()
+    .split(/\s+/)
+    .find((word) => !NOT_A_HAIR_WORD.test(word));
+  return colour ? `${colour.toLocaleLowerCase()} hair` : undefined;
+}
+
+/**
+ * Name which head to replace, in terms that separate this person from the
+ * others in the same frame.
+ *
+ * A character's swap prompt is a template meant to serve every scene they ever
+ * appear in, so the person it names has to be identified generically — "the
+ * white woman". That is accurate and ambiguous at once: in a shot where the
+ * other man wore a white polo and faced the camera while she lay in profile,
+ * the pass took his head and gave him her face.
+ *
+ * The discriminator therefore has to come from the scene, not the template.
+ * Wardrobe settles it in almost every case and is already on the timeline;
+ * where two people are undressed it falls through to hair colour.
+ *
+ * The second sentence matters as much as the first: passes chain, each editing
+ * the last one's output, and until now nothing told a later pass to leave an
+ * earlier correction alone.
+ *
+ * Empty when the frame holds nobody else — a single-figure shot has nothing to
+ * confuse and keeps the template exactly as written.
+ */
+export function swapTargetClause(target: FramePerson, others: readonly FramePerson[]): string {
+  if (others.length === 0) return "";
+
+  const phrase = wardrobePhrase(target.wardrobe);
+  const taken = new Set(
+    others.map((person) => wardrobePhrase(person.wardrobe)).filter((p): p is string => Boolean(p)),
+  );
+
+  const parts: string[] = [];
+  if (phrase) parts.push(phrase);
+  if (!phrase || taken.has(phrase)) {
+    const hair = hairToken(target.description);
+    if (hair) parts.push(parts.length ? `with ${hair}` : hair);
   }
-  return null;
+  if (parts.length === 0) return "";
+
+  return (
+    ` In Picture 1, replace only the head of the person ${parts.join(" ")}.` +
+    " Leave every other person in Picture 1 exactly as they are."
+  );
 }
 
 /**
@@ -60,10 +119,18 @@ export async function swapFace(
   imagePath: string,
   character: Character,
   context: { sceneId: string; purpose: string },
+  frame: { wardrobe?: string; others?: readonly FramePerson[] } = {},
 ): Promise<string | null> {
   const references = referenceImagesOf(character);
   const reference = references[0];
-  if (!reference) return null;
+  if (!reference) {
+    logEvent("face_swap.skipped", {
+      ...context,
+      reason: "no_reference_image",
+      character: character.name,
+    });
+    return null;
+  }
 
   /*
    * Only the first reference is used, and that is a property of the prompt
@@ -107,7 +174,12 @@ export async function swapFace(
     const settings: Record<string, unknown> = {
       ...schema.defaultSettings,
       ...FACE_SWAP_SETTINGS,
-      prompt: FACE_SWAP_PROMPT,
+      // Only the prompt is per-character; the LoRAs, steps and solver in
+      // FACE_SWAP_SETTINGS are a matched set and stay as the preset defines.
+      prompt: `${character.faceSwapPrompt?.trim() || FACE_SWAP_PROMPT}${swapTargetClause(
+        { wardrobe: frame.wardrobe, description: character.description },
+        frame.others ?? [],
+      )}`,
       // Picture 1 is the frame being corrected; Picture 2 is the face to apply.
       image_guide: imagePath,
       image_refs: [referencePath],

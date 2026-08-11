@@ -9,7 +9,9 @@ export const PROMPT_VERSIONS = {
   intake: "intake-v1",
   storyArchitect: "story-architect-v1",
   visualBible: "visual-bible-v1",
-  storyboard: "storyboard-v1",
+  // v2: each batch is handed the wardrobe as it stands after the changes
+  // declared so far, and the undressing case is stated as a requirement.
+  storyboard: "storyboard-v2",
   imagePrompt: "image-prompt-v2",
   // v4: a scene continuing from the one before it is handed its actual opening
   // frame in the payload, not just told about it in the system prompt.

@@ -81,3 +81,27 @@ export function presentCharacterNames(
 ): string[] {
   return charactersInScene(scene, cast).map((c) => c.name);
 }
+
+/**
+ * The subset of a scene's cast that one frame prompt actually frames.
+ *
+ * Presence is read from the scene card, but the sheet is appended to a frame,
+ * and the two disagree routinely: a card that seats a watcher in the corner
+ * chair is still a card the cinematographer may frame out, and a card that
+ * never mentions him is one a wider shot may put him back into.
+ *
+ * Describing someone the frame excludes is not a harmless extra: the sheet is
+ * the last thing the image model reads and it ends on "wearing exactly", so a
+ * character who is not in shot donates his clothes to whoever is.
+ *
+ * Falls back to the scene cast when the prompt names nobody — a prompt can
+ * describe people without naming them ("one woman and one man"), and an empty
+ * sheet would drop face continuity altogether.
+ */
+export function charactersInFrame(
+  prompt: string,
+  sceneCast: readonly Character[],
+): readonly Character[] {
+  const named = sceneCast.filter((character) => mentions(prompt, character.name));
+  return named.length ? named : sceneCast;
+}

@@ -22,6 +22,7 @@ import {
   wardrobeTimeline,
 } from "@/lib/agents/wardrobe";
 import { castContinuityClause, castPromptSuffix } from "@/lib/agents/cast";
+import { rebuiltPrompts } from "@/lib/agents/cast-sheet";
 import { charactersInScene } from "@/lib/agents/scene-cast";
 import { isTightShot } from "@/lib/media/seam";
 import type { Character } from "@/lib/schemas/character";
@@ -856,29 +857,10 @@ export async function repairNegativePrompts(id: string): Promise<{
 
     const sceneCast = charactersInScene(scene, cast);
     const wardrobe = timeline.get(scene.id);
-    const startFramePrompt = withCastSheet(
-      scene.prompts.startFramePrompt,
-      sceneCast,
-      wardrobe?.start,
-      wardrobe?.othersStart,
+    const { startFramePrompt, endFramePrompt, videoPromptSegment } = rebuiltPrompts(
       scene,
-    );
-    const endFramePrompt = withCastSheet(
-      scene.prompts.endFramePrompt,
-      sceneCast,
-      wardrobe?.end,
-      wardrobe?.othersEnd,
-      scene,
-    );
-    const videoPromptSegment = withVideoCastClause(
-      scene.prompts.videoPromptSegment,
-      sceneCast,
-      wardrobeChangeClause(
-        wardrobe?.within ?? [],
-        sceneCast,
-        wardrobe?.start ?? {},
-        wardrobe?.othersStart ?? {},
-      ),
+      cast,
+      wardrobe,
     );
 
     const negativesStale =
@@ -934,43 +916,7 @@ export async function repairNegativePrompts(id: string): Promise<{
 }
 
 /**
- * Rebuild the appended cast sheet from the characters actually in the shot.
- *
- * The sheet and the clause that follows it are produced deterministically from
- * the cast and the wardrobe timeline, so the model-authored body can be
- * recovered by cutting at the marker and the correct suffixes re-appended. That
- * removes a character who was never in the scene without touching a word the
- * agent wrote, and without a regeneration.
- */
-function withCastSheet(
-  prompt: string,
-  sceneCast: readonly Character[],
-  wardrobeAt: Record<string, string> | undefined,
-  others: Record<string, string> | undefined,
-  scene: Scene,
-): string {
-  const marker = " Character continuity — ";
-  const cut = prompt.indexOf(marker);
-  const body = cut >= 0 ? prompt.slice(0, cut) : stripOthers(prompt);
-  const options = {
-    faceVisible: scene.subjectFaceVisible !== false,
-    tightShot: isTightShot(body),
-  };
-  return `${body}${castPromptSuffix(sceneCast, wardrobeAt, options)}${othersWardrobeSuffix(others ?? {})}`;
-}
-
-function stripOthers(prompt: string): string {
-  const marker = " Wardrobe continuity — ";
-  const cut = prompt.indexOf(marker);
-  return cut >= 0 ? prompt.slice(0, cut) : prompt;
-}
-
-/**
  * The same repair for the clip prompt, which carries names rather than a sheet.
- *
- * Two markers because the format changed: prompts written before the clip
- * stopped re-describing the cast end with the full sheet, later ones with the
- * short preservation clause.
  */
 function withVideoCastClause(
   prompt: string,

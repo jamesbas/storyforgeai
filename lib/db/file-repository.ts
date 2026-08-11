@@ -43,6 +43,8 @@ const SAFE_ID = /^(?!\.+$)[A-Za-z0-9._-]+$/;
 export class FileProjectRepository implements ProjectRepository {
   /** Write-through cache. The disk is the source of truth; this avoids re-reading. */
   private readonly cache = new Map<string, ProjectRecord>();
+  /** Modification time of the file each cached record was read from. */
+  private readonly mtimes = new Map<string, number>();
   private loaded = false;
   /** Serialises writes so two concurrent saves cannot interleave. */
   private chain: Promise<unknown> = Promise.resolve();
@@ -59,6 +61,9 @@ export class FileProjectRepository implements ProjectRepository {
       const temp = `${target}.tmp`;
       await fs.writeFile(temp, `${JSON.stringify(record, null, 2)}\n`, "utf8");
       await fs.rename(temp, target);
+      // Remember our own write so the next read does not mistake it for an
+      // outside edit and re-parse the file for nothing.
+      this.mtimes.set(id, (await fs.stat(target)).mtimeMs);
     });
     this.chain = run.catch(() => undefined);
     await run;
@@ -112,7 +117,31 @@ export class FileProjectRepository implements ProjectRepository {
 
   async get(id: string): Promise<ProjectRecord | null> {
     await this.hydrate();
+    await this.refreshFromDisk(id);
     return this.cache.get(id) ?? null;
+  }
+
+  /**
+   * Re-read a record whose file has changed since it was cached.
+   *
+   * The cache was indexed once per process and never consulted the disk again,
+   * so a record edited outside the app — a hand correction to a prompt, a
+   * restored backup — stayed invisible until a restart, and the next save wrote
+   * the stale copy back over it. Comparing the modification time costs one stat
+   * and makes the comment above this class true.
+   */
+  private async refreshFromDisk(id: string): Promise<void> {
+    if (!SAFE_ID.test(id)) return;
+    try {
+      const { mtimeMs } = await fs.stat(projectFile(id));
+      if (this.mtimes.get(id) === mtimeMs) return;
+      const record = await this.readOne(id);
+      if (!record) return;
+      this.cache.set(id, record);
+      this.mtimes.set(id, mtimeMs);
+    } catch {
+      // No file on disk: whatever is cached is all there is.
+    }
   }
 
   async list(): Promise<ProjectRecord[]> {

@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { MAX_REFERENCE_IMAGES, referenceImagesOf } from "@/lib/schemas/character";
+import { FACE_SWAP_PROMPT } from "@/lib/wangp/face-swap-preset";
 import { useLoadEffect } from "@/components/shared/use-load-effect";
 import type { Character } from "@/lib/schemas/character";
 
@@ -14,6 +15,7 @@ const EMPTY_DRAFT = {
   wardrobe: "",
   negativePrompt: "",
   faceSwap: false,
+  faceSwapPrompt: "",
 };
 
 /**
@@ -85,6 +87,7 @@ export function CharacterLibrary() {
         wardrobe: draft.wardrobe || undefined,
         negativePrompt: draft.negativePrompt || undefined,
         faceSwap: draft.faceSwap,
+        faceSwapPrompt: draft.faceSwapPrompt || undefined,
       });
       const ok = editingId
         ? await request(
@@ -215,20 +218,64 @@ export function CharacterLibrary() {
             <input
               type="checkbox"
               checked={draft.faceSwap}
-              onChange={(e) => setDraft((d) => ({ ...d, faceSwap: e.target.checked }))}
+              onChange={(e) =>
+                setDraft((d) => ({
+                  ...d,
+                  faceSwap: e.target.checked,
+                  // Seed the wording so it can be edited rather than written
+                  // from nothing. Ticking is when it first becomes relevant.
+                  faceSwapPrompt:
+                    e.target.checked && !d.faceSwapPrompt ? FACE_SWAP_PROMPT : d.faceSwapPrompt,
+                }))
+              }
               className="mt-1"
             />
             <span>
               <span className={label}>Face swap generated frames</span>
               <span className="mt-1 block text-[11px] text-slate-500">
                 After each keyframe renders, run a dedicated pass that replaces the head with the one
-                in this character&apos;s first reference image. Needs a reference image, and only
-                applies when this is the single character in the project with it enabled. Adds a
-                short render per keyframe.
+                in this character&apos;s first reference image. Needs a reference image. Where two
+                characters in a frame both have this on, one pass runs for each. Adds a short render
+                per keyframe per character.
               </span>
             </span>
           </label>
         </div>
+        {draft.faceSwap ? (
+          <div>
+            <div className="flex items-baseline justify-between gap-3">
+              <label htmlFor="character-face-swap-prompt" className={label}>
+                Face-swap prompt
+              </label>
+              <button
+                type="button"
+                onClick={() => setDraft((d) => ({ ...d, faceSwapPrompt: FACE_SWAP_PROMPT }))}
+                disabled={draft.faceSwapPrompt === FACE_SWAP_PROMPT}
+                className="text-[11px] text-accent underline underline-offset-2 disabled:no-underline disabled:opacity-40"
+              >
+                Reset to default
+              </button>
+            </div>
+            <textarea
+              id="character-face-swap-prompt"
+              rows={5}
+              maxLength={1000}
+              value={draft.faceSwapPrompt}
+              onChange={(e) => setDraft((d) => ({ ...d, faceSwapPrompt: e.target.value }))}
+              className={`mt-1 w-full ${field}`}
+            />
+            <p className="mt-1 text-[11px] text-slate-500">
+              Starts as the default wording, which you edit rather than replace.{" "}
+              <strong>Picture 1</strong> is the rendered frame and <strong>Picture 2</strong> is this
+              character&apos;s reference photo. The default names &ldquo;the woman&rdquo;, so change
+              that for a man. Where two characters share a frame, say which person this one is —
+              &ldquo;the man&rdquo;, &ldquo;the blonde woman&rdquo; — because the model cannot
+              otherwise tell them apart. Only the wording is yours; the LoRAs and step count stay as
+              the preset sets them. Clear the box to fall back to the default.{" "}
+              {counter(draft.faceSwapPrompt, 1000)}
+            </p>
+          </div>
+        ) : null}
         <div>
           <label htmlFor="character-wardrobe" className={label}>
             Default wardrobe (optional)
@@ -364,6 +411,10 @@ export function CharacterLibrary() {
                       wardrobe: character.wardrobe ?? "",
                       negativePrompt: character.negativePrompt ?? "",
                       faceSwap: Boolean(character.faceSwap),
+                      // An existing character saved before this field existed
+                      // opens on the default rather than on an empty box.
+                      faceSwapPrompt:
+                        character.faceSwapPrompt ?? (character.faceSwap ? FACE_SWAP_PROMPT : ""),
                     });
                   }}
                   className="text-accent hover:underline disabled:opacity-50"

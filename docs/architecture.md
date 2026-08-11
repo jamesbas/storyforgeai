@@ -181,6 +181,7 @@ subject of §3.2.
 | 13 | **Creative Critic (QC)** | `qc-agent.ts` | `Scene` + `SceneAttempt` (+ keyframes when `OPENAI_VISION_MODEL` is set) | Pass/fail, severity, regen notes | `qcResultSchema` | `media-service`, only when `project.qcEnabled` |
 | 14 | **Concept Reader** | `concept-reader.ts` | `Project` + uploaded **reference** images | Written description of the look | `conceptVisualsSchema` | `POST /read-concept-images`, and automatically by `resolveConceptVisuals` when stale |
 | 15 | **Concept Fidelity Check** | `concept-fidelity.ts` | `Project.concept` + uploaded **render** frames | Findings only, no description | `conceptFidelitySchema` | `POST /concept-fidelity`, on demand |
+| — | **Concept Expander** | `concept-enhancer.ts` | `Project.concept` as typed, plus running time, style, tone, audience, creative mode | A fuller concept, returned as a suggestion — never written back on its own | `{ concept: string }` | `POST /api/concept/enhance`, from the New Project form |
 | — | **Deepy assistant** | `deepy/deepy.ts` | Media path + action | Inspection/suggestion text | — | `POST /scenes/{id}/deepy` |
 | — | **Animatic builder** | `mock-audio.ts` | Storyboard snapshot | Animatic plan | `animaticPlanSchema` | `POST /generate-animatic` |
 
@@ -188,6 +189,15 @@ subject of §3.2.
 carries `wangp_settings` (WanGP Producer) as a phase-3 descriptor whose behaviour
 is currently implemented directly by `wangp-service` + `lib/wangp/settings.ts`
 rather than as a standalone agent module.
+
+**Schemas sent to a local model must not carry string length bounds.** llama.cpp
+compiles the JSON schema into a GBNF grammar to constrain decoding, and
+`minLength`/`maxLength` have no grammar: LM Studio answers `400 Failed to
+initialize samplers: failed to parse grammar`, which names neither the schema nor
+the field and reads as a dead server. Check length after the answer arrives
+instead. `scenePromptsSchema`, which the prompt agents send, carries no bounds;
+the `.max()` variants in `scenePromptsPatchSchema` validate hand edits over HTTP
+and never reach a model.
 
 ### 3.1.1 Concept images: two kinds, two agents, one of them isolated
 
@@ -423,37 +433,56 @@ flowchart TB
    `cinematographyPlanSchema` exist for.
 4. **The prompt agents work per scene, not per project.** The amber band is the
    part most easily missed: what a prompt agent receives is resolved *for that one
-   scene* before the call. `charactersInScene` decides whose description is
-   appended — and gates the reference photograph and the face swap downstream, so
-   a scene the pinned cast is absent from carries none of them. `wardrobeTimeline`
-   supplies the outfit at each frame, appended last and therefore the strongest
-   single instruction in the prompt. `familyOf` makes the system prompt depend on
-   the *pinned model*, so two projects send different instructions to the same
-   agent. Only the image prompt gets the full cast sheet; the clip prompt gets
-   names, because it renders from a frame that already carries the likeness.
-5. **Some state flows backwards.** `foldWardrobeChanges` lifts costume changes the
+   scene* before the call. `charactersInScene` decides who the scene carries, and
+   `charactersInFrame` narrows that again to the people a *given frame* names —
+   because a card and a frame disagree constantly, and a description appended for
+   somebody the shot excludes hands their clothes to whoever is in it. The same
+   narrowing gates the reference photograph and the face swap. `wardrobeTimeline`
+   supplies the outfit at each frame, which is written **inside the clause
+   describing that person** rather than stated after them: an outfit on its own is
+   an attribute with no anchor, and on a three-person shot it lands on whichever
+   body can wear it. `familyOf` makes the system prompt depend on the *pinned
+   model*, so two projects send different instructions to the same agent. Only the
+   image prompt gets the cast sheet; the clip prompt gets names, because it renders
+   from a frame that already carries the likeness.
+5. **Description length is rationed, and the ration belongs to the shot.** A model
+   divides its attention roughly by how much is written about each person. One
+   character described at four times the length of the subject was rendered twice
+   while another was dropped from the frame entirely, and the same shot with
+   compact descriptions came back correct first time. `castSheet` therefore trims
+   each person to a share of a fixed budget — generous for a two-hander, terse for
+   a crowd, with a floor below which nobody would be identifiable. Planning agents
+   are exempt: they are writing the record of what a character looks like.
+6. **Nothing in a render prompt states an absence.** A text encoder has no
+   operator for "no", so "black silk trousers, no shirt" embeds *shirt* and the
+   render produces one. `positiveGarments` rewrites absent garments as bare skin,
+   and anything still phrased as an absence is copied into the negative prompt by
+   `withNegatedTraits`, where a sampler can act on it. The same rule explains why
+   character-scoped exclusions are stripped: a negative prompt has no addressee,
+   so "dark skin for Jaime" suppresses dark skin for everybody in the frame.
+7. **Some state flows backwards.** `foldWardrobeChanges` lifts costume changes the
    Storyboard Artist declared onto the project *before* any prompt is written,
    because a change carries forward to every later scene and so cannot live on the
    scene that declared it. Anything already set by hand wins.
-6. **Conflicts resolve by stated precedence.** Pinned character library entries
+8. **Conflicts resolve by stated precedence.** Pinned character library entries
    beat the Visual Bible, which beats the Art Direction, Cinematography and World
    Bible plans. `precedenceDirective()` states this in the system prompt and the
    deterministic builders apply the same order, so the resolution does not vary
    scene to scene.
-7. **The selected variant carries its substance.** `selectVariant` sets
+9. **The selected variant carries its substance.** `selectVariant` sets
    `selectedVariantId`; `generateStoryboard` looks the variant up and the
    orchestrator appends its name, summary, hook, story angle, visual style and
    risks to `brief.constraints`. Every later agent reads the brief, so the chosen
    direction propagates throughout.
-8. **Prompt agents fan out per scene.** `attachScenePrompts` loops the drafts and
+10. **Prompt agents fan out per scene.** `attachScenePrompts` loops the drafts and
    makes *two* provider calls per scene — image then video — so a project with
    N segments issues up to `4 + 2N` LLM calls for one storyboard run. A single
    scene can be rewritten on its own (`regenerateScenePrompts`) for two calls: the
    loop still walks every scene, because wardrobe carries forward and a seam is
    matched against the prompt before it, but only the named scene is rewritten.
-9. **QC forms the only feedback loop.** Its verdict sets scene status, which gates
+11. **QC forms the only feedback loop.** Its verdict sets scene status, which gates
    whether the creator regenerates or approves; approval gates assembly.
-10. **Plan influence is bound at storyboard-generation time, not at render time.**
+12. **Plan influence is bound at storyboard-generation time, not at render time.**
    This is the most important temporal property in the system and the easiest to
    miss. `generateStoryboard` reads `record.worldBible`, `record.directorialPlan`,
    `record.cinematographyPlan` and `record.artDirectionPlan` *once*, and their
@@ -472,7 +501,7 @@ flowchart TB
    the storyboard as *not applied yet*, with a regenerate action. Scene ids are
    deterministic (`<projectId>-scene-NNN`), so regenerating preserves attempts,
    media and per-scene LoRA overrides when the scene count is unchanged.
-11. **Not every canvas agent reaches a rendered frame.** Audio Director feeds the
+13. **Not every canvas agent reaches a rendered frame.** Audio Director feeds the
     audio plan, cues and assembly only. The Animatic builder consumes stills that
     already exist. Variant Explorer influences rendering only indirectly, via the
     brief constraints of a storyboard generated after selection. Among the canvas
@@ -480,7 +509,7 @@ flowchart TB
     image and video prompts — though the character library, the wardrobe timeline,
     the audience and tone, and the pinned model all do so as well, without being
     agents at all.
-12. **Planning calls are serialized against a local provider.** `getPlanningProvider()`
+14. **Planning calls are serialized against a local provider.** `getPlanningProvider()`
     wraps every call in a process-wide promise chain when `OPENAI_BASE_URL` is set.
     A local model serves one request at a time, so overlapping calls are slower at
     best and exhaust VRAM at worst — and the canvas previously disabled only the
@@ -885,17 +914,18 @@ Three properties this encodes:
 2. **Degrades rather than propagates.** `swapFace` returns null on any failure —
    model absent, no output, request failed — and the caller keeps the original
    frame. An enhancement failing must not fail the scene.
-3. **Single subject only.** `sceneFaceSwapSubject()` returns a character only when
-   exactly one of those *in that scene* has opted in, because the preset's prompt
-   names "the woman" in each picture. Two opted-in characters is ambiguous, and
-   swapping the wrong face is worse than not swapping, so it is skipped and logged.
+3. **One pass per character.** `sceneFaceSwapSubjects()` returns every character *in that scene*
+   that has opted in and has a reference photo, ordered by id. Each gets its own pass, chained —
+   the second edits the first's output — and each carries its own prompt, because the preset's
+   default names "the woman" and cannot say which of two people it means. A character may override
+   that wording in the character library; nothing else about the preset is overridable.
 4. **Gated on presence and on the planned shot.** The pass never declines on its
    own: told to replace a head in a frame that has none, it invents somewhere to
    put one. Two gates therefore apply — whether the subject is in the scene at all,
    and `scene.subjectFaceVisible`, which the Storyboard Agent sets from the framing
    it planned. In the batch phase a frame shared by two scenes (`reuse_end_frame`)
-   is swapped only when *every* scene using it wants the swap, and scenes the
-   subject is absent from are skipped entirely. `swapAttemptFrame()` is
+   is swapped only for characters *every* scene using it agrees are in shot, and
+   not at all when any of those scenes is faceless. `swapAttemptFrame()` is
    deliberately ungated, being an explicit instruction rather than an inference.
 
    `seamBreak` deliberately does *not* break on a change of cast or of face
@@ -1302,6 +1332,7 @@ flowchart LR
         w2["GET models/:modelType/schema"]
         w3["POST jobs · GET jobs/:jobId · POST jobs/:jobId/cancel"]
     end
+    ce["POST /api/concept/enhance"]
     h["GET /api/health"]
 ```
 

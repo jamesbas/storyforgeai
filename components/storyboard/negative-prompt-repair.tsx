@@ -4,14 +4,17 @@ import { useState } from "react";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { Character } from "@/lib/schemas/character";
 import { normaliseNegative } from "@/lib/agents/negative-prompt";
-import { charactersInScene } from "@/lib/agents/scene-cast";
+import { sheetIsStale } from "@/lib/agents/cast-sheet";
+import { wardrobeTimeline } from "@/lib/agents/wardrobe";
 
 /**
  * Offers to repair prompts that were written before the rules changed.
  *
- * Two mechanical fixes: negative prompts written as prose, and cast sheets
- * appended for characters who are not in the shot. Both are rebuilt from stored
- * data with no model involved. Shown only when there is something to fix.
+ * Two mechanical fixes: negative prompts written as prose, and appended cast
+ * text that no longer matches the scene — someone described who is not in the
+ * shot, or a costume change set after the prompts were written. Both are
+ * rebuilt from stored data with no model involved. Shown only when there is
+ * something to fix.
  */
 export function NegativePromptRepair({
   record,
@@ -35,15 +38,12 @@ export function NegativePromptRepair({
       normaliseNegative(scene.prompts.videoNegativePrompt) !== scene.prompts.videoNegativePrompt,
   ).length;
 
-  const staleCast = scenes.filter((scene) => {
-    const present = new Set(charactersInScene(scene, cast).map((c) => c.id));
-    return cast.some(
-      (c) =>
-        !present.has(c.id) &&
-        (scene.prompts.startFramePrompt.includes(`${c.name}:`) ||
-          scene.prompts.videoPromptSegment.includes(`${c.name}:`)),
-    );
-  }).length;
+  // The same comparison the repair itself makes, so the offer cannot disagree
+  // with what pressing the button would do.
+  const timeline = wardrobeTimeline(record.project, scenes, cast);
+  const staleCast = scenes.filter((scene) =>
+    sheetIsStale(scene, cast, timeline.get(scene.id)),
+  ).length;
 
   if (staleNegatives === 0 && staleCast === 0) return null;
 
@@ -69,10 +69,11 @@ export function NegativePromptRepair({
       <h2 className="text-sm font-semibold">Prompts written under older rules</h2>
       {staleCast ? (
         <p className="mt-1 text-sm text-slate-300">
-          {staleCast} {staleCast === 1 ? "scene describes a character" : "scenes describe characters"}{" "}
-          who are not in the shot. The description was appended to every scene regardless of who
-          appeared in it, which asks the image model to put them in the picture. Rebuilding uses the
-          characters each scene actually names.
+          {staleCast} {staleCast === 1 ? "scene has" : "scenes have"} an appended character
+          description that no longer matches the scene &mdash; someone described who is not in the
+          shot, or a costume change set after the prompts were written. The description is the last
+          thing the image model reads, so a wardrobe left behind there renders the old clothes.
+          Rebuilding uses the characters each scene names and the wardrobe as it stands.
         </p>
       ) : null}
       {staleNegatives ? (

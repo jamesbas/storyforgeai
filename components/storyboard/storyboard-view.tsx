@@ -211,7 +211,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
       try {
         const res = await fetch("/api/characters", { cache: "no-store" });
         if (!res.ok) return;
-        const all = (await res.json()) as Character[];
+        const all = ((await res.json()) as { characters?: Character[] }).characters ?? [];
         const byId = new Map(all.map((c) => [c.id, c] as const));
         if (!cancelled) setFetchedCast(ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : [])));
       } catch {

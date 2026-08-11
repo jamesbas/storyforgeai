@@ -95,24 +95,69 @@ describe("nudity as a wardrobe state", () => {
   /** The defect: the last line of an explicit prompt put her clothes back on. */
   it("states the absence instead of wearing it", () => {
     const sheet = castSheet([TRACEY], true, { "char-tracey": "nude" });
-    expect(sheet).toContain("Fully nude, wearing nothing.");
-    expect(sheet).not.toContain("Wearing exactly");
+    expect(sheet).toContain("completely naked with no clothing.");
+    expect(sheet).not.toContain("wearing nude");
   });
 
   it("accepts the other ways of saying it", () => {
     for (const word of ["naked", "Fully nude", "undressed", "no clothing"]) {
-      expect(castSheet([TRACEY], true, { "char-tracey": word })).toContain("Fully nude");
+      expect(castSheet([TRACEY], true, { "char-tracey": word })).toContain("completely naked");
     }
   });
 
+  /** Bound to the person, not stated after them, so it cannot drift to another body. */
   it("leaves a real outfit alone", () => {
-    expect(castSheet([TRACEY], true)).toContain("Wearing exactly: short black silk robe.");
+    expect(castSheet([TRACEY], true)).toContain(", dressed in short black silk robe.");
   });
 
   /** "Robe open" is not nudity, and reads correctly as an outfit. */
   it("does not mistake a partial state for nudity", () => {
     const sheet = castSheet([TRACEY], true, { "char-tracey": "black silk robe, open" });
-    expect(sheet).toContain("Wearing exactly: black silk robe, open.");
+    expect(sheet).toContain(", dressed in black silk robe, open.");
+  });
+
+  /** A planning agent is writing the record, and keeps the explicit form. */
+  it("keeps the standalone clause for planning agents", () => {
+    expect(castSheet([TRACEY], false)).toContain("Wearing exactly: short black silk robe.");
+  });
+});
+
+/**
+ * The sheet has a total budget rather than a per-person allowance, because a
+ * per-person one grows with the cast: at a fixed 220 characters each, a
+ * six-hander is back to the 1500 characters that failed.
+ */
+describe("keeping the sheet the same size however big the cast", () => {
+  const long = (name: string) => ({
+    ...TRACEY,
+    id: `char-${name}`,
+    name,
+    description: `${name} is a person. ${"Every detail of their appearance recorded at length. ".repeat(12)}`,
+  });
+
+  const sheetFor = (count: number) =>
+    castSheet(
+      Array.from({ length: count }, (_, i) => long(`Person${i}`)),
+      true,
+    );
+
+  /** What matters is the share each person gets, not the total, which a long
+   *  wardrobe can inflate on its own. */
+  it("gives each person less as the cast grows", () => {
+    const perPersonAtTwo = sheetFor(2).length / 2;
+    const perPersonAtSix = sheetFor(6).length / 6;
+    expect(perPersonAtSix).toBeLessThan(perPersonAtTwo * 0.8);
+  });
+
+  /** A crowd is trimmed, but never past the point of identifying anybody. */
+  it("keeps every person identifiable in a crowd", () => {
+    const sheet = sheetFor(6);
+    for (let i = 0; i < 6; i += 1) expect(sheet).toContain(`Person${i}:`);
+    expect(sheet).toContain("is a person");
+  });
+
+  it("still spends generously on a single figure", () => {
+    expect(sheetFor(1).length).toBeGreaterThan(200);
   });
 });
 
@@ -128,7 +173,7 @@ describe("scaling the sheet to the shot", () => {
   it("trims to name and wardrobe on a close-up with a reference photo", () => {
     const sheet = castSheet([photographed], true, undefined, { tightShot: true });
     expect(sheet).not.toContain("honey-blonde hair");
-    expect(sheet).toContain("Tracey.");
+    expect(sheet).toContain("Tracey:");
     expect(sheet).toContain("Wearing exactly: short black silk robe.");
   });
 
@@ -178,18 +223,28 @@ describe("the doubled name", () => {
  * poker table came back as a pair of hands.
  */
 describe("people who are not in the pinned cast", () => {
-  it("still asks for a full description when the scene has no pinned cast", () => {
+  it("still asks for a description when the scene has no pinned cast", () => {
     const directive = castSystemDirective([], true);
-    expect(directive).toMatch(/described in full/);
+    expect(directive).toMatch(/must be described in your own/);
     expect(directive).toMatch(/specific named garments/);
   });
 
   it("asks for it alongside the cast rules when there is a cast", () => {
-    expect(castSystemDirective([TRACEY], true)).toMatch(/described in full/);
+    expect(castSystemDirective([TRACEY], true)).toMatch(/must be described in your own/);
+  });
+
+  /**
+   * Length is what went wrong: one character described at four times another's
+   * length was rendered twice while the other was dropped.
+   */
+  it("asks for those descriptions to be compact and evenly weighted", () => {
+    const directive = castSystemDirective([TRACEY], true);
+    expect(directive).toMatch(/compact clause/);
+    expect(directive).toMatch(/roughly the same length/);
+    expect(directive).toMatch(/same clause as the person/);
   });
 
   /** Planning agents describe everyone anyway; this is a render-prompt rule. */
   it("says nothing to a planning agent with no cast", () => {
     expect(castSystemDirective([])).toBe("");
-  });
-});
+  });});

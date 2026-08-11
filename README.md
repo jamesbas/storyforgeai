@@ -33,11 +33,11 @@ recent updates are kept below — every release ever made is in
 
 | Version | Date | What changed |
 | --- | --- | --- |
-| **1.36** | 2026-08-09 | **The two "something is out of date" warnings stop competing with each other.** Editing a creative plan and changing what the prompt agents are told produce separate warnings, each offering an action, and the two read almost identically — *regenerate the storyboard* and *rewrite all prompts*. They are not interchangeable, and the cheaper one looks like the safe choice. A plan shapes both the scene cards and the prompts written from them, so rewriting prompts applies the new direction to the wording while the shot list it was meant to reshape stays as the old plan left it; the warning now says that outright. Where both warnings are showing, the prompt rewrite steps aside and points at regenerating the storyboard, which does both in one job. |
-| **1.35** | 2026-08-08 | **Rendering a scene again now replaces the take in use, instead of leaving an older one in charge.** Approving an attempt is what points the rest of the pipeline at it — the next scene inherits its end frame, assembly uses its clip. That approval used to survive a re-render, so regenerating a scene, or the whole project, produced new frames that nothing downstream used: a scene rendered today handed the next scene a frame from five days earlier, while the card showed the new one. Asking for a fresh render is asking for a new take to use, so it now supersedes the approval. Nothing is lost — every attempt is still there and Variant Review can approve any of them again, including the one that was just replaced. |
-| **1.34** | 2026-08-08 | **A scene card now says when the frames on screen are not the frames being used.** Generation reads the attempt you approved; the card shows the newest one, so a fresh render can be judged before you commit to it. Regenerate a scene without approving the result and those two quietly diverge — the card shows the new frames while the next scene goes on inheriting the approved take's end frame, and assembly goes on using its clip. That looked exactly like the carry-forward being broken: a scene ending on one picture and the next opening on another, with nothing on screen to explain it. The card now says which attempt is in use and offers to put the newest one in its place. |
-| **1.33** | 2026-08-08 | **The stale-prompt warning explains the right thing.** It covers two different problems — prompts written for a video model the project no longer uses, and prompts written before the guidance the agents follow was updated — and it was explaining both with the same sentence, about model families wanting different kinds of writing. On a project whose model has not changed that is simply not what happened, and it left the fix looking unrelated to the warning. Each case now says what actually differs. |
-| **1.32** | 2026-08-08 | **Reference mode's clip estimates halved, because the renders did.** The figures shown beside the two MiniMax H3 options came from a run of measurements on WanGP v12.42, which predicted about 29 minutes for a clip holding one character. The same clip on v12.432 takes **15:26**, or **12:35** with Spectrum step skipping enabled for the model in WanGP. The shape of the cost is unchanged — a fixed amount plus a cost for each reference image — so the numbers are that series re-based rather than re-guessed, and the settings screen still names the machine they were measured on. An estimate that is nearly twice the real figure is its own kind of wrong: it talks people out of a tier that is affordable. |
+| **1.61** | 2026-08-11 | **The help pages and docs now explain the three things that decide whether a shot comes out right.** Everything learned this week was in the changelog and nowhere a user would look: keep descriptions short and the people in a shot roughly equal in length, because a model divides its attention by how much is written about each person; say what is there rather than what is absent, because a text encoder has no operator for "no" and "no sharp edges" draws sharp edges; and remember a negative prompt has no addressee, so "dark skin for Jaime" suppresses dark skin for everyone in the frame. The face-swap section now covers what the app builds for you — a per-frame sentence naming which head to take — and why your own template should stay generic. One stale claim is gone with it: the README still said face swap ran only for a single character per scene, which stopped being true in 1.39. |
+| **1.60** | 2026-08-10 | **The face swap is now told which head to take in terms of the scene it is working on.** A character's swap prompt is a template meant to serve every scene they ever appear in, so it names its target generically — "the white woman". That is accurate and ambiguous at the same time: in a shot where the other man wore a white polo and faced the camera while she lay in profile, the pass took his head and gave him her face. Each pass now carries a sentence built from that frame — the target named by what separates them from the other people actually in it, wardrobe first because that settles almost every case, falling through to hair colour where two people are undressed. It also says to leave everyone else alone, which nothing did before: the passes chain, each editing the last one's output, so a second pass could quietly undo the first. Nothing changes in your character records, and a shot holding one person keeps its template exactly as written. |
+| **1.59** | 2026-08-10 | **A description that rules something out by naming it now rules it out in the one place that works.** "No sharp angular edges", "without a nose or mouth" — a text encoder has no operator for "no", so the phrase is embedded whole and the noun does the work by accident. This project's own robot, whose description says it has no mouth, has been rendering with one; it took a spoiled prompt-format experiment before anyone asked why. Those traits are now named in the **negative** prompt as well, where a sampler can act on them, and a pair like "no nose or mouth" is split so each is suppressed on its own. The positive text is left exactly as the agent wrote it — rewriting someone's sentence risks changing what it meant, and this does not need to. Across the projects on disk, 252 of 364 frames gain a term that had been doing nothing. |
+| **1.58** | 2026-08-10 | **An exclusion aimed at one character is now caught however the agent phrased it.** The rule that drops unaimable terms like `dark skin for Jaime` only recognised "for". Checking the other projects on disk turned up `black hair on Tracey` and `short hair on Tracey` sitting in a negative prompt untouched, doing to that film exactly what the "for" version had been doing to this one — suppressing a trait for everybody in the shot, including whoever is supposed to have it. "on" and "to" are now recognised alongside "for". The match is anchored to a pinned character's name, so an ordinary exclusion that happens to contain a preposition is left alone. |
+| **1.57** | 2026-08-10 | **A shot with two bodies in it is now warned against spare limbs, not just against drawing one person twice.** The guards added for crowded frames covered duplication only. Nothing covered anatomy — and an intimate two-shot came back with an extra leg and a second torso. Checking what that frame was actually sent explains why: twenty-two exclusions, every one of them about a waistline or a colour temperature, because that is what the prompt agents write. They have never had anything to say about limbs. Extra limbs, fused bodies and malformed anatomy now join the guards applied to any frame stating two or more people. Entangled poses are the hardest thing a diffusion model does and this will not make them perfect, but the frame was going out with nothing aimed at the problem at all. |
 
 ---
 
@@ -469,6 +469,35 @@ neutral one.
 - **LTX** wants one flowing present-tense paragraph, and writes its own soundtrack
   from that prompt, so ambience and dialogue belong in it.
 
+### Three rules that decide whether a shot comes out right
+
+These are the ones worth knowing before writing a character, because the app can
+only compensate so far.
+
+**Keep descriptions short, and keep the people in a shot roughly equal.** An image
+model divides its attention by how much is written about each person. A character
+described at four times the length of everyone else gets rendered twice while
+somebody else is dropped from the frame. Render prompts trim each person to a
+share of a fixed budget — generous for a two-hander, terse for a crowd — and the
+trim cuts at a sentence boundary, so put the identifying details first.
+
+**Say what is there, never what is absent.** A text encoder has no operator for
+"no": it embeds the phrase whole and the noun does the work by accident. "No sharp
+edges" draws sharp edges. A robot described as having no mouth renders with one.
+Absent garments are rewritten to bare skin for you, and anything still phrased as
+an absence is copied into the negative prompt where a sampler can act on it — but
+writing it positively in the first place is more reliable.
+
+**A negative prompt has no addressee.** "Dark skin for Jaime" aims nothing at
+Jaime; the sampler sees "dark skin" and steers the whole frame away from it,
+including the character who is supposed to have it. Terms written that way are
+dropped from any shot holding more than one person.
+
+Wardrobe is bound into the sentence describing the person who wears it rather than
+stated afterwards, for the same reason: an outfit on its own is an attribute with
+nothing holding it to a body, and on a crowded shot it lands on whoever can wear
+it.
+
 Because the model is only known for certain at render time — a pin can be missing
 and fall through to the router — the exclusion is routed again on the way out. If
 the resolved model cannot use a negative prompt, its terms are folded into the
@@ -752,10 +781,30 @@ meant to correct. A failed swap keeps the original frame rather than failing the
 scene.
 
 Requires a reference image, a Qwen Image Edit model, and both face-swap LoRAs in
-WanGP's `loras/qwen` folder. Only runs when exactly one character in a given scene
-has it enabled — the recipe is written around a single subject, so with two there
-is no way to say which face belongs where. Disable globally with
-`FACE_SWAP_ENABLED=false`; change the model with `FACE_SWAP_MODEL`.
+WanGP's `loras/qwen` folder. Disable globally with `FACE_SWAP_ENABLED=false`;
+change the model with `FACE_SWAP_MODEL`.
+
+**More than one character in a frame.** Each opted-in character gets its own pass
+and the passes chain, the second editing the first one's output, so both faces end
+up corrected at the cost of two passes per keyframe.
+
+Which head each pass takes is the part that needs care. A character's **face-swap
+prompt** is a template serving every scene they will ever appear in, so it has to
+name its target generically — and a generic name can be ambiguous in a particular
+shot. Naming "the white woman" looked precise and failed in a frame where the
+other man wore a white polo and faced the camera while she lay in profile: the
+pass took his head and gave him her face.
+
+So the discriminator comes from the scene rather than the template. Each pass
+carries a sentence built from that frame, naming the target by what separates them
+from the other people actually in it — wardrobe first, since that settles nearly
+every shot, falling through to hair colour where two people are undressed. It also
+tells the pass to leave everyone else alone, which matters because the passes
+chain and a later one could otherwise undo an earlier correction. A shot holding
+one person gets no such sentence and uses the template exactly as written.
+
+Write the template generically and let the app do the pointing: describing a pose
+or a position there will be wrong in every other scene.
 
 **Which shots get swapped.** The pass is unconditional once it runs: its prompt
 says to replace "the head of the woman", so on a close-up of hands it grafts one

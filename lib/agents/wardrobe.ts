@@ -70,17 +70,92 @@ export function wardrobeTimeline(
 }
 
 /**
+ * Garments stated as absences, rewritten as the thing to draw instead.
+ *
+ * A text encoder has no operator for "no" — the project already knows this
+ * about negative prompts and states it in `negative-prompt.ts`, but a wardrobe
+ * string carrying "no shirt" goes into the *positive* prompt, where the same
+ * rule applies and nobody was applying it. "black silk trousers, no shirt"
+ * embeds `shirt`, and the render duly produced a man in a maroon polo. Worse,
+ * the invented garment then travelled: the next frame, conditioned on that one,
+ * put the maroon shirt on a different character entirely.
+ *
+ * Render prompts only. The stored wardrobe keeps the wording a person wrote.
+ */
+const NEGATED_GARMENTS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\bno (?:shirt|top|upper garments?)\b/gi, "bare chest"],
+  [/\bshirtless\b/gi, "bare chest"],
+  [/\bno (?:bra|brassiere)\b/gi, "bare breasts"],
+  [/\bno (?:briefs|panties|knickers|underwear|undergarments)\b/gi, "bare hips"],
+  [/\bno (?:shoes|footwear|socks)\b/gi, "bare feet"],
+  [/\bno other (?:garments?|clothing|clothes)\b/gi, "and nothing else"],
+];
+
+export function positiveGarments(wardrobe: string): string {
+  let text = wardrobe;
+  for (const [pattern, replacement] of NEGATED_GARMENTS) text = text.replace(pattern, replacement);
+  return text
+    .replace(/,\s*and nothing else/gi, " and nothing else")
+    .replace(/\s*,\s*/g, ", ")
+    .replace(/\s+/g, " ")
+    .replace(/^[,\s]+|[,\s]+$/g, "")
+    .trim();
+}
+
+/**
  * The clause carrying non-cast wardrobe into a prompt.
  *
  * Pinned characters get the cast sheet; everyone else had nothing at all, so
  * an unnamed man's shirt could drift from grey to blue between scenes with
  * nothing to stop it. Empty when no unnamed subject has an established outfit.
+ *
+ * Written as a sentence binding the subject to the garments, for the same
+ * reason the cast sheet was: a bare `subject: outfit` pair is an attribute the
+ * model attaches to whichever body suits it.
  */
 export function othersWardrobeSuffix(others: Record<string, string>): string {
   const entries = Object.entries(others).filter(([, outfit]) => outfit.trim());
   if (entries.length === 0) return "";
-  const sheet = entries.map(([subject, outfit]) => `${subject}: ${outfit}`).join(" ");
+  const sheet = entries
+    .map(([subject, outfit]) => {
+      const garments = positiveGarments(outfit.trim());
+      return isUndressed(outfit)
+        ? `${subject} is completely naked with no clothing.`
+        : `${subject} is dressed in ${garments}.`;
+    })
+    .join(" ");
   return ` Wardrobe continuity — ${sheet}`;
+}
+
+const SUBJECT_STOP_WORDS = new Set(["the", "a", "an", "and", "of", "in", "on", "at", "with"]);
+
+/**
+ * The unnamed subjects one frame actually shows.
+ *
+ * Narrowed per frame for the same reason the cast sheet is: the clause ends on
+ * an outfit, and an outfit stated into a shot the person is not in is an
+ * invitation to draw them there. A subject is free text and prompts vary the
+ * wording — "a muscular Black man" against "the muscular Black man" — so this
+ * matches on the describing words rather than the phrase.
+ *
+ * No fallback when nothing matches, unlike the cast sheet: a pinned character
+ * has a face to keep consistent and is worth carrying on a maybe, while an
+ * unnamed subject the frame never mentions is simply not in it.
+ */
+export function othersInFrame(
+  prompt: string,
+  others: Record<string, string>,
+): Record<string, string> {
+  const haystack = prompt.toLocaleLowerCase();
+  return Object.fromEntries(
+    Object.entries(others).filter(([subject]) => {
+      const words = subject
+        .toLocaleLowerCase()
+        .split(/[^\p{L}\p{N}]+/u)
+        .filter((word) => word && !SUBJECT_STOP_WORDS.has(word));
+      return words.length > 0 && words.every((word) => new RegExp(`\\b${word}\\b`, "u").test(haystack));
+    }),
+  );
 }
 
 /**
@@ -102,6 +177,13 @@ const UNDRESSED_ACT =
  * instruction in the prompt, so a sex scene with a robe on the sheet renders
  * the robe — but which scenes those are is a judgement, so this reports rather
  * than decides.
+ *
+ * A scene that already carries a wardrobe change is skipped. The act is
+ * scene-level but the undressing is per character, and this cannot tell which
+ * one the act belongs to: in a scene written around a watcher it would go on
+ * naming the clothed observer forever. An existing change means a person has
+ * already ruled on that scene, and the bulk action skips it for the same
+ * reason — so flagging it would offer a fix that does nothing.
  */
 export function wardrobeContradictions(
   project: Project,
@@ -112,6 +194,8 @@ export function wardrobeContradictions(
   const timeline = wardrobeTimeline(project, scenes, cast);
 
   return scenes.flatMap((scene) => {
+    if (project.wardrobeChanges?.[scene.id]?.length) return [];
+
     const text = `${scene.visualDescription} ${scene.actionDescription} ${scene.storyBeat}`;
     if (!UNDRESSED_ACT.test(text)) return [];
 
@@ -202,6 +286,40 @@ type DraftWardrobeChange = {
   newWardrobe: string;
   depictedOnScreen: boolean;
 };
+
+/**
+ * The cast, re-dressed to reflect every change declared in the drafts so far.
+ *
+ * Scene cards are written a few at a time and each batch is handed the cast
+ * afresh, so without this the batch after a change is still told the original
+ * outfit and writes it straight back into the scene — a character undresses in
+ * scene 8 and is described in her lingerie again in scene 13. Unnamed subjects
+ * come back separately because they have no cast entry to carry the outfit.
+ */
+export function castWardrobeAfter(
+  cast: readonly Character[],
+  drafts: readonly { wardrobeChanges?: DraftWardrobeChange[] }[],
+): { cast: Character[]; others: Record<string, string> } {
+  const idByName = new Map(cast.map((c) => [c.name.trim().toLocaleLowerCase(), c.id] as const));
+  const current: Record<string, string> = {};
+  const others: Record<string, string> = {};
+
+  for (const draft of drafts) {
+    for (const change of draft.wardrobeChanges ?? []) {
+      const subject = change.character.trim();
+      const wardrobe = change.newWardrobe.trim();
+      if (!subject || !wardrobe) continue;
+      const id = idByName.get(subject.toLocaleLowerCase());
+      if (id) current[id] = wardrobe;
+      else others[subject] = wardrobe;
+    }
+  }
+
+  return {
+    cast: cast.map((c) => (current[c.id] ? { ...c, wardrobe: current[c.id] } : c)),
+    others,
+  };
+}
 
 /**
  * A sentence naming the change, for the prompt of the scene that depicts it.

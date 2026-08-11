@@ -1,8 +1,12 @@
 import { describe, it, expect } from "vitest";
 import {
+  negatedTraitsIn,
   negativeTerms,
   normaliseNegative,
   positiveConstraintClause,
+  withMultiSubjectGuards,
+  withNegatedTraits,
+  withoutCharacterScopedTerms,
 } from "@/lib/agents/negative-prompt";
 import { familyOf, supportsNegativePrompt } from "@/lib/wangp/family";
 import { imagePromptDirective, videoPromptDirective, hasNativeAudio } from "@/lib/agents/model-directives";
@@ -42,6 +46,119 @@ describe("reading a negative prompt as a sampler does", () => {
 
   it("survives a prompt that is only negations", () => {
     expect(normaliseNegative("no, not, ,")).toBe("");
+  });
+});
+
+/**
+ * The agents write `dark skin for Jaime`, which reads as per-person direction
+ * and is nothing of the sort: a negative prompt has no addressee, so the
+ * sampler steers the whole frame away from dark skin — including the character
+ * who is supposed to have it.
+ */
+describe("exclusions the agents aimed at one character", () => {
+  const CAST = ["Jaime", "Tracey"];
+
+  it("drops them when more than one person is in frame", () => {
+    expect(
+      withoutCharacterScopedTerms("blur, dark skin for Jaime, short hair for Tracey", CAST, 3),
+    ).toBe("blur");
+  });
+
+  /** The agents write both prepositions; catching one left the other unchecked. */
+  it("catches the 'on <name>' phrasing as well as 'for <name>'", () => {
+    expect(withoutCharacterScopedTerms("blur, black hair on Tracey", CAST, 3)).toBe("blur");
+    expect(withoutCharacterScopedTerms("blur, blue eyes to Jaime", CAST, 3)).toBe("blur");
+  });
+
+  /** Anchored to a cast name, so an ordinary term containing "on" survives. */
+  it("leaves a term that merely contains a preposition alone", () => {
+    expect(withoutCharacterScopedTerms("reflections on glass, blur", CAST, 3)).toBe(
+      "reflections on glass, blur",
+    );
+  });
+
+  /** With one person the scope is redundant rather than wrong. */
+  it("keeps the trait and drops the name when the frame holds one person", () => {
+    expect(withoutCharacterScopedTerms("blur, dark skin for Jaime", CAST, 1)).toBe(
+      "blur, dark skin",
+    );
+  });
+
+  /** An exclusion that cannot be aimed is a liability, so silence is not consent. */
+  it("drops them when the prompt states no population", () => {
+    expect(withoutCharacterScopedTerms("blur, dark skin for Jaime", CAST, null)).toBe("blur");
+  });
+
+  it("leaves an ordinary term that merely contains 'for' alone", () => {
+    expect(withoutCharacterScopedTerms("lit for daylight, blur", CAST, 3)).toBe(
+      "lit for daylight, blur",
+    );
+  });
+
+  it("does nothing without a cast to match against", () => {
+    expect(withoutCharacterScopedTerms("dark skin for Jaime", [], 3)).toBe("dark skin for Jaime");
+  });
+});
+
+/**
+ * The agents write exclusions about build and lighting; nothing they produce is
+ * ever aimed at the model drawing one person twice or growing a spare limb,
+ * which is what a crowded or entangled shot actually does.
+ */
+describe("guarding a shot that holds more than one body", () => {
+  it("adds the guards when the prompt states more than one person", () => {
+    const guarded = withMultiSubjectGuards("blur", 3);
+    expect(guarded).toContain("duplicated person");
+    expect(guarded).toContain("cloned face");
+    expect(guarded).toContain("extra limbs");
+    expect(guarded).toContain("fused bodies");
+    expect(guarded.startsWith("blur")).toBe(true);
+  });
+
+  /** On a single figure there is far less to catch, and a term with no work still pulls. */
+  it("leaves a single-figure shot alone", () => {
+    expect(withMultiSubjectGuards("blur", 1)).toBe("blur");
+    expect(withMultiSubjectGuards("blur", null)).toBe("blur");
+  });
+
+  it("does not repeat a guard the scene already carries", () => {
+    const guarded = withMultiSubjectGuards("blur, twins", 2);
+    expect(guarded.match(/twins/g)).toHaveLength(1);
+  });
+});
+
+/**
+ * A description reading "no sharp edges" or "without a mouth" embeds the very
+ * thing it rules out. A robot whose prompt said it had no mouth rendered with a
+ * working one, which invalidated a prompt-format experiment before anyone
+ * noticed why.
+ */
+describe("recovering a trait the positive prompt asked to be absent", () => {
+  it("names it in the negative, where a sampler can act on it", () => {
+    const negative = withNegatedTraits("blur", "a robot with no sharp angular edges");
+    expect(negative).toContain("sharp angular edges");
+    expect(negative).toContain("blur");
+  });
+
+  /** "no nose or mouth" is two traits; one run-on term suppresses neither well. */
+  it("reads 'without' as well as 'no', and splits a pair", () => {
+    const negative = withNegatedTraits("", "a face without a nose or mouth");
+    expect(negative).toContain("nose");
+    expect(negative).toContain("mouth");
+    expect(negative).not.toContain("nose mouth");
+  });
+
+  it("skips words too general to suppress on their own", () => {
+    expect(negatedTraitsIn("with no other")).toEqual([]);
+  });
+
+  it("leaves a prompt that states no absences alone", () => {
+    expect(withNegatedTraits("blur, watermark", "a bright kitchen")).toBe("blur, watermark");
+  });
+
+  it("does not add a term the negative already carries", () => {
+    const negative = withNegatedTraits("mouth", "a robot without a mouth");
+    expect(negative.match(/mouth/g)).toHaveLength(1);
   });
 });
 

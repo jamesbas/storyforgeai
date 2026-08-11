@@ -88,7 +88,7 @@ export function isTightShot(text: string | undefined): boolean {
 const NEW_SHOT_TRANSITION = /\b(?:cut|dissolve|fade|wipe|smash|jump)\b/i;
 
 export type SeamBreak = {
-  reason: "shot_size_change" | "transition";
+  reason: "shot_size_change" | "transition" | "cast_change";
   detail: string;
 };
 
@@ -114,8 +114,20 @@ type SeamScene = Pick<Scene, "visualDescription" | "transitionIn"> & {
  * the cut the continuity setting was chosen to avoid. Someone entering is
  * rendered by the seam working as intended — the start frame is the frame
  * before they arrive, the clip carries them in, and the end frame has them.
+ *
+ * That last sentence is the whole justification, and it assumes a clip. With
+ * `clipCarriesArrivals` false there is none, so nothing carries anybody in:
+ * the end frame has to introduce them against an inherited picture of the old
+ * cast, and the picture wins. A third person walking into a two-shot came back
+ * as the same two people, and every later scene inherited that. So when no clip
+ * will do the work, a change in the stated headcount breaks the seam and the
+ * scene renders its own start frame.
  */
-export function seamBreak(previous: SeamScene, scene: SeamScene): SeamBreak | null {
+export function seamBreak(
+  previous: SeamScene,
+  scene: SeamScene,
+  options: { clipCarriesArrivals?: boolean } = {},
+): SeamBreak | null {
   const from = shotSizeOf(previous.prompts?.endFramePrompt) ?? shotSizeOf(previous.visualDescription);
   const to = shotSizeOf(scene.prompts?.startFramePrompt) ?? shotSizeOf(scene.visualDescription);
   if (from && to && from !== to) {
@@ -124,7 +136,26 @@ export function seamBreak(previous: SeamScene, scene: SeamScene): SeamBreak | nu
   if (scene.transitionIn && NEW_SHOT_TRANSITION.test(scene.transitionIn)) {
     return { reason: "transition", detail: scene.transitionIn };
   }
+  if (options.clipCarriesArrivals === false) {
+    const before = statedHeadcount(previous.prompts?.endFramePrompt);
+    const after = statedHeadcount(scene.prompts?.startFramePrompt);
+    if (before !== null && after !== null && before !== after) {
+      return { reason: "cast_change", detail: `${before} to ${after} in frame` };
+    }
+  }
   return null;
+}
+
+const HEADCOUNT_WORDS: Record<string, number> = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+
+/** The population a prompt states, from the "exactly N people in frame" clause. */
+export function statedHeadcount(prompt: string | undefined): number | null {
+  const found = prompt?.match(
+    /\bexactly\s+(one|two|three|four|five|\d+)\s+(?:person|people|woman|women|man|men)\b/i,
+  );
+  if (!found) return null;
+  const word = found[1]!.toLowerCase();
+  return HEADCOUNT_WORDS[word] ?? Number(word);
 }
 
 const LABELS: Record<ShotSize, string> = {

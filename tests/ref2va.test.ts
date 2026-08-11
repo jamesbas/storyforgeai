@@ -137,7 +137,7 @@ describe("family split", () => {
 describe("LoRAs on a variant that takes none", () => {
   const schema: WangpModelSchema = {
     modelType: "minimax_h3_ref2va",
-    defaultSettings: { prompt: "" },
+    defaultSettings: { prompt: "", image_prompt_type: "", multi_prompts_gen_type: "PG" },
     fields: [{ name: "prompt", type: "string" }],
   } as unknown as WangpModelSchema;
 
@@ -409,7 +409,7 @@ describe("the cost estimate", () => {
 describe("the frame cap", () => {
   const schema: WangpModelSchema = {
     modelType: "minimax_h3_ref2va",
-    defaultSettings: { prompt: "" },
+    defaultSettings: { prompt: "", image_prompt_type: "", multi_prompts_gen_type: "PG" },
     fields: [
       { name: "prompt", type: "string" },
       { name: "video_length", type: "number" },

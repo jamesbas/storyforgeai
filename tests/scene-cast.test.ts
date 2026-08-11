@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { charactersInScene } from "@/lib/agents/scene-cast";
+import { charactersInFrame, charactersInScene } from "@/lib/agents/scene-cast";
 import type { Character } from "@/lib/schemas/character";
 import type { SceneDraft } from "@/lib/schemas/storyboard";
 
@@ -105,5 +105,30 @@ describe("reading a scene card for who is in it", () => {
 
   it("has nothing to say when no cast is pinned", () => {
     expect(charactersInScene(scene(), [])).toEqual([]);
+  });
+});
+
+/**
+ * A card and a frame disagree routinely, and the sheet is appended to a frame.
+ * A watcher the card seats in the corner chair but the shot frames out still
+ * arrives carrying "wearing exactly", which is the last thing the image model
+ * reads — so his clothes land on whoever is actually in shot.
+ */
+describe("narrowing the cast to what one frame shows", () => {
+  it("drops a character the frame does not name", () => {
+    const body = "Tracey lies back as a muscular man settles over her. Exactly two people are in frame.";
+    expect(charactersInFrame(body, [DAN, TRACEY])).toEqual([TRACEY]);
+  });
+
+  it("keeps a character the frame puts in the background", () => {
+    const body = "Tracey walks to the bed. In the background, Dan sits in a corner chair.";
+    expect(charactersInFrame(body, [DAN, TRACEY])).toEqual([DAN, TRACEY]);
+  });
+
+  /** A frame can describe people without naming them, and an empty sheet
+   *  would drop face continuity altogether. */
+  it("falls back to the scene cast when the frame names nobody", () => {
+    const body = "A close-up of one woman and one man, lit from the side.";
+    expect(charactersInFrame(body, [DAN, TRACEY])).toEqual([DAN, TRACEY]);
   });
 });

@@ -53,6 +53,24 @@ export const createProjectSchema = z.object({
 });
 
 /**
+ * Input for the concept helper on the New Project form.
+ *
+ * The settings beside the concept travel with it because a rewrite that ignores
+ * the running time or the tone reads as someone else's idea — a 30-second piece
+ * described as a three-act story is worse than the sentence it replaced.
+ */
+export const enhanceConceptSchema = z.object({
+  concept: z.string().min(1, "concept is required").max(5000),
+  requestedDurationSeconds: z.number().int().positive().max(3600),
+  style: z.string().min(1).default("cinematic"),
+  tone: z.string().min(1).default("neutral"),
+  audience: z.string().optional(),
+  creativeMode: z.enum(CREATIVE_MODES).default("film_short"),
+});
+
+export type EnhanceConceptInput = z.infer<typeof enhanceConceptSchema>;
+
+/**
  * Settings that can be changed after creation.
  *
  * Model pins only affect future generations, so they are always safe to edit.

@@ -58,6 +58,120 @@ export function normaliseNegative(raw: string): string {
 }
 
 /**
+ * Drop exclusions the agents wrote against one character by name.
+ *
+ * The prompt agents produce terms like `dark skin for Jaime` and `black hair on
+ * Tracey`, which read as careful per-person direction and are nothing of the
+ * sort. A negative prompt is a bag of embeddings with no addressee: the sampler
+ * sees `dark skin` and steers the whole frame away from it. In a shot whose
+ * leading man is black, an exclusion meant to protect one character's skin tone
+ * was suppressing another's — and the render kept returning a man who was too
+ * light, or replacing him altogether.
+ *
+ * Both prepositions, because the agents use both and a rule that caught only
+ * one left the other working unchecked in half the projects on disk. Matching
+ * is anchored to a cast name, so an ordinary term that happens to contain "on"
+ * is untouched.
+ *
+ * Where the frame holds one person the scope is redundant rather than wrong, so
+ * the trait is kept and the name dropped. Anywhere else, and anywhere the
+ * population is unstated, the term goes: an exclusion that cannot be aimed is a
+ * liability, and the positive prompt already says what each person looks like.
+ */
+export function withoutCharacterScopedTerms(
+  raw: string,
+  castNames: readonly string[],
+  headcount: number | null,
+): string {
+  const names = castNames.map((name) => name.trim()).filter(Boolean);
+  if (names.length === 0) return normaliseNegative(raw);
+
+  const escaped = names.map((name) => name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  const scoped = new RegExp(`\\s+(?:for|on|to)\\s+(?:${escaped.join("|")})\\s*$`, "i");
+
+  return negativeTerms(raw)
+    .flatMap((term) => {
+      if (!scoped.test(term)) return [term];
+      return headcount === 1 ? [term.replace(scoped, "").trim()] : [];
+    })
+    .filter(Boolean)
+    .join(", ");
+}
+
+/**
+ * Guards for a shot holding more than one body.
+ *
+ * Two failures, both specific to a crowded frame and neither of them something
+ * the prompt agents write about. They produce exclusions about build and
+ * lighting: a two-person intimate frame went out with twenty-two terms, every
+ * one of them about a waistline or a colour temperature, and nothing at all
+ * about population or limbs.
+ *
+ * The first is duplication — asked for three people, the model drew the
+ * character it had been told most about twice and omitted another. The second
+ * is anatomy: entangled bodies are where limbs multiply, and an intimate
+ * two-shot came back with a spare leg and a second torso.
+ *
+ * Only where the prompt states two or more people. On a single figure these
+ * have far less to catch, and a negative term with no work to do still pulls on
+ * the render.
+ */
+const MULTI_SUBJECT_TERMS = [
+  "duplicated person",
+  "the same face twice",
+  "cloned face",
+  "twins",
+  "extra limbs",
+  "extra arms",
+  "extra legs",
+  "fused bodies",
+  "malformed anatomy",
+] as const;
+
+export function withMultiSubjectGuards(raw: string, headcount: number | null): string {
+  if (headcount === null || headcount < 2) return normaliseNegative(raw);
+  return normaliseNegative(`${raw}, ${MULTI_SUBJECT_TERMS.join(", ")}`);
+}
+
+/** Words too general to be worth suppressing on their own. */
+const WEAK_TRAIT = /^(?:a|an|the|and|or|of|at|all|any|one|more|other|else|longer|visible)$/i;
+
+/**
+ * Traits a positive prompt asked for by stating their absence.
+ *
+ * A description reading "no sharp angular edges" or "without a nose or mouth"
+ * embeds `sharp angular edges` and `nose or mouth`, and the model draws them —
+ * a robot described as having no mouth came back with a working one, which
+ * invalidated a whole prompt-format experiment before anyone noticed why.
+ *
+ * The positive text is left exactly as written: rewriting an agent's sentence
+ * risks changing what it meant, and the fix does not need to. Naming the same
+ * traits in the negative prompt puts them where a sampler can actually act on
+ * them, and the two together resolve the way the author intended.
+ */
+export function negatedTraitsIn(prompt: string): string[] {
+  const found = new Set<string>();
+  for (const match of prompt.matchAll(/\b(?:no|without)\s+((?:[a-z-]+\s+){0,3}[a-z-]+)\b/gi)) {
+    // "no nose or mouth" is two traits; one run-on term suppresses neither well.
+    for (const part of match[1]!.split(/\s+(?:or|and)\s+/i)) {
+      const phrase = part
+        .split(/\s+/)
+        .filter((word) => !WEAK_TRAIT.test(word))
+        .join(" ")
+        .trim();
+      if (phrase.length >= 3) found.add(phrase.toLocaleLowerCase());
+    }
+  }
+  return [...found];
+}
+
+/** A negative prompt that also suppresses whatever the positive asked to be absent. */
+export function withNegatedTraits(negative: string, prompt: string): string {
+  const traits = negatedTraitsIn(prompt);
+  return traits.length ? normaliseNegative(`${negative}, ${traits.join(", ")}`) : normaliseNegative(negative);
+}
+
+/**
  * Exclusions rewritten as the thing to render instead.
  *
  * BFL's guidance is not merely that FLUX ignores negatives but that the fix is

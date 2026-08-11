@@ -143,6 +143,17 @@ describe("isResponseFormatRejection", () => {
   it("does not treat unrelated failures as format problems", () => {
     expect(isResponseFormatRejection("connect ECONNREFUSED 127.0.0.1:1234")).toBe(false);
   });
+
+  /**
+   * llama.cpp compiles the schema into GBNF; `maxLength` has no grammar and
+   * comes back naming neither the format nor the schema. Treating it as an
+   * ordinary request failure stopped the ladder falling back to `text`.
+   */
+  it("recognizes a grammar the server cannot build from the schema", () => {
+    expect(
+      isResponseFormatRejection("Failed to initialize samplers: failed to parse grammar"),
+    ).toBe(true);
+  });
 });
 
 /**

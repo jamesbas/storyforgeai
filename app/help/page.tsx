@@ -190,6 +190,15 @@ export default function HelpPage() {
             every scene description, so a sentence with a subject, a setting and a change works far
             better than a single noun.
           </p>
+          <p className={p}>
+            <strong>Expand with AI</strong>, above the box on the New Project form, offers a fuller
+            version of what you have typed. It sends your words together with the running time,
+            style and tone set beside them, and the model is told to keep every concrete choice you
+            already made — and not to invent names, add a moral, or write camera direction, all of
+            which later stages decide. The result appears underneath as a suggestion: nothing
+            changes until you press <em>Use this</em>, and <em>Keep mine</em> discards it. It needs
+            a planning model configured; without one the button says so rather than failing quietly.
+          </p>
 
           <h3 className={h3}>Duration &amp; clip length</h3>
           <p className={p}>
@@ -484,7 +493,23 @@ export default function HelpPage() {
             <li className={li}>
               <strong>Physical description</strong> — the text injected into prompts. Write it as
               prompt-ready prose (age, build, hair, face, skin, distinguishing features) rather than a
-              biography; it is concatenated verbatim, so backstory only dilutes it.
+              biography; it is concatenated verbatim, so backstory only dilutes it.{" "}
+              <strong>Keep it short, and keep your characters roughly equal in length.</strong> An
+              image model divides its attention by how much is written about each person: a character
+              described at four times the length of everyone else gets drawn twice while somebody
+              else is left out of the shot entirely. Render prompts trim each description to a share
+              of a fixed budget, so a two-hander gets generous descriptions and a crowd gets terse
+              ones — but the trim cuts at a sentence boundary, so the first sentence or two is what
+              survives. Put the identifying details first.
+            </li>
+            <li className={li}>
+              <strong>Say what is there, never what is absent.</strong> A text encoder has no
+              operator for &quot;no&quot;: it embeds the phrase whole, and the noun does the work by
+              accident. &quot;No sharp edges&quot; draws sharp edges; a robot described as having no
+              mouth renders with one. Write &quot;smooth rounded casing&quot; and &quot;a smooth
+              featureless face&quot; instead. Anything phrased as an absence is now also copied into
+              the negative prompt, where a sampler can act on it, but the positive text is still
+              yours to get right.
             </li>
             <li className={li}>
               <strong>Default wardrobe</strong> — optional, and usually best left blank. Costume
@@ -494,7 +519,13 @@ export default function HelpPage() {
             </li>
             <li className={li}>
               <strong>Negative prompt terms</strong> — traits to actively suppress for this character,
-              appended to the negative prompt of every scene they appear in.
+              appended to the negative prompt of every scene they appear in.{" "}
+              <strong>A negative prompt has no addressee.</strong> Writing &quot;dark skin for
+              Jaime&quot; does not aim anything at Jaime; the sampler sees &quot;dark skin&quot; and
+              steers the whole frame away from it, including the character who is supposed to have
+              it. Terms written that way are dropped from any shot holding more than one person, and
+              kept with the name stripped where only one person is in frame. State traits plainly,
+              and remember they apply to everybody in the picture.
             </li>
             <li className={li}>
               <strong>Facial description</strong> — optional, and the field to use for eyes, nose,
@@ -540,11 +571,43 @@ export default function HelpPage() {
             still completes — a lost improvement, not a lost render.
           </p>
           <p className={p}>
-            Two requirements. The character needs a reference image, and it must be the{" "}
-            <strong>only</strong> character in the project with face swap enabled: the underlying
-            recipe is written around a single subject, so with two there is no way to say which face
-            belongs where and the swap is skipped rather than guessed. It also needs a Qwen Image Edit
-            model and its two face-swap LoRAs installed in WanGP.
+            The character needs a reference image, and WanGP needs a Qwen Image Edit model with its
+            two face-swap LoRAs installed. Beyond that there is no limit on how many characters can
+            use it.
+          </p>
+          <p className={p}>
+            <strong>More than one character in a frame.</strong> Each opted-in character gets its own
+            pass, and the passes chain — the second edits the first one&apos;s output — so both faces
+            end up corrected. Two characters therefore cost two passes per keyframe.
+          </p>
+          <p className={p}>
+            Because the passes chain, each one needs to say <em>which</em> person it is replacing.
+            The default wording names &quot;the woman&quot;, which is wrong for a man and ambiguous
+            when two women share a frame, so a character can carry its own{" "}
+            <strong>Face-swap prompt</strong> in the character library. Leave it empty to use the
+            default. Only the wording is yours — the LoRAs, step count and solver are a matched
+            recipe and stay as they are.
+          </p>
+          <p className={p}>
+            <strong>Write that prompt generically, and let the app do the pointing.</strong> It is a
+            template for every scene the character ever appears in, so it cannot describe a pose or a
+            position. It also should not lean on a trait that another person might share: naming
+            &quot;the white woman&quot; looked precise and failed in a shot where the other man wore
+            a white polo and faced the camera while she lay in profile — the pass took his head and
+            gave him her face. StoryForgeAI now appends a sentence built from the frame itself,
+            naming the target by what separates them from the other people actually in it: wardrobe
+            first, since that settles nearly every shot, falling through to hair colour where two
+            people are undressed. That sentence also tells the pass to leave everyone else alone,
+            which matters because the passes chain and a later one could otherwise undo an earlier
+            correction. A shot holding one person gets no such sentence and uses your template
+            exactly as written.
+          </p>
+          <p className={p}>
+            Where a frame is shared between two scenes — which is what{" "}
+            <em>Reuse previous end frame</em> does — it is swapped only for the characters both
+            scenes agree are in shot, and skipped entirely if either scene has{" "}
+            <strong>Face in frame</strong> cleared. A missing correction can be fixed from the{" "}
+            <em>Swap face</em> button on the card; a face invented in a shot nobody asked for cannot.
           </p>
           <p className={p}>
             The pass is <strong>unconditional once it runs</strong>. Its prompt instructs the model
@@ -613,6 +676,16 @@ export default function HelpPage() {
             gets reinvented each time. Vague wording such as &quot;casual attire&quot; is the same as
             saying nothing. The same character can wear something entirely different in your next
             project, and wardrobe stays editable afterwards from the project&apos;s Settings screen.
+          </p>
+          <p className={p}>
+            <strong>Name garments, not gaps.</strong> &quot;Black silk trousers, no shirt&quot; puts
+            the word <em>shirt</em> in front of the model and it draws one — a man written that way
+            came back in a maroon polo, and because the next frame is rendered against the last, the
+            invented shirt then moved onto a different character. Absences are rewritten to the skin
+            for you (&quot;no shirt&quot; becomes &quot;bare chest&quot;, &quot;no other
+            garments&quot; becomes &quot;and nothing else&quot;), but the shortest path to a reliable
+            render is to write it that way yourself. Nudity is the exception: &quot;nude&quot; is
+            recognised and rendered as an explicit statement of bare skin rather than an outfit.
           </p>
           <p className={p}>
             That wardrobe is a <em>starting</em> outfit, not a fixed one. It is repeated into every

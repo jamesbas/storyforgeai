@@ -6,11 +6,13 @@ import { seamDirective } from "@/lib/agents/continuity";
 import { creativeModeDirective } from "@/lib/agents/look";
 import { explicitnessDirective } from "@/lib/agents/explicitness";
 import { planningPayload, precedenceDirective } from "@/lib/agents/creative-context";
+import { castWardrobeAfter } from "@/lib/agents/wardrobe";
 import { composeExecution } from "@/lib/agents/provenance";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import { SEGMENT_SECONDS } from "@/lib/types";
 import type { FailureReason } from "@/lib/schemas/provenance";
 import type { Project } from "@/lib/schemas/project";
+import type { Character } from "@/lib/schemas/character";
 import type { AgentContext } from "@/lib/agents/types";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 import { logEvent } from "@/lib/telemetry";
@@ -61,26 +63,26 @@ export const storyboardSystem = (segmentSeconds: number) =>
   "List in charactersPresent exactly which of the supplied cast are visible in that shot, by " +
   "their cast name. Leave it empty for a shot none of them are in. Do not list a character " +
   "who is merely mentioned, referred to, or elsewhere at the time. " +
-  // Undressing is a wardrobe change like any other, and the one most often left
-  // undeclared: without it the appended outfit is the last thing the render
-  // reads and the clothes stay on.
-  "Undressing is a wardrobe change. When a scene reaches a point where someone is no longer " +
-  "dressed, record it in wardrobeChanges with the new state — \"nude\" when they are wearing " +
-  "nothing, or the specific remaining garments when they are partly dressed — and set " +
-  "depictedOnScreen to true if the undressing itself is what the scene shows. Declare it once, " +
-  "in the scene where it happens: it carries forward on its own, and the scene where they dress " +
-  "again is its own change. " +
   // Costume is otherwise a constant repeated into every prompt, so a change the
   // story requires has to be declared here or it cannot happen at all.
-  "Leave wardrobeChanges empty unless the story actually requires someone to change clothes " +
-  "in that scene. When it does, name the character exactly as the cast names them, or describe " +
-  "anyone not in the cast the way a prompt should refer to them — 'the two men', 'the " +
-  "bartender' — give the complete resulting outfit as specific garments with colours and " +
-  "materials, and set depictedOnScreen to true only if the act of changing is what the scene " +
-  "shows. State what they are left wearing, not what was removed: 'bare-chested, in dark jeans' " +
-  "rather than 'takes his shirt off'. A character who is merely somewhere else wearing " +
-  "something different is not a costume change: put the change in the scene where it happens " +
-  "and leave the rest alone. " +
+  "Record a costume change in wardrobeChanges, in the scene where it happens. Name the " +
+  "character exactly as the cast names them, or describe anyone not in the cast the way a " +
+  "prompt should refer to them — 'the two men', 'the bartender' — give the complete resulting " +
+  "outfit as specific garments with colours and materials, and set depictedOnScreen to true " +
+  "only if the act of changing is what the scene shows. State what they are left wearing, not " +
+  "what was removed: 'bare-chested, in dark jeans' rather than 'takes his shirt off'. Declare " +
+  "it once — it carries forward on its own, and the scene where they dress again is its own " +
+  "change. A character who is merely somewhere else wearing something different is not a " +
+  "costume change, and a scene in which nobody's clothing changes has an empty wardrobeChanges. " +
+  // Undressing is the change most often left undeclared, and the stated outfit
+  // is appended last, so an undeclared one renders the clothes back on.
+  "Undressing is a costume change, and it is the one that matters most. Each character's " +
+  "stated wardrobe is appended to every render prompt as its final instruction, so a scene you " +
+  "write as sex or nudity while wardrobeChanges is empty renders with the clothes still on. " +
+  "Whenever a scene reaches the point where someone is no longer dressed, record it: \"nude\" " +
+  "when they are wearing nothing, or the specific remaining garments when they are partly " +
+  "dressed, with depictedOnScreen true if the undressing itself is what the scene shows. Never " +
+  "describe an intimate act and leave the outfit standing. " +
   "Do not write image prompts or video prompts yet. " +
   "Return only valid JSON.";
 
@@ -106,6 +108,31 @@ function batchDirective(from: number, to: number, total: number): string {
     `${to - from + 1} scene cards, in order, one per supplied segment beat, and nothing for the ` +
     "other segments. When a previous scene is supplied, continue from where it left off rather " +
     "than reintroducing the setting."
+  );
+}
+
+/**
+ * Tells the model that a wardrobe it is being shown is already the result of an
+ * earlier change, so it neither re-declares it nor writes anyone back into the
+ * outfit they left behind.
+ */
+function carriedWardrobeDirective(
+  original: readonly Character[],
+  now: { cast: readonly Character[]; others: Record<string, string> },
+): string {
+  const changed = now.cast.filter((c, i) => c.wardrobe !== original[i]?.wardrobe);
+  const others = Object.entries(now.others);
+  if (changed.length === 0 && others.length === 0) return "";
+
+  const sheet = [
+    ...changed.map((c) => `${c.name}: ${c.wardrobe}`),
+    ...others.map(([subject, outfit]) => `${subject}: ${outfit}`),
+  ].join("; ");
+  return (
+    " Costume changes have already happened earlier in this storyboard. As these scenes open, " +
+    `${sheet}. That is what they are wearing now — do not describe an earlier outfit, do not ` +
+    "put anyone back into clothing they are no longer in, and do not re-declare a change that " +
+    "has already been made."
   );
 }
 
@@ -192,11 +219,15 @@ export async function storyboardAgent(
   for (let start = 0; start < wanted; start += CARDS_PER_CALL) {
     const end = Math.min(start + CARDS_PER_CALL, wanted);
     const previous = scenes[start - 1];
+    // The cast is re-sent with every batch, so it has to show what everyone is
+    // wearing now rather than what the project started them in.
+    const now = castWardrobeAfter(cast, scenes);
     const user = JSON.stringify({
       project: ctx.project,
       brief,
       visualBible,
-      cast,
+      cast: now.cast,
+      othersWardrobe: Object.keys(now.others).length ? now.others : undefined,
       plans: planningPayload(ctx.plans),
       // Only this batch's beats, so the model is not tempted to cover the rest.
       segmentNumbers: Array.from({ length: end - start }, (_, i) => start + i + 1),
@@ -213,7 +244,11 @@ export async function storyboardAgent(
         : undefined,
     });
 
-    const result = await provider.generateJson(system + batchDirective(start + 1, end, wanted), user, sceneDraftsSchema);
+    const result = await provider.generateJson(
+      system + batchDirective(start + 1, end, wanted) + carriedWardrobeDirective(cast, now),
+      user,
+      sceneDraftsSchema,
+    );
     const returned = result?.scenes ?? [];
     if (returned.length !== end - start) batchReason ??= returned.length ? "short_collection" : "unknown";
     for (let i = 0; i < end - start; i += 1) {

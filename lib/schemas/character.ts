@@ -83,6 +83,15 @@ export const characterSchema = z.object({
    * keyframe and only applies when a reference photo exists.
    */
   faceSwap: z.boolean().optional(),
+  /**
+   * The instruction sent to the swap model for this character.
+   *
+   * The default names "the woman", which is wrong for a man and ambiguous when
+   * two women share a frame. Empty means the default. Only the prompt is
+   * overridable — the LoRA pair, multipliers and step count are a matched set
+   * and stay as the preset defines them.
+   */
+  faceSwapPrompt: z.string().max(1000).optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });
@@ -119,6 +128,7 @@ export const createCharacterSchema = characterSchema.pick({
   wardrobe: true,
   negativePrompt: true,
   faceSwap: true,
+  faceSwapPrompt: true,
 });
 
 export const updateCharacterSchema = createCharacterSchema.partial();

@@ -6,14 +6,21 @@ import { getProjectRecord } from "@/lib/services/project-service";
 import { buildImageManifest, buildVideoManifest, runToCompletion } from "@/lib/services/wangp-service";
 import type { CastReference, FrameOptions } from "@/lib/services/wangp-service";
 import { resolveSceneLoras } from "@/lib/services/lora-service";
-import { faceSwapSubject, swapFace } from "@/lib/services/face-swap-service";
+import { faceSwapSubjects, swapFace } from "@/lib/services/face-swap-service";
+import type { FramePerson } from "@/lib/services/face-swap-service";
 import { referenceImagesOf } from "@/lib/schemas/character";
 import type { Character } from "@/lib/schemas/character";
-import { seamBreak } from "@/lib/media/seam";
+import { seamBreak, statedHeadcount } from "@/lib/media/seam";
 import { saveImportedFrame } from "@/lib/media/imported-frames";
 import { DEFAULT_SCENE_CONTINUITY, generationStages } from "@/lib/types";
 import { resolveProjectCast } from "@/lib/services/character-service";
-import { charactersInScene } from "@/lib/agents/scene-cast";
+import { charactersInFrame, charactersInScene } from "@/lib/agents/scene-cast";
+import { othersInFrame, wardrobeTimeline } from "@/lib/agents/wardrobe";
+import {
+  withMultiSubjectGuards,
+  withNegatedTraits,
+  withoutCharacterScopedTerms,
+} from "@/lib/agents/negative-prompt";
 import { resolveReferenceImagePath } from "@/lib/db/character-store";
 import { config } from "@/lib/config";
 import { qcAgent } from "@/lib/agents/qc-agent";
@@ -30,6 +37,42 @@ function findScene(record: ProjectRecord, sceneId: string): Scene {
 /** The stages this project's generation mode allows. */
 function stagesOf(record: ProjectRecord) {
   return generationStages(record.project.generationMode);
+}
+
+/** Whether a clip will exist to carry an arriving character into a scene. */
+function clipCarriesArrivals(record: ProjectRecord): boolean {
+  return stagesOf(record).video;
+}
+
+/**
+ * Everyone one frame shows, with whatever tells them apart, for the face swap.
+ *
+ * Both the pinned cast and the people who only exist in prose: a swap that
+ * cannot distinguish its target from an unnamed third person in the shot is
+ * exactly how one character's face ended up on another's body.
+ */
+function peopleInFrame(
+  record: ProjectRecord,
+  scene: Scene,
+  prompt: string,
+  cast: readonly Character[],
+): (FramePerson & { id?: string })[] {
+  const timeline = wardrobeTimeline(record.project, record.storyboard?.scenes ?? [], cast);
+  const wardrobe = timeline.get(scene.id);
+  const isStart = prompt.startsWith(scene.prompts.startFramePrompt.slice(0, 60));
+  const at = isStart ? wardrobe?.start : wardrobe?.end;
+  const others = isStart ? wardrobe?.othersStart : wardrobe?.othersEnd;
+
+  const pinned = charactersInFrame(prompt, charactersInScene(scene, cast)).map((character) => ({
+    id: character.id,
+    wardrobe: at?.[character.id] ?? character.wardrobe,
+    description: character.description,
+  }));
+  const unnamed = Object.entries(othersInFrame(prompt, others ?? {})).map(([label, outfit]) => ({
+    wardrobe: outfit,
+    description: label,
+  }));
+  return [...pinned, ...unnamed];
 }
 
 /** Frame shape and quality, which together decide the render resolution. */
@@ -75,6 +118,7 @@ function withSceneStatus(record: ProjectRecord, sceneId: string, status: Scene["
 async function resolveCastReferenceImages(
   record: ProjectRecord,
   scene?: Scene,
+  prompt?: string,
 ): Promise<string[]> {
   // Off means off everywhere: the constraint that the image model must accept
   // references only applies while references are being sent, so opting out here
@@ -85,14 +129,74 @@ async function resolveCastReferenceImages(
   // who is not in this shot is the strongest possible instruction to put them
   // in it. Without a scene the whole cast applies, which is only right for
   // callers that have no single shot in hand.
-  return referenceImagePathsOf(scene ? charactersInScene(scene, cast) : cast);
+  const sceneCast = scene ? charactersInScene(scene, cast) : cast;
+  // Narrowed again by the frame: a card that seats a watcher in the corner
+  // chair is still a card the shot may frame out, and his photograph would
+  // dress whoever is left in his clothes.
+  const inFrame = prompt ? charactersInFrame(prompt, sceneCast) : sceneCast;
+  return referenceImagePathsOf(
+    prompt
+      ? photographedSubject(prompt, inFrame, { sceneId: scene?.id ?? "", purpose: "keyframe" })
+      : inFrame,
+  );
 }
 
+/**
+ * One photograph per person.
+ *
+ * An edit model reads each reference as a separate element to place in the
+ * frame, not as more evidence about the same face — four photographs of one
+ * woman rendered her twice in the same shot. The ref2va path settled this
+ * already: a second photo of the same person measured as marginally better
+ * identity for the cost of another image in the sequence, and here it is worse
+ * than nothing. The rest of the library still earns its keep on the face swap,
+ * which takes them one at a time.
+ */
 function referenceImagePathsOf(cast: readonly Character[]): string[] {
   return cast
-    .flatMap((character) => referenceImagesOf(character))
+    .map((character) => referenceImagesOf(character)[0])
+    .filter((filename): filename is string => filename !== undefined)
     .map((filename) => resolveReferenceImagePath(filename))
     .filter((filePath): filePath is string => filePath !== null);
+}
+
+/**
+ * The one character whose photograph this frame carries.
+ *
+ * Nothing in the job says which reference is which person. With a single photo
+ * the model has no choice to get wrong, and the others render from the written
+ * description, which measures well — a frame of one photographed woman and one
+ * man described only in words came back correct. With two, the binding between
+ * photograph, name and stated wardrobe collapses: a husband's portrait and a
+ * wife's on the same job produced her likeness in his chair and his shirt on a
+ * third man who was supposed to be naked.
+ *
+ * The frame's first-named character wins, since a prompt opens on its subject.
+ * Everyone else is recovered by the face swap, which runs one person at a time
+ * and is the tool that can say who it is working on.
+ */
+function photographedSubject(
+  prompt: string,
+  inFrame: readonly Character[],
+  context: { sceneId: string; purpose: string },
+): readonly Character[] {
+  const withPhotos = inFrame.filter((character) => referenceImagesOf(character).length > 0);
+  if (withPhotos.length <= 1) return withPhotos;
+
+  const at = (name: string) => {
+    const found = prompt.search(new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i"));
+    return found < 0 ? Number.MAX_SAFE_INTEGER : found;
+  };
+  const [first] = [...withPhotos].sort((a, b) => at(a.name) - at(b.name));
+
+  logEvent("wangp.reference_images.trimmed", {
+    ...context,
+    reason: "one_subject_per_frame",
+    supplied: withPhotos.length,
+    sent: 1,
+    kept: first!.name,
+  });
+  return [first!];
 }
 
 /**
@@ -122,10 +226,10 @@ async function resolveCastSubjects(
     .filter((subject): subject is CastReference => subject !== null);
 }
 
-/** The face-swap target for one shot, or null when its subject is not in it. */
-async function sceneFaceSwapSubject(record: ProjectRecord, scene: Scene) {
+/** The face-swap targets for one shot: the opted-in characters actually in it. */
+async function sceneFaceSwapSubjects(record: ProjectRecord, scene: Scene) {
   const cast = await resolveProjectCast(record.project);
-  return faceSwapSubject(charactersInScene(scene, cast));
+  return faceSwapSubjects(charactersInScene(scene, cast));
 }
 
 /**
@@ -191,11 +295,14 @@ function keyframeSeed(
  */
 const MATCH_INSTRUCTION = {
   inherited:
-    " The character's wardrobe, hair and styling are exactly as in the supplied reference frame; identical clothing." +
+    " The named characters' wardrobe, hair and styling are exactly as in the supplied reference" +
+    " frame; identical clothing on them." +
+    " Anyone else in this shot is dressed and styled only as this scene's own description says," +
+    " and never takes clothing from a person in the reference frame." +
     " Follow this scene's own description for location, framing and action.",
   /** The one scene that depicts the costume change itself; its prompt names the outfit. */
   inheritedChangingWardrobe:
-    " The character's hair and styling are exactly as in the supplied reference frame." +
+    " The named characters' hair and styling are exactly as in the supplied reference frame." +
     " Follow this scene's own description for location, framing, action and clothing.",
 } as const;
 
@@ -216,6 +323,39 @@ function changingWardrobe(record: ProjectRecord, sceneId: string): boolean {
 function referencesStartFrame(record: ProjectRecord, sceneId: string, inherited: boolean): boolean {
   if (!inherited || !config.media.endFrameReferencesStartFrame) return false;
   return record.project.sceneEndFrameRefs?.[sceneId] !== false;
+}
+
+/**
+ * Does this scene's end frame hold more people than its start frame?
+ *
+ * The end frame is rendered with the start frame supplied as a reference and
+ * told the cast looks exactly as it does there. Asked to add somebody who is
+ * not in that picture, the model does not: it duplicates a person already in
+ * shot and hands the missing one's stated outfit to whoever is nearest. A
+ * husband who should have been watching from a chair came back as a second copy
+ * of his wife, while his white polo and jeans arrived on the man in the bed.
+ *
+ * The same reasoning as the between-scene seam, one join earlier. With a clip
+ * there is no problem — it carries them in.
+ */
+function endFrameGainsPeople(scene: Scene): boolean {
+  const start = statedHeadcount(scene.prompts.startFramePrompt);
+  const end = statedHeadcount(scene.prompts.endFramePrompt);
+  return start !== null && end !== null && end > start;
+}
+
+/** Whether the end frame may be conditioned on the start frame it inherits. */
+function conditionEndOnStart(record: ProjectRecord, scene: Scene, inherited: boolean): boolean {
+  if (!referencesStartFrame(record, scene.id, inherited)) return false;
+  if (clipCarriesArrivals(record) || !endFrameGainsPeople(scene)) return true;
+  logEvent("scene.continuity", {
+    projectId: record.project.id,
+    sceneId: scene.id,
+    reusedStartFrame: true,
+    seamBreak: "end_frame_gains_people",
+    detail: `${statedHeadcount(scene.prompts.startFramePrompt)} to ${statedHeadcount(scene.prompts.endFramePrompt)} in frame`,
+  });
+  return false;
 }
 
 /** Drop a scene's pinned seed so the next render samples afresh. */
@@ -274,7 +414,7 @@ function resolveContinuity(record: ProjectRecord, scene: Scene): Continuity {
   if (!attempt) return {};
 
   if (mode === "reuse_end_frame" && attempt.endImagePath) {
-    const broken = seamBreak(previous, scene);
+    const broken = seamBreak(previous, scene, { clipCarriesArrivals: clipCarriesArrivals(record) });
     if (broken) {
       logEvent("scene.continuity", {
         projectId: record.project.id,
@@ -313,13 +453,26 @@ async function renderKeyframe(
   prompt: string,
   castRefs: string[],
   extraRefs: string[] = [],
-  swapSubject: Character | null = null,
+  swapSubjects: readonly Character[] = [],
 ): Promise<{ id: string; path?: string; source?: string }> {
+  const cast = await resolveProjectCast(record.project);
   const manifest = await buildImageManifest({
     sceneId: scene.id,
     purpose,
     prompt,
-    negativePrompt: scene.prompts.imageNegativePrompt,
+    // Applied here rather than to the stored text so existing projects are
+    // covered without a repair pass.
+    negativePrompt: withNegatedTraits(
+      withMultiSubjectGuards(
+        withoutCharacterScopedTerms(
+          scene.prompts.imageNegativePrompt,
+          cast.map((character) => character.name),
+          statedHeadcount(prompt),
+        ),
+        statedHeadcount(prompt),
+      ),
+      prompt,
+    ),
     modelStrategy: record.project.modelStrategy,
     modelType: record.project.imageModel,
     seed: keyframeSeed(record.project.sceneSeeds?.[scene.id], purpose),
@@ -337,15 +490,32 @@ async function renderKeyframe(
   // Swap before returning, so whatever consumes this frame — the end-frame
   // render, the clip, the next scene's inherited start — sees the corrected
   // face. Deferring it would mean those all carry the uncorrected one.
-  if (rendered && swapSubject) {
+  if (rendered && swapSubjects.length) {
     // The swap prompt is unconditional: told to replace "the head of the woman"
     // in a frame that has none, the model invents somewhere to put one.
     if (scene.subjectFaceVisible === false) {
       logEvent("face_swap.skipped", { reason: "no_face_in_shot", sceneId: scene.id, purpose });
       return { id: manifest.id, path: rendered };
     }
-    const swapped = await swapFace(rendered, swapSubject, { sceneId: scene.id, purpose });
-    if (swapped) return { id: manifest.id, path: swapped, source: rendered };
+    // One pass per character, each taking the last good output as its guide.
+    // A failed pass costs its own correction, not the ones before it.
+    let current = rendered;
+    const present = peopleInFrame(record, scene, prompt, cast);
+    for (const [index, subject] of swapSubjects.entries()) {
+      logEvent("face_swap.pass", {
+        sceneId: scene.id,
+        purpose,
+        character: subject.id,
+        pass: index + 1,
+        of: swapSubjects.length,
+      });
+      const swapped = await swapFace(current, subject, { sceneId: scene.id, purpose }, {
+        wardrobe: present.find((p) => p.id === subject.id)?.wardrobe,
+        others: present.filter((p) => p.id !== subject.id),
+      });
+      if (swapped) current = swapped;
+    }
+    if (current !== rendered) return { id: manifest.id, path: current, source: rendered };
   }
 
   return { id: manifest.id, path: rendered };
@@ -372,7 +542,7 @@ export async function generateSceneKeyframe(
 
   const seeded = await ensureSceneSeeds(projectId, record, [sceneId]);
   const castRefs = await resolveCastReferenceImages(seeded, scene);
-  const swapSubject = await sceneFaceSwapSubject(seeded, scene);
+  const swapSubjects = await sceneFaceSwapSubjects(seeded, scene);
 
   // Condition the preview the same way the real render would be, so what it
   // predicts is what a full scene generation produces.
@@ -394,7 +564,7 @@ export async function generateSceneKeyframe(
     }
   }
 
-  const result = await renderKeyframe(seeded, scene, purpose, prompt, castRefs, extraRefs, swapSubject);
+  const result = await renderKeyframe(seeded, scene, purpose, prompt, castRefs, extraRefs, swapSubjects);
   if (!result.path) throw new ValidationError(`WanGP returned no image for the ${purpose}.`);
 
   const previous = seeded.previews?.[sceneId];
@@ -470,7 +640,7 @@ export async function clearSceneKeyframePreview(
 export async function canRunPhased(record: ProjectRecord, sceneIds: string[]): Promise<boolean> {
   if (sceneIds.length < 2) return false;
   if ((record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY) === "continue_video") return false;
-  return faceSwapSubject(await resolveProjectCast(record.project)) !== null;
+  return faceSwapSubjects(await resolveProjectCast(record.project)).length > 0;
 }
 
 export type PhaseName = "keyframes" | "face_swap" | "video" | "qc";
@@ -546,11 +716,17 @@ export async function generateProjectMediaPhased(
   record = await ensureSceneSeeds(projectId, record, scenes.map((scene) => scene.id));
   const projectCast = await resolveProjectCast(record.project);
   const useRefs = record.project.useCharacterReferenceImages !== false;
-  const castRefsFor = (scene: Scene) =>
-    useRefs ? referenceImagePathsOf(charactersInScene(scene, projectCast)) : [];
-  const swapSubject = faceSwapSubject(projectCast);
-  const inScene = (scene: Scene) =>
-    !swapSubject || charactersInScene(scene, projectCast).some((c) => c.id === swapSubject.id);
+  const castRefsFor = (scene: Scene, prompt: string) =>
+    useRefs
+      ? referenceImagePathsOf(
+          photographedSubject(
+            prompt,
+            charactersInFrame(prompt, charactersInScene(scene, projectCast)),
+            { sceneId: scene.id, purpose: "keyframe" },
+          ),
+        )
+      : [];
+  const swapSubjects = faceSwapSubjects(projectCast);
 
   /** Rendered frame paths per scene, rewritten in place as phases progress. */
   const frames = new Map<
@@ -587,7 +763,10 @@ export async function generateProjectMediaPhased(
       // means most scenes render one keyframe rather than two. It is only correct
       // where the action is continuous — across a planned cut it would discard
       // this scene's start-frame prompt and freeze the old framing.
-      const broken = previousScene && previousEnd ? seamBreak(previousScene, scene) : null;
+      const broken =
+        previousScene && previousEnd
+          ? seamBreak(previousScene, scene, { clipCarriesArrivals: clipCarriesArrivals(record) })
+          : null;
       if (broken) {
         logEvent("scene.continuity", {
           projectId: record.project.id,
@@ -604,13 +783,13 @@ export async function generateProjectMediaPhased(
 
       if (!startPath) {
         const rendered = await run(() =>
-          renderKeyframe(record, scene, "start_frame", scene.prompts.startFramePrompt, castRefsFor(scene), [], null),
+          renderKeyframe(record, scene, "start_frame", scene.prompts.startFramePrompt, castRefsFor(scene, scene.prompts.startFramePrompt), [], []),
         );
         startPath = rendered.path;
         startId = rendered.id;
       }
 
-      const conditionOnStart = referencesStartFrame(record, scene.id, Boolean(inherited));
+      const conditionOnStart = conditionEndOnStart(record, scene, Boolean(inherited));
       const matchInstruction = changingWardrobe(record, scene.id)
         ? MATCH_INSTRUCTION.inheritedChangingWardrobe
         : MATCH_INSTRUCTION.inherited;
@@ -621,9 +800,9 @@ export async function generateProjectMediaPhased(
           scene,
           "end_frame",
           conditionOnStart ? `${scene.prompts.endFramePrompt}${matchInstruction}` : scene.prompts.endFramePrompt,
-          castRefsFor(scene),
+          castRefsFor(scene, scene.prompts.endFramePrompt),
           conditionOnStart ? [startPath!] : [],
-          null,
+          [],
         ),
       );
 
@@ -661,38 +840,70 @@ export async function generateProjectMediaPhased(
   }
 
   // ---- Phase 2: swap every distinct frame, on the edit model ---------------
-  if (swapSubject) {
+  if (swapSubjects.length) {
     // Under reuse_end_frame one file is both a scene's end frame and the next
     // scene's start frame. Swapping per scene would run it twice, wasting a
     // render and producing two subtly different images for the same moment.
-    //
-    // A shared frame is swapped only when *every* scene using it wants the
-    // swap. The rule used to be "any", which let a scene that needed a face
-    // pull its neighbour's frame into the swap set — and a shot of four men
-    // that the plan called faceless came back with a woman's face grafted into
-    // it. A missing correction is recoverable from the Swap face button; an
-    // invented face in a frame nobody asked for is not.
-    const wanted = new Set<string>();
-    const refused = new Set<string>();
+    const usedBy = new Map<string, Scene[]>();
+    // The prompt that produced each file, so the plan can read the frame rather
+    // than the card. A shared file is the earlier scene's end frame, and both
+    // entries carry that same text.
+    const promptOf = new Map<string, string>();
     for (const [sceneId, entry] of frames) {
       const scene = scenes.find((s) => s.id === sceneId);
       if (!scene) continue;
-      // Swapping a face into a shot the subject is not in puts them in it.
-      const allowed = scene.subjectFaceVisible !== false && inScene(scene);
       for (const path of [entry.start, entry.end]) {
         if (!path) continue;
-        (allowed ? wanted : refused).add(path);
+        usedBy.set(path, [...(usedBy.get(path) ?? []), scene]);
       }
+      if (entry.start) {
+        promptOf.set(
+          entry.start,
+          entry.inherited
+            ? (entry.inheritedPrompt ?? scene.prompts.startFramePrompt)
+            : scene.prompts.startFramePrompt,
+        );
+      }
+      if (entry.end) promptOf.set(entry.end, scene.prompts.endFramePrompt);
     }
 
-    const distinct = new Set([...wanted].filter((path) => !refused.has(path)));
-    for (const path of wanted) {
-      if (refused.has(path)) {
+    // Who to swap on each frame, and what to leave alone.
+    //
+    // A shared frame is swapped only for characters *every* scene using it
+    // agrees are in shot, and not at all when any of those scenes is faceless.
+    // The rule used to be "any", which let a scene that needed a face pull its
+    // neighbour's frame into the swap set — and a shot of four men that the
+    // plan called faceless came back with a woman's face grafted into it. A
+    // missing correction is recoverable from the Swap face button; an invented
+    // face in a frame nobody asked for is not.
+    //
+    // The frame's own prompt narrows it further: a card that seats a watcher in
+    // the corner chair is one a close two-shot frames out, and his swap pass
+    // would then go looking for him and land on whoever is there.
+    const plan = new Map<string, Character[]>();
+    for (const [path, using] of usedBy) {
+      if (using.some((scene) => scene.subjectFaceVisible === false)) {
         logEvent("face_swap.skipped", { reason: "frame_shared_with_faceless_scene", path });
+        continue;
       }
+      const framePrompt = promptOf.get(path);
+      const inFrame = framePrompt ? charactersInFrame(framePrompt, projectCast) : projectCast;
+      const subjects = swapSubjects.filter(
+        (character) =>
+          inFrame.some((c) => c.id === character.id) &&
+          using.every((scene) =>
+            charactersInScene(scene, projectCast).some((c) => c.id === character.id),
+          ),
+      );
+      if (subjects.length) plan.set(path, subjects);
     }
 
-    hooks.onPhase?.("face_swap", distinct.size);
+    // Passes, not frames: with two characters in shot a frame costs two jobs,
+    // and a total counted in frames would stall at half.
+    hooks.onPhase?.(
+      "face_swap",
+      [...plan.values()].reduce((total, subjects) => total + subjects.length, 0),
+    );
 
     // Which of a scene's frames are still waiting on the swap model. A scene
     // clears the phase when its last one lands, which under a continuous seam
@@ -700,7 +911,7 @@ export async function generateProjectMediaPhased(
     const outstanding = new Map<string, Set<string>>();
     for (const [sceneId, entry] of frames) {
       const mine = [entry.start, entry.end].filter(
-        (path): path is string => path !== undefined && distinct.has(path),
+        (path): path is string => path !== undefined && plan.has(path),
       );
       outstanding.set(sceneId, new Set(mine));
       if (mine.length) hooks.onSceneEnterPhase?.(sceneId, "face_swap");
@@ -708,12 +919,33 @@ export async function generateProjectMediaPhased(
     }
 
     const swapped = new Map<string, string>();
-    let swappedCount = 0;
-    for (const original of distinct) {
+    let passes = 0;
+    for (const [original, subjects] of plan) {
       if (hooks.shouldCancel?.()) return;
-      const result = await swapFace(original, swapSubject, { sceneId: "batch", purpose: "keyframe" });
-      swapped.set(original, result ?? original);
-      hooks.onPhaseProgress?.((swappedCount += 1), 0);
+
+      // Each pass edits the last good output, so two characters in one frame
+      // both land. A failed pass costs its own correction and nothing else.
+      let current = original;
+      const owner = usedBy.get(original)?.[0];
+      const present =
+        owner && promptOf.has(original)
+          ? peopleInFrame(record, owner, promptOf.get(original)!, projectCast)
+          : [];
+      for (const [index, subject] of subjects.entries()) {
+        logEvent("face_swap.pass", {
+          path: original,
+          character: subject.id,
+          pass: index + 1,
+          of: subjects.length,
+        });
+        const result = await swapFace(current, subject, { sceneId: "batch", purpose: "keyframe" }, {
+          wardrobe: present.find((p) => p.id === subject.id)?.wardrobe,
+          others: present.filter((p) => p.id !== subject.id),
+        });
+        if (result) current = result;
+        hooks.onPhaseProgress?.((passes += 1), 0);
+      }
+      swapped.set(original, current);
 
       // Rewrite a scene's banked attempt as soon as every frame of it is
       // corrected, so the storyboard shows the swapped face rather than the
@@ -1185,10 +1417,9 @@ export async function generateSceneMedia(
   // Character reference images condition the two keyframes. The video model
   // then inherits that identity for free through image_start / image_end, so
   // references are deliberately not sent on the video job as well.
-  const imageRefs = await resolveCastReferenceImages(record, scene);
-  // One subject per scene: the preset's prompt names "the woman", so a second
-  // opted-in character has no unambiguous place to go.
-  const swapSubject = await sceneFaceSwapSubject(record, scene);
+  // Resolved per frame, since a scene's cast and one frame's cast differ.
+  // One pass per opted-in character in the shot, chained.
+  const swapSubjects = await sceneFaceSwapSubjects(record, scene);
 
   const continuity = resolveContinuity(record, scene);
   const continuing = Boolean(continuity.videoSource);
@@ -1204,7 +1435,15 @@ export async function generateSceneMedia(
     prompt: string,
     extraRefs: string[] = [],
   ): Promise<{ id: string; path?: string; source?: string }> =>
-    renderKeyframe(record, scene, purpose, prompt, imageRefs, extraRefs, swapSubject);
+    renderKeyframe(
+      record,
+      scene,
+      purpose,
+      prompt,
+      await resolveCastReferenceImages(record, scene, prompt),
+      extraRefs,
+      swapSubjects,
+    );
 
   // Continuing from the previous clip supersedes both keyframes; reusing the
   // previous end frame supersedes only the start frame. Anything skipped here
@@ -1225,7 +1464,7 @@ export async function generateSceneMedia(
    * reference may dictate depends on where it came from: see MATCH_INSTRUCTION.
    */
   const inheritedStart = Boolean(continuity.startImagePath);
-  const conditionOnStartFrame = referencesStartFrame(record, sceneId, inheritedStart);
+  const conditionOnStartFrame = conditionEndOnStart(record, scene, inheritedStart);
   const matchInstruction = changingWardrobe(record, sceneId)
     ? MATCH_INSTRUCTION.inheritedChangingWardrobe
     : MATCH_INSTRUCTION.inherited;
@@ -1335,15 +1574,33 @@ export async function swapAttemptFrame(
     (purpose === "start_frame" ? target.startImageSourcePath : target.endImageSourcePath) ??
     framePath;
 
-  const subject = faceSwapSubject(await resolveProjectCast(record.project));
-  if (!subject) {
+  const subjects = await sceneFaceSwapSubjects(record, scene);
+  if (!subjects.length) {
     throw new ValidationError(
-      "Face swap needs exactly one character in this project with face swap enabled and a " +
+      "Face swap needs at least one character in this scene with face swap enabled and a " +
         "reference image.",
     );
   }
 
-  const swapped = await swapFace(source, subject, { sceneId, purpose });
+  // One pass per character, each editing the last good output.
+  let swapped: string | null = null;
+  let current = source;
+  const present = peopleInFrame(
+    record,
+    scene,
+    purpose === "start_frame" ? scene.prompts.startFramePrompt : scene.prompts.endFramePrompt,
+    await resolveProjectCast(record.project),
+  );
+  for (const subject of subjects) {
+    const result = await swapFace(current, subject, { sceneId, purpose }, {
+      wardrobe: present.find((p) => p.id === subject.id)?.wardrobe,
+      others: present.filter((p) => p.id !== subject.id),
+    });
+    if (result) {
+      current = result;
+      swapped = result;
+    }
+  }
   if (!swapped) {
     throw new ValidationError(
       "The swap did not produce an image. Check that the Qwen Image Edit model and its " +
@@ -1378,7 +1635,12 @@ export async function swapAttemptFrame(
   };
 
   await repository.update(projectId, updated);
-  logEvent("face_swap.manual", { projectId, sceneId, purpose, character: subject.name });
+  logEvent("face_swap.manual", {
+    projectId,
+    sceneId,
+    purpose,
+    characters: subjects.map((s) => s.name),
+  });
   return updated;
 }
 

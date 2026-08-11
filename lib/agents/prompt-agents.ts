@@ -38,10 +38,10 @@ import {
   videoPromptDirective,
 } from "@/lib/agents/model-directives";
 import { familyOf, type ModelFamily } from "@/lib/wangp/family";
-import { charactersInScene } from "@/lib/agents/scene-cast";
+import { charactersInFrame, charactersInScene } from "@/lib/agents/scene-cast";
 import { explicitnessDirective } from "@/lib/agents/explicitness";
 import { isTightShot, seamBreak } from "@/lib/media/seam";
-import { wardrobeChangeClause, othersWardrobeSuffix, wardrobeTimeline } from "@/lib/agents/wardrobe";
+import { wardrobeChangeClause, othersInFrame, othersWardrobeSuffix, wardrobeTimeline } from "@/lib/agents/wardrobe";
 import type { SceneWardrobe } from "@/lib/schemas/wardrobe";
 import { config } from "@/lib/config";
 import {
@@ -500,9 +500,10 @@ function withCastEnforced(
     faceVisible: draft.subjectFaceVisible !== false,
     tightShot: isTightShot(prompt),
   });
+  const frameCast = (prompt: string) => charactersInFrame(prompt, cast);
   return {
-    startFramePrompt: `${part.startFramePrompt}${lookPromptSuffix(project, part.startFramePrompt)}${castPromptSuffix(cast, wardrobe?.start, sheetFor(part.startFramePrompt))}${othersWardrobeSuffix(wardrobe?.othersStart ?? {})}`,
-    endFramePrompt: `${part.endFramePrompt}${lookPromptSuffix(project, part.endFramePrompt)}${castPromptSuffix(cast, wardrobe?.end, sheetFor(part.endFramePrompt))}${othersWardrobeSuffix(wardrobe?.othersEnd ?? {})}`,
+    startFramePrompt: `${part.startFramePrompt}${lookPromptSuffix(project, part.startFramePrompt)}${castPromptSuffix(frameCast(part.startFramePrompt), wardrobe?.start, sheetFor(part.startFramePrompt))}${othersWardrobeSuffix(othersInFrame(part.startFramePrompt, wardrobe?.othersStart ?? {}))}`,
+    endFramePrompt: `${part.endFramePrompt}${lookPromptSuffix(project, part.endFramePrompt)}${castPromptSuffix(frameCast(part.endFramePrompt), wardrobe?.end, sheetFor(part.endFramePrompt))}${othersWardrobeSuffix(othersInFrame(part.endFramePrompt, wardrobe?.othersEnd ?? {}))}`,
     imageNegativePrompt: normaliseNegative(`${part.imageNegativePrompt}${negative}`),
   };
 }

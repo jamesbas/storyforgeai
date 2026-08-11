@@ -100,11 +100,12 @@ describe("character library cast injection", () => {
     }
   });
 
+  /** Bound into the same clause as the person, so it cannot drift to another body. */
   it("states the wardrobe explicitly so it is not reinvented per render", () => {
     const dressed = { ...ELENA, wardrobe: "a fitted white tank top and black tailored trousers" };
     const sheet = castPromptSuffix([dressed]);
-    expect(sheet).toContain("Wearing exactly: a fitted white tank top and black tailored trousers.");
+    expect(sheet).toContain(", dressed in a fitted white tank top and black tailored trousers.");
     // Without one, nothing is asserted about clothing rather than something vague.
-    expect(castPromptSuffix([ELENA])).not.toContain("Wearing exactly");
+    expect(castPromptSuffix([ELENA])).not.toContain("dressed in");
   });
 });
