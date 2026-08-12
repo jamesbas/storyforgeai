@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { config } from "@/lib/config";
 import { SEGMENT_SECONDS } from "@/lib/types";
+import { familyOf } from "@/lib/wangp/family";
 import type { LoraSelection } from "@/lib/schemas/lora";
 import type { WangpModelSchema, WangpGenerationSettings, WangpPurpose } from "@/lib/schemas/wangp";
 
@@ -64,11 +65,13 @@ export type ManifestOverrides = {
   steps?: number;
   /** Audio models: clip length in seconds. Video: segment length for frame maths. */
   durationSeconds?: number;
+  /** The model can render past one window, so a published window size is not a clip ceiling. */
+  slidingWindows?: boolean;
   /**
    * A hard ceiling on `video_length`, for variants with no sliding-window
-   * support. No H3 variant publishes field bounds, so nothing in the schema
-   * will stop an over-long request — it is accepted and then fails or truncates
-   * at render time.
+    * support. H3 may publish its single-window size as a field bound, but that
+    * is ignored when `slidingWindows` is enabled because Wan2GP can continue
+    * beyond it.
    */
   maxFrames?: number;
   /**
@@ -130,17 +133,19 @@ function applyLoras(
 ): void {
   const declared =
     fieldNames.has("activated_loras") || "activated_loras" in schema.defaultSettings;
+  // Ref2VA accepts the standard WanGP LoRA settings even though its model
+  // schema does not advertise them.
+  const supported = declared || familyOf(schema.modelType) === "minimax_ref2va";
 
-  if (!declared) {
+  if (!supported) {
     // Silently dropping a selection would render something plausible with no
     // LoRA applied and nothing to debug, so refuse instead.
     if (loras.length) {
       throw new Error(
         `Model ${schema.modelType} accepts no LoRAs, but ${loras.length} ` +
           `${loras.length === 1 ? "is" : "are"} selected: ${loras.map((l) => l.name).join(", ")}. ` +
-          "Clear the video LoRAs on the project settings screen, or on this scene if it overrides " +
-          "them, and render again. MiniMax H3's reference variant is the common case — it takes " +
-          "no LoRAs at all, and accelerators destroy the identity binding it exists to provide.",
+          "Clear the LoRAs on the project settings screen, or on this scene if it overrides them, " +
+          "and render again.",
       );
     }
     return;
@@ -148,7 +153,11 @@ function applyLoras(
 
   settings.activated_loras = loras.map((lora) => lora.name);
 
-  if (fieldNames.has("loras_multipliers") || "loras_multipliers" in schema.defaultSettings) {
+  if (
+    !declared ||
+    fieldNames.has("loras_multipliers") ||
+    "loras_multipliers" in schema.defaultSettings
+  ) {
     // A plain number per LoRA. WanGP also accepts phase (`;`) and step (`|`)
     // syntax, which the UI does not model — see docs/LORA Use.md section 4.6.
     settings.loras_multipliers = loras.map((lora) => String(lora.strength)).join(" ");
@@ -216,7 +225,9 @@ export function buildSettingsManifest(
     const lengthField = schema.fields.find((f) => f.name === "video_length");
     let frames = frameCountForFps(fps, overrides.durationSeconds ?? SEGMENT_SECONDS);
     if (lengthField?.min !== undefined) frames = Math.max(lengthField.min, frames);
-    if (lengthField?.max !== undefined) frames = Math.min(lengthField.max, frames);
+    if (!overrides.slidingWindows && lengthField?.max !== undefined) {
+      frames = Math.min(lengthField.max, frames);
+    }
     if (overrides.maxFrames !== undefined) frames = Math.min(overrides.maxFrames, frames);
     settings.video_length = frames;
   }

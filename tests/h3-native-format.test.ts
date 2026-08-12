@@ -59,7 +59,11 @@ class TwoModelClient extends MockWangpClient {
       fields: [
         { name: "prompt", type: "string" },
         { name: "resolution", type: "string" },
-        { name: "video_length", type: "number" },
+        {
+          name: "video_length",
+          type: "number",
+          max: modelType === "minimax_h3_fl2va" ? 337 : undefined,
+        },
         { name: "image_start", type: "string" },
         { name: "image_end", type: "string" },
         { name: "video_source", type: "string" },
@@ -76,6 +80,7 @@ async function manifestFor(options: {
   soundscape?: string;
   score?: string;
   videoSource?: string;
+  durationSeconds?: number;
 }) {
   process.env.H3_NATIVE_PROMPT_FORMAT = options.flag ? "true" : "false";
   vi.resetModules();
@@ -92,7 +97,7 @@ async function manifestFor(options: {
     imageStart: options.videoSource ? undefined : "start.png",
     imageEnd: "end.png",
     videoSource: options.videoSource,
-    durationSeconds: 15,
+    durationSeconds: options.durationSeconds ?? 15,
     soundscape: options.soundscape,
     score: options.score,
   });
@@ -122,6 +127,15 @@ describe("with the flag on and H3 resolved", () => {
   it("writes N/A for a layer the scene never supplied", async () => {
     const manifest = await manifestFor({ flag: true, modelType: "minimax_h3_fl2va" });
     expect(String(manifest.settings.prompt)).toContain("non_diegetic_music: N/A");
+  });
+
+  it("lets Wan2GP stitch a request beyond a legacy single-window maximum", async () => {
+    const manifest = await manifestFor({
+      flag: false,
+      modelType: "minimax_h3_fl2va",
+      durationSeconds: 20,
+    });
+    expect(manifest.settings.video_length).toBe(481);
   });
 
   it("continues from a source clip and tells H3 what Video 1 means", async () => {

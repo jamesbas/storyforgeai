@@ -9,7 +9,7 @@ import {
 } from "@/lib/wangp/model-router";
 import { resolveModel } from "@/lib/wangp/resolve-model";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
-import { familyOfModel, supportsNegativePrompt } from "@/lib/wangp/family";
+import { familyOfModel, isMinimaxFamily, supportsNegativePrompt } from "@/lib/wangp/family";
 import { normaliseNegative, positiveConstraintClause } from "@/lib/agents/negative-prompt";
 import {
   appendAudioProse,
@@ -536,6 +536,7 @@ export async function buildVideoManifest(args: {
     loras,
     fps: args.fps ?? config.defaults.fps,
     durationSeconds: args.durationSeconds,
+    slidingWindows: isMinimaxFamily(family),
     // A hard stop only for a variant that genuinely publishes one. Current H3
     // variants use Wan2GP sliding windows, so their guidance leaves this unset.
     maxFrames: clipLengthGuidance(family)?.maxFrames,

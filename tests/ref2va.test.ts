@@ -134,7 +134,7 @@ describe("family split", () => {
   });
 });
 
-describe("LoRAs on a variant that takes none", () => {
+describe("LoRAs on the reference variant", () => {
   const schema: WangpModelSchema = {
     modelType: "minimax_h3_ref2va",
     defaultSettings: { prompt: "", image_prompt_type: "", multi_prompts_gen_type: "PG" },
@@ -149,15 +149,10 @@ describe("LoRAs on a variant that takes none", () => {
       loras,
     });
 
-  it("names the LoRAs and says where to clear them", () => {
-    // The old message said only that the model "does not accept LoRAs", which
-    // leaves someone staring at a failed chip with nothing to act on.
-    expect(() => build([{ name: "minimax_h3_turbo_4step", strength: 1 }])).toThrow(
-      /minimax_h3_turbo_4step/,
-    );
-    expect(() => build([{ name: "minimax_h3_turbo_4step", strength: 1 }])).toThrow(
-      /project settings screen/,
-    );
+  it("writes the standard LoRA settings omitted from its schema", () => {
+    const manifest = build([{ name: "minimax_h3_turbo_4step", strength: 0.75 }]);
+    expect(manifest.settings.activated_loras).toEqual(["minimax_h3_turbo_4step"]);
+    expect(manifest.settings.loras_multipliers).toBe("0.75");
   });
 
   it("stays silent when nothing is selected", () => {
@@ -470,7 +465,7 @@ class Ref2vaClient extends MockWangpClient {
       fields: [
         { name: "prompt", type: "string" },
         { name: "resolution", type: "string" },
-        { name: "video_length", type: "number" },
+        { name: "video_length", type: "number", max: 337 },
         { name: "image_refs", type: "array" },
         { name: "video_source", type: "string" },
         { name: "image_prompt_type", type: "string" },

@@ -284,6 +284,21 @@ describe("writing LoRAs into the settings manifest", () => {
     expect(manifest.settings.loras_multipliers).toBe("1 0.35");
   });
 
+  it("writes Ref2VA LoRAs even though its schema omits the generic LoRA fields", () => {
+    const schema = schemaWith(["prompt"]);
+    schema.modelType = "minimax_h3_ref2va";
+
+    const manifest = buildSettingsManifest(schema, {
+      sceneId: "scene-1",
+      purpose: "video_segment",
+      prompt: "a lighthouse",
+      loras: [{ name: "identity.safetensors", strength: 0.8 }],
+    });
+
+    expect(manifest.settings.activated_loras).toEqual(["identity.safetensors"]);
+    expect(manifest.settings.loras_multipliers).toBe("0.8");
+  });
+
   /**
    * WanGP's published defaults are its *saved UI state*, so they carry whatever
    * LoRAs were last selected in another application. Leaving the field alone

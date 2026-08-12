@@ -338,11 +338,12 @@ export default function HelpPage() {
             than quietly dropped.
           </p>
           <p className={p}>
-            Accelerator LoRAs are worth having on the first variant and worth avoiding on the
-            second. The 4-step turbo LoRA takes a first-and-last-frame clip from about 17 minutes to
-            about 6 with little visible loss. On reference mode the same LoRA finishes in four
-            minutes and scatters the referenced face onto several people, which is the one thing
-            that tier exists to prevent.
+            Both variants accept LoRAs, including when reference mode&apos;s schema omits the generic
+            LoRA fields. Accelerator LoRAs also change the denoising schedule: the 4-step turbo LoRA
+            takes a first-and-last-frame clip from about 17 minutes to about 6 with little visible
+            loss. One measured reference-mode run finished in four minutes but scattered the
+            referenced face onto several people, so check identity carefully when choosing that
+            speed and quality tradeoff.
           </p>
           <p className={p}>
             Every time quoted above was measured on {ESTIMATE_HARDWARE} at 848×480, and yours will
