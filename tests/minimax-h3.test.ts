@@ -226,9 +226,8 @@ describe("MiniMax has no negative prompt", () => {
 });
 
 /**
- * Ref2VA reports the same family as FL2VA but declares `image_refs` in place of
- * the keyframe inputs, so a project pinned to it would have both frames dropped
- * by `setIf` and render a text-to-video clip that merely looks disappointing.
+ * Older Ref2VA schemas declare `image_refs` in place of native keyframe inputs,
+ * so a direct keyframe override must be refused rather than dropped silently.
  */
 describe("a video model that cannot take keyframes", () => {
   const ref2va: WangpModelSchema = {
@@ -250,7 +249,7 @@ describe("a video model that cannot take keyframes", () => {
   it("is refused rather than silently rendered from the prompt alone", () => {
     expect(() =>
       buildSettingsManifest(ref2va, { ...clip, prompt: "a clip", imageStart: "start.png" }),
-    ).toThrow(/FL2VA variant, not Ref2VA/);
+    ).toThrow(/does not accept image_start/);
   });
 
   it("still builds when no keyframes were supplied", () => {

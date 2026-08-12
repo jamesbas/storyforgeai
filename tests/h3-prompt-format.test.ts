@@ -29,8 +29,8 @@ describe("the alignment instruction", () => {
   it("places both frames for a first-and-last-frame clip", () => {
     const header = h3AlignmentHeader("fl2va", 15);
     expect(header).toBe(
-      "How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns " +
-        "with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the " +
+      "How the reference pictures align with the target video — <Picture 1> (from [Shot 1]) " +
+        "aligns with the 0.00-second mark of the target video; <Picture 2> (from [Shot 1]) aligns with the " +
         "15.00-second mark of the target video.",
     );
   });
@@ -63,13 +63,14 @@ describe("the envelope", () => {
     hasEnd: true,
   };
 
-  it("puts the instruction first, then a blank line, then the three fields in order", () => {
+  it("keeps the instruction and all three fields in one sliding-window paragraph", () => {
     const prompt = renderH3Prompt(parts);
-    const [first, ...rest] = prompt.split("\n\n");
-    expect(first).toContain("How the reference pictures align");
-    expect(rest[0]).toMatch(/^integrated_multimodal_description: \[Shot 1\] A keeper/);
-    expect(rest[1]).toMatch(/^overall_soundscape: Wind pushes/);
-    expect(rest[2]).toMatch(/^non_diegetic_music: Low sustained/);
+    const lines = prompt.split("\n");
+    expect(lines[0]).toContain("How the reference pictures align");
+    expect(lines[1]).toMatch(/^integrated_multimodal_description: \[Shot 1\] A keeper/);
+    expect(lines[2]).toMatch(/^overall_soundscape: Wind pushes/);
+    expect(lines[3]).toMatch(/^non_diegetic_music: Low sustained/);
+    expect(prompt).not.toContain("\n\n");
   });
 
   it("marks the single shot, and does not mark it twice", () => {
@@ -91,6 +92,17 @@ describe("the envelope", () => {
   it("omits the instruction entirely when no frame is supplied", () => {
     const prompt = renderH3Prompt({ ...parts, hasStart: false, hasEnd: false });
     expect(prompt.startsWith("integrated_multimodal_description:")).toBe(true);
+  });
+
+  it("names a supplied source video as the continuation state", () => {
+    const prompt = renderH3Prompt({
+      ...parts,
+      hasStart: false,
+      hasEnd: false,
+      hasVideoSource: true,
+    });
+    expect(prompt).toContain("[Shot 1] Continue directly from <Video 1>'s final frame");
+    expect(prompt).toContain("synchronized audio without a reset");
   });
 });
 

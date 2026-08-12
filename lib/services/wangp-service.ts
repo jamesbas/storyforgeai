@@ -174,6 +174,7 @@ function routeH3Format(
     durationSeconds?: number;
     soundscape?: string;
     score?: string;
+    videoSource?: string;
   },
   context: { sceneId: string; purpose: string },
 ): string {
@@ -194,7 +195,7 @@ function routeH3Format(
   logEvent("wangp.h3_format.applied", {
     ...context,
     modelType: model.modelType,
-    mode: h3Mode(hasStart, hasEnd),
+    mode: args.videoSource ? "video_continuation" : h3Mode(hasStart, hasEnd),
   });
 
   return renderH3Prompt({
@@ -204,6 +205,7 @@ function routeH3Format(
     durationSeconds: args.durationSeconds ?? SEGMENT_SECONDS,
     hasStart,
     hasEnd,
+    hasVideoSource: Boolean(args.videoSource),
   });
 }
 
@@ -237,14 +239,20 @@ const REF2VA_MAX_CHARACTERS = 3;
  * reference in the prose.
  */
 function composeRef2vaReferences(
-  args: { imageStart?: string; imageEnd?: string; cast?: readonly CastReference[] },
+  args: {
+    imageStart?: string;
+    imageEnd?: string;
+    videoSource?: string;
+    cast?: readonly CastReference[];
+  },
   context: { sceneId: string; purpose: string },
-): { imageRefs: string[]; subjects: H3ReferenceSubject[] } {
-  // Both anchors, or none of this works. Ref2VA has no positional first frame —
-  // the role is asserted in prose — and a live run with only a start frame lost
-  // the composition entirely and pushed the referenced character into the
-  // background. Falling back to FL2VA is the caller's decision, not ours.
-  if (!args.imageStart || !args.imageEnd) {
+  keyframesAsReferences: boolean,
+): { imageRefs: string[]; subjects: H3ReferenceSubject[]; keyframesAsReferences: boolean } {
+  // An anchored generation needs both ends. Ref2VA has no positional first
+  // frame — the role is asserted in prose — and a live run with only a start
+  // frame lost the composition entirely. Continuation is the exception: its
+  // opening state comes from `video_source`, so it deliberately has no anchors.
+  if (!args.videoSource && (!args.imageStart || !args.imageEnd)) {
     throw new ValidationError(
       "Reference mode needs both a start and an end frame: with only one anchor the model has " +
         "nothing holding the composition and renders the shot from the prompt alone. Render both " +
@@ -261,12 +269,15 @@ function composeRef2vaReferences(
     );
   }
 
-  const imageRefs = [args.imageStart, args.imageEnd, ...cast.map((member) => member.imagePath)];
+  const anchors = [args.imageStart, args.imageEnd].filter((path): path is string => Boolean(path));
+  const imageRefs = [
+    ...(keyframesAsReferences ? anchors : []),
+    ...cast.map((member) => member.imagePath),
+  ];
   const subjects = cast.map((member, index) => ({
     name: member.name,
     description: member.description,
-    // Two anchors occupy pictures 1 and 2, so the cast starts at 3.
-    pictureIndex: index + 3,
+    pictureIndex: index + anchors.length + 1,
   }));
 
   logEvent("wangp.ref2va.composed", {
@@ -275,7 +286,7 @@ function composeRef2vaReferences(
     characterCount: cast.length,
   });
 
-  return { imageRefs, subjects };
+  return { imageRefs, subjects, keyframesAsReferences };
 }
 
 /**
@@ -452,10 +463,14 @@ export async function buildVideoManifest(args: {
   const family = familyOfModel(model);
 
   // Reference mode replaces the keyframe pathway rather than adding to it: this
-  // checkpoint declares no image_start or image_end at all, so the two frames
-  // have to travel as references or not at all.
+  // family historically exposed only `image_refs`, while current Wan2GP builds
+  // can also expose native start/end inputs. Prefer those when discovered and
+  // retain the reference-labelled fallback for older schemas.
+  const ref2vaHasKeyframeInputs = schema.fields.some(
+    (field) => field.name === "image_start" || field.name === "image_end",
+  );
   const reference = usesH3ReferenceFormat(family)
-    ? composeRef2vaReferences(args, context)
+    ? composeRef2vaReferences(args, context, !ref2vaHasKeyframeInputs)
     : undefined;
 
   const prompt = reference
@@ -464,8 +479,9 @@ export async function buildVideoManifest(args: {
         subjects: reference.subjects,
         startFrameDescription: args.startFramePrompt,
         endFrameDescription: args.endFramePrompt,
-        hasStart: true,
-        hasEnd: true,
+        hasStart: Boolean(args.imageStart),
+        hasEnd: Boolean(args.imageEnd),
+        hasVideoSource: Boolean(args.videoSource),
         soundscape: args.soundscape,
         score: args.score,
       })
@@ -508,8 +524,8 @@ export async function buildVideoManifest(args: {
     purpose: "video_segment",
     prompt,
     negativePrompt: routed.negativePrompt,
-    imageStart: reference ? undefined : args.imageStart,
-    imageEnd: reference ? undefined : args.imageEnd,
+    imageStart: reference?.keyframesAsReferences ? undefined : args.imageStart,
+    imageEnd: reference?.keyframesAsReferences ? undefined : args.imageEnd,
     imageRefs: reference?.imageRefs,
     // "I" — references are people and objects. Taken from the metadata WanGP
     // wrote beside a hand-made Ref2VA render that came out correct, on this
@@ -520,8 +536,8 @@ export async function buildVideoManifest(args: {
     loras,
     fps: args.fps ?? config.defaults.fps,
     durationSeconds: args.durationSeconds,
-    // A hard stop rather than a stitch point: this variant has no sliding
-    // windows, so there is no longer clip to be had at any quality.
+    // A hard stop only for a variant that genuinely publishes one. Current H3
+    // variants use Wan2GP sliding windows, so their guidance leaves this unset.
     maxFrames: clipLengthGuidance(family)?.maxFrames,
     resolution: resolutionFor(schema, frame, { ...context, modelType: model.modelType }),
     // Rendering small is only half of the low-resolution strategy; without the

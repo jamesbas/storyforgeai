@@ -193,11 +193,14 @@ export default function HelpPage() {
           <p className={p}>
             <strong>Expand with AI</strong>, above the box on the New Project form, offers a fuller
             version of what you have typed. It sends your words together with the running time,
-            style and tone set beside them, and the model is told to keep every concrete choice you
-            already made — and not to invent names, add a moral, or write camera direction, all of
-            which later stages decide. The result appears underneath as a suggestion: nothing
-            changes until you press <em>Use this</em>, and <em>Keep mine</em> discards it. It needs
-            a planning model configured; without one the button says so rather than failing quietly.
+            style, tone, audience and creative format set beside them. The model must preserve every
+            concrete choice and intensity level, then add an opening state, causal developments,
+            escalation or a turn, and a visibly changed ending sized to the running time. It may add
+            compatible connective details, but not names, brands, dialogue, a separate subplot,
+            moral, camera direction or a new outcome. A short paraphrase is rejected rather than
+            offered as an expansion. The result appears underneath as a suggestion: nothing changes
+            until you press <em>Use this</em>, and <em>Keep mine</em> discards it. It needs a planning
+            model configured; without one the button says so rather than failing quietly.
           </p>
 
           <h3 className={h3}>Duration &amp; clip length</h3>
@@ -326,11 +329,13 @@ export default function HelpPage() {
             the same two frames as references rather than as anchors, alongside one photograph of
             each character in the shot, and the likeness holds for the whole clip. It costs roughly
             three times as much time — about 20 minutes for one character, and five more for each
-            additional one — and clips are capped at 14 seconds, because this variant renders in a
-            single pass with no stitching. It needs both keyframes: with only one, there is nothing
-            holding the composition and the shot is refused rather than rendered from the prompt
-            alone. Scenes are limited to three characters, and a fourth is reported rather than
-            quietly dropped.
+            additional one. Fourteen seconds remains the practical default; longer requests use
+            Wan2GP sliding windows and cost proportionally more. An anchored clip needs both
+            keyframes: with only one, there is nothing holding the composition and the shot is
+            refused rather than rendered from the prompt alone. Continue-from-previous-clip mode
+            instead takes its opening state from the source video and needs no keyframe anchors.
+            Scenes are limited to three referenced characters, and a fourth is reported rather
+            than quietly dropped.
           </p>
           <p className={p}>
             Accelerator LoRAs are worth having on the first variant and worth avoiding on the
@@ -1406,6 +1411,13 @@ export default function HelpPage() {
             model you have pinned, so changing a model pin can drop selections that do not exist for
             the new one. Each LoRA has a <strong>strength</strong> (default 1.0); up to eight can be
             stacked, though VRAM and coherence both suffer long before that.
+          </p>
+          <p className={p}>
+            Both the project-level picker and each scene override have their own search box. Search
+            matches the readable LoRA label, its on-disk filename and any known trigger word without
+            regard to case. It filters only the list waiting to be added: LoRAs already selected stay
+            visible with their strength and trigger controls, and clearing the search restores the
+            full catalog for that image or video model.
           </p>
           <p className={p}>
             WanGP&apos;s MCP server publishes no LoRA inventory, so the list is read directly from

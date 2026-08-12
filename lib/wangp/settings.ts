@@ -257,34 +257,38 @@ export function buildSettingsManifest(
   // so gets blamed on the prompt. MiniMax H3 is the live example: its FL2VA
   // variants declare image_start/image_end, its Ref2VA variants declare
   // neither, and both report the same family.
-  const conditioning = [overrides.imageStart, overrides.imageEnd, overrides.videoSource];
-  if (
-    conditioning.some((value) => value !== undefined) &&
-    !["image_start", "image_end", "video_source"].some((name) => fieldNames.has(name))
-  ) {
+  const missingConditioning = [
+    ["image_start", overrides.imageStart],
+    ["image_end", overrides.imageEnd],
+    ["video_source", overrides.videoSource],
+  ].filter(([name, value]) => value !== undefined && !fieldNames.has(name as string));
+  if (missingConditioning.length) {
     throw new Error(
-      `Model ${schema.modelType} accepts no start frame, end frame or source video, so this ` +
-        "clip would be rendered from the prompt alone. Pin a video model that takes keyframes — " +
-        "for MiniMax H3 that is an FL2VA variant, not Ref2VA.",
+      `Model ${schema.modelType} does not accept ${missingConditioning
+        .map(([name]) => String(name))
+        .join(", ")}, so those inputs would be silently ignored. Pin a video model that declares ` +
+        "every selected conditioning input.",
     );
   }
 
   setIf("image_start", overrides.imageStart);
   setIf("image_end", overrides.imageEnd);
 
-  // Continuation replaces the keyframe pathway rather than joining it.
-  //
-  // `image_prompt_type` is a letter set: "S" start image, "E" end image,
+  // `image_prompt_type` is a combinable letter set: "S" start image, "E" end image,
   // "V" continue from source video, "L" continue from the last generated video
-  // (LTX-2 publishes `allowed: "TSEVL"`). Models ship it pre-set — LTX-2
-  // defaults to "SE" — which is why start/end keyframes work today without
-  // anything setting it. Continuing means overriding that default to "V", since
-  // leaving "SE" in place would make WanGP demand keyframes this mode does not
-  // render.
+  // (LTX-2 publishes `allowed: "TSEVL"`). Build the exact active set in that
+  // canonical order rather than inheriting saved UI state. In particular, a
+  // continuation with an end image is "EV": no start image, one destination
+  // image, and a supplied source video.
   if (overrides.videoSource) {
     setIf("video_source", overrides.videoSource);
-    setIf("image_prompt_type", "V");
   }
+  const imagePromptType = [
+    overrides.imageStart && fieldNames.has("image_start") ? "S" : "",
+    overrides.imageEnd && fieldNames.has("image_end") ? "E" : "",
+    overrides.videoSource && fieldNames.has("video_source") ? "V" : "",
+  ].join("");
+  if (imagePromptType) setIf("image_prompt_type", imagePromptType);
 
   // Reference images are passed as a list even for a single character: the
   // models that accept them advertise `multiple_references`, and a list is what

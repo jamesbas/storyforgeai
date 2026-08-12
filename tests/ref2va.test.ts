@@ -123,8 +123,8 @@ describe("family split", () => {
     expect(familyOf("something_else", "minimax_h3_ref2va")).toBe("minimax_ref2va");
   });
 
-  it("gives only the reference variant a hard frame cap", () => {
-    expect(clipLengthGuidance("minimax_ref2va")?.maxFrames).toBe(337);
+  it("treats both variants' window sizes as stitch points rather than hard caps", () => {
+    expect(clipLengthGuidance("minimax_ref2va")?.maxFrames).toBeUndefined();
     expect(clipLengthGuidance("minimax")?.maxFrames).toBeUndefined();
   });
 
@@ -463,6 +463,7 @@ class Ref2vaClient extends MockWangpClient {
       defaultSettings: {
         prompt: "",
         resolution: "832x480",
+        image_prompt_type: "",
         video_prompt_type: "",
         multi_prompts_gen_type: "PG",
       },
@@ -471,16 +472,21 @@ class Ref2vaClient extends MockWangpClient {
         { name: "resolution", type: "string" },
         { name: "video_length", type: "number" },
         { name: "image_refs", type: "array" },
+        { name: "video_source", type: "string" },
+        { name: "image_prompt_type", type: "string" },
         { name: "video_prompt_type", type: "string" },
       ],
     } as unknown as WangpModelSchema;
   }
 }
 
-async function ref2vaManifest(overrides: Record<string, unknown> = {}) {
+async function ref2vaManifest(
+  overrides: Record<string, unknown> = {},
+  client: MockWangpClient = new Ref2vaClient(),
+) {
   vi.resetModules();
   const { setWangpClient } = await import("@/lib/wangp/factory");
-  setWangpClient(new Ref2vaClient());
+  setWangpClient(client);
   const { buildVideoManifest } = await import("@/lib/services/wangp-service");
 
   return buildVideoManifest({
@@ -531,15 +537,67 @@ describe("the Ref2VA manifest", () => {
     expect(manifest.settings.skip_steps_multiplier).toBeUndefined();
   });
 
-  it("caps the clip where the variant stops", async () => {
+  it("lets Wan2GP stitch a request beyond the recommended single window", async () => {
     const manifest = await ref2vaManifest({ durationSeconds: 20 });
-    expect(manifest.settings.video_length).toBe(337);
+    expect(manifest.settings.video_length).toBe(481);
   });
 
   it("prompts in the six-section format", async () => {
     const manifest = await ref2vaManifest();
     expect(String(manifest.settings.prompt)).toContain("subject_definitions:");
     expect(String(manifest.settings.prompt)).toContain("<Picture 3>");
+  });
+
+  it("keeps all six sections in one sliding-window paragraph", async () => {
+    const manifest = await ref2vaManifest();
+    expect(String(manifest.settings.prompt)).not.toContain("\n\n");
+  });
+
+  it("continues from a source clip with an end reference but no start anchor", async () => {
+    const manifest = await ref2vaManifest({
+      imageStart: undefined,
+      videoSource: "/clips/previous.mp4",
+    });
+    const prompt = String(manifest.settings.prompt);
+
+    expect(manifest.settings.video_source).toBe("/clips/previous.mp4");
+    expect(manifest.settings.image_prompt_type).toBe("V");
+    expect(manifest.settings.image_refs).toEqual(["/frames/end.png", "/refs/tracey.png"]);
+    expect(prompt).toContain("<Video 1> supplies the source clip being continued");
+    expect(prompt).toContain("[video continuation + keyframe completion + reference generation]");
+    expect(prompt).toContain("<Picture 1> is the last frame of [Shot 1]");
+    expect(prompt).toContain("<Subject 1> is Tracey, shown in <Picture 2>");
+    expect(prompt).toContain("begins immediately after <Video 1>'s final frame");
+  });
+
+  it("uses native image_end with continuation when Ref2VA declares it", async () => {
+    class ModernRef2vaClient extends Ref2vaClient {
+      async getModelSchema(modelType: string): Promise<WangpModelSchema> {
+        const schema = await super.getModelSchema(modelType);
+        return {
+          ...schema,
+          fields: [
+            ...schema.fields,
+            { name: "image_end", type: "string" },
+            { name: "image_prompt_type", type: "string" },
+          ],
+        } as WangpModelSchema;
+      }
+    }
+
+    const manifest = await ref2vaManifest(
+      {
+        imageStart: undefined,
+        videoSource: "/clips/previous.mp4",
+      },
+      new ModernRef2vaClient(),
+    );
+
+    expect(manifest.settings.video_source).toBe("/clips/previous.mp4");
+    expect(manifest.settings.image_end).toBe("/frames/end.png");
+    expect(manifest.settings.image_prompt_type).toBe("EV");
+    expect(manifest.settings.image_refs).toEqual(["/refs/tracey.png"]);
+    expect(String(manifest.settings.prompt)).toContain("<Picture 1> is the last frame");
   });
 
   it("refuses a single anchor rather than rendering from the prompt alone", async () => {

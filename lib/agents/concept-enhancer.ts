@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 import type { EnhanceConceptInput } from "@/lib/schemas/intake";
+import { CREATIVE_MODE_DOCS } from "@/lib/presets";
 
 /**
  * No `.min()` or `.max()` here, deliberately.
@@ -15,6 +16,15 @@ const enhancedConceptSchema = z.object({ concept: z.string() });
 /** Matches the concept field on the New Project form. */
 const MAX_CONCEPT_CHARS = 5000;
 
+/** A useful brief grows with the film, without becoming a scene-by-scene treatment. */
+export function conceptWordTarget(seconds: number): { minimum: number; maximum: number } {
+  if (seconds <= 30) return { minimum: 90, maximum: 150 };
+  if (seconds <= 60) return { minimum: 140, maximum: 220 };
+  if (seconds <= 120) return { minimum: 180, maximum: 300 };
+  if (seconds <= 300) return { minimum: 240, maximum: 400 };
+  return { minimum: 300, maximum: 500 };
+}
+
 export type ConceptEnhancement =
   | { ok: true; concept: string }
   | { ok: false; reason: string };
@@ -25,45 +35,64 @@ export type ConceptEnhancement =
  * has not made yet — the prohibitions below are the load-bearing half.
  */
 export const CONCEPT_ENHANCER_SYSTEM = [
-  "You expand a filmmaker's short concept note into a fuller one. A storyboarding tool reads",
-  "your answer and builds a film from it, so what you write becomes the brief.",
+  "You are a development editor. Expand a filmmaker's concept into a substantially more useful",
+  "story brief. A storyboarding system reads only this prose, so every addition must give later",
+  "agents concrete story information they can stage. Do not merely paraphrase or decorate the",
+  "writer's sentences.",
   "",
   'Return JSON: { "concept": "<the expanded note>" }.',
   "",
-  "The note is prose — two to four sentences, roughly 60 to 140 words. No headings, no bullet",
-  "points, no preamble, no title, no commentary about the concept.",
+  "The note is cohesive prose. Follow the targetWords range in the user payload. No headings,",
+  "bullet points, preamble, title, analysis, or commentary about the concept.",
   "",
-  "Keep what the writer decided:",
+  "Preserve the writer's story:",
   "- Every concrete thing already in the note is a decision, not a suggestion: subjects, setting,",
-  "  period, named characters, objects, events, mood.",
+  "  period, relationships, objects, events, outcome, genre, intensity and maturity level.",
   "- Never contradict the premise or quietly correct it, however odd it seems.",
+  "- Do not sanitize, euphemize, moralize, or make the premise safer or more conventional. Match",
+  "  the supplied tone and audience while remaining direct and specific.",
   "",
-  "Add only what the note already implies:",
-  "- Draw out the visible world, what happens, and what has changed by the end.",
-  "- Prefer what a camera can see over what a character thinks or feels.",
-  "- Do not introduce named people, places, brands or lines of dialogue the writer did not.",
-  "- Do not add a moral, a message, or a twist the writer did not ask for.",
+  "Develop it rather than repeating it:",
+  "- Establish the opening situation and what puts it in motion.",
+  "- Add a chronological chain of compatible actions, reactions, pressures or complications in",
+  "  which each beat causes or motivates the next. Scale the number of beats to the running time.",
+  "- Include a meaningful turn, escalation or reveal already latent in the premise, then state the",
+  "  concrete end condition: what is visibly different when the film finishes.",
+  "- For informational, commercial or presenter-led work, use question or need, development, proof",
+  "  and payoff instead of forcing fictional conflict.",
+  "- You may invent compatible connective details, unnamed supporting roles, obstacles, reactions,",
+  "  props and consequences. Do not invent names, brands, dialogue, a separate subplot, a moral, or",
+  "  a twist or outcome that redirects the writer's premise.",
+  "- Prefer actions, choices, sensory details and consequences a camera or microphone can capture.",
+  "  Style and tone should shape those details, not appear as a pile of adjectives.",
+  "- Every sentence must add new usable information. Do not retell one event several ways to reach",
+  "  the word target.",
   "",
-  "Fit the running time given. A 30-second piece is one moment; two minutes can carry a turn.",
-  "Do not describe more story than the duration can hold.",
+  "Fit the running time and creativeModeGuidance in the user payload. A 30-second piece can carry",
+  "one compact progression; a minute needs a clear turn and payoff; several minutes need multiple",
+  "causal developments. Do not write a scene list or more story than the duration can hold.",
   "",
   "Leave the craft alone. No shot lists, camera moves, lens or lighting notes, scene numbers or",
   "edit directions — later stages decide those, and naming them here overrides them.",
   "",
-  "If the note is already detailed, sharpen and tighten it rather than padding it.",
+  "If the input already meets the requested depth, improve causal clarity and specificity instead",
+  "of padding it. The result must still be meaningfully different and more actionable.",
 ].join("\n");
 
 export async function enhanceConcept(
   input: EnhanceConceptInput,
   provider: PlanningProvider,
 ): Promise<ConceptEnhancement> {
+  const targetWords = conceptWordTarget(input.requestedDurationSeconds);
   const user = JSON.stringify({
     concept: input.concept,
     runningTimeSeconds: input.requestedDurationSeconds,
+    targetWords,
     style: input.style,
     tone: input.tone,
     ...(input.audience ? { audience: input.audience } : {}),
     creativeMode: input.creativeMode,
+    creativeModeGuidance: CREATIVE_MODE_DOCS[input.creativeMode],
   });
 
   // `generate` carries the failure reason; `generateJson` collapses it to null,
@@ -87,8 +116,23 @@ export async function enhanceConcept(
   if (concept === input.concept.trim()) {
     return { ok: false, reason: "The planning model returned your concept unchanged." };
   }
+  const originalWords = countWords(input.concept);
+  const expandedWords = countWords(concept);
+  if (originalWords < targetWords.minimum) {
+    const minimumGrowth = Math.max(30, Math.ceil(originalWords * 0.35));
+    if (expandedWords < originalWords + minimumGrowth) {
+      return {
+        ok: false,
+        reason: "The planning model only rephrased the concept instead of meaningfully expanding it.",
+      };
+    }
+  }
 
   return { ok: true, concept };
+}
+
+function countWords(value: string): number {
+  return value.trim().split(/\s+/).filter(Boolean).length;
 }
 
 function describe(reason: string, detail?: string): string {

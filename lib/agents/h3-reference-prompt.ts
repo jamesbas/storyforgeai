@@ -76,6 +76,8 @@ export type H3ReferencePromptParts = {
   subjects: readonly H3ReferenceSubject[];
   hasStart: boolean;
   hasEnd: boolean;
+  /** A source clip supplied through Wan2GP's continuation input. */
+  hasVideoSource?: boolean;
   /** Ambience and physical sound. Empty falls back to the guide's `N/A`. */
   soundscape?: string;
   /** Audience-only score. Empty means there is none, which the guide writes `N/A`. */
@@ -134,10 +136,17 @@ export function countWords(value: string): number {
  * independent: anchoring frames is "keyframe completion", carrying a face in
  * from a photograph is "reference generation". A scene with both does both.
  */
-export function h3ReferenceTaskType(hasAnchors: boolean, hasSubjects: boolean): string {
-  if (hasAnchors && hasSubjects) return "[keyframe completion + reference generation]";
-  if (hasAnchors) return "[keyframe completion]";
-  if (hasSubjects) return "[reference generation]";
+export function h3ReferenceTaskType(
+  hasAnchors: boolean,
+  hasSubjects: boolean,
+  hasVideoSource = false,
+): string {
+  const tasks = [
+    ...(hasVideoSource ? ["video continuation"] : []),
+    ...(hasAnchors ? ["keyframe completion"] : []),
+    ...(hasSubjects ? ["reference generation"] : []),
+  ];
+  if (tasks.length) return `[${tasks.join(" + ")}]`;
   return "[text to video]";
 }
 
@@ -251,9 +260,18 @@ function retentionLines(
   hasStart: boolean,
   hasEnd: boolean,
   subjects: readonly H3ReferenceSubject[],
+  hasVideoSource: boolean,
 ): string[] {
   const { start, end } = anchorRefs(hasStart, hasEnd);
   const lines: string[] = [];
+
+  if (hasVideoSource) {
+    lines.push(
+      "<Video 1> (continues into [Shot 1]): fully_preserved — the final visual and audio state, " +
+        "subject identities, props, setting, lighting, camera trajectory and ongoing motion carry " +
+        "directly into the new shot.",
+    );
+  }
 
   if (start) {
     lines.push(
@@ -289,10 +307,20 @@ function retentionLines(
  */
 export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
   const hasAnchors = parts.hasStart || parts.hasEnd;
+  const hasVideoSource = Boolean(parts.hasVideoSource);
   const subjects = parts.subjects;
   const { start, end } = anchorRefs(parts.hasStart, parts.hasEnd);
 
-  const definitions = [...anchorLines(parts), ...subjects.map(subjectLine)];
+  const definitions = [
+    ...(hasVideoSource
+      ? [
+          "<Video 1> supplies the source clip being continued, including its final visual state, " +
+            "subjects, action, camera trajectory, and synchronized audio.",
+        ]
+      : []),
+    ...anchorLines(parts),
+    ...subjects.map(subjectLine),
+  ];
 
   // Where the anchoring actually has to be said.
   //
@@ -319,32 +347,39 @@ export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
     ? `The shot settles into the exact framing, subject position and lighting established by ` +
       `${end}, which is its final frame.`
     : "";
+  const continuedOpening = hasVideoSource
+    ? "The shot begins immediately after <Video 1>'s final frame, with no visual, motion, camera, " +
+      "or audio reset, and the first described action continues from that exact state."
+    : "";
 
   const body = bindSubjects(markDialogue(tidy(parts.body)), subjects).replace(
     /^\[Shot 1\]\s*/,
     "",
   );
   const style = tidy(parts.style);
-  const timeline = [SHOT, opening, body, closing].filter(Boolean).join(" ");
+  const timeline = [SHOT, continuedOpening, opening, body, closing].filter(Boolean).join(" ");
 
   const journey =
-    start && end
+    hasVideoSource
+      ? "The target video continues directly from <Video 1>."
+      : start && end
       ? `The target video is a single continuous shot that begins from ${start} and ends on ${end}.`
       : "The target video is a single continuous shot.";
 
   const values: Record<(typeof SECTIONS)[number], string> = {
     subject_definitions: definitions.join("\n") || "N/A",
-    summary: `${h3ReferenceTaskType(hasAnchors, subjects.length > 0)} ${journey} ${
+    summary: `${h3ReferenceTaskType(hasAnchors, subjects.length > 0, hasVideoSource)} ${journey} ${
       tidy(parts.summary)
     }`.trim(),
-    retention_analysis: retentionLines(parts.hasStart, parts.hasEnd, subjects).join("\n") || "N/A",
+    retention_analysis:
+      retentionLines(parts.hasStart, parts.hasEnd, subjects, hasVideoSource).join("\n") || "N/A",
     detailed_description: style ? `${style}\n${timeline}` : timeline,
     overall_soundscape: tidy(parts.soundscape) || "N/A",
     non_diegetic_music: tidy(parts.score) || "N/A",
   };
 
   // Label on its own line, matching the layout of the render that worked.
-  return SECTIONS.map((section) => `${section}:\n${values[section]}`).join("\n\n");
+  return SECTIONS.map((section) => `${section}:\n${values[section]}`).join("\n");
 }
 
 /** Whether a prompt is already in this format. */
@@ -407,6 +442,7 @@ function dropReferenceSentences(text: string): string {
     .filter((sentence) => !/<Picture\s*\d*>/i.test(sentence))
     .join(" ")
     .replace(/<Subject\s*\d*>/gi, "the character")
+    .replace(/<Video\s*\d*>/gi, "the source video")
     .replace(/(^|[.!?]\s+)the character/g, (_match, lead: string) => `${lead}The character`)
     .trim();
 }

@@ -401,8 +401,8 @@ export const SCENE_CONTINUITY_OPTIONS: readonly PresetOption[] = [
   },
   {
     value: "continue_video",
-    label: "Continue from previous clip (LTX-2)",
+    label: "Continue from previous clip",
     description:
-      "Each scene continues from the previous scene's rendered video, so motion carries across the boundary rather than restarting from a still. Skips both keyframes. Needs a video model that advertises continuation — LTX-2 does.",
+      "Each scene continues from the previous scene's rendered video, so motion carries across the boundary rather than restarting from a still. The source clip replaces the start frame; StoryForgeAI still renders and supplies the scene's end image as its destination. Needs a video model that advertises continuation, including LTX-2 and compatible MiniMax H3 variants.",
   },
 ] as const;

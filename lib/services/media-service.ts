@@ -1393,8 +1393,8 @@ export async function regenerateSceneVideo(
   }
 
   const continuity = resolveContinuity(loaded, scene);
-  // `continue_video` builds the clip from the previous scene's clip rather than
-  // from frames, so there is nothing of this scene's own to reuse.
+  // `continue_video` builds the opening from the previous scene's clip rather
+  // than a start frame. Its end image remains a reusable destination.
   const continuing = Boolean(continuity.videoSource);
   if (!continuing && !previous.startImagePath) {
     throw new ValidationError(
@@ -1427,7 +1427,7 @@ export async function regenerateSceneVideo(
     projectId,
     sceneId,
     continuedFromVideo: continuing,
-    reusedFrames: continuing ? 0 : previous.endImagePath ? 2 : 1,
+    reusedFrames: continuing ? (previous.endImagePath ? 1 : 0) : previous.endImagePath ? 2 : 1,
   });
 
   const existing = loaded.attempts?.[sceneId] ?? [];
@@ -1517,9 +1517,9 @@ export async function generateSceneMedia(
       swapSubjects,
     );
 
-  // Continuing from the previous clip supersedes both keyframes; reusing the
-  // previous end frame supersedes only the start frame. Anything skipped here
-  // is an image render that never happens.
+  // Continuing from the previous clip supplies the opening state, so it skips
+  // the start frame but still renders the destination end frame. Wan2GP can use
+  // a source video and an end image together on LTX and H3.
   const start =
     continuing || continuity.startImagePath
       ? null
@@ -1541,15 +1541,13 @@ export async function generateSceneMedia(
     ? MATCH_INSTRUCTION.inheritedChangingWardrobe
     : MATCH_INSTRUCTION.inherited;
 
-  const end = continuing
-    ? null
-    : await keyframe(
-        "end_frame",
-        conditionOnStartFrame
-          ? `${scene.prompts.endFramePrompt}${matchInstruction}`
-          : scene.prompts.endFramePrompt,
-        conditionOnStartFrame ? [startImagePath!] : [],
-      );
+  const end = await keyframe(
+    "end_frame",
+    conditionOnStartFrame
+      ? `${scene.prompts.endFramePrompt}${matchInstruction}`
+      : scene.prompts.endFramePrompt,
+    conditionOnStartFrame ? [startImagePath!] : [],
+  );
 
   const endImagePath = end?.path;
 
@@ -1587,7 +1585,7 @@ export async function generateSceneMedia(
     mode: record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY,
     reusedStartFrame: Boolean(continuity.startImagePath),
     continuedFromVideo: continuing,
-    imageRendersSkipped: (continuing ? 2 : 0) + (continuity.startImagePath ? 1 : 0),
+    imageRendersSkipped: (continuing ? 1 : 0) + (continuity.startImagePath ? 1 : 0),
   });
 
   const existing = record.attempts?.[sceneId] ?? [];

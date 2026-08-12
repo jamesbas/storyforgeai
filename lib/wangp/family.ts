@@ -14,9 +14,9 @@ import type { WangpModel } from "@/lib/schemas/wangp";
  * nothing else. `minimax` is the keyframe side — FL2VA and its one-ended
  * relatives — which takes `image_start` / `image_end` positionally, supports
  * sliding windows and accepts accelerator LoRAs. `minimax_ref2va` takes
- * `image_refs` instead, has no sliding windows at all, and is destroyed by the
- * same accelerator. A single family value would have to be wrong about one of
- * them at every decision point.
+ * `image_refs` instead, supports sliding-window continuation but is destroyed
+ * by the same accelerator. A single family value would have to be wrong about
+ * one of them at every decision point.
  */
 export type ModelFamily =
   | "flux"

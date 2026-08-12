@@ -350,10 +350,12 @@ Three counter-intuitive facts:
    publish `image_prompt_type.allowed = ""` (text only) while the reference group hangs off
    `video_prompt_type`.
 2. **Set these fields explicitly; never append to the default.** Flux 2 Klein ships `"MV"`
-   (mask + video guide) — keeping that makes WanGP demand images you are not sending. LTX-2 ships
-   `"SE"`, so a continuation job must *overwrite* it with `"V"` or WanGP demands keyframes that mode
-   never renders.
-3. **Continuation supersedes keyframes.** They are alternative pathways, not composable ones.
+  (mask + video guide) — keeping that makes WanGP demand images you are not sending. LTX-2 ships
+  `"SE"`, so source-video continuation without an endpoint must overwrite it with `"V"`; when an
+  end image is supplied too, use the combined letter set `"EV"`.
+3. **Continuation replaces the start image, not necessarily every keyframe.** A source video and
+  an end image are composable as `"EV"`, letting the prior clip provide the opening state while
+  the end image supplies the destination.
 
 ### 7.3 Paths are opened by the WanGP process
 

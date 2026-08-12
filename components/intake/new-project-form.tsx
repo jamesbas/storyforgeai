@@ -225,8 +225,8 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
         />
         <p className="mt-1 text-xs text-slate-500">
           Every agent downstream reads this and nothing else describes your idea, so a fuller
-          concept produces a fuller film. Write a sentence or two and expand it, or write the whole
-          thing yourself.
+          concept produces a fuller film. Expand with AI develops the opening, causal progression,
+          escalation and ending while preserving your premise, or write the whole thing yourself.
         </p>
         <AsyncStatus
           message={enhanceStatus}

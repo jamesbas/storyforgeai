@@ -208,7 +208,7 @@ describe("scene continuity", () => {
     expect(second.settingsIds).toHaveLength(3);
   });
 
-  it("continue_video carries the previous clip and skips both keyframes", async () => {
+  it("continue_video carries the previous clip, skips the start frame, and keeps an end image", async () => {
     let record = await projectWithStoryboard("continue_video");
     record = await generateAndApprove(record, 0);
     record = await generateAndApprove(record, 1);
@@ -218,10 +218,10 @@ describe("scene continuity", () => {
 
     expect(first.videoPath).toBeDefined();
     expect(second.startImagePath).toBeUndefined();
-    expect(second.endImagePath).toBeUndefined();
+    expect(second.endImagePath).toBeDefined();
     expect(second.videoPath).toBeDefined();
-    // video only.
-    expect(second.settingsIds).toHaveLength(1);
+    // End frame plus video; the source clip replaces only the start frame.
+    expect(second.settingsIds).toHaveLength(2);
   });
 
   it("scene 1 always renders its own frames, whatever the mode", async () => {
@@ -257,7 +257,7 @@ describe("scene continuity", () => {
 });
 
 describe("continuation settings manifest", () => {
-  it("sets video_source and overrides image_prompt_type to V", async () => {
+  it("sets video_source and combines it with an end image as EV", async () => {
     const client = new MockWangpClient();
     const schema = await client.getModelSchema("ltx2_22B");
     // The model ships "SE"; leaving it would make WanGP demand keyframes that
@@ -268,12 +268,14 @@ describe("continuation settings manifest", () => {
       sceneId: "scene-2",
       purpose: "video_segment",
       prompt: "the scene continues",
+      imageEnd: "C:\\out\\end.png",
       videoSource: "C:\\out\\scene-1.mp4",
       fps: 24,
     });
 
     expect(manifest.settings.video_source).toBe("C:\\out\\scene-1.mp4");
-    expect(manifest.settings.image_prompt_type).toBe("V");
+    expect(manifest.settings.image_end).toBe("C:\\out\\end.png");
+    expect(manifest.settings.image_prompt_type).toBe("EV");
   });
 
   it("leaves the keyframe pathway alone when not continuing", async () => {
@@ -291,5 +293,21 @@ describe("continuation settings manifest", () => {
 
     expect(manifest.settings.video_source).toBeUndefined();
     expect(manifest.settings.image_prompt_type).toBe("SE");
+  });
+
+  it("refuses continuation when the resolved model has no source-video input", async () => {
+    const client = new MockWangpClient();
+    const schema = await client.getModelSchema("wan_i2v_14b");
+
+    expect(() =>
+      buildSettingsManifest(schema, {
+        sceneId: "scene-2",
+        purpose: "video_segment",
+        prompt: "the scene continues",
+        imageEnd: "C:\\out\\end.png",
+        videoSource: "C:\\out\\scene-1.mp4",
+        fps: 24,
+      }),
+    ).toThrow(/does not accept video_source/);
   });
 });

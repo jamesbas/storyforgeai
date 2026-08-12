@@ -33,11 +33,11 @@ recent updates are kept below — every release ever made is in
 
 | Version | Date | What changed |
 | --- | --- | --- |
+| **1.72** | 2026-08-12 | **Installed LoRAs are now searchable wherever you apply them.** Large image and video catalogs previously had to be scanned in one long dropdown, both in project Settings and inside each storyboard scene override. Every picker now filters available LoRAs by readable label, on-disk filename or trigger word without hiding anything already selected. Image and video searches remain independent, a matching count shows how much of the catalog is in view, a no-match state is distinct from an empty install, and Clear restores the complete model-specific list. |
+| **1.71** | 2026-08-11 | **Expand with AI now develops the story instead of lightly rewording it.** The concept helper previously asked LM Studio for only 60–140 words, allowed additions only when already implied, and told it to tighten a detailed premise — all of which rewarded paraphrase. It now receives a duration-scaled depth target and the selected creative format in plain language, and must add a causal opening, progression, escalation or turn, and concrete ending while preserving the writer's premise, genre, intensity and audience. Compatible connective details are allowed; invented names, dialogue, subplots and redirected outcomes are not. Token-light rewrites are rejected instead of being offered as an improvement. |
+| **1.70** | 2026-08-11 | **Continue-from-clip now keeps the scene's end image as its destination.** StoryForgeAI previously skipped both keyframes and forced Wan2GP's source-video selector to `V`, even though LTX and MiniMax H3 can continue motion from a video while steering toward an end image. It now skips only the start frame, renders the end frame, and sends the combined `EV` input mode. Modern Ref2VA uses native `image_end`; older schemas retain the prompt-labelled reference fallback. Video-only reruns reuse that endpoint instead of silently dropping it. |
+| **1.69** | 2026-08-11 | **Continue-from-clip now works as a model capability, not an LTX-only feature.** The storyboard label no longer names LTX-2; compatible MiniMax H3 FL2VA and Ref2VA jobs receive the previous clip through Wan2GP's continuation input and prompts explicitly identify `<Video 1>`. H3 prompts now follow Wan2GP's field order without blank paragraph breaks, FL2VA's native format is enabled by default, and Ref2VA can use sliding windows instead of being cut off at 14 seconds. |
 | **1.68** | 2026-08-11 | **Rewrite the prompts for the scenes you choose, instead of one at a time or all of them.** Fixing five scenes previously meant opening five cards in turn, or pressing the all-scenes button and losing the hand edits on every other scene — which is exactly the wrong trade when one of those edits is the thing that finally worked. **Rewrite prompts for selected scenes** now sits above the scene list with a tick-box selection, matching the clip queue beside it, and both now carry **Select all** and **Clear all**. Cards, other scenes and their edits are untouched, and a selection naming a scene that does not exist rewrites nothing rather than half. |
-| **1.67** | 2026-08-11 | **Corrects what the docs claimed a carried-over reference frame does.** They said the reference carries wardrobe and lighting across a seam while the prompt still drives framing and action. It does not: the reference outranks the prompt. Asked for a medium shot of two characters walking away from a doorway toward a bed, a conditioned end frame returned the doorway unchanged — the same prompt at the same seed with the reference withheld obeyed it. **Match the carried-over frame** should be cleared on any scene whose end frame has to show something the reference does not already contain: a different part of the set, a person who is not in it, or a prop in a different state. Conditioning is safe when the end frame is the same people in the same place, framed differently. A storyboard that reframes in every scene is a candidate for turning it off entirely with `END_FRAME_REFERENCES_START_FRAME=false`. |
-| **1.66** | 2026-08-11 | **A shot that mixes people on their feet with people off them now gets flagged before you render it.** At 16:9 a standing figure and seated figures cannot share a keyframe with every head in view — the model anchors the framing on whoever dominates and crops the outlier at the neck. That is not cosmetic: the next scene inherits the frame, and a person it cannot see there gets deleted from the shot along with their wardrobe. Holding the seed and changing one thing at a time, a lower camera did not fix it and neither did a wider shot size; seating everyone did, first attempt. The prompt panel now warns when a frame stages mixed heights in a shot too tight to hold them, and the Image Prompt agent is told to stage at a compatible height or choose a wide shot deliberately. A shot already framed wide is left alone. |
-| **1.65** | 2026-08-11 | **The keep-heads-in-frame instruction now sits where the framing is stated, and grants the wider shot it needs.** Added at the end of the prompt in 1.64 it was ignored: it landed behind the character continuity block, which is most of a render prompt's length and drowns whatever follows it — the same crowding that once made an over-described character render twice. It now follows the opening shot description instead. It also asks for a frame wide enough to hold everyone rather than only for the heads, because a medium shot at eye level holding a seated figure in front has nowhere to put a standing one's head, and no wording talks a model out of a shot size that cannot contain the staging. |
-| **1.64** | 2026-08-11 | **A person cropped out of one frame no longer vanishes from the next scene.** Where scenes carry a frame forward, that end frame is the only picture the following scene has of these people — and an edit model carries forward a person it can see while quietly deleting one it cannot. A man cut off at the neck in a carried frame was dropped from the scene that inherited him, and the outfit his prompt described arrived on somebody else; the face swap could not repair it, because it can only correct a face that is in shot. An end frame the next scene will inherit is now asked to keep every head inside the frame with the face unobstructed, background players included. Heads rather than whole bodies, so close-ups are still allowed, and a scene with **Face in frame** cleared is exempt. Applies to existing projects on the next render — no need to rewrite a storyboard. |
 
 ---
 
@@ -87,7 +87,7 @@ recent updates are kept below — every release ever made is in
   cancelling keeps what has already been paid for, and the per-scene chips name the
   phase each scene is in.
 - **Model-aware prompting** — prompts are written for the family that will render
-  them (FLUX, Qwen, Krea, Wan, LTX). Exclusions are routed at render time, so a
+  them (FLUX, Qwen, Krea, Wan, LTX, MiniMax H3 FL2VA/Ref2VA). Exclusions are routed at render time, so a
   model with no negative prompt gets them folded into the positive prompt instead
   of silently discarding them.
 - **Explicit-content directives** — when the audience or tone calls for it, the
@@ -95,8 +95,9 @@ recent updates are kept below — every release ever made is in
   settings screen shows.
 - **LoRA selection** — pick LoRAs for the whole storyboard or override them per
   scene, filtered to those installed for the pinned image/video model, with
-  per-LoRA strengths. Trigger words are read from WanGP's sidecar metadata and
-  appended to prompts automatically when missing.
+  per-LoRA strengths. Search either catalog by label, filename or trigger word.
+  Trigger words are read from WanGP's sidecar metadata and appended to prompts
+  automatically when missing.
 - **Editable scene cards and prompts** — correct a scene's objective, beat, visual,
   action or camera, then rewrite just that scene's prompts. Two model calls rather
   than the whole storyboard, with every other scene and its hand edits untouched.
@@ -178,15 +179,18 @@ ANIMATIC_ASSEMBLY_ENABLED=false
 PLATFORM_DERIVATIVES_ENABLED=false
 ```
 
-Three further flags are implemented but **off pending validation against real
+Two further flags are implemented but **off pending validation against real
 hardware**. All change behaviour that only a live render can judge, so none
 is enabled by default:
 
 | Flag | What it does | What it is waiting for |
 | --- | --- | --- |
 | `MEDIA_PROMPT_COMPOSER_V2` | Rebuilds deterministic prompts around a shared semantic contract | Fixed-seed renders compared per model family (`npm run prompts:preview` shows the diff) |
-| `H3_NATIVE_PROMPT_FORMAT` | Sends MiniMax H3 the labelled prompt structure from its own published guide — frame alignment, timeline, ambience and score as separate fields | **Reassessment in progress.** Three runs showed no spoken dialogue in the labelled arm, but the test subject was a robot whose own prompt said it had no mouth. The same labelled prompt spoke, with a moving mouth, at both 4 and 8 accelerator steps — so the format was obeying a contradiction rather than failing, and the fast path never hits it. Needs one run at full step count on a character with a mouth |
 | `DURABLE_TASKS` | Persists queue state so a restart reconciles instead of losing or resubmitting work | One interrupted live WanGP render resumed by polling |
+
+`H3_NATIVE_PROMPT_FORMAT` is enabled by default. It sends MiniMax H3 the labelled
+frame/video alignment, timeline, soundscape and score structure from Wan2GP's
+guide; set it to `false` only as a prompt-format rollback.
 
 The About page always shows which flags are currently enabled.
 

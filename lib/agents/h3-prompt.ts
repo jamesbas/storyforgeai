@@ -4,9 +4,9 @@ import type { ModelFamily } from "@/lib/wangp/family";
  * MiniMax H3's native prompt envelope.
  *
  * H3 does not take one blob of prose. Its published guide
- * (VIDEO_PROMPT_WRITING_GUIDE_base_en) specifies an alignment instruction on
- * the first line, a blank line, then three labelled fields: the timeline, the
- * ambience, and the audience-only score. WanGP passes `prompt` through
+ * (VIDEO_PROMPT_WRITING_GUIDE_base_en) specifies an optional alignment
+ * instruction followed by three labelled fields: the timeline, the ambience,
+ * and the audience-only score. WanGP passes `prompt` through
  * untouched and `prompt_enhancer` is forced off, so nothing between StoryForge
  * and the model will produce this shape if we do not.
  *
@@ -45,10 +45,6 @@ import type { ModelFamily } from "@/lib/wangp/family";
  *     `Qwen3-VL-32B-Instruct` declares `<d>` and `</d>` as special tokens.
  *   - *Prompt length.* Raising the timeline from ~120 to ~294 words changed
  *     nothing.
- *
- * One loose end: WanGP's `text_encoder.py` emits images as `<Picture 1>:` with
- * angle brackets, while the guide's FL2VA alignment sentence — reproduced
- * verbatim here — names them bare. Whether the bare form binds is unverified.
  *
  * Everything here is pure string work over facts the caller already has, so the
  * format can be verified without a GPU.
@@ -90,8 +86,8 @@ export function h3AlignmentHeader(mode: H3Mode, durationSeconds: number): string
   }
   if (mode === "fl2va") {
     return (
-      "How the reference pictures align with the target video — Picture 1 (from Shot 1) aligns " +
-      "with the 0.00-second mark of the target video; Picture 2 (from Shot 1) aligns with the " +
+      "How the reference pictures align with the target video — <Picture 1> (from [Shot 1]) " +
+      "aligns with the 0.00-second mark of the target video; <Picture 2> (from [Shot 1]) aligns with the " +
       `${seconds(durationSeconds)}-second mark of the target video.`
     );
   }
@@ -108,6 +104,8 @@ export type H3PromptParts = {
   durationSeconds: number;
   hasStart: boolean;
   hasEnd: boolean;
+  /** A source clip supplied through Wan2GP's continuation input. */
+  hasVideoSource?: boolean;
 };
 
 /** Trailing whitespace and a single trailing period, normalised. */
@@ -178,15 +176,22 @@ export function renderH3Prompt(parts: H3PromptParts): string {
   const header = h3AlignmentHeader(mode, parts.durationSeconds);
 
   const body = markDialogue(tidy(parts.body));
-  const timeline = body.startsWith(SHOT) ? body : `${SHOT} ${body}`;
+  const continuation = parts.hasVideoSource
+    ? "Continue directly from <Video 1>'s final frame, preserving its subjects, appearance, " +
+      "props, setting, lighting, camera trajectory, motion, and synchronized audio without a reset."
+    : "";
+  const timelineBody = [continuation, body.replace(/^\[Shot 1\]\s*/, "")]
+    .filter(Boolean)
+    .join(" ");
+  const timeline = `${SHOT} ${timelineBody}`;
 
   const fields = [
     `integrated_multimodal_description: ${timeline}`,
     `overall_soundscape: ${tidy(parts.soundscape) || "N/A"}`,
     `non_diegetic_music: ${tidy(parts.score) || "N/A"}`,
-  ].join("\n\n");
+  ].join("\n");
 
-  return header ? `${header}\n\n${fields}` : fields;
+  return header ? `${header}\n${fields}` : fields;
 }
 
 /** Whether a prompt has already been put in the envelope. */

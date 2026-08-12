@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { CONCEPT_ENHANCER_SYSTEM, enhanceConcept } from "@/lib/agents/concept-enhancer";
+import {
+  CONCEPT_ENHANCER_SYSTEM,
+  conceptWordTarget,
+  enhanceConcept,
+} from "@/lib/agents/concept-enhancer";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 import type { EnhanceConceptInput } from "@/lib/schemas/intake";
 
@@ -35,10 +39,17 @@ const ok = (concept: string): FakeResult => ({ ok: true, value: { concept } });
 
 describe("enhanceConcept", () => {
   it("returns the rewritten concept", async () => {
-    const provider = fakeProvider(ok("  A keeper tends a light through a rising gale.  "));
+    const expanded =
+      "A solitary lighthouse keeper discovers that the storm circling his island responds to " +
+      "the beam he tends each night. He tests the strange connection as the sea rises, drawing " +
+      "the gale away from a fishing boat but pulling it dangerously close to the tower. When the " +
+      "lamp begins to fail, he must keep it alive long enough to guide both the boat and the storm " +
+      "past the rocks. By dawn the vessel is safe, the tower is battered, and the storm lingers " +
+      "offshore like a wary new companion.";
+    const provider = fakeProvider(ok(`  ${expanded}  `));
     await expect(enhanceConcept(input, provider)).resolves.toEqual({
       ok: true,
-      concept: "A keeper tends a light through a rising gale.",
+      concept: expanded,
     });
   });
 
@@ -78,6 +89,14 @@ describe("enhanceConcept", () => {
     expect(result.ok === false && result.reason).toMatch(/unchanged/);
   });
 
+  it("rejects a short paraphrase that adds no usable development", async () => {
+    const result = await enhanceConcept(
+      input,
+      fakeProvider(ok("A lonely lighthouse keeper forms an unusual friendship with a fierce storm.")),
+    );
+    expect(result.ok === false && result.reason).toMatch(/only rephrased/);
+  });
+
   it("sends the settings that constrain the rewrite", async () => {
     const seen: Seen = {};
     await enhanceConcept(input, fakeProvider(ok("Expanded."), seen));
@@ -86,10 +105,13 @@ describe("enhanceConcept", () => {
     expect(payload).toMatchObject({
       concept: input.concept,
       runningTimeSeconds: 60,
+      targetWords: { minimum: 140, maximum: 220 },
       style: "cinematic",
       tone: "inspirational",
       audience: "general audience",
       creativeMode: "film_short",
+      creativeModeGuidance:
+        "Narrative short film. Three-act shape, character-driven beats, cinematic coverage.",
     });
   });
 
@@ -108,13 +130,35 @@ describe("CONCEPT_ENHANCER_SYSTEM", () => {
    * names and camera direction that override decisions later stages own.
    */
   it("forbids inventing detail and writing craft direction", () => {
-    expect(CONCEPT_ENHANCER_SYSTEM).toMatch(/Do not introduce named people/);
+    expect(CONCEPT_ENHANCER_SYSTEM).toMatch(/Do not invent names/);
     expect(CONCEPT_ENHANCER_SYSTEM).toMatch(/No shot lists, camera moves/);
     expect(CONCEPT_ENHANCER_SYSTEM).toMatch(/Never contradict the premise/);
   });
 
+  it("requires substantive development rather than adjective-heavy paraphrase", () => {
+    expect(CONCEPT_ENHANCER_SYSTEM).toMatch(/Do not merely paraphrase/);
+    expect(CONCEPT_ENHANCER_SYSTEM).toMatch(/chronological chain/);
+    expect(CONCEPT_ENHANCER_SYSTEM).toMatch(/concrete end condition/);
+    expect(CONCEPT_ENHANCER_SYSTEM).toMatch(/Every sentence must add new usable information/);
+  });
+
+  it("preserves the intended intensity instead of sanitizing it", () => {
+    expect(CONCEPT_ENHANCER_SYSTEM).toMatch(/Do not sanitize, euphemize/);
+  });
+
   it("asks for prose in the JSON envelope the provider parses", () => {
     expect(CONCEPT_ENHANCER_SYSTEM).toMatch(/"concept"/);
-    expect(CONCEPT_ENHANCER_SYSTEM).toMatch(/No headings, no bullet/);
+    expect(CONCEPT_ENHANCER_SYSTEM).toMatch(/No headings/);
+    expect(CONCEPT_ENHANCER_SYSTEM).toMatch(/bullet points/);
+  });
+});
+
+describe("conceptWordTarget", () => {
+  it("scales development depth with running time", () => {
+    expect(conceptWordTarget(30)).toEqual({ minimum: 90, maximum: 150 });
+    expect(conceptWordTarget(60)).toEqual({ minimum: 140, maximum: 220 });
+    expect(conceptWordTarget(120)).toEqual({ minimum: 180, maximum: 300 });
+    expect(conceptWordTarget(300)).toEqual({ minimum: 240, maximum: 400 });
+    expect(conceptWordTarget(600)).toEqual({ minimum: 300, maximum: 500 });
   });
 });

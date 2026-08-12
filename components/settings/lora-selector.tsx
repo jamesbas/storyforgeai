@@ -34,6 +34,7 @@ export function LoraSelector({
 }) {
   const [catalog, setCatalog] = useState<LoraCatalog | null>(null);
   const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState("");
 
   const load = useCallback(
     async (refresh = false, isCurrent: () => boolean = () => true) => {
@@ -83,6 +84,13 @@ export function LoraSelector({
 
   const chosen = new Set(value.map((v) => v.name));
   const available = catalog.loras.filter((entry) => !chosen.has(entry.name));
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const matches = available.filter((entry) => {
+    if (!normalizedQuery) return true;
+    return [entry.label, entry.name, ...entry.triggerWords].some((term) =>
+      term.toLocaleLowerCase().includes(normalizedQuery),
+    );
+  });
   const atLimit = value.length >= MAX_LORAS_PER_MODEL;
 
   const add = (name: string) => {
@@ -205,21 +213,58 @@ export function LoraSelector({
         <p className="text-xs text-slate-500">No LoRAs selected.</p>
       )}
 
+      {catalog.loras.length ? (
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            <input
+              type="search"
+              value={query}
+              disabled={disabled}
+              onChange={(event) => setQuery(event.target.value)}
+              aria-label={`Search available ${kind} LoRAs`}
+              placeholder={`Search ${kind} LoRAs by name or trigger word`}
+              className="min-w-0 flex-1 rounded-md border border-white/10 bg-panel/60 px-2 py-1.5 text-xs outline-none focus:border-accent"
+            />
+            {query ? (
+              <button
+                type="button"
+                disabled={disabled}
+                onClick={() => setQuery("")}
+                className="shrink-0 rounded-md border border-white/10 px-2 py-1.5 text-[11px] text-slate-400 hover:text-slate-200 disabled:opacity-50"
+              >
+                Clear
+              </button>
+            ) : null}
+          </div>
+          {normalizedQuery ? (
+            <p className="text-[10px] text-slate-500">
+              {matches.length} of {available.length} available LoRA
+              {available.length === 1 ? "" : "s"} match.
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       <div className="flex items-center gap-2">
         <select
-          disabled={disabled || atLimit || available.length === 0}
+          disabled={disabled || atLimit || matches.length === 0}
           value=""
           onChange={(e) => add(e.target.value)}
+          aria-label={`Add ${kind} LoRA`}
           className="min-w-0 flex-1 rounded-md border border-white/10 bg-panel/60 px-2 py-1.5 text-xs"
         >
           <option value="">
             {atLimit
               ? `Limit of ${MAX_LORAS_PER_MODEL} reached`
-              : available.length
-                ? `Add a LoRA (${available.length} available)`
+              : matches.length
+                ? normalizedQuery
+                  ? `Add a LoRA (${matches.length} matching)`
+                  : `Add a LoRA (${available.length} available)`
+                : normalizedQuery && available.length
+                  ? `No LoRAs match “${query.trim()}”`
                 : "No more LoRAs installed for this model"}
           </option>
-          {available.map((entry) => (
+          {matches.map((entry) => (
             <option key={entry.name} value={entry.name}>
               {entry.label}
               {entry.label !== entry.name ? ` — ${entry.name}` : ""}

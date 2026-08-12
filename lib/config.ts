@@ -90,12 +90,11 @@ export const config = {
     /**
      * MiniMax H3's native prompt envelope.
      *
-     * Off until fixed-seed comparisons have been run on `minimax_h3_fl2va`.
-     * The format is MiniMax's own published one, but "documented" and "renders
-     * better through WanGP" are different claims and only a render settles the
-     * second.
+      * Fixed-seed comparisons found that the earlier apparent dialogue failure
+      * came from a contradictory visual exclusion, not the envelope. Default to
+      * MiniMax's documented format; the flag remains an emergency rollback.
      */
-    h3NativePromptFormat: bool(process.env.H3_NATIVE_PROMPT_FORMAT, false),
+     h3NativePromptFormat: bool(process.env.H3_NATIVE_PROMPT_FORMAT, true),
     /**
      * Durable task state and recovery (SPEC-008).
      *

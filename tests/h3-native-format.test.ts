@@ -62,6 +62,8 @@ class TwoModelClient extends MockWangpClient {
         { name: "video_length", type: "number" },
         { name: "image_start", type: "string" },
         { name: "image_end", type: "string" },
+        { name: "video_source", type: "string" },
+        { name: "image_prompt_type", type: "string" },
       ],
     };
   }
@@ -73,6 +75,7 @@ async function manifestFor(options: {
   prompt?: string;
   soundscape?: string;
   score?: string;
+  videoSource?: string;
 }) {
   process.env.H3_NATIVE_PROMPT_FORMAT = options.flag ? "true" : "false";
   vi.resetModules();
@@ -86,8 +89,9 @@ async function manifestFor(options: {
     prompt: options.prompt ?? "She lifts the umbrella and steps beneath it.",
     modelStrategy: "auto",
     modelType: options.modelType,
-    imageStart: "start.png",
+    imageStart: options.videoSource ? undefined : "start.png",
     imageEnd: "end.png",
+    videoSource: options.videoSource,
     durationSeconds: 15,
     soundscape: options.soundscape,
     score: options.score,
@@ -118,6 +122,21 @@ describe("with the flag on and H3 resolved", () => {
   it("writes N/A for a layer the scene never supplied", async () => {
     const manifest = await manifestFor({ flag: true, modelType: "minimax_h3_fl2va" });
     expect(String(manifest.settings.prompt)).toContain("non_diegetic_music: N/A");
+  });
+
+  it("continues from a source clip and tells H3 what Video 1 means", async () => {
+    const manifest = await manifestFor({
+      flag: true,
+      modelType: "minimax_h3_fl2va",
+      videoSource: "/clips/previous.mp4",
+    });
+    expect(manifest.settings.video_source).toBe("/clips/previous.mp4");
+    expect(manifest.settings.image_end).toBe("end.png");
+    expect(manifest.settings.image_prompt_type).toBe("EV");
+    expect(String(manifest.settings.prompt)).toContain(
+      "[Shot 1] Continue directly from <Video 1>'s final frame",
+    );
+    expect(String(manifest.settings.prompt)).toContain("aligns with the 15.00-second mark");
   });
 });
 
