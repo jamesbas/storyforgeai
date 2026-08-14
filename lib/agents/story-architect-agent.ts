@@ -1,6 +1,7 @@
 import { storyPlanSchema, type StoryPlan } from "@/lib/schemas/agents";
 import { buildStoryPlan } from "@/lib/agents/mock-agents";
 import { creativeModeDirective } from "@/lib/agents/look";
+import { explicitnessDirective } from "@/lib/agents/explicitness";
 import { executeArtifact, providerCall } from "@/lib/agents/provenance";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import { SEGMENT_SECONDS } from "@/lib/types";
@@ -80,7 +81,12 @@ export async function storyArchitectAgent(
       ? providerCall(
           provider,
           storyArchitectSystem(ctx.project.segmentSeconds, ctx.project.segmentCount) +
-            creativeModeDirective(ctx.project),
+            creativeModeDirective(ctx.project) +
+            // The beats written here are what the storyboard elaborates. A beat
+            // that ends at the moment it becomes explicit has already decided
+            // the piece is coy, and no downstream agent can restore an event
+            // that was never in the plan.
+            explicitnessDirective(ctx.project, "plan"),
           user,
           storyPlanSchema,
         )

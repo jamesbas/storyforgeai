@@ -100,3 +100,20 @@ export function familyOfModel(model: Pick<WangpModel, "modelType" | "metadata">)
 export function supportsNegativePrompt(family: ModelFamily): boolean {
   return family !== "flux" && family !== "krea" && !isMinimaxFamily(family);
 }
+
+/**
+ * Whether an exclusion sent as a negative prompt actually reaches the render.
+ *
+ * Two independent reasons it might not: the family ignores the field, or this
+ * particular checkpoint never declares it. LTX is why both are needed — a live
+ * dump shows `ltx2_22B_distilled_1_1` declaring `negative_prompt` and every
+ * `ltx2_25_*` checkpoint dropping it, so the family alone cannot answer for a
+ * lineage that changed mid-life.
+ *
+ * `declared` is undefined wherever the schema has not been read, which keeps
+ * the family's answer. A schema can only ever take the negative away, never
+ * grant it: FLUX declares the field and still ignores it.
+ */
+export function negativePromptReaches(family: ModelFamily, declared?: boolean): boolean {
+  return supportsNegativePrompt(family) && declared !== false;
+}

@@ -8,8 +8,9 @@ import {
   withNegatedTraits,
   withoutCharacterScopedTerms,
 } from "@/lib/agents/negative-prompt";
-import { familyOf, supportsNegativePrompt } from "@/lib/wangp/family";
+import { familyOf, negativePromptReaches, supportsNegativePrompt } from "@/lib/wangp/family";
 import { imagePromptDirective, videoPromptDirective, hasNativeAudio } from "@/lib/agents/model-directives";
+import { WORDS_PER_SECOND } from "@/lib/agents/media-prompt-spec";
 
 /**
  * Prompt construction judged against each model developer's own guidance.
@@ -195,6 +196,13 @@ describe("identifying the model family", () => {
     expect(familyOf("wan2_2_i2v_A14B")).toBe("wan");
   });
 
+  /** Taken from a live catalogue listing, so a new release inherits the profile. */
+  it("recognises the LTX 2.5 checkpoints", () => {
+    expect(familyOf("ltx2_25_22B")).toBe("ltx");
+    expect(familyOf("ltx2_25_22B_distilled")).toBe("ltx");
+    expect(familyOf("ltx2_25_22B_distilled_nvfp4")).toBe("ltx");
+  });
+
   it("prefers WanGP's own metadata when it has any", () => {
     expect(familyOf("some_variant", "ltx2")).toBe("ltx");
   });
@@ -255,5 +263,94 @@ describe("family-tuned agent directives", () => {
   it("knows LTX is the only family here that writes its own audio", () => {
     expect(hasNativeAudio("ltx")).toBe(true);
     expect(hasNativeAudio("wan")).toBe(false);
+  });
+});
+
+/**
+ * LTX's published guide, which now covers 2.5 in the same document. The rules
+ * that needed stating are the ones the general video directive gets wrong for
+ * this family, plus the one capability 2.5 added.
+ */
+describe("what LTX is told, against its own prompting guide", () => {
+  const directive = (segmentSeconds: number) =>
+    videoPromptDirective("ltx", { segmentSeconds, nativeAudio: true });
+
+  /**
+   * 2.5 can cut between shots inside one generation. Every clip here opens on
+   * a rendered keyframe and joins the next segment, and the guide says to stay
+   * in one take for image-to-video from a first frame.
+   */
+  it("forbids the cuts LTX 2.5 is newly able to make", () => {
+    const text = directive(8);
+    expect(text).toMatch(/one continuous take/i);
+    expect(text).toContain("hard cut");
+    expect(text).toContain("dissolve");
+  });
+
+  /**
+   * The general directive caps every family at one action plus one smaller
+   * movement, which is Wan's formula. LTX asks for a sequence, so the cap has
+   * to be lifted explicitly or the two instructions contradict each other.
+   */
+  it("lifts the general one-action limit and scales beats with length", () => {
+    expect(directive(5)).toMatch(/at most one beat/);
+    expect(directive(20)).toMatch(/at most 6 beats/);
+    expect(directive(8)).toMatch(/supersedes the general limit/i);
+  });
+
+  it("asks for a chronological sequence rather than one isolated movement", () => {
+    expect(directive(12)).toMatch(/chronological sequence/i);
+  });
+
+  /** Guide element 6: dialogue quoted, with language and accent where needed. */
+  it("asks for the language and accent of a spoken line", () => {
+    expect(directive(8)).toMatch(/language and the accent/i);
+    expect(directive(8)).toMatch(/quotation marks/i);
+  });
+
+  /**
+   * The model was told to aim at 2 words a second while the lint warned at
+   * 2.5, so a prompt could be told it was under budget and flagged anyway.
+   */
+  it("quotes the same speech rate the lint enforces", () => {
+    expect(directive(20)).toContain(`${Math.round(20 * WORDS_PER_SECOND)} words of speech`);
+    expect(directive(20)).toContain("50 words of speech");
+  });
+
+  it("keeps the guide's other fundamentals", () => {
+    const text = directive(8);
+    expect(text).toMatch(/present tense/i);
+    expect(text).toMatch(/four to eight sentences/i);
+    expect(text).toMatch(/never through an emotional label/i);
+  });
+});
+
+/**
+ * A lineage that changed mid-life. Verified against live WanGP schemas:
+ * `ltx2_22B_distilled_1_1` declares `negative_prompt`; every `ltx2_25_*`
+ * checkpoint dropped it, so an exclusion routed on the family alone was
+ * written into a manifest that discards the field.
+ */
+describe("whether an exclusion reaches the render", () => {
+  it("passes it through where the checkpoint declares the field", () => {
+    expect(negativePromptReaches("ltx", true)).toBe(true);
+    expect(negativePromptReaches("wan", true)).toBe(true);
+  });
+
+  it("withholds it from an LTX checkpoint that dropped the field", () => {
+    expect(negativePromptReaches("ltx", false)).toBe(false);
+  });
+
+  /** Nothing has read a schema, so the family's answer stands. */
+  it("keeps the family's answer when the schema is unknown", () => {
+    expect(negativePromptReaches("ltx", undefined)).toBe(true);
+    expect(negativePromptReaches("flux", undefined)).toBe(false);
+  });
+
+  /** FLUX declares the field and ignores it, so a schema must not re-enable it. */
+  it("never lets a schema grant a negative the family ignores", () => {
+    expect(negativePromptReaches("flux", true)).toBe(false);
+    expect(negativePromptReaches("krea", true)).toBe(false);
+    expect(negativePromptReaches("minimax", true)).toBe(false);
   });
 });

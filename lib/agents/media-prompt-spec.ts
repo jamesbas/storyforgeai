@@ -82,8 +82,11 @@ export type LintFinding = {
  * ~2.5 words/second is conversational delivery. Dialogue is authoritative — it
  * is never trimmed to fit — so exceeding this is a warning telling the author
  * the line will be clipped or rushed, not an error that blocks generation.
+ *
+ * Exported so the number a model is told to aim at and the number the lint
+ * enforces cannot drift apart; they were 2 and 2.5 respectively.
  */
-const WORDS_PER_SECOND = 2.5;
+export const WORDS_PER_SECOND = 2.5;
 
 export function dialogueWordBudget(seconds: number): number {
   return Math.max(1, Math.round(seconds * WORDS_PER_SECOND));

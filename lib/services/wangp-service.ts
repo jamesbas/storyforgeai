@@ -9,7 +9,7 @@ import {
 } from "@/lib/wangp/model-router";
 import { resolveModel } from "@/lib/wangp/resolve-model";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
-import { familyOfModel, isMinimaxFamily, supportsNegativePrompt } from "@/lib/wangp/family";
+import { familyOfModel, isMinimaxFamily, negativePromptReaches } from "@/lib/wangp/family";
 import { normaliseNegative, positiveConstraintClause } from "@/lib/agents/negative-prompt";
 import {
   appendAudioProse,
@@ -127,27 +127,44 @@ function withTriggerWords(prompt: string, loras: readonly ResolvedLora[]): strin
  * prompt as the thing to render instead; everywhere else it is passed through,
  * normalised, because prompts written before this existed still carry prose
  * negations that a sampler cannot read.
+ *
+ * The family answers whether a model *acts* on a negative prompt; the schema
+ * answers whether it will even be handed one, and the two can disagree inside
+ * one family. Verified live: `ltx2_22B_distilled_1_1` declares
+ * `negative_prompt`, every `ltx2_25_*` checkpoint dropped it — so a family-only
+ * answer sent LTX 2.5's exclusions into a manifest that discards them. The
+ * schema can only ever add folding, never remove it, so a family known to
+ * ignore the field keeps its positive constraint either way.
  */
 function routeNegative(
   model: Pick<WangpModel, "modelType" | "metadata">,
   prompt: string,
   negative: string | undefined,
   context: { sceneId: string; purpose: string },
+  declaresNegative?: boolean,
 ): { prompt: string; negativePrompt: string | undefined } {
   const family = familyOfModel(model);
   const terms = negative?.trim() ? normaliseNegative(negative) : "";
   if (!terms) return { prompt, negativePrompt: negative };
 
-  if (supportsNegativePrompt(family)) return { prompt, negativePrompt: terms };
+  if (negativePromptReaches(family, declaresNegative)) {
+    return { prompt, negativePrompt: terms };
+  }
 
   const clause = positiveConstraintClause(terms);
   logEvent("wangp.negative.folded", {
     ...context,
     modelType: model.modelType,
     family,
+    declared: declaresNegative ?? null,
     terms: terms.split(", ").length,
   });
   return { prompt: `${prompt}${clause}`, negativePrompt: undefined };
+}
+
+/** Whether this checkpoint will receive a negative prompt at all. */
+function declaresNegativePrompt(schema: WangpModelSchema): boolean {
+  return schema.fields.some((field) => field.name === "negative_prompt");
 }
 
 /**
@@ -458,6 +475,7 @@ export async function buildVideoManifest(args: {
     withTriggerWords(args.prompt, loras),
     args.negativePrompt,
     context,
+    declaresNegativePrompt(schema),
   );
 
   const family = familyOfModel(model);
@@ -811,10 +829,16 @@ export async function buildImageManifest(args: {
   return buildSettingsManifest(schema, {
     sceneId: args.sceneId,
     purpose: args.purpose,
-    ...routeNegative(model, withTriggerWords(args.prompt, loras), args.negativePrompt, {
-      sceneId: args.sceneId,
-      purpose: args.purpose,
-    }),
+    ...routeNegative(
+      model,
+      withTriggerWords(args.prompt, loras),
+      args.negativePrompt,
+      {
+        sceneId: args.sceneId,
+        purpose: args.purpose,
+      },
+      declaresNegativePrompt(schema),
+    ),
     imageRefs,
     imageRefsLeadWithScene: args.imageRefsLeadWithScene,
     loras,

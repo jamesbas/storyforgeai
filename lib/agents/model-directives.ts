@@ -1,4 +1,5 @@
 import { isMinimaxFamily, type ModelFamily } from "@/lib/wangp/family";
+import { WORDS_PER_SECOND } from "@/lib/agents/media-prompt-spec";
 
 /**
  * Per-family prompt rules for the Image and Video Prompt Agents.
@@ -54,6 +55,19 @@ export type VideoDirectiveOptions = {
   nativeAudio: boolean;
 };
 
+/**
+ * How many action beats an LTX clip of this length can hold.
+ *
+ * The guide asks for the action as a sequence flowing beginning to end and
+ * gives no number. Three seconds a beat is the conservative end of the range
+ * LTX published for 2.3, taken rather than the midpoint because an overloaded
+ * prompt drops its middle actions rather than its last.
+ */
+function actionBeats(segmentSeconds: number): string {
+  const beats = Math.max(1, Math.floor(segmentSeconds / 3));
+  return beats === 1 ? "one beat" : `${beats} beats`;
+}
+
 export function videoPromptDirective(
   family: ModelFamily,
   { segmentSeconds, nativeAudio }: VideoDirectiveOptions,
@@ -76,11 +90,31 @@ export function videoPromptDirective(
         "through what the body does — a jaw tightening, a gaze dropping — never through an " +
         "emotional label, which the model cannot render. State the camera move relative to the " +
         "subject and say what the framing settles on at the end, so the movement has somewhere " +
-        "to finish. Avoid signs, logos and readable text: this model does not hold them steady." +
+        "to finish. Avoid signs, logos and readable text: this model does not hold them steady. " +
+        // LTX asks for the action as a sequence flowing from beginning to end,
+        // which the general one-action limit would cut short. Anchoring is not
+        // density: there is still one thing the clip is about, stated first.
+        `Write the action as a chronological sequence rather than one isolated movement — at ` +
+        `most ${actionBeats(segmentSeconds)}, the first being what the clip is about and any ` +
+        "that follow leading on from it. This supersedes the general limit of one action and " +
+        "one smaller movement, which is written for a family that asks for less. " +
+        // Newer LTX checkpoints can cut inside a single generation. Every clip
+        // here opens on a keyframe that is already rendered and joins the next
+        // segment at a seam decided elsewhere, so a cut is never wanted.
+        "Keep it to one continuous take. LTX can cut between shots inside a single clip and this " +
+        "one must not: it opens on a keyframe that is already rendered, and it is one segment of " +
+        "a longer piece whose joins are decided elsewhere, so a cut invents a shot the storyboard " +
+        "never planned and breaks the join to the next segment. Do not name a transition of any " +
+        'kind — no "cut to", "a hard cut", "match cut" or "dissolve". ' +
+        // Chaotic motion is where the model still produces artifacts.
+        "Prefer motion that is plausible and simply described; highly chaotic movement renders " +
+        "with artifacts." +
         (nativeAudio
           ? " LTX writes the soundtrack from this same prompt. Describe the ambience and any " +
-            "Foley, and put every spoken line in quotation marks with the delivery named. " +
-            `About ${Math.round(segmentSeconds * 2)} words of speech fill ${segmentSeconds} ` +
+            "Foley, and put every spoken line in quotation marks with the delivery named. Name " +
+            "the language and the accent whenever a line is not spoken in unaccented English. " +
+            `About ${Math.round(segmentSeconds * WORDS_PER_SECOND)} words of speech fill ` +
+            `${segmentSeconds} ` +
             "seconds at a natural pace, so use that budget rather than reducing an exchange to " +
             "a single remark — a clip with two words in it wastes the model's one real " +
             "advantage. Only trim when the scene genuinely carries more than will fit."

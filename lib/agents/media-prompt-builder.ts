@@ -216,7 +216,15 @@ export function buildMediaPromptSpec(
     setting: deriveSetting(scene, plans),
     lighting: deriveLighting(plans),
     composition: slice.shotPlan ? stripTrailing(slice.shotPlan) : undefined,
-    startState: stripTrailing(scene.storyBeat),
+    // The start frame used to be the story beat alone, which left the opening
+    // keyframe generic whenever the scene's physical state was recorded in the
+    // action rather than the beat — the same asymmetry the deterministic
+    // builder had, one layer down.
+    startState: stripTrailing(
+      motion.dominant
+        ? `${stripTrailing(scene.storyBeat).replace(/[.!?]+$/, "")}, at the first instant of ${motion.dominant}`
+        : scene.storyBeat,
+    ),
     endState: stripTrailing(
       motion.dominant
         ? `${motion.dominant}${isLast ? ", on a resolving beat" : ""}`

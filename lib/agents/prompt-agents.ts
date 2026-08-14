@@ -39,7 +39,15 @@ import {
 } from "@/lib/agents/model-directives";
 import { familyOf, type ModelFamily } from "@/lib/wangp/family";
 import { charactersInFrame, charactersInScene } from "@/lib/agents/scene-cast";
-import { explicitnessDirective } from "@/lib/agents/explicitness";
+import { explicitnessDirective, isExplicitProject, isExplicitScene } from "@/lib/agents/explicitness";
+import {
+  gateImagePrompt,
+  gateRepairDirective,
+  inventedGarments,
+  repairImagePrompt,
+  type ImageGateContext,
+  type PromptGateCode,
+} from "@/lib/agents/prompt-gate";
 import { isTightShot, seamBreak } from "@/lib/media/seam";
 import { wardrobeChangeClause, othersInFrame, othersWardrobeSuffix, wardrobeTimeline } from "@/lib/agents/wardrobe";
 import type { SceneWardrobe } from "@/lib/schemas/wardrobe";
@@ -54,7 +62,7 @@ import { DEFAULT_SCENE_CONTINUITY, SEGMENT_SECONDS } from "@/lib/types";
 import type { Character } from "@/lib/schemas/character";
 import type { VisualBible } from "@/lib/schemas/agents";
 import type { Project } from "@/lib/schemas/project";
-import type { PlanningProvider } from "@/lib/agents/llm/provider";
+import type { PlanningProvider, ProviderResult } from "@/lib/agents/llm/provider";
 
 /** Planning artifacts the prompt agents read but do not modify. */
 export type ScenePromptContext = {
@@ -335,6 +343,16 @@ export async function attachScenePrompts(
           : undefined,
         forbiddenContradictions: plans?.worldBible?.forbiddenContradictions,
       });
+      const gate: ImageGateContext = {
+        scene: draft,
+        participants: sceneCast.map((c) => c.name),
+        explicit: isExplicitProject(project) || isExplicitScene(draft),
+        establishedWardrobe: {
+          start: establishedGarments(wardrobe?.start, wardrobe?.othersStart, sceneCast),
+          end: establishedGarments(wardrobe?.end, wardrobe?.othersEnd, sceneCast),
+        },
+      };
+      const gated: { codes: PromptGateCode[] } = { codes: [] };
       const imageResult = await executeArtifact<ImagePart>({
         artifact: `${draft.id}.image_prompt`,
         scope: draft.id,
@@ -343,21 +361,46 @@ export async function attachScenePrompts(
         builderVersion: BUILDER_VERSION,
         provider,
         onExecution: context.onExecution,
-        llm: providerCall(
+        llm: gatedImageCall(
           provider,
           IMAGE_PROMPT_SYSTEM +
-            explicitnessDirective(project, "image") +
+            explicitnessDirective(project, "image", draft) +
             wardrobeChangeDirective(wardrobe) +
             imagePromptDirective(imageFamily) +
             seamDirective(project) +
             castSystemDirective(sceneCast, true) +
             precedenceDirective(sceneCast, plans),
           user,
-          imagePartSchema,
+          gate,
+          gated,
         ),
+        // A prompt the model wrote and the gate had to patch is neither its
+        // work nor the builder's, and a run that needed patching is a run
+        // whose model is not doing the job.
+        outcome: () =>
+          gated.codes.length
+            ? {
+                source: "hybrid" as const,
+                fallbackReason: "invalid_set" as const,
+                detail: gated.codes.join(","),
+              }
+            : {},
         fallback: () => imagePart,
       });
-      if (imageResult.execution.source === "llm") {
+      if (gated.codes.length) {
+        logEvent("prompt.gate", { scene: draft.id, kind: "image", codes: gated.codes });
+      }
+      // The deterministic builder is a template, not an author: it can keep the
+      // card's own words but cannot turn an indirect description into a
+      // concrete one. On explicit work that is a visible downgrade, so it is
+      // reported rather than absorbed.
+      if (imageResult.execution.source === "deterministic" && gate.explicit) {
+        logEvent("prompt.explicit_fallback", {
+          scene: draft.id,
+          reason: imageResult.execution.fallbackReason ?? "unknown",
+        });
+      }
+      if (imageResult.execution.source !== "deterministic") {
         imagePart = withCastEnforced(
           normaliseImageResult(imageResult.value, project, draft, plans, wardrobe, imageFamily),
           sceneCast,
@@ -379,7 +422,7 @@ export async function attachScenePrompts(
         llm: providerCall(
           provider,
           videoPromptSystem(project.segmentSeconds) +
-            explicitnessDirective(project, "video") +
+            explicitnessDirective(project, "video", draft) +
             videoPromptDirective(videoFamily, {
               segmentSeconds: project.segmentSeconds,
               nativeAudio: hasNativeAudio(videoFamily),
@@ -415,6 +458,105 @@ export async function attachScenePrompts(
 
 type ImagePart = z.infer<typeof imagePartSchema>;
 type VideoPart = z.infer<typeof videoPartSchema>;
+
+/** Both frames' findings, deduplicated: a fault in either is a fault in the pair. */
+function gateFindings(part: ImagePart, gate: ImageGateContext): PromptGateCode[] {
+  return [
+    ...new Set([
+      ...gateImagePrompt(part.startFramePrompt, "start", gate),
+      ...gateImagePrompt(part.endFramePrompt, "end", gate),
+    ]),
+  ];
+}
+
+function repairPart(part: ImagePart, gate: ImageGateContext): ImagePart {
+  const start = gateImagePrompt(part.startFramePrompt, "start", gate);
+  const end = gateImagePrompt(part.endFramePrompt, "end", gate);
+  const startFramePrompt = start.length
+    ? repairImagePrompt(part.startFramePrompt, "start", start, gate)
+    : part.startFramePrompt;
+  const endFramePrompt = end.length
+    ? repairImagePrompt(part.endFramePrompt, "end", end, gate)
+    : part.endFramePrompt;
+  // A garment the model invented for a participant cannot be argued away in
+  // the positive prompt, where naming it at all embeds it. The negative is the
+  // only place "not this" means anything.
+  const invented = [
+    ...new Set([
+      ...inventedGarments(startFramePrompt, gate.establishedWardrobe?.start),
+      ...inventedGarments(endFramePrompt, gate.establishedWardrobe?.end),
+    ]),
+  ];
+  return {
+    startFramePrompt,
+    endFramePrompt,
+    imageNegativePrompt: invented.length
+      ? `${part.imageNegativePrompt}, ${invented.join(", ")}`
+      : part.imageNegativePrompt,
+  };
+}
+
+/**
+ * The garments this scene genuinely establishes for the people in it.
+ *
+ * An outfit somebody chose is legitimate in any scene. An outfit the model
+ * invented for a participant in a sex act is the failure — it is appended last,
+ * outranks the act, and produced a man in black silk trousers performing oral
+ * sex. This is what tells the two apart.
+ */
+function establishedGarments(
+  cast: Record<string, string> | undefined,
+  others: Record<string, string> | undefined,
+  sceneCast: readonly Character[],
+): string {
+  const inScene = new Set(sceneCast.map((c) => c.id));
+  const worn = Object.entries(cast ?? {})
+    .filter(([id]) => inScene.has(id))
+    .map(([, outfit]) => outfit);
+  return [...worn, ...Object.values(others ?? {})].join(" ").toLocaleLowerCase();
+}
+
+/**
+ * The image call with the acceptance gate around it.
+ *
+ * A schema-valid answer is not a usable one: three non-empty strings satisfy
+ * the contract whether or not they describe the scene. When the gate rejects
+ * the answer the model is told exactly what it left out and gets one retry —
+ * cheaper than a wrong render and far cheaper than a wrong batch. If the retry
+ * is no better, the card's own concrete wording is put back deterministically
+ * and the execution says so, because silently shipping the coy version is the
+ * one outcome with no evidence in it.
+ */
+function gatedImageCall(
+  provider: PlanningProvider,
+  system: string,
+  user: string,
+  gate: ImageGateContext,
+  gated: { codes: PromptGateCode[] },
+): () => Promise<ProviderResult<ImagePart>> {
+  return async () => {
+    const first = await providerCall(provider, system, user, imagePartSchema)();
+    if (!first.ok) return first;
+    const codes = gateFindings(first.value, gate);
+    if (!codes.length) return first;
+
+    let best = first;
+    const retry = await providerCall(
+      provider,
+      system + gateRepairDirective(codes, gate),
+      user,
+      imagePartSchema,
+    )();
+    if (retry.ok) {
+      const retryCodes = gateFindings(retry.value, gate);
+      if (!retryCodes.length) return retry;
+      if (retryCodes.length < codes.length) best = retry;
+    }
+
+    gated.codes = gateFindings(best.value, gate);
+    return { ...best, value: repairPart(best.value, gate) };
+  };
+}
 
 /**
  * Lint codes for the final prompt, recorded on the execution and in telemetry.

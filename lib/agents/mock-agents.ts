@@ -8,6 +8,7 @@ import { isTightShot } from "@/lib/media/seam";
 import type { SheetOptions } from "@/lib/agents/cast";
 import type { SceneWardrobe } from "@/lib/schemas/wardrobe";
 import { isContinuousTake } from "@/lib/agents/continuity";
+import { isExplicitProject, isExplicitScene } from "@/lib/agents/explicitness";
 import { lookPromptSuffix } from "@/lib/agents/look";
 import { normaliseNegative } from "@/lib/agents/negative-prompt";
 import {
@@ -317,18 +318,40 @@ export function buildImagePrompts(
     ? buildMediaPromptSpec(project, scene, plans, wardrobe)
     : undefined;
 
+  // A template cannot convert an indirect description into a concrete one —
+  // only the model can do that. What it can do is refuse to hide the act it was
+  // handed, and say that the frame is the act rather than the mood around it.
+  // Worth stating plainly, because this is what a provider failure falls back
+  // to on explicit work.
+  const explicit = isExplicitProject(project) || isExplicitScene(scene);
+  const opening = explicit
+    ? `Explicit cinematic still, the act itself in frame and fully visible. `
+    : `Cinematic still. `;
+
   const startBody = v2
     ? renderImagePrompt(v2, { family, frame: "start" })
-    : `Cinematic still. ` +
+    : opening +
       sentence(scene.visualDescription) +
       sentence(scene.storyBeat) +
+      // The start frame used to get the story beat and no action at all, so a
+      // scene whose physical state lived in `actionDescription` opened generic
+      // and only closed on the thing it was about.
+      sentence(
+        scene.actionDescription
+          ? `At the first instant of the action: ${scene.actionDescription.trim().replace(/\.$/, "")}`
+          : undefined,
+      ) +
       `Opening framing of the shot; ${scene.cameraMovement.toLowerCase()} begins from here. ` +
       `Consistent characters, wardrobe, and location per the visual bible.`;
   const endBody = v2
     ? renderImagePrompt(v2, { family, frame: "end" })
-    : `Cinematic still. ` +
+    : opening +
       sentence(scene.visualDescription) +
-      sentence(scene.actionDescription) +
+      sentence(
+        scene.actionDescription
+          ? `At the last instant of the action: ${scene.actionDescription.trim().replace(/\.$/, "")}`
+          : undefined,
+      ) +
       `Closing framing after ${scene.cameraMovement.toLowerCase()}, showing the result of the action` +
       `${isLast ? " on a resolving beat" : `, setting up scene ${scene.sceneNumber + 1}`}. ` +
       // A scene that depicts a costume change is the one place the two frames are

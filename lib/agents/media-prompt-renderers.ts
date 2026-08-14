@@ -67,16 +67,28 @@ export function dialogueClause(spec: MediaPromptSpec): string {
  * Budgets are enforced by dropping optional style clauses from the end, which
  * is the precedence SPEC-003 asks for: dialogue is authoritative, so optional
  * global style goes first.
+ *
+ * `alsoProtect` names sentences that are load-bearing wherever they land. The
+ * frame state sits after subject, composition, setting and lighting, so on a
+ * long prompt it was among the first things dropped — and the frame state is
+ * what the frame is of.
  */
-export function trimToBudget(text: string, budget: number, protectedPrefixSentences = 1): string {
+export function trimToBudget(
+  text: string,
+  budget: number,
+  protectedPrefixSentences = 1,
+  alsoProtect: readonly string[] = [],
+): string {
   if (countWords(text) <= budget) return text;
+  const keep = new Set(alsoProtect.map(normaliseForCompare).filter(Boolean));
   const sentences = splitSentences(text);
   const kept: string[] = [];
   let words = 0;
   for (let i = 0; i < sentences.length; i += 1) {
     const sentence = sentences[i];
     const cost = countWords(sentence);
-    const isProtected = i < protectedPrefixSentences || /["“]/.test(sentence);
+    const isProtected =
+      i < protectedPrefixSentences || /["“]/.test(sentence) || keep.has(normaliseForCompare(sentence));
     if (!isProtected && words + cost > budget) continue;
     kept.push(sentence);
     words += cost;
@@ -84,11 +96,17 @@ export function trimToBudget(text: string, budget: number, protectedPrefixSenten
   return kept.join(" ");
 }
 
-function finish(text: string, budget: number, protectedPrefix = 1): string {
+function finish(
+  text: string,
+  budget: number,
+  protectedPrefix = 1,
+  alsoProtect: readonly string[] = [],
+): string {
   const cleaned = trimToBudget(
     cleanPunctuation(dedupeSentences(cleanPunctuation(text))),
     budget,
     protectedPrefix,
+    alsoProtect,
   );
   // Spec fields are phrased to sit mid-sentence, so the opening needs raising.
   return cleaned ? cleaned.charAt(0).toUpperCase() + cleaned.slice(1) : cleaned;
@@ -110,13 +128,14 @@ export type ImageRenderOptions = {
  */
 export function renderImagePrompt(spec: MediaPromptSpec, options: ImageRenderOptions): string {
   const state = options.frame === "start" ? spec.startState : spec.endState;
+  const stateClause = clause(state);
   const parts = [
     framingOpening(spec),
     clause(spec.subject),
     clause(spec.composition),
     spec.setting.trim() ? clause(`The setting is ${inline(spec.setting)}`) : "",
     spec.lighting.trim() ? clause(`Lighting: ${inline(spec.lighting)}`) : "",
-    clause(state),
+    stateClause,
     ...spec.continuity.map(clause),
   ];
 
@@ -124,7 +143,9 @@ export function renderImagePrompt(spec: MediaPromptSpec, options: ImageRenderOpt
     parts.push("No lettering or signage in frame.");
   }
 
-  return finish(parts.filter(Boolean).join(" "), wordBudget(options.family, "image", 0));
+  return finish(parts.filter(Boolean).join(" "), wordBudget(options.family, "image", 0), 1, [
+    stateClause,
+  ]);
 }
 
 export type VideoRenderOptions = {

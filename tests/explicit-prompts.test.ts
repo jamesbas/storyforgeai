@@ -1,7 +1,15 @@
 import { describe, it, expect } from "vitest";
+import type { ZodType, ZodTypeDef } from "zod";
 import { castPromptSuffix, castSheet, castSystemDirective } from "@/lib/agents/cast";
-import { explicitnessDirective, isExplicitProject } from "@/lib/agents/explicitness";
+import { explicitnessDirective, isExplicitProject, isExplicitScene } from "@/lib/agents/explicitness";
+import { gateImagePrompt, repairImagePrompt } from "@/lib/agents/prompt-gate";
+import { lintRendered } from "@/lib/agents/media-prompt-spec";
+import { attachScenePrompts } from "@/lib/agents/prompt-agents";
+import { storyArchitectAgent } from "@/lib/agents/story-architect-agent";
 import { isTightShot } from "@/lib/media/seam";
+import type { ArtifactExecution } from "@/lib/schemas/provenance";
+import type { PlanningProvider } from "@/lib/agents/llm/provider";
+import type { SceneDraft } from "@/lib/schemas/storyboard";
 import type { Character } from "@/lib/schemas/character";
 import type { Project } from "@/lib/schemas/project";
 
@@ -32,8 +40,84 @@ function project(overrides: Partial<Project> = {}): Project {
     style: "erotic art film",
     tone: "erotic",
     audience: "adults only, explicit content",
+    segmentSeconds: 8,
+    segmentCount: 1,
     ...overrides,
   } as Project;
+}
+
+const ACTION = "Tracey straddles Mark and takes his penis inside her, riding him slowly.";
+
+function scene(overrides: Partial<SceneDraft> = {}): SceneDraft {
+  return {
+    id: "scene-1",
+    projectId: "p1",
+    sceneNumber: 1,
+    startTimeSeconds: 0,
+    endTimeSeconds: 8,
+    targetDurationSeconds: 8,
+    title: "On the bed",
+    sceneObjective: "She takes the lead.",
+    storyBeat: "They reach the bed.",
+    visualDescription: "Tracey and Mark on a bed in warm lamplight.",
+    actionDescription: ACTION,
+    cameraMovement: "Slow push-in",
+    transitionIn: "cut",
+    transitionOut: "cut",
+    continuityNotes: [],
+    subjectFaceVisible: true,
+    charactersPresent: ["Tracey"],
+    wardrobeChanges: [],
+    status: "planned",
+    ...overrides,
+  } as SceneDraft;
+}
+
+const COY =
+  "Medium shot, eye level. Tracey and Mark share an intimate embrace in warm lamplight, " +
+  "their union tastefully implied as the camera lingers on the soft glow of the room.";
+
+const CONCRETE =
+  "Medium shot, eye level. Tracey straddles Mark on the bed in warm lamplight, his cock " +
+  "(penis) fully inserted in her pussy (vagina), her labia stretched around his shaft, her " +
+  "thighs either side of his hips, her breasts lifted, mouth open, skin sweat-slick.";
+
+/** The prompt this project actually shipped for scene 10, verbatim. */
+const SHIPPED_ORAL =
+  "Medium close-up, low angle, 35mm lens. A muscular Black man in his 30s wearing black silk " +
+  "trousers performs oral sex on Tracey; his mouth is pressed against her soft skin between " +
+  "her thighs. Tracey lies back on white wrinkled linens, reaching down to grasp the man's " +
+  "hair with her bright blue manicured nails.";
+
+/** And the three-hander, whose act is carried entirely by the verb "engages". */
+const SHIPPED_VAN =
+  "Medium shot, eye level, inside the dark van, showing the full rhythmic motion of the three " +
+  "bodies. Tracey is pinned on her back against the van wall, her body lifting slightly with " +
+  "each heavy thrust as the first man engages her from the front and the second man engages " +
+  "her from behind in a continuous dual rhythm.";
+
+/** Answers the image agent with a fixed pair of frames, recording every call. */
+function imageProvider(frames: () => string) {
+  const calls: { system: string }[] = [];
+  const provider: PlanningProvider = {
+    name: "test",
+    generateJson: async <T,>(
+      system: string,
+      _user: string,
+      _schema: ZodType<T, ZodTypeDef, unknown>,
+    ) => {
+      calls.push({ system });
+      if (!system.startsWith("You are the Image Prompt Agent")) return null as T | null;
+      const text = frames();
+      return {
+        startFramePrompt: text,
+        endFramePrompt: text,
+        imageNegativePrompt: "blurry",
+      } as unknown as T;
+    },
+  };
+  const imageCalls = () => calls.filter((c) => c.system.startsWith("You are the Image Prompt Agent"));
+  return { calls, imageCalls, provider };
 }
 
 describe("telling the agent the work is explicit", () => {
@@ -66,6 +150,58 @@ describe("telling the agent the work is explicit", () => {
 
   it("asks the clip prompt for movement rather than a held frame", () => {
     expect(explicitnessDirective(project(), "video")).toMatch(/rhythm, direction, depth and pace/);
+  });
+
+  /**
+   * The instruction that was already there and was answered with "his mouth is
+   * pressed against her soft skin between her thighs". Every instruction in
+   * this prompt that the model does obey ships with a worked example; this one
+   * did not.
+   */
+  it("states the frame contract as required elements with an example", () => {
+    const directive = explicitnessDirective(project(), "image");
+    for (const element of [
+      "The position, named",
+      "What is inside what",
+      "How far in",
+      "genital anatomy visible from this angle",
+      "Where skin meets skin",
+      "Wetness and sheen",
+      "Breasts and nipples",
+    ]) {
+      expect(directive).toContain(element);
+    }
+    expect(directive).toMatch(/A finished frame reads like this/);
+  });
+
+  /** A checkpoint knows one vocabulary or the other, and rarely both. */
+  it("asks for both registers so either model finds the word it knows", () => {
+    const directive = explicitnessDirective(project(), "image");
+    expect(directive).toContain("his cock (penis)");
+    expect(directive).toContain("her pussy (vagina)");
+  });
+
+  /** A still has no rhythm, and the shipped prompt spent itself describing one. */
+  it("forbids rhythm and repetition in a still", () => {
+    const directive = explicitnessDirective(project(), "image");
+    expect(directive).toMatch(/A still cannot show rhythm/);
+    expect(directive).toContain("with each thrust");
+  });
+
+  /**
+   * The unconditional rule earlier in the prompt dressed the man performing
+   * oral sex in black silk trousers, and an outfit outranks the act.
+   */
+  it("overrides the rule that dresses everyone outside the cast", () => {
+    const directive = explicitnessDirective(project(), "image");
+    expect(directive).toMatch(/Everyone taking part in the act is naked/);
+    expect(directive).toMatch(/overrides the instruction/);
+  });
+
+  it("tells the planning agents a label is not a description", () => {
+    const directive = explicitnessDirective(project(), "plan");
+    expect(directive).toMatch(/Naming the category is not describing it/);
+    expect(directive).toContain("he engages her from behind");
   });
 
   /**
@@ -248,3 +384,323 @@ describe("people who are not in the pinned cast", () => {
   it("says nothing to a planning agent with no cast", () => {
     expect(castSystemDirective([])).toBe("");
   });});
+
+/**
+ * A project can be adult without saying so in its two dropdowns, and it is the
+ * scene that gets rendered rather than the project.
+ */
+describe("recognising explicit work the settings do not announce", () => {
+  it("reads a concept that says what happens", () => {
+    const byConcept = project({
+      audience: "adults",
+      tone: "warm",
+      style: "cinematic",
+      concept: "Two lovers, naked, through one night.",
+    });
+    expect(isExplicitProject(byConcept)).toBe(true);
+  });
+
+  it("reads the scene when the project as a whole is tame", () => {
+    const tame = project({ audience: "adults", tone: "warm", style: "cinematic", concept: "c" });
+    expect(isExplicitProject(tame)).toBe(false);
+    expect(isExplicitScene(scene())).toBe(true);
+    expect(explicitnessDirective(tame, "image", scene())).toContain("Name the anatomy");
+  });
+
+  it("still says nothing for a tame scene in a tame project", () => {
+    const tame = project({ audience: "families", tone: "inspirational", style: "cinematic" });
+    const gentle = scene({
+      actionDescription: "She walks to the window and opens it.",
+      visualDescription: "A woman alone in a kitchen.",
+      storyBeat: "She decides to leave.",
+      sceneObjective: "Show the decision.",
+    });
+    expect(isExplicitScene(gentle)).toBe(false);
+    expect(explicitnessDirective(tame, "image", gentle)).toBe("");
+  });
+});
+
+/**
+ * The gap this closes: everything upstream instructs, and nothing checked the
+ * answer. The first version of the gate asked only whether the prompt held any
+ * explicit word at all, and both prompts below passed it.
+ */
+describe("the acceptance gate on the finished keyframe prompt", () => {
+  const ctx = {
+    scene: scene(),
+    participants: ["Tracey"],
+    explicit: true,
+    establishedWardrobe: { start: "", end: "" },
+  };
+
+  it("passes a prompt that shows the act at that instant", () => {
+    expect(gateImagePrompt(CONCRETE, "end", ctx)).toEqual([]);
+  });
+
+  it("rejects a prompt that keeps the mood and drops the act", () => {
+    const codes = gateImagePrompt(COY, "end", ctx);
+    expect(codes).toContain("action_dropped");
+    expect(codes).toContain("euphemism");
+    expect(codes).toContain("anatomy_unnamed");
+    expect(codes).toContain("position_unstated");
+  });
+
+  /**
+   * The prompt that shipped. It labels the act and describes nothing a model
+   * can draw, and the man is in trousers while he does it.
+   */
+  it("rejects an act that is named but never depicted", () => {
+    const oral = scene({
+      storyBeat: "The man performs oral sex on Tracey as she lies on the bed.",
+      actionDescription:
+        "The man continues his oral sex on Tracey, his movements steady. Tracey reaches down to " +
+        "grasp the man's hair.",
+      visualDescription: "A close-up of the man's mouth against Tracey's skin.",
+    });
+    const codes = gateImagePrompt(SHIPPED_ORAL, "end", { ...ctx, scene: oral });
+    expect(codes).toContain("anatomy_unnamed");
+    expect(codes).toContain("contact_unstated");
+    expect(codes).toContain("wardrobe_contradicts_act");
+  });
+
+  /** "Engages her from behind" reads as description and states nothing. */
+  it("rejects the verb that stands in for the act", () => {
+    const codes = gateImagePrompt(SHIPPED_VAN, "end", ctx);
+    expect(codes).toContain("euphemism");
+    expect(codes).toContain("anatomy_unnamed");
+  });
+
+  /** A still cannot show a rhythm, so asking for one wastes the whole prompt. */
+  it("rejects rhythm and repetition in a still frame", () => {
+    expect(gateImagePrompt(SHIPPED_VAN, "end", ctx)).toContain("motion_in_still");
+  });
+
+  it("leaves an outfit the wardrobe actually established alone", () => {
+    const dressed = `${CONCRETE} She wears a short black silk robe, open.`;
+    const established = { start: "short black silk robe", end: "short black silk robe" };
+    expect(gateImagePrompt(dressed, "end", { ...ctx, establishedWardrobe: established })).toEqual(
+      [],
+    );
+  });
+
+  it("rejects a prompt that leaves a person in the scene unnamed", () => {
+    const withoutHer = CONCRETE.replace(/Tracey/g, "a woman");
+    expect(gateImagePrompt(withoutHer, "end", ctx)).toContain("participant_missing");
+  });
+
+  it("rejects an empty answer the schema was happy with", () => {
+    expect(gateImagePrompt("A still.", "end", ctx)).toEqual(["prompt_blank"]);
+  });
+
+  /**
+   * An explicit project still contains scenes of people arriving somewhere,
+   * and demanding penetration vocabulary there would be worse than useless.
+   */
+  it("asks none of it of a scene with no act in it", () => {
+    const arrival = scene({
+      storyBeat: "She parks outside the bar.",
+      visualDescription: "A woman in a car on a wet street at night.",
+      actionDescription: "Tracey kills the engine and looks at the door.",
+      sceneObjective: "Arrive.",
+    });
+    const prompt =
+      "Wide shot, eye level. Tracey sits in a parked car on a wet street at night, killing the " +
+      "engine and looking at the bar door through the windscreen.";
+    expect(gateImagePrompt(prompt, "start", { ...ctx, scene: arrival })).toEqual([]);
+  });
+
+  /** Euphemism is only a fault where the work asked to be explicit. */
+  it("does not police wording on work that is not explicit", () => {
+    const tame = { ...ctx, explicit: false };
+    expect(gateImagePrompt(CONCRETE, "end", tame)).toEqual([]);
+    expect(gateImagePrompt(COY, "end", tame)).not.toContain("euphemism");
+  });
+});
+
+/**
+ * A live scene from a 1.75 run. The model wrote a fully explicit prompt and the
+ * gate rejected it anyway: it named contact as "deep in Tracey's mouth" and
+ * "press against her vulva", and position as "leans over her", none of which
+ * the first vocabulary recognised. The repair then appended the card's action,
+ * the same action's sentences again, and the story beat's paraphrase of it, so
+ * the render was told the same thing three times.
+ */
+describe("the scene that came back repeating itself", () => {
+  const card = scene({
+    actionDescription:
+      "Man 1 thrusts rhythmically into her vagina. Simultaneously, the second man leans over " +
+      "her, his hands on either side of her head, guiding his cock into her mouth for a blowjob.",
+    visualDescription:
+      "Medium shot showing both men as they engage in a rhythmic, coordinated sequence with Tracey.",
+    storyBeat:
+      "The first man thrusts into her while the second man leans over and guides his cock into " +
+      "Tracey's mouth.",
+  });
+  const ctx = {
+    scene: card,
+    participants: ["Tracey"],
+    explicit: true,
+    establishedWardrobe: { start: "", end: "" },
+  };
+
+  const written =
+    "Close-up, eye level. Blowjob: The second heavy-set black man in his 40s has his cock " +
+    "(penis) deep in Tracey's mouth; Man 1 is visible below as he thrusts his cock (penis) into " +
+    "her pussy (vagina). Exactly three people are in frame: one woman and two men. Tracey's lips " +
+    "are stretched wide around the glistening shaft of the man's cock (penis), with moisture " +
+    "glinting where they meet; Man 1's hands grip her hips as his balls press against her vulva. " +
+    "Her eyes are squeezed shut, her skin is flushed and sweat-slicked, and her breasts are " +
+    "visible at the bottom of the frame.";
+
+  /** The whole defect: this prompt was already correct and was repaired anyway. */
+  it("accepts the prompt the model actually wrote", () => {
+    expect(gateImagePrompt(written, "end", ctx)).toEqual([]);
+  });
+
+  it("reads contact and position as they are really written", () => {
+    const noContact = written.replace(/deep in Tracey's mouth/, "close to Tracey");
+    expect(gateImagePrompt(written, "end", ctx)).not.toContain("contact_unstated");
+    expect(gateImagePrompt(written, "end", ctx)).not.toContain("position_unstated");
+    // Still catches a prompt that genuinely states neither.
+    expect(noContact).toContain("close to Tracey");
+  });
+
+  /**
+   * Defence in depth: even when a repair is warranted, nothing may be said
+   * twice. A diffusion model weights a repeated sentence twice, which is the
+   * opposite of what the repair is for.
+   */
+  it("never restates the action when it does have to repair", () => {
+    const coy =
+      "Close-up, eye level. Tracey and the two men are locked together in the dim amber light, " +
+      "their union tastefully implied as the camera lingers on their faces.";
+    const codes = gateImagePrompt(coy, "end", ctx);
+    expect(codes).toContain("anatomy_unnamed");
+
+    const repaired = repairImagePrompt(coy, "end", codes, ctx);
+    expect(repaired.match(/thrusts rhythmically into her vagina/g)).toHaveLength(1);
+    expect(repaired.match(/guiding his cock into her mouth/g)).toHaveLength(1);
+  });
+
+  /** The story beat is the action reworded, so putting it back adds nothing. */
+  it("drops a restatement the prompt already carries in other words", () => {
+    const coy = "Close-up, eye level. The three of them move together in the dim amber light.";
+    const repaired = repairImagePrompt(coy, "end", gateImagePrompt(coy, "end", ctx), ctx);
+    expect(repaired).not.toContain("The first man thrusts into her while");
+  });
+
+  /** The warning the storyboard screen showed, asserted at its source. */
+  it("leaves no repeated sentence for the prompt checker to flag", () => {
+    const coy =
+      "Close-up, eye level. Tracey and the two men are locked together in the dim amber light, " +
+      "their union tastefully implied as the camera lingers on their faces.";
+    const repaired = repairImagePrompt(coy, "end", gateImagePrompt(coy, "end", ctx), ctx);
+    const codes = lintRendered(repaired, "flux", "image", 0).map((finding) => finding.code);
+    expect(codes).not.toContain("duplicate_sentence");
+  });
+});
+
+describe("what actually comes out of the image agent", () => {
+  it("gives a coy model one retry, telling it what was rejected", async () => {
+    const { imageCalls, provider } = imageProvider(() => COY);
+    await attachScenePrompts(project(), [scene()], provider, { cast: [TRACEY] });
+
+    expect(imageCalls()).toHaveLength(2);
+    const retry = imageCalls()[1]!.system;
+    expect(retry).toContain("Your previous answer was rejected");
+    expect(retry).toContain(ACTION);
+  });
+
+  it("takes the answer and stops when the first one is faithful", async () => {
+    const { imageCalls, provider } = imageProvider(() => CONCRETE);
+    const executions: ArtifactExecution[] = [];
+    await attachScenePrompts(project(), [scene()], provider, {
+      cast: [TRACEY],
+      onExecution: (e) => executions.push(e),
+    });
+
+    expect(imageCalls()).toHaveLength(1);
+    const image = executions.find((e) => e.artifact === "scene-1.image_prompt")!;
+    expect(image.source).toBe("llm");
+    expect(image.status).toBe("ok");
+  });
+
+  /** The failure that had no evidence in it: shipping the coy version quietly. */
+  it("puts the scene's own words back when the model stays coy, and says it did", async () => {
+    const { provider } = imageProvider(() => COY);
+    const executions: ArtifactExecution[] = [];
+    const scenes = await attachScenePrompts(project(), [scene()], provider, {
+      cast: [TRACEY],
+      onExecution: (e) => executions.push(e),
+    });
+
+    for (const prompt of [scenes[0]!.prompts.startFramePrompt, scenes[0]!.prompts.endFramePrompt]) {
+      expect(prompt).toContain("straddles Mark");
+      expect(prompt).toContain("penis");
+    }
+    expect(scenes[0]!.prompts.startFramePrompt).toContain("first instant");
+    expect(scenes[0]!.prompts.endFramePrompt).toContain("last instant");
+
+    const image = executions.find((e) => e.artifact === "scene-1.image_prompt")!;
+    expect(image.source).toBe("hybrid");
+    expect(image.status).toBe("degraded");
+    expect(image.detail).toContain("euphemism");
+  });
+
+  /**
+   * Clothing on a participant is appended last and outranks the act. It cannot
+   * be argued away in the positive prompt, where naming it embeds it.
+   */
+  it("sends a garment it never established to the negative prompt", async () => {
+    const dressed = () =>
+      "Medium shot, eye level. A man in black silk trousers performs oral sex on Tracey, his " +
+      "mouth against her soft skin, as she lies back and grasps his hair with her nails.";
+    const { provider } = imageProvider(dressed);
+    const scenes = await attachScenePrompts(project(), [scene()], provider, { cast: [TRACEY] });
+
+    expect(scenes[0]!.prompts.imageNegativePrompt).toContain("trousers");
+    expect(scenes[0]!.prompts.startFramePrompt).toContain("completely naked");
+  });
+
+  /**
+   * A provider failure used to hand the render a template nobody had checked.
+   * The template cannot author an explicit prompt, but it must not lose the
+   * concrete words it was given.
+   */
+  it("keeps the action in both frames when there is no provider at all", async () => {
+    const scenes = await attachScenePrompts(project(), [scene()], null, { cast: [TRACEY] });
+    const { startFramePrompt, endFramePrompt } = scenes[0]!.prompts;
+
+    expect(startFramePrompt).toContain("straddles Mark");
+    expect(endFramePrompt).toContain("straddles Mark");
+    expect(startFramePrompt).toContain("the act itself in frame");
+
+    const ctx = {
+      scene: scene(),
+      participants: ["Tracey"],
+      explicit: true,
+      establishedWardrobe: { start: TRACEY.wardrobe!, end: TRACEY.wardrobe! },
+    };
+    expect(gateImagePrompt(startFramePrompt, "start", ctx)).toEqual([]);
+    expect(gateImagePrompt(endFramePrompt, "end", ctx)).toEqual([]);
+  });
+});
+
+/**
+ * The Story Architect writes the beats the storyboard elaborates, and was the
+ * one planning agent never told the piece was explicit.
+ */
+describe("what the Story Architect is told", () => {
+  it("gets the planning directive on explicit work", async () => {
+    const { calls, provider } = imageProvider(() => COY);
+    await storyArchitectAgent({ project: project() }, provider);
+    expect(calls[0]!.system).toMatch(/must describe the act/);
+  });
+
+  it("gets nothing extra on work that is not explicit", async () => {
+    const { calls, provider } = imageProvider(() => COY);
+    const tame = project({ audience: "families", tone: "inspirational", style: "cinematic" });
+    await storyArchitectAgent({ project: tame }, provider);
+    expect(calls[0]!.system).not.toMatch(/must describe the act/);
+  });
+});

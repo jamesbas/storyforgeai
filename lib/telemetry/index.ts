@@ -26,6 +26,10 @@ export type TelemetryEvent =
   | "agent.llm.failed"
   | "agent.fallback"
   | "prompt.composed"
+  /** A model-authored prompt the acceptance gate had to patch, as codes. */
+  | "prompt.gate"
+  /** Explicit work that fell back to the template, which cannot write one. */
+  | "prompt.explicit_fallback"
   | "task.created"
   | "task.transition"
   | "task.cancel_requested"
