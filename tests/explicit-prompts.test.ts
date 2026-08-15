@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import type { ZodType, ZodTypeDef } from "zod";
 import { castPromptSuffix, castSheet, castSystemDirective } from "@/lib/agents/cast";
 import { explicitnessDirective, isExplicitProject, isExplicitScene } from "@/lib/agents/explicitness";
-import { gateImagePrompt, repairImagePrompt } from "@/lib/agents/prompt-gate";
+import { gateFramePair, gateImagePrompt, repairImagePrompt } from "@/lib/agents/prompt-gate";
 import { lintRendered } from "@/lib/agents/media-prompt-spec";
 import { attachScenePrompts } from "@/lib/agents/prompt-agents";
 import { storyArchitectAgent } from "@/lib/agents/story-architect-agent";
@@ -597,6 +597,68 @@ describe("the scene that came back repeating itself", () => {
     const repaired = repairImagePrompt(coy, "end", gateImagePrompt(coy, "end", ctx), ctx);
     const codes = lintRendered(repaired, "flux", "image", 0).map((finding) => finding.code);
     expect(codes).not.toContain("duplicate_sentence");
+  });
+});
+
+/**
+ * The undressing scene is the one place clothing in an explicit frame is
+ * correct. Live: a start frame properly showing pyjamas and two clothed men
+ * had "Every participant is completely naked" appended to it, so one prompt
+ * asserted both.
+ */
+describe("the scene where the clothes are still coming off", () => {
+  const card = scene({
+    actionDescription:
+      "The two men pull her pyjama top and shorts down past her hips until she is nude.",
+    visualDescription: "The men strip Tracey on the rumpled bedding.",
+    storyBeat: "They undress her.",
+  });
+  const dressed =
+    "Medium shot, eye level. Two men in dark navy trousers and charcoal t-shirts pull at the " +
+    "fabric of Tracey's cream silk pyjama shorts while she lies back on the rumpled bedding, " +
+    "her breasts half covered and her pussy (vagina) not yet exposed, straddled by the nearer man.";
+
+  const base = {
+    scene: card,
+    participants: ["Tracey"],
+    explicit: true,
+    establishedWardrobe: { start: "", end: "" },
+  };
+
+  it("does not call the old outfit a contradiction", () => {
+    const codes = gateImagePrompt(dressed, "start", { ...base, wardrobeChange: true });
+    expect(codes).not.toContain("wardrobe_contradicts_act");
+  });
+
+  /** Any other scene, the same garments are the failure they always were. */
+  it("still flags invented clothing on a scene with no costume change", () => {
+    const codes = gateImagePrompt(dressed, "start", { ...base, wardrobeChange: false });
+    expect(codes).toContain("wardrobe_contradicts_act");
+  });
+});
+
+/**
+ * A fault only the pair shows. Live: a start frame reading "Exactly two people
+ * are in frame" against an end frame reading "Exactly three", on a card that
+ * named two men throughout — and the end frame is what the next scene inherits.
+ */
+describe("the two frames disagreeing about who is there", () => {
+  const two = "Medium shot, eye level. Exactly two people are in frame: Tracey and a man.";
+  const three =
+    "Medium shot, eye level. Exactly three people are in frame: Tracey, one man, and another man.";
+
+  it("catches a person who appears between the two frames", () => {
+    expect(gateFramePair(two, three)).toEqual(["headcount_mismatch"]);
+  });
+
+  it("passes a scene that keeps its population", () => {
+    expect(gateFramePair(three, three)).toEqual([]);
+  });
+
+  /** Not every prompt states a count, and an unstated one claims nothing. */
+  it("says nothing when either frame omits the count", () => {
+    expect(gateFramePair("Medium shot of a woman at a window.", three)).toEqual([]);
+    expect(gateFramePair(two, "Close-up of her hands.")).toEqual([]);
   });
 });
 

@@ -41,6 +41,7 @@ import { familyOf, type ModelFamily } from "@/lib/wangp/family";
 import { charactersInFrame, charactersInScene } from "@/lib/agents/scene-cast";
 import { explicitnessDirective, isExplicitProject, isExplicitScene } from "@/lib/agents/explicitness";
 import {
+  gateFramePair,
   gateImagePrompt,
   gateRepairDirective,
   inventedGarments,
@@ -351,6 +352,7 @@ export async function attachScenePrompts(
           start: establishedGarments(wardrobe?.start, wardrobe?.othersStart, sceneCast),
           end: establishedGarments(wardrobe?.end, wardrobe?.othersEnd, sceneCast),
         },
+        wardrobeChange: Boolean(wardrobe?.within.length),
       };
       const gated: { codes: PromptGateCode[] } = { codes: [] };
       const imageResult = await executeArtifact<ImagePart>({
@@ -465,6 +467,7 @@ function gateFindings(part: ImagePart, gate: ImageGateContext): PromptGateCode[]
     ...new Set([
       ...gateImagePrompt(part.startFramePrompt, "start", gate),
       ...gateImagePrompt(part.endFramePrompt, "end", gate),
+      ...gateFramePair(part.startFramePrompt, part.endFramePrompt),
     ]),
   ];
 }

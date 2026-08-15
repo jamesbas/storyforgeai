@@ -19,6 +19,8 @@ import { othersInFrame, wardrobeTimeline } from "@/lib/agents/wardrobe";
 import {
   withMultiSubjectGuards,
   withNegatedTraits,
+  withoutCharacterNegatives,
+  withoutContradictions,
   withoutCharacterScopedTerms,
 } from "@/lib/agents/negative-prompt";
 import { resolveReferenceImagePath } from "@/lib/db/character-store";
@@ -538,13 +540,22 @@ async function renderKeyframe(
     purpose,
     prompt,
     // Applied here rather than to the stored text so existing projects are
-    // covered without a repair pass.
+    // covered without a repair pass. Removals run before the two appenders, or
+    // `withNegatedTraits` would add a term back and have it stripped again as a
+    // contradiction with the prompt it was read from.
     negativePrompt: withNegatedTraits(
       withMultiSubjectGuards(
-        withoutCharacterScopedTerms(
-          scene.prompts.imageNegativePrompt,
-          cast.map((character) => character.name),
-          statedHeadcount(prompt),
+        withoutContradictions(
+          withoutCharacterNegatives(
+            withoutCharacterScopedTerms(
+              scene.prompts.imageNegativePrompt,
+              cast.map((character) => character.name),
+              statedHeadcount(prompt),
+            ),
+            cast,
+            statedHeadcount(prompt),
+          ),
+          prompt,
         ),
         statedHeadcount(prompt),
       ),

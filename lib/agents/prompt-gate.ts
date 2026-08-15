@@ -1,5 +1,6 @@
 import { splitSentences } from "@/lib/agents/media-prompt-spec";
 import { namesExplicitContent } from "@/lib/agents/explicitness";
+import { statedHeadcount } from "@/lib/media/seam";
 import type { SceneDraft } from "@/lib/schemas/storyboard";
 
 /**
@@ -40,6 +41,8 @@ export const PROMPT_GATE_CODES = [
   "motion_in_still",
   /** Clothing on a body the act undresses, which outranks the act. */
   "wardrobe_contradicts_act",
+  /** The two frames of one scene disagree about how many people are in it. */
+  "headcount_mismatch",
 ] as const;
 export type PromptGateCode = (typeof PROMPT_GATE_CODES)[number];
 
@@ -56,6 +59,14 @@ export type ImageGateContext = {
    * tells the two apart.
    */
   establishedWardrobe?: { start: string; end: string };
+  /**
+   * This scene depicts a costume change on screen.
+   *
+   * The one scene where clothing in an explicit frame is not a fault: the start
+   * frame is meant to show the old outfit and the end frame the new one, which
+   * is what `wardrobeChangeDirective` already tells the agent.
+   */
+  wardrobeChange?: boolean;
 };
 
 /**
@@ -296,10 +307,28 @@ export function gateImagePrompt(
 
   const established =
     frame === "start" ? ctx.establishedWardrobe?.start : ctx.establishedWardrobe?.end;
-  if (inventedGarments(text, established).length) codes.push("wardrobe_contradicts_act");
+  if (!ctx.wardrobeChange && inventedGarments(text, established).length) {
+    codes.push("wardrobe_contradicts_act");
+  }
 
   return codes;
 }
+
+/**
+ * Faults only visible across the pair of frames.
+ *
+ * A scene's two frames are rendered as separate jobs and the end frame is what
+ * the next scene inherits, so a population that changes between them is a
+ * person who appears or vanishes mid-shot. Seen live: a start frame reading
+ * "Exactly two people are in frame" against an end frame reading "Exactly
+ * three", for a card that named two men throughout.
+ */
+export function gateFramePair(startFrame: string, endFrame: string): PromptGateCode[] {
+  const start = statedHeadcount(startFrame);
+  const end = statedHeadcount(endFrame);
+  return start !== null && end !== null && start !== end ? ["headcount_mismatch"] : [];
+}
+
 /** Appended to the system prompt for the one retry, naming what was rejected. */
 export function gateRepairDirective(
   codes: readonly PromptGateCode[],
@@ -355,6 +384,12 @@ export function gateRepairDirective(
     reasons.push(
       "you put clothing on someone taking part; every participant is naked unless this scene's " +
         "wardrobe dresses them",
+    );
+  }
+  if (codes.includes("headcount_mismatch")) {
+    reasons.push(
+      "the two frames state different numbers of people; the same shot cannot gain or lose " +
+        "someone between its opening and closing instant, so say the same count in both",
     );
   }
   return (

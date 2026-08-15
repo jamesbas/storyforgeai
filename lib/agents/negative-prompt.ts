@@ -99,6 +99,59 @@ export function withoutCharacterScopedTerms(
 }
 
 /**
+ * Drop a character's stored exclusions from a frame holding other people.
+ *
+ * The library's `negativePrompt` is written about one person — "not
+ * overweight", to keep one woman slim — and a negative prompt has no
+ * addressee, so in a three-hander it steers every body in the frame. A live
+ * project described two men as heavy-set in the positive prompt and sent
+ * "heavy-set" as an exclusion in the same job; between that list and the world
+ * bible's own "athletic physique, flat stomach", the render was forbidden every
+ * build there is.
+ *
+ * Kept where the frame holds exactly one person: there the scope is redundant
+ * rather than wrong, which is the rule `withoutCharacterScopedTerms` already
+ * applies to the agents' own scoped terms.
+ */
+export function withoutCharacterNegatives(
+  raw: string,
+  cast: readonly { negativePrompt?: string }[],
+  headcount: number | null,
+): string {
+  if (headcount === 1) return normaliseNegative(raw);
+  const scoped = new Set(
+    cast
+      .flatMap((character) => negativeTerms(character.negativePrompt ?? ""))
+      .map((term) => term.toLocaleLowerCase()),
+  );
+  if (scoped.size === 0) return normaliseNegative(raw);
+  return negativeTerms(raw)
+    .filter((term) => !scoped.has(term.toLocaleLowerCase()))
+    .join(", ");
+}
+
+/**
+ * Drop exclusions the positive prompt is asking for.
+ *
+ * A term in both halves of one job is not an emphasis, it is a contradiction,
+ * and the sampler settles it by averaging: a prompt describing a heavy-set man
+ * while excluding "heavy-set" returns neither a heavy man nor a lean one. The
+ * positive prompt wins, because it is the thing somebody wrote the scene to
+ * show.
+ *
+ * Word-boundary matched, so an exclusion is only dropped when the prompt really
+ * does ask for that term rather than merely containing its letters.
+ */
+export function withoutContradictions(raw: string, prompt: string): string {
+  return negativeTerms(raw)
+    .filter((term) => {
+      const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return !new RegExp(`\\b${escaped}\\b`, "i").test(prompt);
+    })
+    .join(", ");
+}
+
+/**
  * Guards for a shot holding more than one body.
  *
  * Two failures, both specific to a crowded frame and neither of them something

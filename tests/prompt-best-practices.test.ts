@@ -6,7 +6,9 @@ import {
   positiveConstraintClause,
   withMultiSubjectGuards,
   withNegatedTraits,
+  withoutCharacterNegatives,
   withoutCharacterScopedTerms,
+  withoutContradictions,
 } from "@/lib/agents/negative-prompt";
 import { familyOf, negativePromptReaches, supportsNegativePrompt } from "@/lib/wangp/family";
 import { imagePromptDirective, videoPromptDirective, hasNativeAudio } from "@/lib/agents/model-directives";
@@ -98,6 +100,72 @@ describe("exclusions the agents aimed at one character", () => {
 
   it("does nothing without a cast to match against", () => {
     expect(withoutCharacterScopedTerms("dark skin for Jaime", [], 3)).toBe("dark skin for Jaime");
+  });
+});
+
+/**
+ * The same defect one layer up, and the one that actually shipped. A character
+ * library entry carried "overweight, obese, heavy-set, …" to keep one woman
+ * slim; it was appended whole to every frame she appeared in, including the
+ * three-handers whose positive prompt describes two heavy-set men.
+ */
+describe("a character's own stored exclusions in a crowded frame", () => {
+  const CAST = [
+    { negativePrompt: "overweight, obese, heavy-set, soft midsection" },
+    { negativePrompt: "" },
+  ];
+
+  it("drops them where they cannot be aimed", () => {
+    expect(
+      withoutCharacterNegatives("blur, overweight, heavy-set, low quality", CAST, 3),
+    ).toBe("blur, low quality");
+  });
+
+  /** With one person in frame the list is about the only body there. */
+  it("keeps them when the frame holds one person", () => {
+    expect(withoutCharacterNegatives("blur, overweight", CAST, 1)).toBe("blur, overweight");
+  });
+
+  /** Silence about population is not consent, exactly as for scoped terms. */
+  it("drops them when the prompt states no population", () => {
+    expect(withoutCharacterNegatives("blur, obese", CAST, null)).toBe("blur");
+  });
+
+  it("leaves exclusions no character asked for alone", () => {
+    expect(withoutCharacterNegatives("watermark, extra limbs", CAST, 3)).toBe(
+      "watermark, extra limbs",
+    );
+  });
+
+  it("does nothing when no character carries a list", () => {
+    const none = [{ negativePrompt: "" }];
+    expect(withoutCharacterNegatives("blur, overweight", none, 3)).toBe("blur, overweight");
+  });
+});
+
+/**
+ * The two halves of one job asking for opposite things. Live: a positive
+ * prompt reading "the heavy-set black man in his 40s" against a negative
+ * carrying "heavy-set", so the sampler was given no build it was allowed to
+ * draw.
+ */
+describe("an exclusion the positive prompt is asking for", () => {
+  it("drops the term the prompt describes", () => {
+    const prompt = "Medium shot. The heavy-set black man in his 40s kneels on the bed.";
+    expect(withoutContradictions("blur, heavy-set, watermark", prompt)).toBe("blur, watermark");
+  });
+
+  it("keeps an exclusion the prompt never asks for", () => {
+    expect(withoutContradictions("blur, heavy-set", "A lean man stands in a doorway.")).toBe(
+      "blur, heavy-set",
+    );
+  });
+
+  /** Letters in common are not a request; only a whole word is. */
+  it("does not drop a term merely contained in a longer word", () => {
+    expect(withoutContradictions("art, blur", "A heart monitor beeps in the dark.")).toBe(
+      "art, blur",
+    );
   });
 });
 
