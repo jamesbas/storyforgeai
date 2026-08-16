@@ -26,7 +26,12 @@ import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import { conceptVisualsDirective, conceptVisualsPayload } from "@/lib/agents/concept-visuals";
 import { explicitnessDirective } from "@/lib/agents/explicitness";
 import { cameraContinuityDirective } from "@/lib/agents/continuity";
-import { planningPayload, precedenceDirective, type CreativePlans } from "@/lib/agents/creative-context";
+import {
+  planningPayload,
+  precedenceDirective,
+  segmentsMissingFrom,
+  type CreativePlans,
+} from "@/lib/agents/creative-context";
 import type { ConceptVisuals, StoryPlan } from "@/lib/schemas/agents";import type { Character } from "@/lib/schemas/character";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 import { logEvent } from "@/lib/telemetry";
@@ -293,6 +298,33 @@ export async function worldBuilderAgent(
   return { ...value, projectId: project.id };
 }
 
+/**
+ * Provenance for a per-scene plan that does not cover every scene.
+ *
+ * `sceneIntent` and `sceneShotPlans` are `z.record(z.string())`, so a plan
+ * asked for one entry per segment parses with none. The scenes it missed then
+ * render with no directorial intent or shot plan and nothing says so.
+ */
+function segmentGap(
+  field: "sceneIntent" | "sceneShotPlans",
+  map: Record<string, string> | undefined,
+  segmentCount: number | undefined,
+): { source?: "hybrid"; fallbackReason?: "short_collection"; detail?: string } {
+  const missing = segmentsMissingFrom(map, segmentCount);
+  if (missing.length === 0) return {};
+  logEvent("agent.fallback", {
+    agent: field,
+    reason: "segments_uncovered",
+    missing: missing.length,
+    of: segmentCount,
+  });
+  return {
+    source: "hybrid",
+    fallbackReason: "short_collection",
+    detail: `${field} covers ${(segmentCount ?? 0) - missing.length} of ${segmentCount} segments`,
+  };
+}
+
 export async function directorAgent(
   project: Project,
   provider: PlanningProvider | null,
@@ -326,6 +358,9 @@ export async function directorAgent(
         )
       : undefined,
     fallback: () => buildDirectorialPlan(project),
+    // Reported rather than rejected: the rest of a plan missing two entries is
+    // still worth keeping, and sending it to the template would lose all of it.
+    outcome: (plan) => segmentGap("sceneIntent", plan.sceneIntent, project.segmentCount),
   });
   return { ...value, projectId: project.id };
 }
@@ -361,6 +396,7 @@ export async function cinematographerAgent(
         )
       : undefined,
     fallback: () => buildCinematographyPlan(project),
+    outcome: (plan) => segmentGap("sceneShotPlans", plan.sceneShotPlans, project.segmentCount),
   });
   return { ...value, projectId: project.id };
 }

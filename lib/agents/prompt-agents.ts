@@ -102,8 +102,12 @@ export const IMAGE_PROMPT_SYSTEM =
   // The two frames are rendered as independent jobs, so anything left vague is
   // reinvented on each pass. A prompt reading "casual contemporary attire"
   // produced black trousers in one frame and blue jeans in the next.
-  " The start and end frame are the same moment seconds apart: every character must wear " +
-  "identical clothing in both, and the location, lighting and time of day must match. " +
+  " The two frames are frozen instants from one continuous shot, a few seconds apart. Describe " +
+  "only what is visibly true at that instant: turn an action into a pose, a point of contact, " +
+  "where an object now sits, a visible consequence. Never write movement, duration, pace, a " +
+  "camera move or a sequence of events — an image has no time in it, and those words are read as " +
+  "description and drawn. Every character must wear identical clothing in both, and the " +
+  "location, lighting and time of day must match. " +
   // A family of four, described as four separate "X wears ..." clauses, rendered
   // as five people. The count was stated once in prose at the top of the prompt,
   // far from the bodies it governed; restating it beside them fixed it.

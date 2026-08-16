@@ -74,6 +74,26 @@ export type SceneCreativeSlice = {
   shotPlan?: string;
 };
 
+/**
+ * Segment numbers a per-scene plan map has nothing for.
+ *
+ * The schema is `z.record(z.string())`, so a plan claiming one entry per
+ * segment parses with none, half, or keys that resolve to no segment at all.
+ * Resolution reuses `sceneEntry`, so a gap here is a gap the render will
+ * actually see rather than a stricter reading of the keys.
+ */
+export function segmentsMissingFrom(
+  map: Record<string, string> | undefined,
+  segmentCount: number | undefined,
+): number[] {
+  if (segmentCount === undefined || segmentCount <= 0) return [];
+  const missing: number[] = [];
+  for (let sceneNumber = 1; sceneNumber <= segmentCount; sceneNumber += 1) {
+    if (!sceneEntry(map, { id: `scene-${sceneNumber}`, sceneNumber })) missing.push(sceneNumber);
+  }
+  return missing;
+}
+
 /** The portion of the plans that belongs to one specific scene. */
 export function sceneCreativeSlice(
   plans: CreativePlans | undefined,

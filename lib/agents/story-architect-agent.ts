@@ -6,6 +6,7 @@ import { executeArtifact, providerCall } from "@/lib/agents/provenance";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import { SEGMENT_SECONDS } from "@/lib/types";
 import type { AgentContext } from "@/lib/agents/types";
+import type { Project } from "@/lib/schemas/project";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 
 /**
@@ -95,6 +96,43 @@ export async function storyArchitectAgent(
     validate: (plan) =>
       plan.segmentBeats.length === ctx.project.segmentCount ? undefined : "short_collection",
     fallback: () => buildStoryPlan(ctx.project),
+    outcome: (plan) =>
+      fitsSegments(plan.emotionalProgression, ctx.project.segmentCount)
+        ? {}
+        : {
+            source: "hybrid" as const,
+            fallbackReason: "short_collection" as const,
+            detail: `emotionalProgression ${plan.emotionalProgression.length} of ${ctx.project.segmentCount}`,
+          },
   });
-  return { ...value, projectId: ctx.project.id };
+  return {
+    ...value,
+    projectId: ctx.project.id,
+    emotionalProgression: fitProgression(value.emotionalProgression, ctx.project),
+  };
+}
+
+function fitsSegments(values: readonly string[], segmentCount: number | undefined): boolean {
+  return segmentCount === undefined || values.length === segmentCount;
+}
+
+/**
+ * One emotional value per segment.
+ *
+ * The schema holds beats and emotions as two independent arrays and only the
+ * beats were ever counted, so a model returning four emotions for fifteen
+ * segments passed. The storyboard slices this per batch, which meant every
+ * batch after the first was written with no emotional direction at all and
+ * nothing reported it. Extras are dropped and a shortfall is filled from the
+ * deterministic arc, which at least moves.
+ */
+function fitProgression(values: string[], project: Project): string[] {
+  const segmentCount = project.segmentCount;
+  if (fitsSegments(values, segmentCount)) return values;
+  if (values.length > segmentCount!) return values.slice(0, segmentCount);
+  const filler = buildStoryPlan(project).emotionalProgression;
+  return Array.from(
+    { length: segmentCount! },
+    (_, i) => values[i] ?? filler[i] ?? values.at(-1) ?? "",
+  );
 }

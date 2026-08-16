@@ -7,6 +7,7 @@ import { storyboardAgent } from "@/lib/agents/storyboard-agent";
 import { attachScenePrompts } from "@/lib/agents/prompt-agents";
 import { getPlanningProvider } from "@/lib/agents/llm/provider";
 import { hasCreativePlans } from "@/lib/agents/creative-context";
+import { applyVariantToBrief } from "@/lib/agents/variant-set";
 import { foldWardrobeChanges } from "@/lib/agents/wardrobe";
 import type { AgentContext, OrchestratorDeps } from "@/lib/agents/types";
 import { logEvent } from "@/lib/telemetry";
@@ -43,24 +44,7 @@ export async function runStoryboardOrchestrator(
     correlationId: deps.correlationId,
   };
   deps.onProgress?.({ phase: "Reading the brief" });
-  ctx.brief = await intakeAgent(ctx, provider);
-  if (ctx.selectedVariant) {
-    // Carry the substance of the chosen direction, not just its label. Passing
-    // the name alone dropped the hook, angle and visual style the creator
-    // actually selected, which made variant selection close to decorative.
-    const v = ctx.selectedVariant;
-    const direction = [
-      `Selected direction: ${v.name} — ${v.summary}`,
-      v.hook ? `Hook: ${v.hook}` : null,
-      v.storyAngle ? `Story angle: ${v.storyAngle}` : null,
-      v.visualStyle ? `Visual style: ${v.visualStyle}` : null,
-      v.risks.length ? `Avoid: ${v.risks.join("; ")}` : null,
-    ].filter((line): line is string => line !== null);
-    ctx.brief = {
-      ...ctx.brief,
-      constraints: [...ctx.brief.constraints, ...direction],
-    };
-  }
+  ctx.brief = applyVariantToBrief(await intakeAgent(ctx, provider), ctx.selectedVariant);
   if (!deps.storyPlan) deps.onProgress?.({ phase: "Planning the story" });
   ctx.storyPlan = deps.storyPlan ?? (await storyArchitectAgent(ctx, provider));
   // Only a freshly generated arc is worth reporting; a reused one is already stored.

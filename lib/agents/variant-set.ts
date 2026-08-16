@@ -1,8 +1,41 @@
 import type { Project } from "@/lib/schemas/project";
+import type { CreativeBrief } from "@/lib/schemas/agents";
 import type { CreativeVariant } from "@/lib/schemas/canvas";
 import { buildVariants, DETERMINISTIC_AXES } from "@/lib/agents/mock-canvas";
 
 export { DETERMINISTIC_AXES };
+
+/**
+ * Fold the chosen direction into the brief every later agent reads.
+ *
+ * Shared because it was not: the orchestrator did this and the canvas path,
+ * which generates the Story Plan when the Director is run first, only put the
+ * variant on the context object. Nothing downstream reads that field \u2014 the
+ * Story Architect is sent `{ project, brief }` \u2014 so running the Director first
+ * produced an arc written as though no direction had been chosen, and it was
+ * then reused by the storyboard forever.
+ *
+ * `risks` are carried as tradeoffs, not exclusions. The Variant Explorer is
+ * told they name "what this direction gives up", so turning them into
+ * "Avoid: less emotional depth" inverted a description of the cost into an
+ * instruction to work against the direction the creator picked.
+ */
+export function applyVariantToBrief(
+  brief: CreativeBrief,
+  variant: CreativeVariant | undefined,
+): CreativeBrief {
+  if (!variant) return brief;
+  const direction = [
+    `Selected direction: ${variant.name} — ${variant.summary}`,
+    variant.hook ? `Hook: ${variant.hook}` : null,
+    variant.storyAngle ? `Story angle: ${variant.storyAngle}` : null,
+    variant.visualStyle ? `Visual style: ${variant.visualStyle}` : null,
+    variant.risks.length
+      ? `Tradeoffs this direction accepts (context, not instructions): ${variant.risks.join("; ")}`
+      : null,
+  ].filter((line): line is string => line !== null);
+  return { ...brief, constraints: [...brief.constraints, ...direction] };
+}
 
 /** What is wrong with a set, as a code safe to log. */
 export type VariantSetIssue = "wrong_count" | "duplicate_axis";

@@ -12,6 +12,7 @@ import {
 } from "@/lib/agents/negative-prompt";
 import { familyOf, negativePromptReaches, supportsNegativePrompt } from "@/lib/wangp/family";
 import { imagePromptDirective, videoPromptDirective, hasNativeAudio } from "@/lib/agents/model-directives";
+import { gateImagePrompt } from "@/lib/agents/prompt-gate";
 import { WORDS_PER_SECOND } from "@/lib/agents/media-prompt-spec";
 
 /**
@@ -253,6 +254,71 @@ describe("folding exclusions into the prompt for models that ignore them", () =>
   it("does not repeat one alternative for two terms that share it", () => {
     const clause = positiveConstraintClause("watermark, signature, logo");
     expect(clause.match(/clean unmarked surfaces/g)).toHaveLength(1);
+  });
+});
+
+/**
+ * A keyframe is one held instant. The check for time-passing language existed
+ * from v1.75 but sat behind two early returns, so it only ever ran on sexually
+ * explicit scenes — while the legacy builder was writing "<camera> begins from
+ * here" into every still it produced.
+ */
+describe("time passing in a still frame", () => {
+  const card = {
+    id: "s1",
+    actionDescription: "Mara lifts the red mug from the desk and carries it to the window.",
+    visualDescription: "A woman at a desk in a grey office.",
+    storyBeat: "She takes her tea to the window.",
+    sceneObjective: "Show the pause.",
+  } as unknown as Parameters<typeof gateImagePrompt>[2]["scene"];
+
+  const ctx = { scene: card, participants: [], explicit: false };
+  const codesFor = (prompt: string) => gateImagePrompt(prompt, "start", ctx);
+
+  it("rejects a camera move named in a still", () => {
+    const prompt =
+      "Medium shot, eye level. Mara lifts the red mug from the desk and carries it toward the " +
+      "window as the camera pushes in on her.";
+    expect(codesFor(prompt)).toContain("motion_in_still");
+  });
+
+  it("rejects a stated duration", () => {
+    const prompt =
+      "Medium shot, eye level. Over eight seconds Mara lifts the red mug from the desk and " +
+      "carries it to the window.";
+    expect(codesFor(prompt)).toContain("motion_in_still");
+  });
+
+  it("rejects a transition", () => {
+    const prompt =
+      "Medium shot, eye level. Mara lifts the red mug from the desk, carries it to the window, " +
+      "then cuts to the street below.";
+    expect(codesFor(prompt)).toContain("motion_in_still");
+  });
+
+  /**
+   * The v1.77 lesson: a check that fires on correct prose triggers a repair
+   * that damages it. A still may describe a pose caught mid-action.
+   */
+  it("passes a pose held at one instant", () => {
+    const prompt =
+      "Medium shot, eye level. Mara stands beside the desk, her right hand closed around the red " +
+      "mug and lifted to chest height, her body already turned toward the window.";
+    expect(codesFor(prompt)).not.toContain("motion_in_still");
+  });
+
+  it("passes a locked-off framing statement", () => {
+    const prompt =
+      "Medium shot, eye level, fixed camera. Mara holds the red mug at the desk, facing the " +
+      "window, caught mid-stride between the two.";
+    expect(codesFor(prompt)).not.toContain("motion_in_still");
+  });
+
+  /** It ran on explicit scenes before and must go on doing so. */
+  it("still catches the rhythm wording it was written for", () => {
+    const prompt =
+      "Close-up. Mara lifts the red mug to the window, her hand moving back and forth rhythmically.";
+    expect(codesFor(prompt)).toContain("motion_in_still");
   });
 });
 

@@ -341,7 +341,9 @@ export function buildImagePrompts(
           ? `At the first instant of the action: ${scene.actionDescription.trim().replace(/\.$/, "")}`
           : undefined,
       ) +
-      `Opening framing of the shot; ${scene.cameraMovement.toLowerCase()} begins from here. ` +
+      // No camera move here: this is a still, and it used to end "<camera>
+      // begins from here", which is a direction the image model renders as
+      // nothing and spends attention reading.
       `Consistent characters, wardrobe, and location per the visual bible.`;
   const endBody = v2
     ? renderImagePrompt(v2, { family, frame: "end" })
@@ -352,7 +354,7 @@ export function buildImagePrompts(
           ? `At the last instant of the action: ${scene.actionDescription.trim().replace(/\.$/, "")}`
           : undefined,
       ) +
-      `Closing framing after ${scene.cameraMovement.toLowerCase()}, showing the result of the action` +
+      `Closing framing, showing the result of the action` +
       `${isLast ? " on a resolving beat" : `, setting up scene ${scene.sceneNumber + 1}`}. ` +
       // A scene that depicts a costume change is the one place the two frames are
       // meant to differ in wardrobe.

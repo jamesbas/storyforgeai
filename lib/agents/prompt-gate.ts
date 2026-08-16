@@ -142,9 +142,34 @@ const CONTACT =
 const POSITION =
   /\b(?:cowgirl|missionary|doggy(?:[- ]style)?|spit[- ]roast|straddl\w*|astride|on all fours|on (?:her|his) (?:back|knees|side|stomach|front)|bent over|kneel\w*|l(?:ying|ies|ay) (?:back|down|on)|pinned|mounted|riding|lean(?:s|ing)? over|stand(?:s|ing)? over|crouch\w*|on top of|below|above|beneath|underneath|behind (?:her|him)|over (?:her|him|them)|grip\w* (?:her|his) (?:hips|waist|thighs|head|hair)|between (?:her|his) (?:legs|thighs|knees)|legs? (?:over|around|either side|apart|spread)|spread (?:legs|wide|eagled)|from behind|face down|either side of|thighs either side|hips against)\b/i;
 
-/** Words for time passing, in a medium that has none. */
-const MOTION_IN_STILL =
+/**
+ * Words for time passing, in a medium that has none.
+ *
+ * Three groups, and only unambiguous ones. A camera move named in a still is
+ * always wrong — the frame has no camera travel to show. A stated duration is
+ * always wrong for the same reason. The rhythm set was the original list and is
+ * kept.
+ *
+ * Deliberately excludes bare action verbs. A still can legitimately read "her
+ * hand rests on the door" or "caught mid-stride", and rejecting those would
+ * repair correct prose — the v1.77 failure. Sequenced verbs are a quality
+ * question rather than a fault, and belong in the advisory lint.
+ */
+const CAMERA_TRAVEL_IN_STILL =
+  /\b(?:push(?:es|ing)?[- ]in|pull(?:s|ing)?[- ](?:out|back)|dollies|dolly(?:ing)? (?:in|out|left|right)|tracking shot|track(?:s|ing)? (?:left|right|alongside|with)|pan(?:s|ning)? (?:left|right|across|to)|tilt(?:s|ing)? (?:up|down)|cranes? (?:up|down)|zoom(?:s|ing)? (?:in|out)|orbit(?:s|ing)? (?:around|the)|camera (?:moves|travels|follows|drifts|glides|sweeps|circles|rises|descends|begins|starts|settles))\b/i;
+
+const DURATION_IN_STILL =
+  /\b(?:over (?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|several|a few) seconds?|over the (?:next|following)|for (?:a moment|several seconds)|begins? (?:from here|to)|starts? to|continu(?:es?|ing) (?:to|into)|cuts? to|transitions? to|dissolves? (?:in)?to)\b/i;
+
+const RHYTHM_IN_STILL =
   /\b(?:rhythm\w*|tempo|repeatedly|continuous\w*|back and forth|in and out|steady pace|each thrust|every thrust|over and over)\b/i;
+
+/** Whether this prompt describes time passing rather than one held instant. */
+function describesMotion(text: string): boolean {
+  return (
+    CAMERA_TRAVEL_IN_STILL.test(text) || DURATION_IN_STILL.test(text) || RHYTHM_IN_STILL.test(text)
+  );
+}
 
 const GARMENTS =
   /\b(?:t-?shirts?|shirts?|blouses?|dress(?:es)?|skirts?|trousers|pants|jeans|denim|shorts|suits?|jackets?|coats?|bras?|brassieres?|panties|knickers|briefs|underwear|lingerie|robes?|gowns?|stockings|corsets?|socks|shoes|boots|leggings)\b/i;
@@ -296,6 +321,11 @@ export function gateImagePrompt(
     codes.push("participant_missing");
   }
 
+  // Before the explicit branch: a keyframe is one held instant whatever the
+  // scene contains, and this check spent its first three releases switched off
+  // for every project that was not sexually explicit.
+  if (describesMotion(text)) codes.push("motion_in_still");
+
   if (!ctx.explicit) return codes;
   if (EUPHEMISMS.some((pattern) => pattern.test(text))) codes.push("euphemism");
   if (!depictsSexAct(ctx.scene)) return codes;
@@ -303,7 +333,6 @@ export function gateImagePrompt(
   if (!GENITAL_ANATOMY.test(text)) codes.push("anatomy_unnamed");
   if (!CONTACT.test(text)) codes.push("contact_unstated");
   if (!POSITION.test(text)) codes.push("position_unstated");
-  if (MOTION_IN_STILL.test(text)) codes.push("motion_in_still");
 
   const established =
     frame === "start" ? ctx.establishedWardrobe?.start : ctx.establishedWardrobe?.end;

@@ -50,6 +50,7 @@ import { deleteImportedFrames } from "@/lib/media/imported-frames";
 import { runStoryboardOrchestrator } from "@/lib/agents/orchestrator";
 import { intakeAgent } from "@/lib/agents/intake-agent";
 import { storyArchitectAgent } from "@/lib/agents/story-architect-agent";
+import { applyVariantToBrief } from "@/lib/agents/variant-set";
 import { conceptReaderAgent } from "@/lib/agents/concept-reader";
 import { conceptFidelityAgent } from "@/lib/agents/concept-fidelity";
 import type { ConceptVisuals } from "@/lib/schemas/agents";
@@ -1357,7 +1358,7 @@ async function withStoryPlan(record: ProjectRecord): Promise<ProjectRecord> {
     cast: await resolveProjectCast(record.project),
     selectedVariant: record.variants?.find((v) => v.id === record.selectedVariantId),
   };
-  ctx.brief = await intakeAgent(ctx, provider);
+  ctx.brief = applyVariantToBrief(await intakeAgent(ctx, provider), ctx.selectedVariant);
   const storyPlan = await storyArchitectAgent(ctx, provider);
 
   const updated: ProjectRecord = {
