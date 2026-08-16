@@ -357,6 +357,7 @@ export async function attachScenePrompts(
           end: establishedGarments(wardrobe?.end, wardrobe?.othersEnd, sceneCast),
         },
         wardrobeChange: Boolean(wardrobe?.within.length),
+        inheritsOpening,
       };
       const gated: { codes: PromptGateCode[] } = { codes: [] };
       const imageResult = await executeArtifact<ImagePart>({

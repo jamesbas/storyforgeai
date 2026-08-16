@@ -671,6 +671,53 @@ describe("the scene where the clothes are still coming off", () => {
 });
 
 /**
+ * Under `reuse_end_frame` a scene's start frame is the previous scene's end
+ * frame: inherited, never rendered, and the agent is told to open the prompt at
+ * what that picture already shows. Live, scene 5's start frame correctly
+ * described scene 4's closing state and was flagged `action_dropped` for it,
+ * which then pasted the card's action into it.
+ */
+describe("the start frame a scene inherits", () => {
+  const card = scene({
+    actionDescription:
+      "Her eyelids snap open as she realises two men are looming over her from the shadows. " +
+      "She gasps, her chest rising rapidly.",
+    visualDescription: "She wakes to find them standing over the bed.",
+    storyBeat: "She wakes.",
+  });
+  const base = {
+    scene: card,
+    participants: ["Tracey"],
+    explicit: true,
+    establishedWardrobe: { start: "", end: "" },
+  };
+
+  /** Verbatim from the previous scene's end frame. */
+  const carried =
+    "Close-up, eye level. Tracey lies nude on the rumpled white sheets, her pyjama top and " +
+    "shorts bunched at her ankles, the hands of the two men gripping her hips and waist.";
+
+  it("is not asked for an action it must not show", () => {
+    expect(gateImagePrompt(carried, "start", { ...base, inheritsOpening: true })).not.toContain(
+      "action_dropped",
+    );
+  });
+
+  it("is still asked for it when the scene renders its own opening", () => {
+    expect(gateImagePrompt(carried, "start", { ...base, inheritsOpening: false })).toContain(
+      "action_dropped",
+    );
+  });
+
+  /** The action still has to land somewhere, and the end frame is where. */
+  it("holds the end frame to the action either way", () => {
+    expect(gateImagePrompt(carried, "end", { ...base, inheritsOpening: true })).toContain(
+      "action_dropped",
+    );
+  });
+});
+
+/**
  * A fault only the pair shows. Live: a start frame reading "Exactly two people
  * are in frame" against an end frame reading "Exactly three", on a card that
  * named two men throughout — and the end frame is what the next scene inherits.

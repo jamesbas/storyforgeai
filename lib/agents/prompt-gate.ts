@@ -67,6 +67,14 @@ export type ImageGateContext = {
    * is what `wardrobeChangeDirective` already tells the agent.
    */
   wardrobeChange?: boolean;
+  /**
+   * This scene opens on the previous scene's end frame.
+   *
+   * That frame is inherited rather than rendered, and the agent is told to open
+   * the prompt at what it already shows. Asking it to carry this scene's action
+   * as well is asking for the one thing it must not do.
+   */
+  inheritsOpening?: boolean;
 };
 
 /**
@@ -326,7 +334,9 @@ export function gateImagePrompt(
   const present = contentStems(text);
   const required = contentStems(ctx.scene.actionDescription);
   const met = required.size >= 4 ? coverage(required, present) >= ACTION_COVERAGE : coverage(required, present) > 0;
-  if (!met) codes.push("action_dropped");
+  // An inherited opening shows the previous scene's closing state by design, so
+  // only the end frame can be held to this scene's action.
+  if (!met && !(frame === "start" && ctx.inheritsOpening)) codes.push("action_dropped");
 
   // Not cosmetic: the cast sheet is appended only for characters the prompt
   // names, so a person left out of the prose is dropped from the render's
