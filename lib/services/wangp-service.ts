@@ -552,6 +552,7 @@ export async function buildVideoManifest(args: {
     imageRefsLeadWithScene: reference ? false : undefined,
     videoSource: args.videoSource,
     loras,
+    loraCapable: model.metadata.supportsLora,
     fps: args.fps ?? config.defaults.fps,
     durationSeconds: args.durationSeconds,
     slidingWindows: isMinimaxFamily(family),
@@ -842,6 +843,7 @@ export async function buildImageManifest(args: {
     imageRefs,
     imageRefsLeadWithScene: args.imageRefsLeadWithScene,
     loras,
+    loraCapable: model.metadata.supportsLora,
     resolution: resolutionFor(schema, args.frame, {
       sceneId: args.sceneId,
       purpose: args.purpose,

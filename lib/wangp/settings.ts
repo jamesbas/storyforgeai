@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { config } from "@/lib/config";
 import { SEGMENT_SECONDS } from "@/lib/types";
-import { familyOf } from "@/lib/wangp/family";
 import type { LoraSelection } from "@/lib/schemas/lora";
 import type { WangpModelSchema, WangpGenerationSettings, WangpPurpose } from "@/lib/schemas/wangp";
 
@@ -57,6 +56,14 @@ export type ManifestOverrides = {
    * matched to `activated_loras` by index.
    */
   loras?: LoraSelection[];
+  /**
+   * The model's own `capabilities.lora` flag.
+   *
+   * Authoritative where it is published, because a schema's field list says
+   * which controls the WanGP UI exposes for a model rather than what its
+   * pipeline accepts — and the two disagree often enough to matter.
+   */
+  loraCapable?: boolean;
   fps?: number;
   resolution?: string;
   /** Pinned image seed. Left unset, WanGP picks a fresh one per job. */
@@ -130,12 +137,16 @@ function applyLoras(
   schema: WangpModelSchema,
   fieldNames: Set<string>,
   loras: LoraSelection[],
+  loraCapable?: boolean,
 ): void {
   const declared =
     fieldNames.has("activated_loras") || "activated_loras" in schema.defaultSettings;
-  // Ref2VA accepts the standard WanGP LoRA settings even though its model
-  // schema does not advertise them.
-  const supported = declared || familyOf(schema.modelType) === "minimax_ref2va";
+  // A schema's fields are the controls WanGP's UI draws for a model, not the
+  // inputs its pipeline takes. Krea 2 and LTX 2.5 declare no LoRA fields and
+  // load LoRAs perfectly well; WanGP says so itself in `capabilities.lora`,
+  // which every model observed publishes. Reading that instead of the field
+  // list also retires the hardcoded Ref2VA exception this replaced.
+  const supported = declared || loraCapable === true;
 
   if (!supported) {
     // Silently dropping a selection would render something plausible with no
@@ -357,7 +368,7 @@ export function buildSettingsManifest(
     settings.duration_seconds = seconds;
   }
 
-  applyLoras(settings, schema, fieldNames, overrides.loras ?? []);
+  applyLoras(settings, schema, fieldNames, overrides.loras ?? [], overrides.loraCapable);
 
   return {
     id: randomUUID(),

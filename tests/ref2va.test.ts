@@ -147,6 +147,9 @@ describe("LoRAs on the reference variant", () => {
       purpose: "video_segment",
       prompt: "x",
       loras,
+      // WanGP publishes `capabilities.lora` for this checkpoint even though its
+      // schema omits the fields, and that flag is now what decides.
+      loraCapable: true,
     });
 
   it("writes the standard LoRA settings omitted from its schema", () => {

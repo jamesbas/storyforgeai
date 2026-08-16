@@ -284,19 +284,41 @@ describe("writing LoRAs into the settings manifest", () => {
     expect(manifest.settings.loras_multipliers).toBe("1 0.35");
   });
 
-  it("writes Ref2VA LoRAs even though its schema omits the generic LoRA fields", () => {
+  /**
+   * A schema's fields are the controls WanGP draws for a model, not the inputs
+   * its pipeline takes. Ref2VA, Krea 2 and LTX 2.5 all declare no LoRA fields
+   * and load LoRAs perfectly well, and every one of them publishes
+   * `capabilities.lora`, which is what this now reads.
+   */
+  it("writes LoRAs for a model that claims the capability without the fields", () => {
     const schema = schemaWith(["prompt"]);
-    schema.modelType = "minimax_h3_ref2va";
+    schema.modelType = "krea2_raw_edit";
 
     const manifest = buildSettingsManifest(schema, {
       sceneId: "scene-1",
       purpose: "video_segment",
       prompt: "a lighthouse",
       loras: [{ name: "identity.safetensors", strength: 0.8 }],
+      loraCapable: true,
     });
 
     expect(manifest.settings.activated_loras).toEqual(["identity.safetensors"]);
     expect(manifest.settings.loras_multipliers).toBe("0.8");
+  });
+
+  /** Silently dropping a selection would render something plausible with no LoRA. */
+  it("still refuses when the model claims neither the fields nor the capability", () => {
+    const schema = schemaWith(["prompt"]);
+    schema.modelType = "some_model";
+
+    expect(() =>
+      buildSettingsManifest(schema, {
+        sceneId: "scene-1",
+        purpose: "video_segment",
+        prompt: "a lighthouse",
+        loras: [{ name: "identity.safetensors", strength: 0.8 }],
+      }),
+    ).toThrow(/accepts no LoRAs/);
   });
 
   /**
