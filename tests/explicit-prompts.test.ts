@@ -635,6 +635,39 @@ describe("the scene where the clothes are still coming off", () => {
     const codes = gateImagePrompt(dressed, "start", { ...base, wardrobeChange: false });
     expect(codes).toContain("wardrobe_contradicts_act");
   });
+
+  /**
+   * Undressing is not an act, and asking this frame to name genitals is a
+   * demand the scene cannot meet. Live: this exact card was rejected for
+   * `anatomy_unnamed` and `contact_unstated`, and the repair then pasted "The
+   * two men grab her pajama top and shorts, pulling the fabric down…" into a
+   * close-up — a three-step process in a single frame.
+   */
+  it("does not ask an undressing scene to name genital anatomy", () => {
+    const shipped =
+      "Close-up, eye level. Tracey is entirely nude, lying on the rumpled white sheets; her " +
+      "cream silk pyjama top and shorts are bunched at her ankles. Her bare breasts and pinkish " +
+      "nipples are visible above her soft midsection. The hands of the two men grip her hips and " +
+      "waist. She looks up with wide eyes, her mouth open. Sweat-slicked skin glistens under the " +
+      "warm amber light.";
+    const codes = gateImagePrompt(shipped, "end", { ...base, wardrobeChange: true });
+
+    expect(codes).not.toContain("anatomy_unnamed");
+    expect(codes).not.toContain("contact_unstated");
+    expect(codes).not.toContain("position_unstated");
+    expect(repairImagePrompt(shipped, "end", codes, base)).not.toContain("Shown at the last");
+  });
+
+  /** A card that does reach an act is still held to all three. */
+  it("still asks for them once the scene reaches an act", () => {
+    const act = scene({
+      actionDescription: "He pushes his cock into her while she kneels on the bed.",
+      visualDescription: "The two of them on the bed.",
+      storyBeat: "They begin.",
+    });
+    const vague = "Close-up, eye level. Tracey and the man are together on the rumpled bed.";
+    expect(gateImagePrompt(vague, "end", { ...base, scene: act })).toContain("anatomy_unnamed");
+  });
 });
 
 /**

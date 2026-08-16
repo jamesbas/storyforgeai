@@ -102,18 +102,28 @@ const EUPHEMISMS: readonly RegExp[] = [
 /**
  * Whether this scene depicts a sexual act at all.
  *
- * Deliberately broad, and it reads the euphemisms too: a card saying "he
- * engages her from behind" is a sex scene whose author was coy, and the whole
- * point is that the prompt written from it must not be. Reading only the
- * concrete vocabulary would let a coy card disarm every check below — which is
- * the exact path the shipped failure took.
+ * Deliberately broad about *how* an act is worded, and it reads the euphemisms
+ * too: a card saying "he engages her from behind" is a sex scene whose author
+ * was coy, and the prompt written from it must not be.
  *
- * Scoped to scenes with an act in them because an explicit project still
- * contains scenes of people walking into bars, and demanding penetration
- * vocabulary there would be worse than useless.
+ * Nudity is deliberately **not** an act. A card reading "they pull her top down
+ * until she is entirely nude" describes undressing, and asking that frame to
+ * name genital anatomy is a demand the scene cannot meet — observed live on an
+ * undressing scene whose prompt was correct, rejected for `anatomy_unnamed`,
+ * and then repaired by pasting the card's action back into a still.
  */
 const SEX_ACT =
-  /\b(?:sex|sexual|intercourse|penetrat\w*|thrust\w*|straddl\w*|riding|mounts?|mounted|fellati\w*|blow ?job|cunnilingus|going down on|masturbat\w*|orgasm\w*|climax\w*|ejaculat\w*|fuck\w*|nude|naked|topless|undressed|cocks?|dicks?|pussy|cunt|penis|vagina|vulva|labia|clitoris|clit|nipples?|breasts|genitals?|makes? love|lovemaking|engages? (?:her|him)|enters? (?:her|him)|takes (?:her|him))\b/i;
+  /\b(?:sex|sexual|intercourse|penetrat\w*|thrust\w*|straddl\w*|riding|mounts?|mounted|fellati\w*|blow ?job|cunnilingus|going down on|masturbat\w*|orgasm\w*|climax\w*|ejaculat\w*|fuck\w*|cocks?|dicks?|pussy|cunt|penis|vagina|vulva|labia|clitoris|clit|genitals?|makes? love|lovemaking|engages? (?:her|him)|enters? (?:her|him)|takes (?:her|him))\b/i;
+
+/**
+ * Whether the scene leaves anyone out of their clothes.
+ *
+ * A weaker condition than an act, and it gates a different check: clothing the
+ * model invented is a fault wherever the card says someone is bare, but only an
+ * act can be asked for anatomy, contact and a position.
+ */
+const UNDRESSED_STATE =
+  /\b(?:nude|nudity|naked|topless|undressed|unclothed|strips?|stripped|bare (?:breasts?|skin|body)|nipples?|breasts)\b/i;
 
 /** Parts a render can draw. Breasts are excluded: they do not establish an act. */
 const GENITAL_ANATOMY =
@@ -255,6 +265,11 @@ export function depictsSexAct(scene: SceneDraft): boolean {
   return SEX_ACT.test(cardText(scene));
 }
 
+/** Whether the card leaves anyone bare, whether or not an act follows. */
+function depictsUndress(scene: SceneDraft): boolean {
+  return UNDRESSED_STATE.test(cardText(scene)) || depictsSexAct(scene);
+}
+
 /** Sentences of the card that state outright what happens. */
 function explicitSentences(scene: SceneDraft): string[] {
   return [scene.actionDescription, scene.visualDescription, scene.storyBeat]
@@ -328,11 +343,15 @@ export function gateImagePrompt(
 
   if (!ctx.explicit) return codes;
   if (EUPHEMISMS.some((pattern) => pattern.test(text))) codes.push("euphemism");
-  if (!depictsSexAct(ctx.scene)) return codes;
 
-  if (!GENITAL_ANATOMY.test(text)) codes.push("anatomy_unnamed");
-  if (!CONTACT.test(text)) codes.push("contact_unstated");
-  if (!POSITION.test(text)) codes.push("position_unstated");
+  // Anatomy, contact and position can only be asked of a frame that depicts an
+  // act. Clothing is asked of any frame the card leaves someone bare in.
+  if (depictsSexAct(ctx.scene)) {
+    if (!GENITAL_ANATOMY.test(text)) codes.push("anatomy_unnamed");
+    if (!CONTACT.test(text)) codes.push("contact_unstated");
+    if (!POSITION.test(text)) codes.push("position_unstated");
+  }
+  if (!depictsUndress(ctx.scene)) return codes;
 
   const established =
     frame === "start" ? ctx.establishedWardrobe?.start : ctx.establishedWardrobe?.end;
