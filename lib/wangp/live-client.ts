@@ -6,6 +6,9 @@ import { toWangpSettings, type FieldMap } from "@/lib/wangp/mcp/aliases";
 import { produces } from "@/lib/wangp/model-router";
 import { logEvent } from "@/lib/telemetry";
 
+/** How long a catalogue listing stays good. Matches the LoRA catalogue. */
+const MODEL_CACHE_TTL_MS = 60_000;
+
 /**
  * Live WanGP MCP client (spec Section 23).
  *
@@ -19,7 +22,18 @@ export class LiveWangpClient implements WangpClient {
   private readonly transport: WangpMcpTransport;
   private readonly metadataCache = new Map<string, Record<string, unknown>>();
   private readonly schemaCache = new Map<string, { schema: WangpModelSchema; fieldMap: FieldMap }>();
-  private modelCache?: WangpModel[];
+  /**
+   * The catalogue, cached briefly rather than for the life of the process.
+   *
+   * Availability is mutable state: it flips the moment WanGP finishes fetching
+   * a model's weights. Cached permanently, a model downloaded while
+   * StoryForgeAI was running stayed "not installed" in every picker until the
+   * app was restarted — with WanGP itself reporting it available the whole
+   * time. Sixty seconds matches the LoRA catalogue, which was given a TTL for
+   * the same reason. The metadata and schema caches are left alone, so a
+   * refresh costs one call rather than one per model.
+   */
+  private modelCache?: { at: number; models: WangpModel[] };
 
   constructor(endpoint: string) {
     this.transport = new WangpMcpTransport(endpoint);
@@ -35,7 +49,7 @@ export class LiveWangpClient implements WangpClient {
   }
 
   async listModels(mainOutput?: "image" | "video" | "audio"): Promise<WangpModel[]> {
-    if (!this.modelCache) {
+    if (!this.modelCache || Date.now() - this.modelCache.at >= MODEL_CACHE_TTL_MS) {
       const raw = await this.transport.call("wangp_list_models", { include_availability: true });
       const entries = Array.isArray(raw) ? raw : [];
 
@@ -57,13 +71,17 @@ export class LiveWangpClient implements WangpClient {
         if (model) models.push(model);
       }
 
-      this.modelCache = models;
+      this.modelCache = { at: Date.now(), models };
       logEvent("wangp.discovery", { mode: "live", count: models.length });
     }
 
-    return mainOutput
-      ? this.modelCache.filter((m) => produces(m, mainOutput))
-      : this.modelCache;
+    const models = this.modelCache.models;
+    return mainOutput ? models.filter((m) => produces(m, mainOutput)) : models;
+  }
+
+  /** Drop the cached catalogue, for an explicit refresh. */
+  resetModelCache(): void {
+    this.modelCache = undefined;
   }
 
   async getModelSchema(modelType: string): Promise<WangpModelSchema> {
