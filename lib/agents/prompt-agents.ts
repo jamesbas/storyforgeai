@@ -115,6 +115,13 @@ export const IMAGE_PROMPT_SYSTEM =
   "with an explicit headcount — for example 'Exactly four people are in frame: one " +
   "man, one woman, one boy and one girl.' Do not count background crowds, which " +
   "are not individually described. " +
+  // The count is what suppresses duplication, and it only works while it is
+  // short. An agent told to describe each character in the sentence that places
+  // them chose the headcount sentence for one of them, and sixty words of
+  // appearance and pose landed between "Exactly three people" and the full stop.
+  "The headcount is a sentence of its own and carries counts and role nouns only: " +
+  "no appearance, clothing, pose or placement belongs in it. Describe and place " +
+  "each person in their own separate sentence. " +
   // A standing man behind a seated pair came back cropped at the neck in every
   // attempt. A lower camera did not fix it and nor did a wider shot size; seating
   // him did, first try. A cropped head is not cosmetic — the next scene inherits
