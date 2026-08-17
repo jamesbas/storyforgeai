@@ -234,12 +234,16 @@ export function castSystemDirective(cast: readonly Character[], forRender = fals
     " In the prompts you write, describe each of these characters inline, in the " +
     "same clause as the words that place them in the shot: age, build, hair, skin " +
     "and their specific named garments with colours, in roughly twenty-five words. " +
-    "Use the supplied description and invent nothing it does not give. Do not add " +
-    "a separate list of names and attributes afterwards, and do not rely on a name " +
-    "to carry an appearance — an image model has never heard of these characters, " +
-    "so a name in one sentence and a description in another are two people to it, " +
-    "and it draws two. Name a cast character only in the prompts for shots they " +
-    "actually appear in." +
+    "Use the supplied description and invent nothing it does not give. Attach the " +
+    "description to the name as a phrase inside the sentence that places them, " +
+    "never as a sentence of its own: write 'Tracey, a 52-year-old woman with " +
+    "honey-blonde wavy hair in cream silk pyjamas, lies asleep under the blankets', " +
+    "and never 'Tracey lies asleep under the blankets. Tracey is a 52-year-old " +
+    "woman with honey-blonde wavy hair.' The second shape names the character " +
+    "twice, and an image model has never heard of her, so the two mentions are two " +
+    "separate people to it and it draws both. Mention each character exactly once. " +
+    "Do not add a separate list of names and attributes afterwards. Name a cast " +
+    "character only in the prompts for shots they actually appear in." +
     describeOthers
   );
 }

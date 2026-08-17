@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { castPromptSuffix, castSheet } from "@/lib/agents/cast";
+import { castPromptSuffix, castSheet, describedInline } from "@/lib/agents/cast";
 import { referenceImagesOf, wantsFaceSwap } from "@/lib/schemas/character";
 import { faceSwapSubjects } from "@/lib/services/face-swap-service";
 import { FACE_SWAP_LORAS, FACE_SWAP_SETTINGS } from "@/lib/wangp/face-swap-preset";
@@ -99,6 +99,34 @@ describe("not describing a character twice in one prompt", () => {
   /** Without a body there is nothing to read, so the sheet is the only channel. */
   it("appends the sheet when no body is supplied", () => {
     expect(castPromptSuffix([subject])).toContain("Elena:");
+  });
+
+  /**
+   * The live scene 2 body, verbatim. It describes the character in a sentence of
+   * its own rather than in the clause that places her — still two mentions, and
+   * still wrong — but the appended sheet would make it three, so the suffix has
+   * to recognise this shape as already describing her.
+   */
+  it("recognises a description the agent wrote as its own sentence", () => {
+    const tracey = character({
+      id: "tracey",
+      name: "Tracey",
+      description:
+        "A beautiful 52-year-old Caucasian woman, 5'4\" tall, with honey-blonde " +
+        "shoulder-length voluminous wavy hair featuring lighter golden highlights and " +
+        "soft layers. She wears small gold hoop earrings.",
+      wardrobe: "pajama shorts and top",
+    });
+    const body =
+      "Medium wide shot, low angle. Tracey lies in deep sleep on a bed under thick " +
+      "cream-colored blankets; her eyes are closed and her expression is peaceful. " +
+      "Exactly three people are in frame: one woman and two men. Tracey is a beautiful " +
+      "52-year-old Caucasian woman with honey-blonde shoulder-length voluminous wavy " +
+      "hair, wearing cream-colored silk pajama shorts and top. Two heavy-set black men " +
+      "in their 40s wearing black cotton t-shirts and dark navy trousers are captured " +
+      "mid-stride as they approach the bed.";
+    expect(describedInline(body, tracey)).toBe(true);
+    expect(castPromptSuffix([tracey], undefined, {}, body)).toBe("");
   });
 });
 
