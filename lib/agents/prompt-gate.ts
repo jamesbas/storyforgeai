@@ -15,7 +15,7 @@ import type { SceneDraft } from "@/lib/schemas/storyboard";
  * render two people standing near each other.
  *
  * The first version of this gate asked whether the prompt contained *any*
- * explicit word, and "performs oral sex on Tracey; his mouth is pressed
+ * explicit word, and "performs oral sex on Mara; his mouth is pressed
  * against her soft skin between her thighs" passed it clean: the act was
  * labelled, and nothing an image model can draw was described. So the checks
  * below are sufficiency checks — anatomy, contact, position, asked separately,
@@ -150,7 +150,7 @@ const GENITAL_ANATOMY =
  * Two forms, because a prompt states contact either way round: an explicit
  * insertion word, or a preposition governing a named part. The preposition
  * form allows at most two words between the two, so "performs oral sex on
- * Tracey; his mouth" cannot be read as contact — an early version matched on
+ * Mara; his mouth" cannot be read as contact — an early version matched on
  * proximity alone and did exactly that.
  */
 const CONTACT =

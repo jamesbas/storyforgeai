@@ -51,7 +51,7 @@ const PIXEL = Buffer.from(
 /** The node test environment's File has no arrayBuffer, so duck-type one. */
 const pngFile = () =>
   ({
-    name: "tracey.png",
+    name: "mara.png",
     type: "image/png",
     size: PIXEL.byteLength,
     arrayBuffer: async () =>
@@ -60,14 +60,14 @@ const pngFile = () =>
 
 async function pokerProject(env: Env, useRefs: boolean) {
   const character = await env.characters.createCharacter({
-    name: "Tracey",
+    name: "Mara",
     description: "A woman in her fifties.",
     faceSwap: true,
   });
   await env.characters.setReferenceImage(character.id, pngFile());
 
   const project = await env.projects.createProject({
-    concept: "Four men play poker while Tracey watches from the doorway.",
+    concept: "Four men play poker while Mara watches from the doorway.",
     requestedDurationSeconds: 40,
     useCharacterLibrary: true,
     characterIds: [character.id],
@@ -141,11 +141,11 @@ describe("choosing how a likeness reaches the frame", () => {
   it("withholds a photograph from a frame that does not show them", async () => {
     const env = await isolated();
 
-    const tracey = await env.characters.createCharacter({
-      name: "Tracey",
+    const mara = await env.characters.createCharacter({
+      name: "Mara",
       description: "A woman in her fifties.",
     });
-    await env.characters.setReferenceImage(tracey.id, pngFile());
+    await env.characters.setReferenceImage(mara.id, pngFile());
     const jaime = await env.characters.createCharacter({
       name: "Jaime",
       description: "A man in his fifties, in a white polo shirt.",
@@ -153,22 +153,22 @@ describe("choosing how a likeness reaches the frame", () => {
     await env.characters.setReferenceImage(jaime.id, pngFile());
 
     const project = await env.projects.createProject({
-      concept: "Tracey and Jaime share a hotel suite.",
+      concept: "Mara and Jaime share a hotel suite.",
       requestedDurationSeconds: 20,
       useCharacterLibrary: true,
-      characterIds: [tracey.id, jaime.id],
+      characterIds: [mara.id, jaime.id],
     });
     const built = await env.projects.generateStoryboard(project.id);
     const scene = built.storyboard!.scenes[0]!;
 
     // The card holds both; only the end frame frames Jaime.
     await env.projects.updateSceneCard(project.id, scene.id, {
-      visualDescription: "Tracey stands by the door. Jaime waits in a corner chair.",
-      actionDescription: "Tracey looks toward Jaime.",
+      visualDescription: "Mara stands by the door. Jaime waits in a corner chair.",
+      actionDescription: "Mara looks toward Jaime.",
     });
     await env.projects.updateScenePrompts(project.id, scene.id, {
-      startFramePrompt: "Close on Tracey alone at the door. Exactly one person is in frame.",
-      endFramePrompt: "Jaime rises from the corner chair as Tracey turns to look at him.",
+      startFramePrompt: "Close on Mara alone at the door. Exactly one person is in frame.",
+      endFramePrompt: "Jaime rises from the corner chair as Mara turns to look at him.",
     });
 
     const client = new env.MockWangpClient();
@@ -197,11 +197,11 @@ describe("choosing how a likeness reaches the frame", () => {
   it("sends at most one photograph even when two characters are in the frame", async () => {
     const env = await isolated();
 
-    const tracey = await env.characters.createCharacter({
-      name: "Tracey",
+    const mara = await env.characters.createCharacter({
+      name: "Mara",
       description: "A woman in her fifties.",
     });
-    await env.characters.setReferenceImage(tracey.id, pngFile());
+    await env.characters.setReferenceImage(mara.id, pngFile());
     const jaime = await env.characters.createCharacter({
       name: "Jaime",
       description: "A man in his fifties.",
@@ -209,21 +209,21 @@ describe("choosing how a likeness reaches the frame", () => {
     await env.characters.setReferenceImage(jaime.id, pngFile());
 
     const project = await env.projects.createProject({
-      concept: "Tracey and Jaime share a hotel suite.",
+      concept: "Mara and Jaime share a hotel suite.",
       requestedDurationSeconds: 20,
       useCharacterLibrary: true,
-      characterIds: [tracey.id, jaime.id],
+      characterIds: [mara.id, jaime.id],
     });
     const built = await env.projects.generateStoryboard(project.id);
     const scene = built.storyboard!.scenes[0]!;
 
     await env.projects.updateSceneCard(project.id, scene.id, {
-      visualDescription: "Tracey and Jaime stand together by the window.",
+      visualDescription: "Mara and Jaime stand together by the window.",
       actionDescription: "They look out at the street.",
     });
     await env.projects.updateScenePrompts(project.id, scene.id, {
-      startFramePrompt: "Wide shot. Tracey stands beside Jaime at the window.",
-      endFramePrompt: "Wide shot. Tracey leans on Jaime at the window.",
+      startFramePrompt: "Wide shot. Mara stands beside Jaime at the window.",
+      endFramePrompt: "Wide shot. Mara leans on Jaime at the window.",
     });
 
     const client = new env.MockWangpClient();
@@ -232,7 +232,7 @@ describe("choosing how a likeness reaches the frame", () => {
     await env.media.generateSceneMedia(project.id, scene.id);
 
     const photos = [
-      (await env.characters.getCharacter(tracey.id)).referenceImages![0]!,
+      (await env.characters.getCharacter(mara.id)).referenceImages![0]!,
       (await env.characters.getCharacter(jaime.id)).referenceImages![0]!,
     ];
     for (const [settings] of submitted.mock.calls) {
@@ -251,21 +251,21 @@ describe("choosing how a likeness reaches the frame", () => {
   it("sends one photograph per character however many are stored", async () => {
     const env = await isolated();
 
-    const tracey = await env.characters.createCharacter({
-      name: "Tracey",
+    const mara = await env.characters.createCharacter({
+      name: "Mara",
       description: "A woman in her fifties.",
     });
-    await env.characters.setReferenceImage(tracey.id, pngFile());
-    await env.characters.setReferenceImage(tracey.id, pngFile());
-    await env.characters.setReferenceImage(tracey.id, pngFile());
-    const stored = await env.characters.getCharacter(tracey.id);
+    await env.characters.setReferenceImage(mara.id, pngFile());
+    await env.characters.setReferenceImage(mara.id, pngFile());
+    await env.characters.setReferenceImage(mara.id, pngFile());
+    const stored = await env.characters.getCharacter(mara.id);
     expect(stored.referenceImages!.length).toBe(3);
 
     const project = await env.projects.createProject({
-      concept: "Tracey waits alone in a hotel suite.",
+      concept: "Mara waits alone in a hotel suite.",
       requestedDurationSeconds: 20,
       useCharacterLibrary: true,
-      characterIds: [tracey.id],
+      characterIds: [mara.id],
     });
     const built = await env.projects.generateStoryboard(project.id);
 

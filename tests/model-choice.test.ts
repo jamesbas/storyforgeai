@@ -60,7 +60,7 @@ describe("previewModelChoice", () => {
       purpose: "start_frame",
       prompt: "An empty road at dawn.",
       modelStrategy: "auto",
-      imageRefs: ["/refs/tracey.png"],
+      imageRefs: ["/refs/mara.png"],
     });
     expect(withRefs.image?.modelType).toBe(manifest.modelType);
   });

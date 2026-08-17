@@ -61,7 +61,7 @@ export function normaliseNegative(raw: string): string {
  * Drop exclusions the agents wrote against one character by name.
  *
  * The prompt agents produce terms like `dark skin for Jaime` and `black hair on
- * Tracey`, which read as careful per-person direction and are nothing of the
+ * Mara`, which read as careful per-person direction and are nothing of the
  * sort. A negative prompt is a bag of embeddings with no addressee: the sampler
  * sees `dark skin` and steers the whole frame away from it. In a shot whose
  * leading man is black, an exclusion meant to protect one character's skin tone

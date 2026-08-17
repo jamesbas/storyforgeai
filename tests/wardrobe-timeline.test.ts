@@ -19,9 +19,9 @@ import type { Character } from "@/lib/schemas/character";
  * at or before it.
  */
 
-const TRACEY: Character = {
-  id: "char-tracey",
-  name: "Tracey",
+const MARA: Character = {
+  id: "char-mara",
+  name: "Mara",
   description: "A woman in her thirties.",
   wardrobe: "a plain grey sweatshirt",
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -48,23 +48,23 @@ function project(overrides: Partial<Project> = {}): Project {
     status: "draft",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
-    characterWardrobe: { "char-tracey": "short black silk robe" },
+    characterWardrobe: { "char-mara": "short black silk robe" },
     ...overrides,
   } as Project;
 }
 
 describe("resolving what a character wears in each scene", () => {
   it("carries the project wardrobe through when nothing changes", () => {
-    const timeline = wardrobeTimeline(project(), SCENES, [TRACEY]);
+    const timeline = wardrobeTimeline(project(), SCENES, [MARA]);
     for (const scene of SCENES) {
-      expect(timeline.get(scene.id)!.start["char-tracey"]).toBe("short black silk robe");
-      expect(timeline.get(scene.id)!.end["char-tracey"]).toBe("short black silk robe");
+      expect(timeline.get(scene.id)!.start["char-mara"]).toBe("short black silk robe");
+      expect(timeline.get(scene.id)!.end["char-mara"]).toBe("short black silk robe");
     }
   });
 
   it("prefers the project wardrobe over the character's library default", () => {
-    const timeline = wardrobeTimeline(project(), SCENES, [TRACEY]);
-    expect(timeline.get("s1")!.start["char-tracey"]).not.toBe("a plain grey sweatshirt");
+    const timeline = wardrobeTimeline(project(), SCENES, [MARA]);
+    expect(timeline.get("s1")!.start["char-mara"]).not.toBe("a plain grey sweatshirt");
   });
 
   /** The whole point: a change at scene 3 has to reach scene 4. */
@@ -72,16 +72,16 @@ describe("resolving what a character wears in each scene", () => {
     const timeline = wardrobeTimeline(
       project({
         wardrobeChanges: {
-          s3: [{ characterId: "char-tracey", wardrobe: "jeans and a white t-shirt", mode: "between" }],
+          s3: [{ characterId: "char-mara", wardrobe: "jeans and a white t-shirt", mode: "between" }],
         },
       }),
       SCENES,
-      [TRACEY],
+      [MARA],
     );
 
-    expect(timeline.get("s2")!.end["char-tracey"]).toBe("short black silk robe");
-    expect(timeline.get("s3")!.start["char-tracey"]).toBe("jeans and a white t-shirt");
-    expect(timeline.get("s4")!.start["char-tracey"]).toBe("jeans and a white t-shirt");
+    expect(timeline.get("s2")!.end["char-mara"]).toBe("short black silk robe");
+    expect(timeline.get("s3")!.start["char-mara"]).toBe("jeans and a white t-shirt");
+    expect(timeline.get("s4")!.start["char-mara"]).toBe("jeans and a white t-shirt");
   });
 
   /**
@@ -92,35 +92,35 @@ describe("resolving what a character wears in each scene", () => {
     const timeline = wardrobeTimeline(
       project({
         wardrobeChanges: {
-          s2: [{ characterId: "char-tracey", wardrobe: "jeans and a white t-shirt", mode: "within" }],
+          s2: [{ characterId: "char-mara", wardrobe: "jeans and a white t-shirt", mode: "within" }],
         },
       }),
       SCENES,
-      [TRACEY],
+      [MARA],
     );
 
     const changing = timeline.get("s2")!;
-    expect(changing.start["char-tracey"]).toBe("short black silk robe");
-    expect(changing.end["char-tracey"]).toBe("jeans and a white t-shirt");
+    expect(changing.start["char-mara"]).toBe("short black silk robe");
+    expect(changing.end["char-mara"]).toBe("jeans and a white t-shirt");
     expect(changing.within).toHaveLength(1);
-    expect(timeline.get("s3")!.start["char-tracey"]).toBe("jeans and a white t-shirt");
+    expect(timeline.get("s3")!.start["char-mara"]).toBe("jeans and a white t-shirt");
   });
 
   it("applies two changes in order", () => {
     const timeline = wardrobeTimeline(
       project({
         wardrobeChanges: {
-          s2: [{ characterId: "char-tracey", wardrobe: "a red coat", mode: "between" }],
-          s4: [{ characterId: "char-tracey", wardrobe: "a swimsuit", mode: "between" }],
+          s2: [{ characterId: "char-mara", wardrobe: "a red coat", mode: "between" }],
+          s4: [{ characterId: "char-mara", wardrobe: "a swimsuit", mode: "between" }],
         },
       }),
       SCENES,
-      [TRACEY],
+      [MARA],
     );
 
-    expect(timeline.get("s1")!.start["char-tracey"]).toBe("short black silk robe");
-    expect(timeline.get("s3")!.start["char-tracey"]).toBe("a red coat");
-    expect(timeline.get("s4")!.start["char-tracey"]).toBe("a swimsuit");
+    expect(timeline.get("s1")!.start["char-mara"]).toBe("short black silk robe");
+    expect(timeline.get("s3")!.start["char-mara"]).toBe("a red coat");
+    expect(timeline.get("s4")!.start["char-mara"]).toBe("a swimsuit");
   });
 
   /** A change for someone who is not in the cast would otherwise silently apply. */
@@ -130,7 +130,7 @@ describe("resolving what a character wears in each scene", () => {
         wardrobeChanges: { s2: [{ characterId: "char-ghost", wardrobe: "armour", mode: "between" }] },
       }),
       SCENES,
-      [TRACEY],
+      [MARA],
     );
     expect(timeline.get("s2")!.start).not.toHaveProperty("char-ghost");
   });
@@ -139,16 +139,16 @@ describe("resolving what a character wears in each scene", () => {
 describe("telling the model what the change is", () => {
   it("names both outfits so the clip can show the transition", () => {
     const clause = wardrobeChangeClause(
-      [{ characterId: "char-tracey", wardrobe: "jeans and a white t-shirt", mode: "within" }],
-      [TRACEY],
-      { "char-tracey": "short black silk robe" },
+      [{ characterId: "char-mara", wardrobe: "jeans and a white t-shirt", mode: "within" }],
+      [MARA],
+      { "char-mara": "short black silk robe" },
     );
-    expect(clause).toContain("Tracey changes out of short black silk robe");
+    expect(clause).toContain("Mara changes out of short black silk robe");
     expect(clause).toContain("into jeans and a white t-shirt");
   });
 
   it("says nothing when there is no depicted change", () => {
-    expect(wardrobeChangeClause([], [TRACEY], {})).toBe("");
+    expect(wardrobeChangeClause([], [MARA], {})).toBe("");
   });
 });
 
@@ -165,7 +165,7 @@ describe("unnamed people", () => {
   };
 
   it("carries an established outfit forward instead of reinventing it", () => {
-    const timeline = wardrobeTimeline(project({ wardrobeChanges: SHIRTS_OFF }), SCENES, [TRACEY]);
+    const timeline = wardrobeTimeline(project({ wardrobeChanges: SHIRTS_OFF }), SCENES, [MARA]);
 
     expect(timeline.get("s1")!.othersStart).toEqual({});
     expect(timeline.get("s2")!.othersEnd["the two men"]).toBe("bare-chested, in dark jeans");
@@ -179,7 +179,7 @@ describe("unnamed people", () => {
       s1: [{ subject: "the two men", wardrobe: "grey work shirts", mode: "between" as const }],
       ...SHIRTS_OFF,
     };
-    const timeline = wardrobeTimeline(project({ wardrobeChanges: established }), SCENES, [TRACEY]);
+    const timeline = wardrobeTimeline(project({ wardrobeChanges: established }), SCENES, [MARA]);
 
     expect(timeline.get("s2")!.othersStart["the two men"]).toBe("grey work shirts");
     expect(timeline.get("s2")!.othersEnd["the two men"]).toBe("bare-chested, in dark jeans");
@@ -188,7 +188,7 @@ describe("unnamed people", () => {
   it("names them in the change clause the way the prompt should", () => {
     const clause = wardrobeChangeClause(
       SHIRTS_OFF.s2,
-      [TRACEY],
+      [MARA],
       {},
       { "the two men": "grey work shirts" },
     );
@@ -232,7 +232,7 @@ describe("unnamed people", () => {
     const others = { "the muscular Black man": "black silk trousers" };
 
     it("keeps a subject the frame describes in different words", () => {
-      const body = "Tracey lies back as a muscular Black man with cropped hair settles over her.";
+      const body = "Mara lies back as a muscular Black man with cropped hair settles over her.";
       expect(othersInFrame(body, others)).toEqual(others);
     });
 
@@ -251,13 +251,13 @@ describe("unnamed people", () => {
   it("tracks them separately from the pinned cast", () => {
     const both = {
       s2: [
-        { characterId: "char-tracey", wardrobe: "a red coat", mode: "between" as const },
+        { characterId: "char-mara", wardrobe: "a red coat", mode: "between" as const },
         { subject: "the two men", wardrobe: "bare-chested", mode: "between" as const },
       ],
     };
-    const timeline = wardrobeTimeline(project({ wardrobeChanges: both }), SCENES, [TRACEY]);
+    const timeline = wardrobeTimeline(project({ wardrobeChanges: both }), SCENES, [MARA]);
 
-    expect(timeline.get("s2")!.start["char-tracey"]).toBe("a red coat");
+    expect(timeline.get("s2")!.start["char-mara"]).toBe("a red coat");
     expect(timeline.get("s2")!.othersStart["the two men"]).toBe("bare-chested");
     expect(timeline.get("s2")!.start).not.toHaveProperty("the two men");
   });
@@ -269,15 +269,15 @@ describe("folding what the storyboard proposed", () => {
     {
       id: "s2",
       wardrobeChanges: [
-        { character: "Tracey", newWardrobe: "jeans and a white t-shirt", depictedOnScreen: true },
+        { character: "Mara", newWardrobe: "jeans and a white t-shirt", depictedOnScreen: true },
       ],
     },
   ];
 
   it("matches the agent's character name to a cast id", () => {
-    const folded = foldWardrobeChanges(project(), drafts, [TRACEY]);
+    const folded = foldWardrobeChanges(project(), drafts, [MARA]);
     expect(folded.wardrobeChanges?.s2).toEqual([
-      { characterId: "char-tracey", wardrobe: "jeans and a white t-shirt", mode: "within" },
+      { characterId: "char-mara", wardrobe: "jeans and a white t-shirt", mode: "within" },
     ]);
   });
 
@@ -294,7 +294,7 @@ describe("folding what the storyboard proposed", () => {
         ],
       },
     ];
-    expect(foldWardrobeChanges(project(), unknown, [TRACEY]).wardrobeChanges?.s2).toEqual([
+    expect(foldWardrobeChanges(project(), unknown, [MARA]).wardrobeChanges?.s2).toEqual([
       { subject: "the two men", wardrobe: "bare-chested", mode: "within" },
     ]);
   });
@@ -302,22 +302,22 @@ describe("folding what the storyboard proposed", () => {
   /** A person set this; re-running the agent must not quietly overrule them. */
   it("leaves a scene alone when someone has already set it by hand", () => {
     const manual = project({
-      wardrobeChanges: { s2: [{ characterId: "char-tracey", wardrobe: "a red coat", mode: "between" }] },
+      wardrobeChanges: { s2: [{ characterId: "char-mara", wardrobe: "a red coat", mode: "between" }] },
     });
-    expect(foldWardrobeChanges(manual, drafts, [TRACEY]).wardrobeChanges?.s2?.[0]!.wardrobe).toBe(
+    expect(foldWardrobeChanges(manual, drafts, [MARA]).wardrobeChanges?.s2?.[0]!.wardrobe).toBe(
       "a red coat",
     );
   });
 
   it("returns the project untouched when nothing was proposed", () => {
     const original = project();
-    expect(foldWardrobeChanges(original, [{ id: "s1" }], [TRACEY])).toBe(original);
+    expect(foldWardrobeChanges(original, [{ id: "s1" }], [MARA])).toBe(original);
   });
 });
 
 describe("warning about a continuous take", () => {
   const change = [
-    { characterId: "char-tracey", wardrobe: "jeans", mode: "between" as const },
+    { characterId: "char-mara", wardrobe: "jeans", mode: "between" as const },
   ];
 
   /** There is no cut to hide in, so an off-screen change looks like a glitch. */
@@ -334,7 +334,7 @@ describe("warning about a continuous take", () => {
     const warning = continuousTakeWardrobeWarning(
       project({ sceneContinuity: "reuse_end_frame" }),
       2,
-      [{ characterId: "char-tracey", wardrobe: "jeans", mode: "within" }],
+      [{ characterId: "char-mara", wardrobe: "jeans", mode: "within" }],
     );
     expect(warning).toMatch(/visible on screen/);
   });

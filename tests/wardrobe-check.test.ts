@@ -12,9 +12,9 @@ import type { Character } from "@/lib/schemas/character";
  * be doing.
  */
 
-const TRACEY: Character = {
-  id: "char-tracey",
-  name: "Tracey",
+const MARA: Character = {
+  id: "char-mara",
+  name: "Mara",
   description: "A woman in her fifties.",
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
@@ -23,7 +23,7 @@ const TRACEY: Character = {
 function project(overrides: Partial<Project> = {}): Project {
   return {
     id: "p1",
-    characterWardrobe: { "char-tracey": "short black silk robe" },
+    characterWardrobe: { "char-mara": "short black silk robe" },
     ...overrides,
   } as Project;
 }
@@ -41,12 +41,12 @@ function scene(n: number, action: string) {
 
 describe("spotting an outfit that contradicts the action", () => {
   it("flags a scene whose action is only possible undressed", () => {
-    const scenes = [scene(1, "Tracey pours a drink."), scene(2, "He penetrates her slowly.")];
-    const found = wardrobeContradictions(project(), scenes, [TRACEY]);
+    const scenes = [scene(1, "Mara pours a drink."), scene(2, "He penetrates her slowly.")];
+    const found = wardrobeContradictions(project(), scenes, [MARA]);
 
     expect(found).toHaveLength(1);
     expect(found[0]!.sceneNumber).toBe(2);
-    expect(found[0]!.characters).toEqual(["Tracey"]);
+    expect(found[0]!.characters).toEqual(["Mara"]);
   });
 
   /** Once nude is set, the scene is no longer a contradiction. */
@@ -54,10 +54,10 @@ describe("spotting an outfit that contradicts the action", () => {
     const scenes = [scene(2, "He penetrates her slowly.")];
     const withNude = project({
       wardrobeChanges: {
-        "p1-scene-002": [{ characterId: "char-tracey", wardrobe: "nude", mode: "between" }],
+        "p1-scene-002": [{ characterId: "char-mara", wardrobe: "nude", mode: "between" }],
       },
     });
-    expect(wardrobeContradictions(withNude, scenes, [TRACEY])).toEqual([]);
+    expect(wardrobeContradictions(withNude, scenes, [MARA])).toEqual([]);
   });
 
   /** A change carries forward, so a later scene inherits the nude state. */
@@ -65,10 +65,10 @@ describe("spotting an outfit that contradicts the action", () => {
     const scenes = [scene(1, "She undresses."), scene(2, "He thrusts into her.")];
     const carried = project({
       wardrobeChanges: {
-        "p1-scene-001": [{ characterId: "char-tracey", wardrobe: "nude", mode: "within" }],
+        "p1-scene-001": [{ characterId: "char-mara", wardrobe: "nude", mode: "within" }],
       },
     });
-    expect(wardrobeContradictions(carried, scenes, [TRACEY])).toEqual([]);
+    expect(wardrobeContradictions(carried, scenes, [MARA])).toEqual([]);
   });
 
   /**
@@ -78,7 +78,7 @@ describe("spotting an outfit that contradicts the action", () => {
    */
   it("does not flag a scene that only builds towards it", () => {
     const scenes = [scene(1, "They kiss and she begins to undress him.")];
-    expect(wardrobeContradictions(project(), scenes, [TRACEY])).toEqual([]);
+    expect(wardrobeContradictions(project(), scenes, [MARA])).toEqual([]);
   });
 
   it("says nothing when no cast is pinned", () => {
@@ -87,7 +87,7 @@ describe("spotting an outfit that contradicts the action", () => {
 
   it("says nothing when the character has no stated wardrobe at all", () => {
     const bare = project({ characterWardrobe: {} });
-    expect(wardrobeContradictions(bare, [scene(1, "He penetrates her.")], [TRACEY])).toEqual([]);
+    expect(wardrobeContradictions(bare, [scene(1, "He penetrates her.")], [MARA])).toEqual([]);
   });
 
   /**
@@ -97,16 +97,16 @@ describe("spotting an outfit that contradicts the action", () => {
    * fix that does nothing and a banner that never clears.
    */
   it("leaves a scene alone once someone has ruled on its wardrobe", () => {
-    const JAIME: Character = { ...TRACEY, id: "char-jaime", name: "Jaime" };
+    const JAIME: Character = { ...MARA, id: "char-jaime", name: "Jaime" };
     const watched = project({
-      characterWardrobe: { "char-tracey": "short black silk robe", "char-jaime": "blue jeans" },
+      characterWardrobe: { "char-mara": "short black silk robe", "char-jaime": "blue jeans" },
       wardrobeChanges: {
-        "p1-scene-002": [{ characterId: "char-tracey", wardrobe: "nude", mode: "between" }],
+        "p1-scene-002": [{ characterId: "char-mara", wardrobe: "nude", mode: "between" }],
       },
     });
     const scenes = [scene(2, "He watches as she climaxes.")];
 
-    expect(wardrobeContradictions(watched, scenes, [TRACEY, JAIME])).toEqual([]);
+    expect(wardrobeContradictions(watched, scenes, [MARA, JAIME])).toEqual([]);
   });
 });
 

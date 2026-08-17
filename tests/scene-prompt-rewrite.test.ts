@@ -186,3 +186,89 @@ describe("rewriting the prompts of several scenes at once", () => {
     expect(after.storyboard!.scenes[0]!.prompts.startFramePrompt).toBe(before);
   });
 });
+
+/**
+ * Rewriting one pass.
+ *
+ * Changing the video model pin says nothing about how a still frame should be
+ * described, so a rewrite that spends a second model call per scene on the
+ * image pass is buying a fresh copy of a prompt that was already right — and
+ * paying for it with any wording that was typed by hand.
+ */
+describe("rewriting a single prompt pass", () => {
+  beforeEach(() => {
+    setWangpClient(new MockWangpClient());
+  });
+
+  const executionIds = (record: Awaited<ReturnType<typeof seeded>>, pass: string) =>
+    record.storyboard!.scenes.map(
+      (scene) => latestExecution(record.executions, `${scene.id}.${pass}`)?.executionId,
+    );
+
+  it("re-runs the video pass and leaves the image pass untouched", async () => {
+    const record = await seeded();
+    const after = await regenerateAllScenePrompts(record.project.id, { passes: ["video"] });
+
+    expect(executionIds(after, "video_prompt")).not.toEqual(executionIds(record, "video_prompt"));
+    expect(executionIds(after, "image_prompt")).toEqual(executionIds(record, "image_prompt"));
+  });
+
+  it("keeps hand-edited frame prompts through a video-only rewrite", async () => {
+    const record = await seeded();
+    const scene = record.storyboard!.scenes[1]!;
+    await updateScenePrompts(record.project.id, scene.id, {
+      startFramePrompt: "A hand-written frame prompt that must survive.",
+    });
+
+    const after = await regenerateAllScenePrompts(record.project.id, { passes: ["video"] });
+    const rewritten = after.storyboard!.scenes.find((s) => s.id === scene.id)!;
+
+    expect(rewritten.prompts.startFramePrompt).toBe(
+      "A hand-written frame prompt that must survive.",
+    );
+  });
+
+  it("keeps the hand-edited clip prompt through an image-only rewrite", async () => {
+    const record = await seeded();
+    const scene = record.storyboard!.scenes[1]!;
+    await updateScenePrompts(record.project.id, scene.id, {
+      videoPromptSegment: "A hand-written clip prompt that must survive.",
+    });
+
+    const after = await regenerateAllScenePrompts(record.project.id, { passes: ["image"] });
+    const rewritten = after.storyboard!.scenes.find((s) => s.id === scene.id)!;
+
+    expect(rewritten.prompts.videoPromptSegment).toBe(
+      "A hand-written clip prompt that must survive.",
+    );
+    expect(executionIds(after, "video_prompt")).toEqual(executionIds(record, "video_prompt"));
+  });
+
+  /**
+   * The stamp is what the staleness banner reads. Restamping a pass that did
+   * not run would clear the warning while leaving the prompts it warned about
+   * exactly as they were.
+   */
+  it("does not restamp the clip family when the video pass is skipped", async () => {
+    const record = await seeded();
+    const before = record.storyboard!.scenes.map((s) => s.prompts.videoPromptFamily);
+    const after = await regenerateAllScenePrompts(record.project.id, { passes: ["image"] });
+
+    expect(after.storyboard!.scenes.map((s) => s.prompts.videoPromptFamily)).toEqual(before);
+  });
+
+  it("narrows a picked-scene rewrite to the pass asked for", async () => {
+    const record = await seeded();
+    const scene = record.storyboard!.scenes[0]!;
+    const after = await regenerateScenesPrompts(record.project.id, [scene.id], {
+      passes: ["video"],
+    });
+
+    expect(latestExecution(after.executions, `${scene.id}.video_prompt`)?.executionId).not.toBe(
+      latestExecution(record.executions, `${scene.id}.video_prompt`)?.executionId,
+    );
+    expect(latestExecution(after.executions, `${scene.id}.image_prompt`)?.executionId).toBe(
+      latestExecution(record.executions, `${scene.id}.image_prompt`)?.executionId,
+    );
+  });
+});

@@ -4,7 +4,7 @@ import type { Scene } from "@/lib/schemas/storyboard";
 
 /** The appended cast sheet, which is full of words a loose matcher would trip on. */
 const CAST =
-  " Character continuity — Tracey: A beautiful, athletic 52-year-old Caucasian woman, 5'4\" tall, " +
+  " Character continuity — Mara: A beautiful, athletic 52-year-old Caucasian woman, 5'4\" tall, " +
   "with honey-blonde shoulder-length voluminous wavy hair featuring lighter golden highlights and " +
   "soft layers. She has defined shoulders, toned arms, a narrow trim waist, slim hips no wider than " +
   "her shoulders, and long lean legs with defined quadriceps and calves.";
@@ -67,7 +67,7 @@ describe("reading the shot size out of a prompt", () => {
   });
 
   it("returns nothing when the prompt never states a size", () => {
-    expect(shotSizeOf("Tracey dances between two men in a bar.")).toBeUndefined();
+    expect(shotSizeOf("Mara dances between two men in a bar.")).toBeUndefined();
     expect(shotSizeOf(undefined)).toBeUndefined();
   });
 });

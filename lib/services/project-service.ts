@@ -68,7 +68,7 @@ import { audioDirectorAgent } from "@/lib/agents/audio-agents";
 import type { AudioSceneRef } from "@/lib/agents/mock-audio";
 import { buildAnimaticPlan } from "@/lib/agents/mock-audio";
 import { getPlanningProvider } from "@/lib/agents/llm/provider";
-import { attachScenePrompts } from "@/lib/agents/prompt-agents";
+import { attachScenePrompts, type PromptPass } from "@/lib/agents/prompt-agents";
 import { resolveProjectCast } from "@/lib/services/character-service";
 import { trackAgentRun } from "@/lib/services/agent-runs";
 import { planOn, planSpecFor } from "@/lib/agents/plan-fields";
@@ -1070,8 +1070,18 @@ export async function saveConceptImages(id: string, images: ConceptImage[]): Pro
 export async function regenerateScenePrompts(
   id: string,
   sceneId: string,
+  options: PromptRewriteOptions = {},
 ): Promise<ProjectRecord> {
-  return regenerateScenesPrompts(id, [sceneId]);
+  return regenerateScenesPrompts(id, [sceneId], options);
+}
+
+/** Which prompt passes a rewrite should spend model calls on. Absent means both. */
+export type PromptRewriteOptions = { passes?: readonly PromptPass[] };
+
+/** "video prompts" reads better in a history line than a bare list. */
+function passLabel(passes: readonly PromptPass[] | undefined): string {
+  if (!passes || passes.length !== 1) return "prompts";
+  return passes[0] === "image" ? "image prompts" : "video prompts";
 }
 
 /**
@@ -1092,6 +1102,7 @@ export async function regenerateScenePrompts(
 export async function regenerateScenesPrompts(
   id: string,
   sceneIds: readonly string[],
+  options: PromptRewriteOptions = {},
 ): Promise<ProjectRecord> {
   return trackAgentRun(id, "storyboard", "Image & Video Prompt Agents", async () => {
     const record = await getProjectRecord(id);
@@ -1125,11 +1136,14 @@ export async function regenerateScenesPrompts(
       },
       only: new Set(sceneIds),
       existing,
+      passes: options.passes,
       onExecution: run.onExecution,
       correlationId: run.correlationId,
     });
 
-    const detail = targets.map((s) => `Scene ${s.sceneNumber}`).join(", ");
+    const detail = `${passLabel(options.passes)} — ${targets
+      .map((s) => `Scene ${s.sceneNumber}`)
+      .join(", ")}`;
     const updated: ProjectRecord = {
       ...record,
       storyboard: { ...record.storyboard, scenes: rebuilt },
@@ -1143,6 +1157,7 @@ export async function regenerateScenesPrompts(
       id,
       change: "scene_prompts_rewritten",
       sceneIds: [...sceneIds],
+      passes: [...(options.passes ?? ["image", "video"])],
     });
     return updated;
   });
@@ -1156,13 +1171,27 @@ export async function regenerateScenesPrompts(
  * written leaves every scene phrased for the previous family, and asking
  * someone to visit nine cards in turn is how they end up rendering half a piece
  * with the wrong prompts.
+ *
+ * That case names only one of the two passes, which is why the pass selection
+ * reaches here: a video model change has nothing to say about how a still frame
+ * should be described, and rewriting the image prompts alongside it doubles the
+ * model calls to replace prompts that were already right.
  */
-export async function regenerateAllScenePrompts(id: string): Promise<ProjectRecord> {
+export async function regenerateAllScenePrompts(
+  id: string,
+  options: PromptRewriteOptions = {},
+): Promise<ProjectRecord> {
   return trackAgentRun(id, "storyboard", "Image & Video Prompt Agents", async () => {
     const record = await getProjectRecord(id);
     if (!record.storyboard) throw new ValidationError("Generate a storyboard before writing prompts");
 
     const cast = await resolveProjectCast(record.project);
+    // Carried through even though every scene is being rewritten: it is what
+    // the pass being skipped keeps, and without it that pass would fall back to
+    // the deterministic builder.
+    const existing = Object.fromEntries(
+      record.storyboard.scenes.map((s) => [s.id, s.prompts] as const),
+    );
     const drafts = record.storyboard.scenes.map(({ prompts: _prompts, ...draft }) => draft);
     const run = executionRun();
 
@@ -1175,6 +1204,8 @@ export async function regenerateAllScenePrompts(id: string): Promise<ProjectReco
         cinematographyPlan: record.cinematographyPlan,
         artDirectionPlan: record.artDirectionPlan,
       },
+      existing,
+      passes: options.passes,
       onExecution: run.onExecution,
       correlationId: run.correlationId,
     });
@@ -1187,12 +1218,16 @@ export async function regenerateAllScenePrompts(id: string): Promise<ProjectReco
       history: appendHistory(
         record,
         "scene.prompts_rewritten",
-        `All ${rebuilt.length} scenes`,
+        `All ${rebuilt.length} scenes — ${passLabel(options.passes)}`,
       ),
     };
 
     await repository.update(id, updated);
-    logEvent("project.updated", { id, change: "all_scene_prompts_rewritten" });
+    logEvent("project.updated", {
+      id,
+      change: "all_scene_prompts_rewritten",
+      passes: [...(options.passes ?? ["image", "video"])],
+    });
     return updated;
   });
 }

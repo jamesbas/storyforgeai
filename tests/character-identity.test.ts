@@ -108,9 +108,9 @@ describe("not describing a character twice in one prompt", () => {
    * to recognise this shape as already describing her.
    */
   it("recognises a description the agent wrote as its own sentence", () => {
-    const tracey = character({
-      id: "tracey",
-      name: "Tracey",
+    const mara = character({
+      id: "mara",
+      name: "Mara",
       description:
         "A beautiful 52-year-old Caucasian woman, 5'4\" tall, with honey-blonde " +
         "shoulder-length voluminous wavy hair featuring lighter golden highlights and " +
@@ -118,15 +118,15 @@ describe("not describing a character twice in one prompt", () => {
       wardrobe: "pajama shorts and top",
     });
     const body =
-      "Medium wide shot, low angle. Tracey lies in deep sleep on a bed under thick " +
+      "Medium wide shot, low angle. Mara lies in deep sleep on a bed under thick " +
       "cream-colored blankets; her eyes are closed and her expression is peaceful. " +
-      "Exactly three people are in frame: one woman and two men. Tracey is a beautiful " +
+      "Exactly three people are in frame: one woman and two men. Mara is a beautiful " +
       "52-year-old Caucasian woman with honey-blonde shoulder-length voluminous wavy " +
       "hair, wearing cream-colored silk pajama shorts and top. Two heavy-set black men " +
       "in their 40s wearing black cotton t-shirts and dark navy trousers are captured " +
       "mid-stride as they approach the bed.";
-    expect(describedInline(body, tracey)).toBe(true);
-    expect(castPromptSuffix([tracey], undefined, {}, body)).toBe("");
+    expect(describedInline(body, mara)).toBe(true);
+    expect(castPromptSuffix([mara], undefined, {}, body)).toBe("");
   });
 
   /**
@@ -137,9 +137,9 @@ describe("not describing a character twice in one prompt", () => {
    * said.
    */
   it("measures against the text the sheet would print, not the whole record", () => {
-    const tracey = character({
-      id: "tracey",
-      name: "Tracey",
+    const mara = character({
+      id: "mara",
+      name: "Mara",
       description:
         "A beautiful 52-year-old Caucasian woman, 5'4\" tall, with honey-blonde " +
         "shoulder-length voluminous wavy hair featuring lighter golden highlights and " +
@@ -157,12 +157,12 @@ describe("not describing a character twice in one prompt", () => {
     const body =
       "Medium wide shot, low angle. Two heavy-set black men in their 40s, wearing " +
       "black cotton t-shirts and dark cotton trousers, are mid-stride as they emerge " +
-      "from midnight blue shadows into warm amber light toward the bed where Tracey, " +
+      "from midnight blue shadows into warm amber light toward the bed where Mara, " +
       "a beautiful 52-year-old Caucasian woman with honey-blonde shoulder-length " +
       "voluminous wavy hair featuring lighter golden highlights and soft layers, lies " +
       "sleeping under thick cream-colored blankets.";
-    expect(describedInline(body, tracey, 1)).toBe(true);
-    expect(castPromptSuffix([tracey], undefined, {}, body)).toBe("");
+    expect(describedInline(body, mara, 1)).toBe(true);
+    expect(castPromptSuffix([mara], undefined, {}, body)).toBe("");
   });
 });
 

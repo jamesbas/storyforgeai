@@ -299,9 +299,17 @@ export default function HelpPage() {
             Nothing fails when that happens, which is the problem — the clip renders, it is just
             worse than it should be. So the Storyboard screen watches for it: when the prompts were
             written for a different family than the project now renders on, it says so and offers{" "}
-            <strong>Rewrite all scenes&apos; prompts</strong>. That re-runs the two prompt agents
-            against the scene cards you already have, so the story, the shot list and the cards
-            survive and only the wording changes. Prompt text you typed by hand is replaced.
+            <strong>Rewrite all scenes&apos; video prompts</strong>. That re-runs the video prompt
+            agent against the scene cards you already have, so the story, the shot list, the cards
+            and the start and end frame prompts all survive and only the clip wording changes. Clip
+            prompt text you typed by hand is replaced.
+          </p>
+          <p className={p}>
+            Only the clip prompt is rewritten because only the clip prompt went stale — a video
+            model has nothing to say about how a still frame should be described. That halves the
+            model calls: one per scene rather than two. When you do want both — after editing scene
+            cards, or changing the image model as well — <strong>Rewrite all prompts</strong> sits
+            beside it above the scene list.
           </p>
           <p className={p}>
             A single scene can be done on its own with <strong>Regenerate these prompts</strong> in

@@ -187,7 +187,7 @@ export function castSheet(
  * describe them, because `castPromptSuffix` appends the canonical sheet. The
  * reasoning was that two descriptions render two people, which is true; the
  * error was not seeing that the appended sheet is itself the second mention. A
- * text encoder has never heard of "Tracey", so a name in one sentence and an
+ * text encoder has never heard of "Mara", so a name in one sentence and an
  * appearance in another do not corefer — they are two subjects. A live scene
  * placing a sleeping woman in prose and describing her in the appended sheet
  * rendered both: a generic woman in the bed and a second, on-model one sitting
@@ -236,9 +236,9 @@ export function castSystemDirective(cast: readonly Character[], forRender = fals
     "and their specific named garments with colours, in roughly twenty-five words. " +
     "Use the supplied description and invent nothing it does not give. Attach the " +
     "description to the name as a phrase inside the sentence that places them, " +
-    "never as a sentence of its own: write 'Tracey, a 52-year-old woman with " +
+    "never as a sentence of its own: write 'Mara, a 52-year-old woman with " +
     "honey-blonde wavy hair in cream silk pyjamas, lies asleep under the blankets', " +
-    "and never 'Tracey lies asleep under the blankets. Tracey is a 52-year-old " +
+    "and never 'Mara lies asleep under the blankets. Mara is a 52-year-old " +
     "woman with honey-blonde wavy hair.' The second shape names the character " +
     "twice, and an image model has never heard of her, so the two mentions are two " +
     "separate people to it and it draws both. Mention each character exactly once. " +

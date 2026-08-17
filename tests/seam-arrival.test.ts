@@ -50,16 +50,16 @@ function scene(overrides: Partial<Scene> = {}): Scene {
 }
 
 describe("the seam across an arrival", () => {
-  /** The Poker Night configuration: nobody pinned in scene 1, Tracey in scene 2. */
+  /** The Poker Night configuration: nobody pinned in scene 1, Mara in scene 2. */
   it("holds when a character arrives", () => {
     const previous = scene({ charactersPresent: [], subjectFaceVisible: false });
-    const next = scene({ sceneNumber: 2, charactersPresent: ["Tracey"], subjectFaceVisible: true });
+    const next = scene({ sceneNumber: 2, charactersPresent: ["Mara"], subjectFaceVisible: true });
 
     expect(seamBreak(previous, next)).toBeNull();
   });
 
   it("holds when a character leaves", () => {
-    const previous = scene({ charactersPresent: ["Tracey", "Mike"] });
+    const previous = scene({ charactersPresent: ["Mara", "Mike"] });
     const next = scene({ sceneNumber: 2, charactersPresent: ["Mike"] });
 
     expect(seamBreak(previous, next)).toBeNull();
@@ -152,13 +152,13 @@ describe("the seam across an arrival", () => {
  */
 describe("counting the people a prompt states", () => {
   it("reads the clause the prompt agents write", () => {
-    expect(statedHeadcount("Wide shot. Exactly two people are in frame: Tracey and Jaime.")).toBe(2);
-    expect(statedHeadcount("Close-up. Exactly one person is in frame: Tracey.")).toBe(1);
+    expect(statedHeadcount("Wide shot. Exactly two people are in frame: Mara and Jaime.")).toBe(2);
+    expect(statedHeadcount("Close-up. Exactly one person is in frame: Mara.")).toBe(1);
   });
 
   /** The agents also write it as "one woman" or "two men". */
   it("reads a gendered count", () => {
-    expect(statedHeadcount("Exactly one woman is in frame: Tracey.")).toBe(1);
+    expect(statedHeadcount("Exactly one woman is in frame: Mara.")).toBe(1);
     expect(statedHeadcount("Exactly three men are in frame.")).toBe(3);
   });
 

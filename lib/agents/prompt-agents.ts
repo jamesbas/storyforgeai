@@ -65,6 +65,16 @@ import type { VisualBible } from "@/lib/schemas/agents";
 import type { Project } from "@/lib/schemas/project";
 import type { PlanningProvider, ProviderResult } from "@/lib/agents/llm/provider";
 
+/**
+ * The two prompt passes, each its own model call.
+ *
+ * They are stale for different reasons: an image prompt is written for the
+ * image family, a clip prompt for the video family, and the guidance each is
+ * given changes on its own schedule. Naming them lets a rewrite spend calls
+ * only on the side that actually moved.
+ */
+export type PromptPass = "image" | "video";
+
 /** Planning artifacts the prompt agents read but do not modify. */
 export type ScenePromptContext = {
   cast?: readonly Character[];
@@ -79,6 +89,17 @@ export type ScenePromptContext = {
    */
   only?: ReadonlySet<string>;
   existing?: Record<string, ScenePrompts>;
+  /**
+   * Write only these passes, keeping the other pass's stored prompts.
+   *
+   * Absent means both. Changing the video model pin does not touch how a still
+   * frame should be described, so rewriting the image pass alongside it buys
+   * nothing: it spends a second model call per scene to replace a prompt with
+   * another copy of the same thing, and takes any hand edits on that side with
+   * it. A pass can only be skipped where `existing` carries the prompts it
+   * would otherwise write — there is nothing else to keep.
+   */
+  passes?: readonly PromptPass[];
   /** Receives one record per scene per pass, so image and video stay separate. */
   onExecution?: ExecutionCollector;
   /** Reports which scene is being written, for the canvas status line. */
@@ -240,6 +261,8 @@ export async function attachScenePrompts(
 ): Promise<Scene[]> {
   const cast = context.cast ?? [];
   const plans = context.plans;
+  const wantsImage = !context.passes || context.passes.includes("image");
+  const wantsVideo = !context.passes || context.passes.includes("video");
   const imageFamily = imageFamilyFor(project);
   const videoFamily = videoFamilyFor(project);
   const timeline = wardrobeTimeline(project, drafts, cast);
@@ -266,8 +289,29 @@ export async function attachScenePrompts(
       continue;
     }
 
-    let imagePart = buildImagePrompts(project, draft, sceneCast, plans, wardrobe, imageFamily);
-    let videoPart = buildVideoPrompts(project, draft, sceneCast, plans, wardrobe, videoFamily);
+    // A pass is only skippable while there is something to keep in its place.
+    // Without stored prompts the alternative to writing it is the deterministic
+    // builder, which would quietly downgrade a model-authored prompt.
+    const carried = context.existing?.[draft.id];
+    const skipImage = !wantsImage && carried !== undefined;
+    const skipVideo = !wantsVideo && carried !== undefined;
+
+    let imagePart: ImagePart = skipImage
+      ? {
+          startFramePrompt: carried.startFramePrompt,
+          endFramePrompt: carried.endFramePrompt,
+          imageNegativePrompt: carried.imageNegativePrompt,
+        }
+      : buildImagePrompts(project, draft, sceneCast, plans, wardrobe, imageFamily);
+    let videoPart: VideoPart = skipVideo
+      ? {
+          videoPromptSegment: carried.videoPromptSegment,
+          videoNegativePrompt: carried.videoNegativePrompt,
+          videoSoundscape: carried.videoSoundscape,
+          videoScore: carried.videoScore,
+          promptQualityChecklist: carried.promptQualityChecklist,
+        }
+      : buildVideoPrompts(project, draft, sceneCast, plans, wardrobe, videoFamily);
 
     // Whether this scene's clip will actually open on the previous scene's end
     // frame. Decided the same way `resolveContinuity` decides it at render
@@ -284,6 +328,10 @@ export async function attachScenePrompts(
       // be indistinguishable from one nobody has provenance for at all.
       for (const pass of ["image_prompt", "video_prompt"] as const) {
         const isImage = pass === "image_prompt";
+        // A pass that was not rewritten keeps the provenance of the run that
+        // did write it; recording it again would date a prompt to a run that
+        // never touched it.
+        if (isImage ? skipImage : skipVideo) continue;
         const lint = composerLint(
           isImage ? imagePart.startFramePrompt : videoPart.videoPromptSegment,
           isImage ? imageFamily : videoFamily,
@@ -368,40 +416,42 @@ export async function attachScenePrompts(
         clipCarriesArrivals: generationStages(project.generationMode).video,
       };
       const gated: { codes: PromptGateCode[] } = { codes: [] };
-      const imageResult = await executeArtifact<ImagePart>({
-        artifact: `${draft.id}.image_prompt`,
-        scope: draft.id,
-        correlationId: context.correlationId,
-        promptVersion: PROMPT_VERSIONS.imagePrompt,
-        builderVersion: BUILDER_VERSION,
-        provider,
-        onExecution: context.onExecution,
-        llm: gatedImageCall(
-          provider,
-          IMAGE_PROMPT_SYSTEM +
-            explicitnessDirective(project, "image", draft) +
-            wardrobeChangeDirective(wardrobe) +
-            imagePromptDirective(imageFamily) +
-            seamDirective(project) +
-            castSystemDirective(sceneCast, true) +
-            precedenceDirective(sceneCast, plans),
-          user,
-          gate,
-          gated,
-        ),
-        // A prompt the model wrote and the gate had to patch is neither its
-        // work nor the builder's, and a run that needed patching is a run
-        // whose model is not doing the job.
-        outcome: () =>
-          gated.codes.length
-            ? {
-                source: "hybrid" as const,
-                fallbackReason: "invalid_set" as const,
-                detail: gated.codes.join(","),
-              }
-            : {},
-        fallback: () => imagePart,
-      });
+      const imageResult = skipImage
+        ? null
+        : await executeArtifact<ImagePart>({
+            artifact: `${draft.id}.image_prompt`,
+            scope: draft.id,
+            correlationId: context.correlationId,
+            promptVersion: PROMPT_VERSIONS.imagePrompt,
+            builderVersion: BUILDER_VERSION,
+            provider,
+            onExecution: context.onExecution,
+            llm: gatedImageCall(
+              provider,
+              IMAGE_PROMPT_SYSTEM +
+                explicitnessDirective(project, "image", draft) +
+                wardrobeChangeDirective(wardrobe) +
+                imagePromptDirective(imageFamily) +
+                seamDirective(project) +
+                castSystemDirective(sceneCast, true) +
+                precedenceDirective(sceneCast, plans),
+              user,
+              gate,
+              gated,
+            ),
+            // A prompt the model wrote and the gate had to patch is neither its
+            // work nor the builder's, and a run that needed patching is a run
+            // whose model is not doing the job.
+            outcome: () =>
+              gated.codes.length
+                ? {
+                    source: "hybrid" as const,
+                    fallbackReason: "invalid_set" as const,
+                    detail: gated.codes.join(","),
+                  }
+                : {},
+            fallback: () => imagePart,
+          });
       if (gated.codes.length) {
         logEvent("prompt.gate", { scene: draft.id, kind: "image", codes: gated.codes });
       }
@@ -409,13 +459,13 @@ export async function attachScenePrompts(
       // card's own words but cannot turn an indirect description into a
       // concrete one. On explicit work that is a visible downgrade, so it is
       // reported rather than absorbed.
-      if (imageResult.execution.source === "deterministic" && gate.explicit) {
+      if (imageResult?.execution.source === "deterministic" && gate.explicit) {
         logEvent("prompt.explicit_fallback", {
           scene: draft.id,
           reason: imageResult.execution.fallbackReason ?? "unknown",
         });
       }
-      if (imageResult.execution.source !== "deterministic") {
+      if (imageResult && imageResult.execution.source !== "deterministic") {
         imagePart = withCastEnforced(
           normaliseImageResult(imageResult.value, project, draft, plans, wardrobe, imageFamily),
           sceneCast,
@@ -426,31 +476,33 @@ export async function attachScenePrompts(
         );
       }
 
-      const videoResult = await executeArtifact<VideoPart>({
-        artifact: `${draft.id}.video_prompt`,
-        scope: draft.id,
-        correlationId: context.correlationId,
-        promptVersion: PROMPT_VERSIONS.videoPrompt,
-        builderVersion: BUILDER_VERSION,
-        provider,
-        onExecution: context.onExecution,
-        llm: providerCall(
-          provider,
-          videoPromptSystem(project.segmentSeconds) +
-            explicitnessDirective(project, "video", draft) +
-            videoPromptDirective(videoFamily, {
-              segmentSeconds: project.segmentSeconds,
-              nativeAudio: hasNativeAudio(videoFamily),
-            }) +
-            (inheritsOpening ? inheritedOpeningDirective(previousEndFramePrompt) : "") +
-            castSystemDirective(sceneCast, true) +
-            precedenceDirective(sceneCast, plans),
-          user,
-          videoPartSchema,
-        ),
-        fallback: () => videoPart,
-      });
-      if (videoResult.execution.source === "llm") {
+      const videoResult = skipVideo
+        ? null
+        : await executeArtifact<VideoPart>({
+            artifact: `${draft.id}.video_prompt`,
+            scope: draft.id,
+            correlationId: context.correlationId,
+            promptVersion: PROMPT_VERSIONS.videoPrompt,
+            builderVersion: BUILDER_VERSION,
+            provider,
+            onExecution: context.onExecution,
+            llm: providerCall(
+              provider,
+              videoPromptSystem(project.segmentSeconds) +
+                explicitnessDirective(project, "video", draft) +
+                videoPromptDirective(videoFamily, {
+                  segmentSeconds: project.segmentSeconds,
+                  nativeAudio: hasNativeAudio(videoFamily),
+                }) +
+                (inheritsOpening ? inheritedOpeningDirective(previousEndFramePrompt) : "") +
+                castSystemDirective(sceneCast, true) +
+                precedenceDirective(sceneCast, plans),
+              user,
+              videoPartSchema,
+            ),
+            fallback: () => videoPart,
+          });
+      if (videoResult?.execution.source === "llm") {
         videoPart = withCastEnforcedVideo(
           normaliseVideoResult(videoResult.value, draft, videoFamily),
           sceneCast,
@@ -464,7 +516,14 @@ export async function attachScenePrompts(
     scenes.push({
       ...draft,
       charactersPresent: sceneCast.map((c) => c.name),
-      prompts: { ...imagePart, ...videoPart, videoPromptFamily: videoFamily },
+      prompts: {
+        ...imagePart,
+        ...videoPart,
+        // The stamp records which family the clip prompt was written for, so a
+        // pass that did not run must keep the stamp it already had. Restamping
+        // it here would clear the staleness warning without rewriting anything.
+        videoPromptFamily: skipVideo ? carried?.videoPromptFamily : videoFamily,
+      },
     });
     previousEndFramePrompt = imagePart.endFramePrompt;
   }

@@ -62,7 +62,7 @@ type Characters = Awaited<ReturnType<typeof isolated>>["characters"];
 
 async function castOfTwo(characters: Characters) {
   const first = await characters.createCharacter({
-    name: "Tracey",
+    name: "Mara",
     description: "A woman in her fifties.",
     faceSwap: true,
     faceSwapPrompt: "swap the woman",

@@ -196,7 +196,7 @@ const SPEECH = /<d>[\s\S]*?<\/d>/g;
  *
  * Those clauses talk *about* the character rather than showing them, so a tag
  * lands badly in all of them and dangerously in one: "the frame is free of …
- * Athletic/muscular Tracey" became "free of … `<Subject 1>`", which reads as an
+ * Athletic/muscular Mara" became "free of … `<Subject 1>`", which reads as an
  * instruction to leave the subject out of the shot.
  */
 const APPENDED_CLAUSES = [

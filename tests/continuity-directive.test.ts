@@ -40,7 +40,7 @@ function makeProject(mode?: SceneContinuityMode): Project {
   return {
     id: "p",
     title: "P",
-    concept: "Tracey dances with two men on the floor of a local bar.",
+    concept: "Mara dances with two men on the floor of a local bar.",
     requestedDurationSeconds: 60,
     segmentSeconds: 20,
     segmentCount: seg.segmentCount,

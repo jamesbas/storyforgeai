@@ -60,17 +60,17 @@ describe("reading a negative prompt as a sampler does", () => {
  * who is supposed to have it.
  */
 describe("exclusions the agents aimed at one character", () => {
-  const CAST = ["Jaime", "Tracey"];
+  const CAST = ["Jaime", "Mara"];
 
   it("drops them when more than one person is in frame", () => {
     expect(
-      withoutCharacterScopedTerms("blur, dark skin for Jaime, short hair for Tracey", CAST, 3),
+      withoutCharacterScopedTerms("blur, dark skin for Jaime, short hair for Mara", CAST, 3),
     ).toBe("blur");
   });
 
   /** The agents write both prepositions; catching one left the other unchecked. */
   it("catches the 'on <name>' phrasing as well as 'for <name>'", () => {
-    expect(withoutCharacterScopedTerms("blur, black hair on Tracey", CAST, 3)).toBe("blur");
+    expect(withoutCharacterScopedTerms("blur, black hair on Mara", CAST, 3)).toBe("blur");
     expect(withoutCharacterScopedTerms("blur, blue eyes to Jaime", CAST, 3)).toBe("blur");
   });
 

@@ -22,10 +22,10 @@ import type { Project } from "@/lib/schemas/project";
  * its own absence, and a head-to-toe description was appended to a close-up.
  */
 
-const TRACEY: Character = {
-  id: "char-tracey",
-  name: "Tracey",
-  description: "Tracey: A woman in her fifties with honey-blonde hair.",
+const MARA: Character = {
+  id: "char-mara",
+  name: "Mara",
+  description: "Mara: A woman in her fifties with honey-blonde hair.",
   facialDescription: "Green eyes and a broad mouth.",
   wardrobe: "short black silk robe",
   createdAt: "2026-01-01T00:00:00.000Z",
@@ -46,7 +46,7 @@ function project(overrides: Partial<Project> = {}): Project {
   } as Project;
 }
 
-const ACTION = "Tracey straddles Mark and takes his penis inside her, riding him slowly.";
+const ACTION = "Mara straddles Mark and takes his penis inside her, riding him slowly.";
 
 function scene(overrides: Partial<SceneDraft> = {}): SceneDraft {
   return {
@@ -59,14 +59,14 @@ function scene(overrides: Partial<SceneDraft> = {}): SceneDraft {
     title: "On the bed",
     sceneObjective: "She takes the lead.",
     storyBeat: "They reach the bed.",
-    visualDescription: "Tracey and Mark on a bed in warm lamplight.",
+    visualDescription: "Mara and Mark on a bed in warm lamplight.",
     actionDescription: ACTION,
     cameraMovement: "Slow push-in",
     transitionIn: "cut",
     transitionOut: "cut",
     continuityNotes: [],
     subjectFaceVisible: true,
-    charactersPresent: ["Tracey"],
+    charactersPresent: ["Mara"],
     wardrobeChanges: [],
     status: "planned",
     ...overrides,
@@ -74,25 +74,25 @@ function scene(overrides: Partial<SceneDraft> = {}): SceneDraft {
 }
 
 const COY =
-  "Medium shot, eye level. Tracey and Mark share an intimate embrace in warm lamplight, " +
+  "Medium shot, eye level. Mara and Mark share an intimate embrace in warm lamplight, " +
   "their union tastefully implied as the camera lingers on the soft glow of the room.";
 
 const CONCRETE =
-  "Medium shot, eye level. Tracey straddles Mark on the bed in warm lamplight, his cock " +
+  "Medium shot, eye level. Mara straddles Mark on the bed in warm lamplight, his cock " +
   "(penis) fully inserted in her pussy (vagina), her labia stretched around his shaft, her " +
   "thighs either side of his hips, her breasts lifted, mouth open, skin sweat-slick.";
 
 /** The prompt this project actually shipped for scene 10, verbatim. */
 const SHIPPED_ORAL =
   "Medium close-up, low angle, 35mm lens. A muscular Black man in his 30s wearing black silk " +
-  "trousers performs oral sex on Tracey; his mouth is pressed against her soft skin between " +
-  "her thighs. Tracey lies back on white wrinkled linens, reaching down to grasp the man's " +
+  "trousers performs oral sex on Mara; his mouth is pressed against her soft skin between " +
+  "her thighs. Mara lies back on white wrinkled linens, reaching down to grasp the man's " +
   "hair with her bright blue manicured nails.";
 
 /** And the three-hander, whose act is carried entirely by the verb "engages". */
 const SHIPPED_VAN =
   "Medium shot, eye level, inside the dark van, showing the full rhythmic motion of the three " +
-  "bodies. Tracey is pinned on her back against the van wall, her body lifting slightly with " +
+  "bodies. Mara is pinned on her back against the van wall, her body lifting slightly with " +
   "each heavy thrust as the first man engages her from the front and the second man engages " +
   "her from behind in a continuous dual rhythm.";
 
@@ -230,31 +230,31 @@ describe("telling the agent the work is explicit", () => {
 describe("nudity as a wardrobe state", () => {
   /** The defect: the last line of an explicit prompt put her clothes back on. */
   it("states the absence instead of wearing it", () => {
-    const sheet = castSheet([TRACEY], true, { "char-tracey": "nude" });
+    const sheet = castSheet([MARA], true, { "char-mara": "nude" });
     expect(sheet).toContain("completely naked with no clothing.");
     expect(sheet).not.toContain("wearing nude");
   });
 
   it("accepts the other ways of saying it", () => {
     for (const word of ["naked", "Fully nude", "undressed", "no clothing"]) {
-      expect(castSheet([TRACEY], true, { "char-tracey": word })).toContain("completely naked");
+      expect(castSheet([MARA], true, { "char-mara": word })).toContain("completely naked");
     }
   });
 
   /** Bound to the person, not stated after them, so it cannot drift to another body. */
   it("leaves a real outfit alone", () => {
-    expect(castSheet([TRACEY], true)).toContain(", dressed in short black silk robe.");
+    expect(castSheet([MARA], true)).toContain(", dressed in short black silk robe.");
   });
 
   /** "Robe open" is not nudity, and reads correctly as an outfit. */
   it("does not mistake a partial state for nudity", () => {
-    const sheet = castSheet([TRACEY], true, { "char-tracey": "black silk robe, open" });
+    const sheet = castSheet([MARA], true, { "char-mara": "black silk robe, open" });
     expect(sheet).toContain(", dressed in black silk robe, open.");
   });
 
   /** A planning agent is writing the record, and keeps the explicit form. */
   it("keeps the standalone clause for planning agents", () => {
-    expect(castSheet([TRACEY], false)).toContain("Wearing exactly: short black silk robe.");
+    expect(castSheet([MARA], false)).toContain("Wearing exactly: short black silk robe.");
   });
 });
 
@@ -265,7 +265,7 @@ describe("nudity as a wardrobe state", () => {
  */
 describe("keeping the sheet the same size however big the cast", () => {
   const long = (name: string) => ({
-    ...TRACEY,
+    ...MARA,
     id: `char-${name}`,
     name,
     description: `${name} is a person. ${"Every detail of their appearance recorded at length. ".repeat(12)}`,
@@ -298,10 +298,10 @@ describe("keeping the sheet the same size however big the cast", () => {
 });
 
 describe("scaling the sheet to the shot", () => {
-  const photographed = { ...TRACEY, referenceImages: ["tracey.png"] };
+  const photographed = { ...MARA, referenceImages: ["mara.png"] };
 
   it("keeps the full description when text is the only identity signal", () => {
-    const sheet = castSheet([TRACEY], true, undefined, { tightShot: true });
+    const sheet = castSheet([MARA], true, undefined, { tightShot: true });
     expect(sheet).toContain("honey-blonde hair");
   });
 
@@ -309,7 +309,7 @@ describe("scaling the sheet to the shot", () => {
   it("trims to name and wardrobe on a close-up with a reference photo", () => {
     const sheet = castSheet([photographed], true, undefined, { tightShot: true });
     expect(sheet).not.toContain("honey-blonde hair");
-    expect(sheet).toContain("Tracey:");
+    expect(sheet).toContain("Mara:");
     expect(sheet).toContain("Wearing exactly: short black silk robe.");
   });
 
@@ -320,7 +320,7 @@ describe("scaling the sheet to the shot", () => {
 
   /** A written face competes with a framing that crops the head. */
   it("withholds the face when the shot does not show one", () => {
-    const noFace = { ...TRACEY, referenceImages: undefined };
+    const noFace = { ...MARA, referenceImages: undefined };
     expect(castSheet([noFace], true, undefined, { faceVisible: false })).not.toContain("Green eyes");
     expect(castSheet([noFace], true, undefined, { faceVisible: true })).toContain("Green eyes");
   });
@@ -347,8 +347,8 @@ describe("reading the shot size of a prompt", () => {
 describe("the doubled name", () => {
   /** The stored description opened with the name, and the sheet added it again. */
   it("does not write the name twice", () => {
-    expect(castPromptSuffix([TRACEY])).toContain("Tracey: A woman in her fifties");
-    expect(castPromptSuffix([TRACEY])).not.toContain("Tracey: Tracey:");
+    expect(castPromptSuffix([MARA])).toContain("Mara: A woman in her fifties");
+    expect(castPromptSuffix([MARA])).not.toContain("Mara: Mara:");
   });
 });
 
@@ -366,7 +366,7 @@ describe("people who are not in the pinned cast", () => {
   });
 
   it("asks for it alongside the cast rules when there is a cast", () => {
-    expect(castSystemDirective([TRACEY], true)).toMatch(/must be described in your own/);
+    expect(castSystemDirective([MARA], true)).toMatch(/must be described in your own/);
   });
 
   /**
@@ -374,7 +374,7 @@ describe("people who are not in the pinned cast", () => {
    * length was rendered twice while the other was dropped.
    */
   it("asks for those descriptions to be compact and evenly weighted", () => {
-    const directive = castSystemDirective([TRACEY], true);
+    const directive = castSystemDirective([MARA], true);
     expect(directive).toMatch(/compact clause/);
     expect(directive).toMatch(/roughly the same length/);
     expect(directive).toMatch(/same clause as the person/);
@@ -428,7 +428,7 @@ describe("recognising explicit work the settings do not announce", () => {
 describe("the acceptance gate on the finished keyframe prompt", () => {
   const ctx = {
     scene: scene(),
-    participants: ["Tracey"],
+    participants: ["Mara"],
     explicit: true,
     establishedWardrobe: { start: "", end: "" },
   };
@@ -451,11 +451,11 @@ describe("the acceptance gate on the finished keyframe prompt", () => {
    */
   it("rejects an act that is named but never depicted", () => {
     const oral = scene({
-      storyBeat: "The man performs oral sex on Tracey as she lies on the bed.",
+      storyBeat: "The man performs oral sex on Mara as she lies on the bed.",
       actionDescription:
-        "The man continues his oral sex on Tracey, his movements steady. Tracey reaches down to " +
+        "The man continues his oral sex on Mara, his movements steady. Mara reaches down to " +
         "grasp the man's hair.",
-      visualDescription: "A close-up of the man's mouth against Tracey's skin.",
+      visualDescription: "A close-up of the man's mouth against Mara's skin.",
     });
     const codes = gateImagePrompt(SHIPPED_ORAL, "end", { ...ctx, scene: oral });
     expect(codes).toContain("anatomy_unnamed");
@@ -484,7 +484,7 @@ describe("the acceptance gate on the finished keyframe prompt", () => {
   });
 
   it("rejects a prompt that leaves a person in the scene unnamed", () => {
-    const withoutHer = CONCRETE.replace(/Tracey/g, "a woman");
+    const withoutHer = CONCRETE.replace(/Mara/g, "a woman");
     expect(gateImagePrompt(withoutHer, "end", ctx)).toContain("participant_missing");
   });
 
@@ -500,11 +500,11 @@ describe("the acceptance gate on the finished keyframe prompt", () => {
     const arrival = scene({
       storyBeat: "She parks outside the bar.",
       visualDescription: "A woman in a car on a wet street at night.",
-      actionDescription: "Tracey kills the engine and looks at the door.",
+      actionDescription: "Mara kills the engine and looks at the door.",
       sceneObjective: "Arrive.",
     });
     const prompt =
-      "Wide shot, eye level. Tracey sits in a parked car on a wet street at night, killing the " +
+      "Wide shot, eye level. Mara sits in a parked car on a wet street at night, killing the " +
       "engine and looking at the bar door through the windscreen.";
     expect(gateImagePrompt(prompt, "start", { ...ctx, scene: arrival })).toEqual([]);
   });
@@ -519,7 +519,7 @@ describe("the acceptance gate on the finished keyframe prompt", () => {
 
 /**
  * A live scene from a 1.75 run. The model wrote a fully explicit prompt and the
- * gate rejected it anyway: it named contact as "deep in Tracey's mouth" and
+ * gate rejected it anyway: it named contact as "deep in Mara's mouth" and
  * "press against her vulva", and position as "leans over her", none of which
  * the first vocabulary recognised. The repair then appended the card's action,
  * the same action's sentences again, and the story beat's paraphrase of it, so
@@ -531,22 +531,22 @@ describe("the scene that came back repeating itself", () => {
       "Man 1 thrusts rhythmically into her vagina. Simultaneously, the second man leans over " +
       "her, his hands on either side of her head, guiding his cock into her mouth for a blowjob.",
     visualDescription:
-      "Medium shot showing both men as they engage in a rhythmic, coordinated sequence with Tracey.",
+      "Medium shot showing both men as they engage in a rhythmic, coordinated sequence with Mara.",
     storyBeat:
       "The first man thrusts into her while the second man leans over and guides his cock into " +
-      "Tracey's mouth.",
+      "Mara's mouth.",
   });
   const ctx = {
     scene: card,
-    participants: ["Tracey"],
+    participants: ["Mara"],
     explicit: true,
     establishedWardrobe: { start: "", end: "" },
   };
 
   const written =
     "Close-up, eye level. Blowjob: The second heavy-set black man in his 40s has his cock " +
-    "(penis) deep in Tracey's mouth; Man 1 is visible below as he thrusts his cock (penis) into " +
-    "her pussy (vagina). Exactly three people are in frame: one woman and two men. Tracey's lips " +
+    "(penis) deep in Mara's mouth; Man 1 is visible below as he thrusts his cock (penis) into " +
+    "her pussy (vagina). Exactly three people are in frame: one woman and two men. Mara's lips " +
     "are stretched wide around the glistening shaft of the man's cock (penis), with moisture " +
     "glinting where they meet; Man 1's hands grip her hips as his balls press against her vulva. " +
     "Her eyes are squeezed shut, her skin is flushed and sweat-slicked, and her breasts are " +
@@ -558,11 +558,11 @@ describe("the scene that came back repeating itself", () => {
   });
 
   it("reads contact and position as they are really written", () => {
-    const noContact = written.replace(/deep in Tracey's mouth/, "close to Tracey");
+    const noContact = written.replace(/deep in Mara's mouth/, "close to Mara");
     expect(gateImagePrompt(written, "end", ctx)).not.toContain("contact_unstated");
     expect(gateImagePrompt(written, "end", ctx)).not.toContain("position_unstated");
     // Still catches a prompt that genuinely states neither.
-    expect(noContact).toContain("close to Tracey");
+    expect(noContact).toContain("close to Mara");
   });
 
   /**
@@ -572,7 +572,7 @@ describe("the scene that came back repeating itself", () => {
    */
   it("never restates the action when it does have to repair", () => {
     const coy =
-      "Close-up, eye level. Tracey and the two men are locked together in the dim amber light, " +
+      "Close-up, eye level. Mara and the two men are locked together in the dim amber light, " +
       "their union tastefully implied as the camera lingers on their faces.";
     const codes = gateImagePrompt(coy, "end", ctx);
     expect(codes).toContain("anatomy_unnamed");
@@ -592,7 +592,7 @@ describe("the scene that came back repeating itself", () => {
   /** The warning the storyboard screen showed, asserted at its source. */
   it("leaves no repeated sentence for the prompt checker to flag", () => {
     const coy =
-      "Close-up, eye level. Tracey and the two men are locked together in the dim amber light, " +
+      "Close-up, eye level. Mara and the two men are locked together in the dim amber light, " +
       "their union tastefully implied as the camera lingers on their faces.";
     const repaired = repairImagePrompt(coy, "end", gateImagePrompt(coy, "end", ctx), ctx);
     const codes = lintRendered(repaired, "flux", "image", 0).map((finding) => finding.code);
@@ -610,17 +610,17 @@ describe("the scene where the clothes are still coming off", () => {
   const card = scene({
     actionDescription:
       "The two men pull her pyjama top and shorts down past her hips until she is nude.",
-    visualDescription: "The men strip Tracey on the rumpled bedding.",
+    visualDescription: "The men strip Mara on the rumpled bedding.",
     storyBeat: "They undress her.",
   });
   const dressed =
     "Medium shot, eye level. Two men in dark navy trousers and charcoal t-shirts pull at the " +
-    "fabric of Tracey's cream silk pyjama shorts while she lies back on the rumpled bedding, " +
+    "fabric of Mara's cream silk pyjama shorts while she lies back on the rumpled bedding, " +
     "her breasts half covered and her pussy (vagina) not yet exposed, straddled by the nearer man.";
 
   const base = {
     scene: card,
-    participants: ["Tracey"],
+    participants: ["Mara"],
     explicit: true,
     establishedWardrobe: { start: "", end: "" },
   };
@@ -645,7 +645,7 @@ describe("the scene where the clothes are still coming off", () => {
    */
   it("does not ask an undressing scene to name genital anatomy", () => {
     const shipped =
-      "Close-up, eye level. Tracey is entirely nude, lying on the rumpled white sheets; her " +
+      "Close-up, eye level. Mara is entirely nude, lying on the rumpled white sheets; her " +
       "cream silk pyjama top and shorts are bunched at her ankles. Her bare breasts and pinkish " +
       "nipples are visible above her soft midsection. The hands of the two men grip her hips and " +
       "waist. She looks up with wide eyes, her mouth open. Sweat-slicked skin glistens under the " +
@@ -665,7 +665,7 @@ describe("the scene where the clothes are still coming off", () => {
       visualDescription: "The two of them on the bed.",
       storyBeat: "They begin.",
     });
-    const vague = "Close-up, eye level. Tracey and the man are together on the rumpled bed.";
+    const vague = "Close-up, eye level. Mara and the man are together on the rumpled bed.";
     expect(gateImagePrompt(vague, "end", { ...base, scene: act })).toContain("anatomy_unnamed");
   });
 });
@@ -687,14 +687,14 @@ describe("the start frame a scene inherits", () => {
   });
   const base = {
     scene: card,
-    participants: ["Tracey"],
+    participants: ["Mara"],
     explicit: true,
     establishedWardrobe: { start: "", end: "" },
   };
 
   /** Verbatim from the previous scene's end frame. */
   const carried =
-    "Close-up, eye level. Tracey lies nude on the rumpled white sheets, her pyjama top and " +
+    "Close-up, eye level. Mara lies nude on the rumpled white sheets, her pyjama top and " +
     "shorts bunched at her ankles, the hands of the two men gripping her hips and waist.";
 
   it("is not asked for an action it must not show", () => {
@@ -731,10 +731,10 @@ describe("the start frame a scene inherits", () => {
  * room" (three to one). Both are scripted, and both were marked degraded.
  */
 describe("the two frames disagreeing about who is there", () => {
-  const one = "Medium shot, eye level. Exactly one person is in frame: Tracey.";
-  const two = "Medium shot, eye level. Exactly two people are in frame: Tracey and a man.";
+  const one = "Medium shot, eye level. Exactly one person is in frame: Mara.";
+  const two = "Medium shot, eye level. Exactly two people are in frame: Mara and a man.";
   const three =
-    "Medium shot, eye level. Exactly three people are in frame: Tracey, one man, and another man.";
+    "Medium shot, eye level. Exactly three people are in frame: Mara, one man, and another man.";
 
   const keyframesOnly = { clipCarriesArrivals: false };
   const withClip = { clipCarriesArrivals: true };
@@ -774,19 +774,19 @@ describe("the two frames disagreeing about who is there", () => {
 describe("a prompt that says the same thing in other words", () => {
   const card = scene({
     actionDescription:
-      "With a sudden, forceful movement, they whip the blankets away from Tracey, exposing her " +
+      "With a sudden, forceful movement, they whip the blankets away from Mara, exposing her " +
       "skin to the cool air of the room.",
     visualDescription: "The bed, the blankets, the two men.",
     storyBeat: "They uncover her.",
   });
   const ctx = {
     scene: card,
-    participants: ["Tracey"],
+    participants: ["Mara"],
     explicit: true,
     establishedWardrobe: { start: "", end: "" },
   };
   const faithful =
-    "Medium shot, low angle. Two men are pulling the thick cream blankets away from Tracey; the " +
+    "Medium shot, low angle. Two men are pulling the thick cream blankets away from Mara; the " +
     "fabric billows mid-air as it is pulled back to reveal her skin and her silk pyjama shorts.";
 
   /** It may still flag, but it must not edit. */
@@ -801,7 +801,7 @@ describe("a prompt that says the same thing in other words", () => {
       visualDescription: "The two of them.",
       storyBeat: "They begin.",
     });
-    const vague = "Close-up, eye level. Tracey and the man are together on the rumpled bed.";
+    const vague = "Close-up, eye level. Mara and the man are together on the rumpled bed.";
     const repaired = repairImagePrompt(vague, "end", ["anatomy_unnamed"], { ...ctx, scene: act });
     expect(repaired).toContain("cock");
   });
@@ -810,7 +810,7 @@ describe("a prompt that says the same thing in other words", () => {
 describe("what actually comes out of the image agent", () => {
   it("gives a coy model one retry, telling it what was rejected", async () => {
     const { imageCalls, provider } = imageProvider(() => COY);
-    await attachScenePrompts(project(), [scene()], provider, { cast: [TRACEY] });
+    await attachScenePrompts(project(), [scene()], provider, { cast: [MARA] });
 
     expect(imageCalls()).toHaveLength(2);
     const retry = imageCalls()[1]!.system;
@@ -822,7 +822,7 @@ describe("what actually comes out of the image agent", () => {
     const { imageCalls, provider } = imageProvider(() => CONCRETE);
     const executions: ArtifactExecution[] = [];
     await attachScenePrompts(project(), [scene()], provider, {
-      cast: [TRACEY],
+      cast: [MARA],
       onExecution: (e) => executions.push(e),
     });
 
@@ -837,7 +837,7 @@ describe("what actually comes out of the image agent", () => {
     const { provider } = imageProvider(() => COY);
     const executions: ArtifactExecution[] = [];
     const scenes = await attachScenePrompts(project(), [scene()], provider, {
-      cast: [TRACEY],
+      cast: [MARA],
       onExecution: (e) => executions.push(e),
     });
 
@@ -860,10 +860,10 @@ describe("what actually comes out of the image agent", () => {
    */
   it("sends a garment it never established to the negative prompt", async () => {
     const dressed = () =>
-      "Medium shot, eye level. A man in black silk trousers performs oral sex on Tracey, his " +
+      "Medium shot, eye level. A man in black silk trousers performs oral sex on Mara, his " +
       "mouth against her soft skin, as she lies back and grasps his hair with her nails.";
     const { provider } = imageProvider(dressed);
-    const scenes = await attachScenePrompts(project(), [scene()], provider, { cast: [TRACEY] });
+    const scenes = await attachScenePrompts(project(), [scene()], provider, { cast: [MARA] });
 
     expect(scenes[0]!.prompts.imageNegativePrompt).toContain("trousers");
     expect(scenes[0]!.prompts.startFramePrompt).toContain("completely naked");
@@ -875,7 +875,7 @@ describe("what actually comes out of the image agent", () => {
    * concrete words it was given.
    */
   it("keeps the action in both frames when there is no provider at all", async () => {
-    const scenes = await attachScenePrompts(project(), [scene()], null, { cast: [TRACEY] });
+    const scenes = await attachScenePrompts(project(), [scene()], null, { cast: [MARA] });
     const { startFramePrompt, endFramePrompt } = scenes[0]!.prompts;
 
     expect(startFramePrompt).toContain("straddles Mark");
@@ -884,9 +884,9 @@ describe("what actually comes out of the image agent", () => {
 
     const ctx = {
       scene: scene(),
-      participants: ["Tracey"],
+      participants: ["Mara"],
       explicit: true,
-      establishedWardrobe: { start: TRACEY.wardrobe!, end: TRACEY.wardrobe! },
+      establishedWardrobe: { start: MARA.wardrobe!, end: MARA.wardrobe! },
     };
     expect(gateImagePrompt(startFramePrompt, "start", ctx)).toEqual([]);
     expect(gateImagePrompt(endFramePrompt, "end", ctx)).toEqual([]);

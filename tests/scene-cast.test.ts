@@ -21,7 +21,7 @@ const character = (id: string, name: string): Character => ({
   updatedAt: "2026-01-01T00:00:00.000Z",
 });
 
-const TRACEY = character("char-tracey", "Tracey");
+const MARA = character("char-mara", "Mara");
 const DAN = character("char-dan", "Dan");
 
 function scene(overrides: Partial<SceneDraft> = {}): SceneDraft {
@@ -52,44 +52,44 @@ function scene(overrides: Partial<SceneDraft> = {}): SceneDraft {
 describe("reading a scene card for who is in it", () => {
   /** The exact case from Poker Night scene 1. */
   it("leaves a character out of a shot that never mentions them", () => {
-    expect(charactersInScene(scene(), [TRACEY])).toEqual([]);
+    expect(charactersInScene(scene(), [MARA])).toEqual([]);
   });
 
   it("includes a character the scene names", () => {
     const named = scene({
-      actionDescription: "Tracey leans in the doorway watching the game.",
+      actionDescription: "Mara leans in the doorway watching the game.",
     });
-    expect(charactersInScene(named, [TRACEY]).map((c) => c.name)).toEqual(["Tracey"]);
+    expect(charactersInScene(named, [MARA]).map((c) => c.name)).toEqual(["Mara"]);
   });
 
   it("finds a character who only speaks", () => {
     const speaking = scene({
-      dialogue: [{ character: "Tracey", line: "Deal me in." }],
+      dialogue: [{ character: "Mara", line: "Deal me in." }],
     });
-    expect(charactersInScene(speaking, [TRACEY])).toHaveLength(1);
+    expect(charactersInScene(speaking, [MARA])).toHaveLength(1);
   });
 
   it("picks out only the cast members present", () => {
     const partial = scene({ visualDescription: "Dan deals the next hand." });
-    expect(charactersInScene(partial, [TRACEY, DAN]).map((c) => c.name)).toEqual(["Dan"]);
+    expect(charactersInScene(partial, [MARA, DAN]).map((c) => c.name)).toEqual(["Dan"]);
   });
 
   /** A declared list is the storyboard's own answer and outranks the text. */
   it("prefers the list the storyboard declared", () => {
     const declared = scene({
-      charactersPresent: ["Tracey"],
+      charactersPresent: ["Mara"],
       visualDescription: "Four men are seated around the table.",
     });
-    expect(charactersInScene(declared, [TRACEY, DAN]).map((c) => c.name)).toEqual(["Tracey"]);
+    expect(charactersInScene(declared, [MARA, DAN]).map((c) => c.name)).toEqual(["Mara"]);
   });
 
   /** A declared name nobody recognises is a naming slip, not an empty scene. */
   it("falls back to the card when the declared names match nobody", () => {
     const declared = scene({
       charactersPresent: ["Traci"],
-      actionDescription: "Tracey pours a drink.",
+      actionDescription: "Mara pours a drink.",
     });
-    expect(charactersInScene(declared, [TRACEY]).map((c) => c.name)).toEqual(["Tracey"]);
+    expect(charactersInScene(declared, [MARA]).map((c) => c.name)).toEqual(["Mara"]);
   });
 
   /** "Dan" must not match inside "Dance" or "Daniel". */
@@ -99,8 +99,8 @@ describe("reading a scene card for who is in it", () => {
   });
 
   it("is case-insensitive", () => {
-    const shouty = scene({ actionDescription: "TRACEY slams the door." });
-    expect(charactersInScene(shouty, [TRACEY])).toHaveLength(1);
+    const shouty = scene({ actionDescription: "MARA slams the door." });
+    expect(charactersInScene(shouty, [MARA])).toHaveLength(1);
   });
 
   it("has nothing to say when no cast is pinned", () => {
@@ -116,19 +116,19 @@ describe("reading a scene card for who is in it", () => {
  */
 describe("narrowing the cast to what one frame shows", () => {
   it("drops a character the frame does not name", () => {
-    const body = "Tracey lies back as a muscular man settles over her. Exactly two people are in frame.";
-    expect(charactersInFrame(body, [DAN, TRACEY])).toEqual([TRACEY]);
+    const body = "Mara lies back as a muscular man settles over her. Exactly two people are in frame.";
+    expect(charactersInFrame(body, [DAN, MARA])).toEqual([MARA]);
   });
 
   it("keeps a character the frame puts in the background", () => {
-    const body = "Tracey walks to the bed. In the background, Dan sits in a corner chair.";
-    expect(charactersInFrame(body, [DAN, TRACEY])).toEqual([DAN, TRACEY]);
+    const body = "Mara walks to the bed. In the background, Dan sits in a corner chair.";
+    expect(charactersInFrame(body, [DAN, MARA])).toEqual([DAN, MARA]);
   });
 
   /** A frame can describe people without naming them, and an empty sheet
    *  would drop face continuity altogether. */
   it("falls back to the scene cast when the frame names nobody", () => {
     const body = "A close-up of one woman and one man, lit from the side.";
-    expect(charactersInFrame(body, [DAN, TRACEY])).toEqual([DAN, TRACEY]);
+    expect(charactersInFrame(body, [DAN, MARA])).toEqual([DAN, MARA]);
   });
 });

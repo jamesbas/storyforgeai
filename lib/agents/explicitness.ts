@@ -182,7 +182,7 @@ const IMAGE_FRAME_CONTRACT =
   "outside the cast specific named garments: a participant wears nothing, and you must not put " +
   "a shirt, trousers, lingerie or underwear on anyone the act involves. Clothing belongs only " +
   "to people this scene's wardrobe explicitly dresses.\n" +
-  "A finished frame reads like this: \"Medium shot, low angle. Reverse cowgirl: Tracey sits " +
+  "A finished frame reads like this: \"Medium shot, low angle. Reverse cowgirl: Mara sits " +
   "astride Mark facing away from him, his cock (penis) fully inserted in her pussy (vagina), " +
   "her labia stretched tight around his shaft, the base still visible where they join. Her " +
   "knees are either side of his hips, her hands braced on his thighs; his hands grip her waist. " +

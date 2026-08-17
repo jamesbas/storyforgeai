@@ -26,6 +26,7 @@ import type { Character } from "@/lib/schemas/character";
 import { handEditedSinceGeneration } from "@/lib/history";
 import { familyLabel, familyOf } from "@/lib/wangp/family";
 import { checkPromptFamily, promptsPredateGuidance } from "@/lib/agents/prompt-family";
+import type { PromptPass } from "@/lib/agents/prompt-agents";
 import { PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import type { MediaDescriptor } from "@/lib/media/refs";
 
@@ -41,14 +42,14 @@ export function StoryboardView({ projectId }: { projectId: string }) {
 
   /** Empty means every scene, matching the clip queue. */
   const rewritePrompts = useCallback(
-    async (sceneIds: string[] = []) => {
+    async (sceneIds: string[] = [], passes?: PromptPass[]) => {
       setRewritingAll(true);
       setError(null);
       try {
         const res = await fetch(`/api/projects/${projectId}/prompts`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ sceneIds }),
+          body: JSON.stringify({ sceneIds, passes }),
         });
         if (!res.ok) {
           const detail = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -65,6 +66,14 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   );
 
   const rewriteAllPrompts = useCallback(() => rewritePrompts([]), [rewritePrompts]);
+  // Both staleness checks below are about the clip prompt and nothing else, so
+  // the button that clears them writes the clip prompt and nothing else. The
+  // image pass costs a second model call per scene and would replace start and
+  // end frame prompts — hand edits included — that never went stale.
+  const rewriteVideoPrompts = useCallback(
+    () => rewritePrompts([], ["video"]),
+    [rewritePrompts],
+  );
 
 
   const loadMedia = useCallback(async () => {
@@ -848,8 +857,8 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                 scene&apos;s final frame rather than on its own.
               </>
             )}{" "}
-            Rewriting re-runs the prompt agents against the scene cards you already have; the story,
-            shot list and cards are untouched.
+            Rewriting re-runs the video prompt agent against the scene cards you already have; the
+            story, shot list, cards and image prompts are untouched.
           </p>
           {/* Two amber banners offering near-identical verbs is how someone ends
               up running the cheaper one twice. Regenerating covers both. */}
@@ -861,16 +870,18 @@ export function StoryboardView({ projectId }: { projectId: string }) {
           ) : null}
           <button
             type="button"
+            data-testid="rewrite-video-prompts"
             disabled={busy || rewritingAll || plansStale}
-            onClick={() => void rewriteAllPrompts()}
+            onClick={() => void rewriteVideoPrompts()}
             className="mt-3 rounded-md bg-accent-solid px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
           >
             {rewritingAll
               ? "Rewriting every scene…"
-              : `Rewrite all ${storyboard?.scenes.length ?? 0} scenes' prompts`}
+              : `Rewrite all ${storyboard?.scenes.length ?? 0} scenes' video prompts`}
           </button>
           <p className="mt-2 text-[11px] text-amber-100/60">
-            Two agent calls per scene. Any prompt wording you typed by hand is replaced.
+            One agent call per scene — only the clip prompt is stale, so the start and end frame
+            prompts are left as they are. Clip prompt wording you typed by hand is replaced.
           </p>
         </section>
       ) : null}
@@ -1226,6 +1237,16 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
                 >
                   {rewritingAll ? "Rewriting prompts…" : "Rewrite all prompts"}
+                </button>
+                {/* Changing the video model is the common half of that job, and
+                    it is half the model calls. */}
+                <button
+                  onClick={() => void rewriteVideoPrompts()}
+                  disabled={busy || rewritingAll || queue?.active}
+                  title="Re-run only the video prompt agent over every scene card, against the video model pinned now. The start and end frame prompts are left as they are."
+                  className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
+                >
+                  {rewritingAll ? "Rewriting prompts…" : "Rewrite all video prompts"}
                 </button>
                 {queue?.active ? (
                   <button

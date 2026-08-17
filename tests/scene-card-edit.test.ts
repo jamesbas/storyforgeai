@@ -18,7 +18,7 @@ import { setWangpClient } from "@/lib/wangp/factory";
 
 async function seeded() {
   const project = await createProject({
-    concept: "Four men play poker while Tracey watches.",
+    concept: "Four men play poker while Mara watches.",
     requestedDurationSeconds: 60,
   });
   return generateStoryboard(project.id);

@@ -63,7 +63,7 @@ function referenceUpload(): File {
 async function seeded() {
   const { characters, projects, media } = await isolated();
   const created = await characters.createCharacter({
-    name: "Tracey",
+    name: "Mara",
     description: "A woman in her forties, tall, with dark hair.",
     faceSwap: true,
   });

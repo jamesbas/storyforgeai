@@ -34,7 +34,7 @@ function referenceUpload(): File {
 
 async function characterWithPhoto(faceSwap: boolean) {
   const character = await createCharacter({
-    name: "Tracey",
+    name: "Mara",
     description: "A woman in her forties, tall, with dark hair.",
     faceSwap,
   });

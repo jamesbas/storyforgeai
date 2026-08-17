@@ -30,7 +30,7 @@ const scene = (sceneNumber: number, actionDescription: string) =>
     cameraMovement: "static",
     transitionIn: "cut",
     transitionOut: "cut",
-    charactersPresent: ["Tracey"],
+    charactersPresent: ["Mara"],
     status: "generated",
     prompts: {
       startFramePrompt: "a",
@@ -64,8 +64,8 @@ const record: ProjectRecord = {
     generationMode: "storyboard_only",
     modelStrategy: "auto",
     useCharacterLibrary: true,
-    characterIds: ["c-tracey"],
-    characterWardrobe: { "c-tracey": "a black silk slip" },
+    characterIds: ["c-mara"],
+    characterWardrobe: { "c-mara": "a black silk slip" },
     status: "draft",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -73,13 +73,13 @@ const record: ProjectRecord = {
   storyboard: {
     brief: {} as never,
     visualBible: {} as never,
-    scenes: [scene(1, "He begins performing oral sex on Tracey.")] as never,
+    scenes: [scene(1, "He begins performing oral sex on Mara.")] as never,
   },
 } as ProjectRecord;
 
-const TRACEY = {
-  id: "c-tracey",
-  name: "Tracey",
+const MARA = {
+  id: "c-mara",
+  name: "Mara",
   description: "A woman.",
   wardrobe: "blue jeans",
   referenceImagePaths: [],
@@ -91,7 +91,7 @@ beforeEach(() => {
     vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       const body = url.startsWith("/api/characters")
-        ? { characters: [TRACEY] }
+        ? { characters: [MARA] }
         : url === "/api/projects/p1"
           ? record
           : url.includes("/queue")
@@ -113,6 +113,6 @@ describe("StoryboardView cast fetch", () => {
       expect(screen.getByTestId("wardrobe-check")).toBeInTheDocument();
     });
     expect(screen.getByTestId("wardrobe-check")).toHaveTextContent(/undressed but still carry/i);
-    expect(screen.getByLabelText("Tracey")).toBeInTheDocument();
+    expect(screen.getByLabelText("Mara")).toBeInTheDocument();
   });
 });

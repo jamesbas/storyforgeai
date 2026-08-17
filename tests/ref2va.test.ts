@@ -28,7 +28,7 @@ import type { WangpModel, WangpModelSchema } from "@/lib/schemas/wangp";
  * renders — it just renders the wrong picture as the wrong thing.
  */
 
-const TRACEY = { name: "Tracey", description: "Late thirties, dark curls.", pictureIndex: 3 };
+const MARA = { name: "Mara", description: "Late thirties, dark curls.", pictureIndex: 3 };
 
 describe("the directive the prompt agents are given", () => {
   const reference = videoPromptDirective("minimax_ref2va", {
@@ -165,10 +165,10 @@ describe("LoRAs on the reference variant", () => {
 
 describe("the six-section prompt", () => {
   const rendered = renderH3ReferencePrompt({
-    body: 'Tracey turns from the window and says, "We should go."',
+    body: 'Mara turns from the window and says, "We should go."',
     style: "Warm naturalistic interior, shallow depth of field.",
     summary: "A woman turns from a window and speaks.",
-    subjects: [TRACEY],
+    subjects: [MARA],
     hasStart: true,
     hasEnd: true,
     soundscape: "Rain on glass, a chair creaking.",
@@ -219,7 +219,7 @@ describe("the six-section prompt", () => {
     expect(rendered).toContain("<Picture 2> is the last frame");
     // The character's photograph is picture 3, but must not get a standalone
     // entry of its own — that would offer the photo's setting as composition.
-    expect(rendered).toContain("<Subject 1> is Tracey");
+    expect(rendered).toContain("<Subject 1> is Mara");
     expect(rendered).toContain("<Picture 3>");
     expect(rendered).not.toMatch(/<Picture 3> is the (first|last) frame/);
   });
@@ -343,7 +343,7 @@ describe("binding a character to their photograph", () => {
   const withCast = (body: string) =>
     renderH3ReferencePrompt({
       body,
-      subjects: [TRACEY],
+      subjects: [MARA],
       hasStart: true,
       hasEnd: true,
     });
@@ -351,16 +351,16 @@ describe("binding a character to their photograph", () => {
   it("puts the subject tag where the prose names the character", () => {
     // A reference with nothing tying it to a person in the shot scattered the
     // referenced head across several people in a live run.
-    const rendered = withCast("Tracey turns from the window as Tracey lifts her cup.");
+    const rendered = withCast("Mara turns from the window as Mara lifts her cup.");
     const body = rendered.slice(rendered.indexOf("detailed_description:"));
     expect(body).toContain("<Subject 1> turns from the window as <Subject 1> lifts her cup.");
   });
 
   it("leaves the name alone inside spoken lines", () => {
     // The tag would be read aloud.
-    const rendered = withCast('The man says, "Tracey, wait." Tracey stops.');
+    const rendered = withCast('The man says, "Mara, wait." Mara stops.');
     const body = rendered.slice(rendered.indexOf("detailed_description:"));
-    expect(body).toContain("<d>[English] Tracey, wait.</d>");
+    expect(body).toContain("<d>[English] Mara, wait.</d>");
     expect(body).toContain("<Subject 1> stops.");
   });
 
@@ -375,13 +375,13 @@ describe("binding a character to their photograph", () => {
   });
 
   it("leaves the appended clauses alone", () => {
-    // "the frame is free of ... Athletic/muscular Tracey" became "free of ...
+    // "the frame is free of ... Athletic/muscular Mara" became "free of ...
     // <Subject 1>", which reads as an instruction to leave her out of the shot.
     const rendered = withCast(
-      "Tracey waits. The start frame fixes how Tracey look. The frame is free of muscular Tracey.",
+      "Mara waits. The start frame fixes how Mara look. The frame is free of muscular Mara.",
     );
-    expect(rendered).toContain("The start frame fixes how Tracey look");
-    expect(rendered).toContain("The frame is free of muscular Tracey");
+    expect(rendered).toContain("The start frame fixes how Mara look");
+    expect(rendered).toContain("The frame is free of muscular Mara");
     expect(rendered).toContain("<Subject 1> waits.");
   });
 
@@ -489,13 +489,13 @@ async function ref2vaManifest(
 
   return buildVideoManifest({
     sceneId: "s1",
-    prompt: "Tracey turns from the window.",
+    prompt: "Mara turns from the window.",
     modelStrategy: "auto",
     modelType: "minimax_h3_ref2va",
     imageStart: "/frames/start.png",
     imageEnd: "/frames/end.png",
     durationSeconds: 14,
-    cast: [{ name: "Tracey", description: "Late thirties.", imagePath: "/refs/tracey.png" }],
+    cast: [{ name: "Mara", description: "Late thirties.", imagePath: "/refs/mara.png" }],
     ...overrides,
   });
 }
@@ -506,7 +506,7 @@ describe("the Ref2VA manifest", () => {
     expect(manifest.settings.image_refs).toEqual([
       "/frames/start.png",
       "/frames/end.png",
-      "/refs/tracey.png",
+      "/refs/mara.png",
     ]);
     expect(manifest.settings.image_start).toBeUndefined();
     expect(manifest.settings.image_end).toBeUndefined();
@@ -560,11 +560,11 @@ describe("the Ref2VA manifest", () => {
 
     expect(manifest.settings.video_source).toBe("/clips/previous.mp4");
     expect(manifest.settings.image_prompt_type).toBe("V");
-    expect(manifest.settings.image_refs).toEqual(["/frames/end.png", "/refs/tracey.png"]);
+    expect(manifest.settings.image_refs).toEqual(["/frames/end.png", "/refs/mara.png"]);
     expect(prompt).toContain("<Video 1> supplies the source clip being continued");
     expect(prompt).toContain("[video continuation + keyframe completion + reference generation]");
     expect(prompt).toContain("<Picture 1> is the last frame of [Shot 1]");
-    expect(prompt).toContain("<Subject 1> is Tracey, shown in <Picture 2>");
+    expect(prompt).toContain("<Subject 1> is Mara, shown in <Picture 2>");
     expect(prompt).toContain("begins immediately after <Video 1>'s final frame");
   });
 
@@ -594,7 +594,7 @@ describe("the Ref2VA manifest", () => {
     expect(manifest.settings.video_source).toBe("/clips/previous.mp4");
     expect(manifest.settings.image_end).toBe("/frames/end.png");
     expect(manifest.settings.image_prompt_type).toBe("EV");
-    expect(manifest.settings.image_refs).toEqual(["/refs/tracey.png"]);
+    expect(manifest.settings.image_refs).toEqual(["/refs/mara.png"]);
     expect(String(manifest.settings.prompt)).toContain("<Picture 1> is the last frame");
   });
 
