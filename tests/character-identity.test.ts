@@ -61,6 +61,47 @@ describe("withholding the facial description", () => {
   });
 });
 
+/**
+ * A name is not a description. A text encoder has never heard of "Elena", so a
+ * name in one sentence and an appearance in an appended sheet do not corefer —
+ * a live scene that placed a sleeping woman in prose and described her in the
+ * sheet rendered both, a generic woman in the bed and an on-model one sitting
+ * in the foreground.
+ */
+describe("not describing a character twice in one prompt", () => {
+  const subject = character({ wardrobe: "red coat" });
+
+  it("appends the sheet when the body only names the character", () => {
+    const body = "Elena stands at the window in the background.";
+    expect(castPromptSuffix([subject], undefined, {}, body)).toContain("Elena:");
+  });
+
+  it("withholds it once the body carries the description itself", () => {
+    const body =
+      "Elena, a tall lean woman in her thirties with shoulder-length dark curly hair, " +
+      "stands at the window.";
+    expect(castPromptSuffix([subject], undefined, {}, body)).toBe("");
+  });
+
+  /** One inline description must not suppress the sheet for everybody else. */
+  it("still describes a character the body left out", () => {
+    const body = "Elena, a tall lean woman with dark curly hair, faces Marco.";
+    const suffix = castPromptSuffix(
+      [subject, character({ id: "c2", name: "Marco", description: "A stocky bearded man." })],
+      undefined,
+      {},
+      body,
+    );
+    expect(suffix).toContain("Marco:");
+    expect(suffix).not.toContain("Elena:");
+  });
+
+  /** Without a body there is nothing to read, so the sheet is the only channel. */
+  it("appends the sheet when no body is supplied", () => {
+    expect(castPromptSuffix([subject])).toContain("Elena:");
+  });
+});
+
 describe("reference images", () => {
   it("reads the modern list", () => {
     expect(referenceImagesOf({ referenceImages: ["a.jpg", "b.jpg"] })).toEqual(["a.jpg", "b.jpg"]);

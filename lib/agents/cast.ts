@@ -179,12 +179,19 @@ export function castSheet(
  * `forRender` flips what the agent is asked to do with the description, and the
  * two cases genuinely differ. A planning agent — the Visual Bible, the
  * Storyboard Artist — is writing the document that records what a character
- * looks like, so it must carry the description. A prompt agent is not:
- * `castPromptSuffix` already appends the canonical sheet to every render prompt
- * verbatim, so an agent that also writes the appearance into its own sentence
- * ships two descriptions of one person in a single prompt. Image models read
- * that as two people, which is how a shot of one character comes back with a
- * duplicate or a fused, deformed subject.
+ * looks like, so it carries the description as reference prose. A prompt agent
+ * is writing for an image model, which needs the description bound to the body
+ * it belongs to.
+ *
+ * Render agents were once told the opposite — name the character and never
+ * describe them, because `castPromptSuffix` appends the canonical sheet. The
+ * reasoning was that two descriptions render two people, which is true; the
+ * error was not seeing that the appended sheet is itself the second mention. A
+ * text encoder has never heard of "Tracey", so a name in one sentence and an
+ * appearance in another do not corefer — they are two subjects. A live scene
+ * placing a sleeping woman in prose and describing her in the appended sheet
+ * rendered both: a generic woman in the bed and a second, on-model one sitting
+ * in the foreground.
  */
 export function castSystemDirective(cast: readonly Character[], forRender = false): string {
   // Everyone in a shot needs describing; only the pinned ones have that done
@@ -224,14 +231,44 @@ export function castSystemDirective(cast: readonly Character[], forRender = fals
 
   return (
     locked +
-    " In the prompts you write, refer to these characters by name only. Do not " +
-    "restate, paraphrase or summarise their physical appearance, wardrobe or " +
-    "negative terms — the canonical text is appended to every prompt " +
-    "automatically, and a second copy makes the image model render the " +
-    "character twice. Name a cast character only in the prompts for shots they " +
+    " In the prompts you write, describe each of these characters inline, in the " +
+    "same clause as the words that place them in the shot: age, build, hair, skin " +
+    "and their specific named garments with colours, in roughly twenty-five words. " +
+    "Use the supplied description and invent nothing it does not give. Do not add " +
+    "a separate list of names and attributes afterwards, and do not rely on a name " +
+    "to carry an appearance — an image model has never heard of these characters, " +
+    "so a name in one sentence and a description in another are two people to it, " +
+    "and it draws two. Name a cast character only in the prompts for shots they " +
     "actually appear in." +
     describeOthers
   );
+}
+
+/** Words that carry no identity, so a body repeating them proves nothing. */
+const GENERIC_APPEARANCE =
+  /^(?:with|and|the|her|his|their|she|he|they|wears|wearing|dressed|year|years|old|tall|about|around|beautiful|attractive|woman|women|man|men|person|people)$/i;
+
+function identityWords(text: string): string[] {
+  const words = text.toLocaleLowerCase().match(/[a-z]{4,}/g) ?? [];
+  return [...new Set(words)].filter((word) => !GENERIC_APPEARANCE.test(word));
+}
+
+/**
+ * Whether a prompt body already carries a character's appearance.
+ *
+ * The sheet is a fallback now rather than the primary channel, so it is
+ * appended only where the agent did not follow the instruction to describe the
+ * character inline. Losing the description entirely is the worse failure, so
+ * the bar is deliberately low: a quarter of the distinguishing words is enough
+ * to conclude the body is describing this person rather than merely naming
+ * them. It reads the canonical appearance, not the wardrobe, because a
+ * character's clothing changes between scenes and their face does not.
+ */
+export function describedInline(body: string, character: Character): boolean {
+  const words = identityWords(appearanceFor(character, true, true));
+  if (words.length < 4) return false;
+  const lower = body.toLocaleLowerCase();
+  return words.filter((word) => lower.includes(word)).length / words.length >= 0.25;
 }
 
 /**
@@ -240,13 +277,19 @@ export function castSystemDirective(cast: readonly Character[], forRender = fals
  *
  * Uses the render-facing cast sheet, which withholds the facial description
  * from characters that have a reference photo.
+ *
+ * `body` is the prompt this will be appended to. A character it already
+ * describes is skipped: appending the sheet as well is the second mention that
+ * makes the model draw them twice.
  */
 export function castPromptSuffix(
   cast: readonly Character[],
   wardrobeAt?: Record<string, string>,
   options: SheetOptions = {},
+  body?: string,
 ): string {
-  const sheet = castSheet(cast, true, wardrobeAt, options);
+  const missing = body ? cast.filter((c) => !describedInline(body, c)) : cast;
+  const sheet = castSheet(missing, true, wardrobeAt, options);
   return sheet ? ` Character continuity — ${sheet}` : "";
 }
 
