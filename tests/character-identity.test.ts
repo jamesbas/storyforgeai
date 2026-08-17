@@ -128,6 +128,42 @@ describe("not describing a character twice in one prompt", () => {
     expect(describedInline(body, tracey)).toBe(true);
     expect(castPromptSuffix([tracey], undefined, {}, body)).toBe("");
   });
+
+  /**
+   * The live record, verbatim: a hundred and fifty words of build, skin, nails
+   * and jewellery that the sheet truncates away before printing. Measured
+   * against the whole record a compliant prompt scores below the bar, so the
+   * sheet was appended to a body that already carried everything it would have
+   * said.
+   */
+  it("measures against the text the sheet would print, not the whole record", () => {
+    const tracey = character({
+      id: "tracey",
+      name: "Tracey",
+      description:
+        "A beautiful 52-year-old Caucasian woman, 5'4\" tall, with honey-blonde " +
+        "shoulder-length voluminous wavy hair featuring lighter golden highlights and " +
+        "soft layers. She wears small gold hoop earrings. She has a soft, feminine, " +
+        "mature build with natural curves and softness appropriate for her age. Soft " +
+        "rounded shoulders and soft arms without visible muscle definition. Natural " +
+        "soft B-cup breasts with a gentle, slightly pendulous age-appropriate shape. " +
+        "Soft midsection with a gentle natural belly curve and soft lower-abdomen " +
+        "fullness. Soft rounded hips that are wider than her waist, soft thighs, and a " +
+        "soft, rounded seat. Fair, sun-kissed skin with a light natural sheen and some " +
+        "freckling. Short neatly manicured nails painted bright blue; gold bracelet " +
+        "and wedding ring.",
+      referenceImages: ["t1.jpg"],
+    });
+    const body =
+      "Medium wide shot, low angle. Two heavy-set black men in their 40s, wearing " +
+      "black cotton t-shirts and dark cotton trousers, are mid-stride as they emerge " +
+      "from midnight blue shadows into warm amber light toward the bed where Tracey, " +
+      "a beautiful 52-year-old Caucasian woman with honey-blonde shoulder-length " +
+      "voluminous wavy hair featuring lighter golden highlights and soft layers, lies " +
+      "sleeping under thick cream-colored blankets.";
+    expect(describedInline(body, tracey, 1)).toBe(true);
+    expect(castPromptSuffix([tracey], undefined, {}, body)).toBe("");
+  });
 });
 
 describe("reference images", () => {

@@ -265,11 +265,21 @@ function identityWords(text: string): string[] {
  * character inline. Losing the description entirely is the worse failure, so
  * the bar is deliberately low: a quarter of the distinguishing words is enough
  * to conclude the body is describing this person rather than merely naming
- * them. It reads the canonical appearance, not the wardrobe, because a
- * character's clothing changes between scenes and their face does not.
+ * them.
+ *
+ * Measured against the text the sheet would actually print, which is why
+ * `castSize` is needed — `castSheet` compacts a description to a per-character
+ * budget, and a live record ran to a hundred and fifty words of build, skin,
+ * nails and jewellery that the sheet truncates away. Compared against the full
+ * record, a prompt reproducing every word the sheet would have emitted still
+ * scored below the bar and got the sheet appended anyway.
+ *
+ * Reads the canonical appearance, not the wardrobe, because a character's
+ * clothing changes between scenes and their face does not.
  */
-export function describedInline(body: string, character: Character): boolean {
-  const words = identityWords(appearanceFor(character, true, true));
+export function describedInline(body: string, character: Character, castSize = 1): boolean {
+  const appearance = appearanceFor(character, true, true);
+  const words = identityWords(compactForRender(appearance, appearanceBudgetFor(castSize)));
   if (words.length < 4) return false;
   const lower = body.toLocaleLowerCase();
   return words.filter((word) => lower.includes(word)).length / words.length >= 0.25;
@@ -292,7 +302,7 @@ export function castPromptSuffix(
   options: SheetOptions = {},
   body?: string,
 ): string {
-  const missing = body ? cast.filter((c) => !describedInline(body, c)) : cast;
+  const missing = body ? cast.filter((c) => !describedInline(body, c, cast.length)) : cast;
   const sheet = castSheet(missing, true, wardrobeAt, options);
   return sheet ? ` Character continuity — ${sheet}` : "";
 }
