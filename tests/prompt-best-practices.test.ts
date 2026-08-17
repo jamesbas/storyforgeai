@@ -255,6 +255,56 @@ describe("folding exclusions into the prompt for models that ignore them", () =>
     const clause = positiveConstraintClause("watermark, signature, logo");
     expect(clause.match(/clean unmarked surfaces/g)).toHaveLength(1);
   });
+
+  /**
+   * The guards protect a crowded frame in negative form and wreck it in
+   * positive form. A live Krea render of a three-hander came back with the same
+   * woman twice and neither of the two men, having been told the frame was free
+   * of "twins" and "the same face twice" and to render "a single subject".
+   */
+  describe("on a frame that states more than one person", () => {
+    const guarded = withMultiSubjectGuards("blur", 3);
+
+    it("never spells a duplication guard out as an absence", () => {
+      const clause = positiveConstraintClause(guarded, 3);
+      for (const term of ["twins", "the same face twice", "cloned face", "fused bodies"]) {
+        expect(clause).not.toContain(term);
+      }
+    });
+
+    it("never asks a three-hander for a single subject", () => {
+      expect(positiveConstraintClause(guarded, 3)).not.toContain("a single correctly formed subject");
+    });
+
+    it("states the population instead, which a sampler can construct", () => {
+      expect(positiveConstraintClause(guarded, 3)).toContain("exactly three distinct people");
+    });
+
+    /** Nothing else the negative carried may be lost on the way through. */
+    it("still folds the ordinary exclusions", () => {
+      expect(positiveConstraintClause(guarded, 3)).toContain("crisp subject detail");
+    });
+
+    /** A guard about a body rather than a headcount still maps cleanly. */
+    it("keeps the anatomy alternative", () => {
+      expect(positiveConstraintClause(guarded, 3)).toContain("correct natural anatomy");
+    });
+  });
+
+  /**
+   * Naming duplication in a positive prompt is the worse failure, so a guard is
+   * dropped even where there is no stated population to replace it with.
+   */
+  it("drops a duplication guard when the headcount is unknown", () => {
+    const clause = positiveConstraintClause("blur, twins", null);
+    expect(clause).not.toContain("twins");
+    expect(clause).toContain("crisp subject detail");
+  });
+
+  /** On one figure the alternative was always right, and still is. */
+  it("keeps the single-subject alternative on a solo frame", () => {
+    expect(positiveConstraintClause("extra limbs", 1)).toContain("a single correctly formed subject");
+  });
 });
 
 /**

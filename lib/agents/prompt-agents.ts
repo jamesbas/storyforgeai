@@ -59,7 +59,7 @@ import {
   sceneCreativeSlice,
   type CreativePlans,
 } from "@/lib/agents/creative-context";
-import { DEFAULT_SCENE_CONTINUITY, SEGMENT_SECONDS } from "@/lib/types";
+import { DEFAULT_SCENE_CONTINUITY, generationStages, SEGMENT_SECONDS } from "@/lib/types";
 import type { Character } from "@/lib/schemas/character";
 import type { VisualBible } from "@/lib/schemas/agents";
 import type { Project } from "@/lib/schemas/project";
@@ -358,6 +358,7 @@ export async function attachScenePrompts(
         },
         wardrobeChange: Boolean(wardrobe?.within.length),
         inheritsOpening,
+        clipCarriesArrivals: generationStages(project.generationMode).video,
       };
       const gated: { codes: PromptGateCode[] } = { codes: [] };
       const imageResult = await executeArtifact<ImagePart>({
@@ -472,7 +473,9 @@ function gateFindings(part: ImagePart, gate: ImageGateContext): PromptGateCode[]
     ...new Set([
       ...gateImagePrompt(part.startFramePrompt, "start", gate),
       ...gateImagePrompt(part.endFramePrompt, "end", gate),
-      ...gateFramePair(part.startFramePrompt, part.endFramePrompt),
+      ...gateFramePair(part.startFramePrompt, part.endFramePrompt, {
+        clipCarriesArrivals: gate.clipCarriesArrivals ?? true,
+      }),
     ]),
   ];
 }

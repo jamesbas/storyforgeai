@@ -722,23 +722,88 @@ describe("the start frame a scene inherits", () => {
  * are in frame" against an end frame reading "Exactly three", on a card that
  * named two men throughout — and the end frame is what the next scene inherits.
  */
+/**
+ * A gain no clip will carry, and nothing else.
+ *
+ * The first version flagged any change in population, which rejected a scene
+ * whose card reads "the two men walk across the floor as they approach the
+ * bed" (one to three) and another reading "walk towards the door… the empty
+ * room" (three to one). Both are scripted, and both were marked degraded.
+ */
 describe("the two frames disagreeing about who is there", () => {
+  const one = "Medium shot, eye level. Exactly one person is in frame: Tracey.";
   const two = "Medium shot, eye level. Exactly two people are in frame: Tracey and a man.";
   const three =
     "Medium shot, eye level. Exactly three people are in frame: Tracey, one man, and another man.";
 
-  it("catches a person who appears between the two frames", () => {
-    expect(gateFramePair(two, three)).toEqual(["headcount_mismatch"]);
+  const keyframesOnly = { clipCarriesArrivals: false };
+  const withClip = { clipCarriesArrivals: true };
+
+  /** No clip exists to walk them in, so the end frame duplicates whoever is there. */
+  it("catches a gain the clip cannot carry", () => {
+    expect(gateFramePair(two, three, keyframesOnly)).toEqual(["headcount_mismatch"]);
+  });
+
+  /** The clip walks them in, which is what the render path already assumes. */
+  it("allows an arrival when a clip will carry it", () => {
+    expect(gateFramePair(one, three, withClip)).toEqual([]);
+  });
+
+  /** Nobody is duplicated by leaving, so a departure is never a fault. */
+  it("allows a departure either way", () => {
+    expect(gateFramePair(three, one, keyframesOnly)).toEqual([]);
+    expect(gateFramePair(three, two, withClip)).toEqual([]);
   });
 
   it("passes a scene that keeps its population", () => {
-    expect(gateFramePair(three, three)).toEqual([]);
+    expect(gateFramePair(three, three, keyframesOnly)).toEqual([]);
   });
 
   /** Not every prompt states a count, and an unstated one claims nothing. */
   it("says nothing when either frame omits the count", () => {
-    expect(gateFramePair("Medium shot of a woman at a window.", three)).toEqual([]);
-    expect(gateFramePair(two, "Close-up of her hands.")).toEqual([]);
+    expect(gateFramePair("Medium shot of a woman at a window.", three, keyframesOnly)).toEqual([]);
+    expect(gateFramePair(two, "Close-up of her hands.", keyframesOnly)).toEqual([]);
+  });
+});
+
+/**
+ * A third of the card's content words cannot tell a paraphrase from a drop.
+ * Live, it rejected "pulling the blankets away to reveal her skin" against a
+ * card reading "whip the blankets away, exposing her skin".
+ */
+describe("a prompt that says the same thing in other words", () => {
+  const card = scene({
+    actionDescription:
+      "With a sudden, forceful movement, they whip the blankets away from Tracey, exposing her " +
+      "skin to the cool air of the room.",
+    visualDescription: "The bed, the blankets, the two men.",
+    storyBeat: "They uncover her.",
+  });
+  const ctx = {
+    scene: card,
+    participants: ["Tracey"],
+    explicit: true,
+    establishedWardrobe: { start: "", end: "" },
+  };
+  const faithful =
+    "Medium shot, low angle. Two men are pulling the thick cream blankets away from Tracey; the " +
+    "fabric billows mid-air as it is pulled back to reveal her skin and her silk pyjama shorts.";
+
+  /** It may still flag, but it must not edit. */
+  it("is never repaired by pasting the card over it", () => {
+    expect(repairImagePrompt(faithful, "end", ["action_dropped"], ctx)).toBe(faithful);
+  });
+
+  /** A genuinely missing part is still put back, so the repair is not disabled. */
+  it("still names anatomy the prompt never named", () => {
+    const act = scene({
+      actionDescription: "He pushes his cock into her pussy while she kneels.",
+      visualDescription: "The two of them.",
+      storyBeat: "They begin.",
+    });
+    const vague = "Close-up, eye level. Tracey and the man are together on the rumpled bed.";
+    const repaired = repairImagePrompt(vague, "end", ["anatomy_unnamed"], { ...ctx, scene: act });
+    expect(repaired).toContain("cock");
   });
 });
 

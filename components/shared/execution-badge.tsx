@@ -27,7 +27,9 @@ const REASON_TEXT: Record<string, string> = {
   schema_mismatch: "the model's answer had the wrong shape",
   format_unsupported: "the server rejected every response format",
   short_collection: "the model returned too few items",
-  invalid_set: "the model's set broke its own rules",
+  // Covers a variant set with duplicate axes and a single prompt that failed
+  // the acceptance gate, so it cannot say "set".
+  invalid_set: "the model's answer failed a check",
   unknown: "the model returned nothing usable",
 };
 
@@ -39,8 +41,13 @@ export function describeExecution(execution: ArtifactExecution | undefined): str
       ? `Visual QC · ${frames} frame${frames === 1 ? "" : "s"}`
       : "Text-only QC";
   }
-  if (execution.source === "hybrid" && execution.attempted) {
-    return `Hybrid · ${execution.attempted.fromLlm}/${execution.attempted.total} from the model`;
+  // Only the batched artifacts carry a count. A per-scene prompt is one call,
+  // so `attempted` is absent — and gating the whole branch on it dropped those
+  // through to "Deterministic", which said the model had written none of it.
+  if (execution.source === "hybrid") {
+    return execution.attempted
+      ? `Hybrid · ${execution.attempted.fromLlm}/${execution.attempted.total} from the model`
+      : "Hybrid";
   }
   if (execution.source === "llm") return `LLM${execution.model ? ` · ${execution.model}` : ""}`;
   if (execution.source === "unknown") return "Unknown source";

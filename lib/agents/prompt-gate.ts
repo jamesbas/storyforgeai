@@ -75,6 +75,13 @@ export type ImageGateContext = {
    * as well is asking for the one thing it must not do.
    */
   inheritsOpening?: boolean;
+  /**
+   * A clip will be rendered for this scene, so it can walk someone into frame.
+   *
+   * Defaults to permissive where it is unknown: a check that cannot be aimed
+   * costs more in false rejections than it saves.
+   */
+  clipCarriesArrivals?: boolean;
 };
 
 /**
@@ -375,16 +382,26 @@ export function gateImagePrompt(
 /**
  * Faults only visible across the pair of frames.
  *
- * A scene's two frames are rendered as separate jobs and the end frame is what
- * the next scene inherits, so a population that changes between them is a
- * person who appears or vanishes mid-shot. Seen live: a start frame reading
- * "Exactly two people are in frame" against an end frame reading "Exactly
- * three", for a card that named two men throughout.
+ * A gain the clip cannot carry, and nothing else. The end frame is rendered
+ * with the start frame as a reference and told the cast looks exactly as it
+ * does there; asked to add somebody who is not in that picture, the model
+ * duplicates whoever is already in shot. With a clip there is no problem — it
+ * walks them in — which is the same rule `conditionEndOnStart` applies at
+ * render time, and this now agrees with it instead of guessing separately.
+ *
+ * Losing people is never a fault: a scene may legitimately end on someone
+ * leaving. Flagging any change at all rejected an arrival and a departure that
+ * both scene cards scripted deliberately.
  */
-export function gateFramePair(startFrame: string, endFrame: string): PromptGateCode[] {
+export function gateFramePair(
+  startFrame: string,
+  endFrame: string,
+  options: { clipCarriesArrivals: boolean },
+): PromptGateCode[] {
+  if (options.clipCarriesArrivals) return [];
   const start = statedHeadcount(startFrame);
   const end = statedHeadcount(endFrame);
-  return start !== null && end !== null && start !== end ? ["headcount_mismatch"] : [];
+  return start !== null && end !== null && end > start ? ["headcount_mismatch"] : [];
 }
 
 /** Appended to the system prompt for the one retry, naming what was rejected. */
@@ -446,8 +463,8 @@ export function gateRepairDirective(
   }
   if (codes.includes("headcount_mismatch")) {
     reasons.push(
-      "the two frames state different numbers of people; the same shot cannot gain or lose " +
-        "someone between its opening and closing instant, so say the same count in both",
+      "the closing frame adds someone the opening frame does not contain, and no clip will " +
+        "carry them in; keep the same people in both",
     );
   }
   return (
@@ -499,9 +516,16 @@ export function repairImagePrompt(
   // words can name anatomy the prompt never named, but it cannot choose a
   // position or state a contact the model declined to write — it would only
   // restate the action, which is what produced a prompt saying it three times.
+  //
+  // `action_dropped` is deliberately absent: it is a third of the card's
+  // content words, which cannot tell a paraphrase from a drop. Live, it
+  // rejected "pulling the blankets away to reveal her skin" against a card
+  // reading "whip the blankets away, exposing her skin", and "at the moment of
+  // climax" against "as he finishes" — both faithful, both better than the card.
+  // It still earns a retry and a flag; it no longer edits a good prompt.
   const unnamed = codes.includes("anatomy_unnamed");
 
-  if (codes.includes("action_dropped") || codes.includes("euphemism") || unnamed) {
+  if (codes.includes("euphemism") || unnamed) {
     const restated = splitSentences(ctx.scene.actionDescription ?? "")
       .map(unsaid)
       .filter((sentence): sentence is string => Boolean(sentence));

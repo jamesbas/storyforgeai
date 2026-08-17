@@ -181,6 +181,8 @@ const MULTI_SUBJECT_TERMS = [
   "malformed anatomy",
 ] as const;
 
+const MULTI_SUBJECT_SET: ReadonlySet<string> = new Set(MULTI_SUBJECT_TERMS);
+
 export function withMultiSubjectGuards(raw: string, headcount: number | null): string {
   if (headcount === null || headcount < 2) return normaliseNegative(raw);
   return normaliseNegative(`${raw}, ${MULTI_SUBJECT_TERMS.join(", ")}`);
@@ -233,10 +235,12 @@ export function withNegatedTraits(negative: string, prompt: string): string {
  * fall through to a closing absence clause, which is the form BFL's own
  * examples use for text.
  */
+const SINGLE_SUBJECT = "a single correctly formed subject";
+
 const POSITIVE_ALTERNATIVES: ReadonlyArray<readonly [RegExp, string]> = [
   [/watermark|signature|logo/, "clean unmarked surfaces"],
   [/distorted anatomy|deformed|mutated|malformed/, "correct natural anatomy"],
-  [/extra limbs?|duplicated? (subjects?|limbs?)|duplicate/, "a single correctly formed subject"],
+  [/extra limbs?|duplicated? (subjects?|limbs?)|duplicate/, SINGLE_SUBJECT],
   [/warped hands?|bad hands?|extra fingers?/, "hands in a relaxed natural pose with five fingers"],
   [/text artifacts?|lettering|typography|caption/, "no signs, labels or lettering anywhere"],
   [/low quality|lowres|low resolution|jpeg artifacts?/, "sharp, cleanly resolved detail"],
@@ -247,27 +251,64 @@ const POSITIVE_ALTERNATIVES: ReadonlyArray<readonly [RegExp, string]> = [
   [/dramatic shadows?|harsh shadows?/, "evenly diffused soft illumination"],
 ];
 
+const COUNT_WORDS = ["", "one", "two", "three", "four", "five"] as const;
+
+function countWord(count: number): string {
+  return COUNT_WORDS[count] ?? String(count);
+}
+
 /**
  * Turn a negative prompt into a clause for models that cannot use one.
+ *
+ * `headcount` is the population the positive prompt states, and it changes the
+ * answer twice over. The multi-subject guards are the clearest case a fold can
+ * do harm: `withMultiSubjectGuards` adds `twins` and `the same face twice` to
+ * protect a crowded frame, and on a model that discards negatives those terms
+ * came back out as "the frame is free of the same face twice, cloned face,
+ * twins" — naming duplication in a positive prompt, which is the failure
+ * `negatedTraitsIn` above exists to document. A live Krea render of a
+ * three-hander returned the same woman twice and neither of the two men.
+ *
+ * Worse, `extra limbs` and `duplicated person` both map to "a single correctly
+ * formed subject", an alternative written for a portrait and flatly wrong in a
+ * shot that asked for three people. So a guard is never spelled out as an
+ * absence, and where the frame is crowded the ones about population collapse
+ * into the single thing a sampler can construct: a stated count of distinct
+ * people. Guards that still map cleanly — `malformed anatomy` is about a body,
+ * not a headcount — keep their alternative.
  *
  * Returns an empty string when there is nothing to say, so callers can append
  * it unconditionally.
  */
-export function positiveConstraintClause(raw: string): string {
+export function positiveConstraintClause(raw: string, headcount: number | null = null): string {
+  const crowded = headcount !== null && headcount >= 2;
   const alternatives: string[] = [];
   const absent: string[] = [];
   const seen = new Set<string>();
+  let guarded = false;
 
   for (const term of negativeTerms(raw)) {
-    const match = POSITIVE_ALTERNATIVES.find(([pattern]) => pattern.test(term.toLocaleLowerCase()));
+    const lower = term.toLocaleLowerCase();
+    const guard = MULTI_SUBJECT_SET.has(lower);
+    const match = POSITIVE_ALTERNATIVES.find(([pattern]) => pattern.test(lower));
     const rendered = match?.[1] ?? null;
+    if (rendered === SINGLE_SUBJECT && crowded) {
+      guarded = true;
+      continue;
+    }
     if (rendered) {
       if (seen.has(rendered)) continue;
       seen.add(rendered);
       alternatives.push(rendered);
+    } else if (guard) {
+      guarded = true;
     } else {
       absent.push(term);
     }
+  }
+
+  if (guarded && crowded) {
+    alternatives.unshift(`exactly ${countWord(headcount!)} distinct people, each with their own face and body`);
   }
 
   const parts: string[] = [];

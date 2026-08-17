@@ -89,6 +89,12 @@ export function familyOfModel(model: Pick<WangpModel, "modelType" | "metadata">)
  * consistently expose negative conditioning either, so it is treated the same
  * way — the exclusion still travels, but as a positive constraint.
  *
+ * Krea was measured rather than assumed, because the fold it triggers is not
+ * free. `scripts/krea-negative-ab.ts` rendered a ripe tomato twice through
+ * `krea2_turbo_edit` at a fixed seed, once with `negative_prompt: "red"` and
+ * once without; the tomato is red in both and the two frames are otherwise
+ * indistinguishable. The checkpoint declares the field and discards it.
+ *
  * MiniMax H3 is here on direct evidence rather than documentation: a live WanGP
  * schema dump of `minimax_h3_fl2va` declares no `negative_prompt` field, so
  * `setIf` drops it and every exclusion was being discarded in silence.

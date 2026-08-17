@@ -11,6 +11,7 @@ import { resolveModel } from "@/lib/wangp/resolve-model";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
 import { familyOfModel, isMinimaxFamily, negativePromptReaches } from "@/lib/wangp/family";
 import { normaliseNegative, positiveConstraintClause } from "@/lib/agents/negative-prompt";
+import { statedHeadcount } from "@/lib/media/seam";
 import {
   appendAudioProse,
   h3Mode,
@@ -151,7 +152,7 @@ function routeNegative(
     return { prompt, negativePrompt: terms };
   }
 
-  const clause = positiveConstraintClause(terms);
+  const clause = positiveConstraintClause(terms, statedHeadcount(prompt));
   logEvent("wangp.negative.folded", {
     ...context,
     modelType: model.modelType,

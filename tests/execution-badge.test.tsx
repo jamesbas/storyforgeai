@@ -57,6 +57,35 @@ describe("the provenance badge", () => {
     );
   });
 
+  /**
+   * A per-scene prompt is one call, so it has no `attempted` count. Gating the
+   * hybrid branch on that field dropped every repaired prompt through to
+   * "Deterministic" — telling a creator the model wrote none of a prompt it had
+   * in fact written all of. Observed on a live project whose image prompts were
+   * 13 llm and 24 hybrid, with not one deterministic among them.
+   */
+  it("still says hybrid when there is no per-item count to show", () => {
+    render(
+      <ExecutionBadge
+        execution={execution({
+          artifact: "scene-004.image_prompt",
+          source: "hybrid",
+          status: "degraded",
+          fallbackReason: "invalid_set",
+        })}
+      />,
+    );
+    const badge = screen.getByTestId("execution-badge");
+    expect(badge).toHaveTextContent("Hybrid");
+    expect(badge).not.toHaveTextContent("Deterministic");
+  });
+
+  it("describes a failed check without calling one prompt a set", () => {
+    expect(
+      describeExecution(execution({ source: "hybrid", status: "degraded" })),
+    ).toBe("Hybrid");
+  });
+
   it("shows how much of a hybrid set came from the model", () => {
     render(
       <ExecutionBadge
