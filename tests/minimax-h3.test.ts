@@ -207,9 +207,13 @@ describe("MiniMax has no negative prompt", () => {
     expect(supportsNegativePrompt("minimax")).toBe(false);
   });
 
-  it("folds the exclusion into the positive prompt instead of losing it", () => {
-    const terms = "flicker, identity drift";
-    expect(positiveConstraintClause(terms)).toBeTruthy();
+  it("folds an exclusion it can express as a thing to render", () => {
+    expect(positiveConstraintClause("blurry, identity drift")).toContain("crisp subject detail");
+  });
+
+  /** One it cannot express is dropped, not spelled out as an absence. */
+  it("says nothing rather than naming what it cannot render instead", () => {
+    expect(positiveConstraintClause("flicker, identity drift")).toBe("");
   });
 
   it("never writes the field onto a model that does not declare it", () => {

@@ -140,15 +140,23 @@ export function withoutCharacterNegatives(
  * show.
  *
  * Word-boundary matched, so an exclusion is only dropped when the prompt really
- * does ask for that term rather than merely containing its letters.
+ * does ask for that term rather than merely containing its letters — but with up
+ * to two words allowed between the term's own. A prompt describing two men
+ * "with short cropped hair" was excluding "short hair" in the same job, because
+ * an exact phrase match cannot see the adjective sitting in the middle. The
+ * render was pulled both ways on the only feature distinguishing them.
  */
 export function withoutContradictions(raw: string, prompt: string): string {
-  return negativeTerms(raw)
-    .filter((term) => {
-      const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-      return !new RegExp(`\\b${escaped}\\b`, "i").test(prompt);
-    })
-    .join(", ");
+  return negativeTerms(raw).filter((term) => !promptAsksFor(term, prompt)).join(", ");
+}
+
+function promptAsksFor(term: string, prompt: string): boolean {
+  const words = term
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  if (!words.length) return false;
+  return new RegExp(`\\b${words.join("\\W+(?:\\w+\\W+){0,2}")}\\b`, "i").test(prompt);
 }
 
 /**
@@ -188,8 +196,53 @@ export function withMultiSubjectGuards(raw: string, headcount: number | null): s
   return normaliseNegative(`${raw}, ${MULTI_SUBJECT_TERMS.join(", ")}`);
 }
 
+/**
+ * Guards for a frame that depicts an act rather than a pose.
+ *
+ * Entangled bodies are the hardest thing an image model is ever asked for, and
+ * the way it fails is specific: handed anatomy it cannot resolve — a cock
+ * entering a mouth, drawn from the side, with a second man's body in the way —
+ * it substitutes a shape it can draw. A live render returned a spoon-like
+ * object at the woman's mouth where the second man's cock should have been.
+ * That is not distortion, which `malformed anatomy` already covers; it is the
+ * model reaching for a familiar prop, and nothing in the list was asking it not
+ * to.
+ *
+ * The other three are the same class of substitution: a limb that belongs to
+ * nobody, genitals hidden behind an arm the model put there to avoid drawing
+ * them, and the censoring a model trained on moderated data adds by itself.
+ *
+ * Kept off any frame that is not depicting an act. A negative term with no work
+ * to do still pulls on the render, and on a clothed scene every one of these
+ * would be pulling against nothing.
+ */
+const ACT_TERMS = [
+  "stray objects",
+  "detached body parts",
+  "misplaced anatomy",
+  "obscured genitals",
+  "censorship bars",
+] as const;
+
+export function withActGuards(raw: string, depictsAct: boolean): string {
+  if (!depictsAct) return normaliseNegative(raw);
+  return normaliseNegative(`${raw}, ${ACT_TERMS.join(", ")}`);
+}
+
 /** Words too general to be worth suppressing on their own. */
 const WEAK_TRAIT = /^(?:a|an|the|and|or|of|at|all|any|one|more|other|else|longer|visible)$/i;
+
+/**
+ * A capture that turned out to be a clause rather than a thing.
+ *
+ * "No one is cropped at or above the neck" is a sentence about the framing, not
+ * a trait, and harvesting it produced the exclusion `is cropped` — which then
+ * folded back into the positive prompt on Krea as "the frame is free of … is
+ * cropped and is left as". Two fragments of English, in the highest-weight
+ * exclusion clause, in every prompt that carried a framing note.
+ */
+const CLAUSE_FRAGMENT =
+  /\b(?:is|are|was|were|be|been|being|has|have|had|will|would|can|could|do|does|did)\b/i;
 
 /**
  * Traits a positive prompt asked for by stating their absence.
@@ -209,6 +262,7 @@ export function negatedTraitsIn(prompt: string): string[] {
   for (const match of prompt.matchAll(/\b(?:no|without)\s+((?:[a-z-]+\s+){0,3}[a-z-]+)\b/gi)) {
     // "no nose or mouth" is two traits; one run-on term suppresses neither well.
     for (const part of match[1]!.split(/\s+(?:or|and)\s+/i)) {
+      if (CLAUSE_FRAGMENT.test(part)) continue;
       const phrase = part
         .split(/\s+/)
         .filter((word) => !WEAK_TRAIT.test(word))
@@ -240,6 +294,19 @@ const SINGLE_SUBJECT = "a single correctly formed subject";
 const POSITIVE_ALTERNATIVES: ReadonlyArray<readonly [RegExp, string]> = [
   [/watermark|signature|logo/, "clean unmarked surfaces"],
   [/distorted anatomy|deformed|mutated|malformed/, "correct natural anatomy"],
+  [/stray objects?|misplaced objects?|props/, "only bare skin and flesh at every point of contact"],
+  [/detached body parts?|floating limbs?/, "every limb joined to the body it belongs to"],
+  // Distinct from a detached limb: the part is attached, to the wrong person or
+  // the wrong place. A live render put a man's penis at his own mouth, which
+  // "every limb joined to the body it belongs to" does not describe or forbid.
+  [
+    /misplaced anatomy|misattached|wrong place/,
+    "every part of each body where it anatomically belongs — genitals at the groin, mouths on faces",
+  ],
+  [
+    /obscured genitals|censorship bars?|pixelat(?:ed|ion)|mosaic/,
+    "genitals and the point of contact fully visible and unobstructed",
+  ],
   [/extra limbs?|duplicated? (subjects?|limbs?)|duplicate/, SINGLE_SUBJECT],
   [/warped hands?|bad hands?|extra fingers?/, "hands in a relaxed natural pose with five fingers"],
   [/text artifacts?|lettering|typography|caption/, "no signs, labels or lettering anywhere"],
@@ -277,13 +344,30 @@ function countWord(count: number): string {
  * people. Guards that still map cleanly — `malformed anatomy` is about a body,
  * not a headcount — keep their alternative.
  *
+ * **Nothing else is spelled out as an absence either, as of 1.98.** The rule
+ * v1.86 applied to the duplication guards was always general: a model that
+ * cannot process negation reads "the frame is free of X" as X. It was left as a
+ * fallback for every unmapped term, and that fallback did exactly what the rule
+ * predicts. A three-hander whose exclusions carried `Athletic physique`,
+ * `Toned abdominal muscles`, `Lean muscle definition` and `Muscular arms` — all
+ * written to protect one woman's build — folded into a sentence naming four
+ * muscle attributes, and the two men the prompt describes once as "heavy-set"
+ * came back muscular in every render that carried the clause and heavy-set in
+ * the one that did not. Four late, specific mentions beat one early word.
+ *
+ * A term with no alternative is therefore dropped. That loses the author's
+ * intent, which is a real cost — but naming the thing you are trying to avoid,
+ * to a model that will draw it, is not intent, it is the opposite outcome. The
+ * count is logged so the loss is visible rather than silent. Exclusions still
+ * reach every model that acts on a negative prompt untouched; this is only
+ * about the ones that discard it.
+ *
  * Returns an empty string when there is nothing to say, so callers can append
  * it unconditionally.
  */
 export function positiveConstraintClause(raw: string, headcount: number | null = null): string {
   const crowded = headcount !== null && headcount >= 2;
   const alternatives: string[] = [];
-  const absent: string[] = [];
   const seen = new Set<string>();
   let guarded = false;
 
@@ -302,8 +386,6 @@ export function positiveConstraintClause(raw: string, headcount: number | null =
       alternatives.push(rendered);
     } else if (guard) {
       guarded = true;
-    } else {
-      absent.push(term);
     }
   }
 
@@ -311,10 +393,19 @@ export function positiveConstraintClause(raw: string, headcount: number | null =
     alternatives.unshift(`exactly ${countWord(headcount!)} distinct people, each with their own face and body`);
   }
 
-  const parts: string[] = [];
-  if (alternatives.length) parts.push(` Render with ${joinList(alternatives)}.`);
-  if (absent.length) parts.push(` The frame is free of ${joinList(absent)}.`);
-  return parts.join("");
+  return alternatives.length ? ` Render with ${joinList(alternatives)}.` : "";
+}
+
+/**
+ * Exclusions a folded prompt has to drop, because there is nothing to render
+ * instead and naming them would summon them.
+ */
+export function unfoldableTerms(raw: string): string[] {
+  return negativeTerms(raw).filter((term) => {
+    const lower = term.toLocaleLowerCase();
+    if (MULTI_SUBJECT_SET.has(lower)) return false;
+    return !POSITIVE_ALTERNATIVES.some(([pattern]) => pattern.test(lower));
+  });
 }
 
 function joinList(items: readonly string[]): string {

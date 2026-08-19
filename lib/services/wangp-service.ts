@@ -10,7 +10,11 @@ import {
 import { resolveModel } from "@/lib/wangp/resolve-model";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
 import { familyOfModel, isMinimaxFamily, negativePromptReaches } from "@/lib/wangp/family";
-import { normaliseNegative, positiveConstraintClause } from "@/lib/agents/negative-prompt";
+import {
+  normaliseNegative,
+  positiveConstraintClause,
+  unfoldableTerms,
+} from "@/lib/agents/negative-prompt";
 import { statedHeadcount } from "@/lib/media/seam";
 import {
   appendAudioProse,
@@ -153,12 +157,17 @@ function routeNegative(
   }
 
   const clause = positiveConstraintClause(terms, statedHeadcount(prompt));
+  const dropped = unfoldableTerms(terms);
   logEvent("wangp.negative.folded", {
     ...context,
     modelType: model.modelType,
     family,
     declared: declaresNegative ?? null,
     terms: terms.split(", ").length,
+    // Naming these to a model that cannot negate would summon them, so they are
+    // discarded rather than folded. Counted so the loss is not silent.
+    dropped: dropped.length,
+    droppedTerms: dropped,
   });
   return { prompt: `${prompt}${clause}`, negativePrompt: undefined };
 }

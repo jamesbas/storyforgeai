@@ -62,6 +62,10 @@ const LEAD_CHARS = 160;
 /** The shot size a prompt asks for, or undefined when it never states one. */
 export function shotSizeOf(text: string | undefined): ShotSize | undefined {
   if (!text) return undefined;
+  return leadShot(text)?.size;
+}
+
+function leadShot(text: string): { size: ShotSize; at: number; len: number } | undefined {
   const lead = text.slice(0, LEAD_CHARS);
   let best: { size: ShotSize; at: number; len: number } | undefined;
   for (const [size, pattern] of PATTERNS) {
@@ -72,7 +76,60 @@ export function shotSizeOf(text: string | undefined): ShotSize | undefined {
       best = { size, at: m.index, len: m[0].length };
     }
   }
-  return best?.size;
+  return best;
+}
+
+/** How each size is written out when a prompt has to be given one. */
+const PHRASES: Record<ShotSize, string> = {
+  extreme_wide: "extreme wide shot",
+  wide: "wide shot",
+  full: "full shot",
+  medium_wide: "medium wide shot",
+  cowboy: "cowboy shot",
+  medium: "medium shot",
+  medium_close: "medium close-up",
+  close: "close-up",
+  extreme_close: "extreme close-up",
+};
+
+/**
+ * The tightest framing that can still hold this many people.
+ *
+ * A close-up is a frame around one face. Asked for a close-up naming three
+ * people at opposite ends of a body, the model renders whoever was described
+ * first and crops the rest out — the frame has nowhere to put them. Live, a
+ * three-hander written as a close-up came back with the second man missing
+ * entirely and an unidentifiable object where his cock should have been, which
+ * is what a model draws when it is asked for anatomy it has no room for.
+ *
+ * One person has no floor: a close-up is exactly right there.
+ */
+export function minimumShotSizeFor(people: number): ShotSize | undefined {
+  if (people <= 1) return undefined;
+  if (people === 2) return "medium_close";
+  if (people === 3) return "medium";
+  return "medium_wide";
+}
+
+/** Whether `size` is tighter than `floor` — closer in, holding less. */
+export function isTighterThan(size: ShotSize, floor: ShotSize): boolean {
+  return SIZE_ORDER.indexOf(size) > SIZE_ORDER.indexOf(floor);
+}
+
+/**
+ * Rewrite the shot size a prompt opens with, leaving everything else alone.
+ *
+ * Only the phrase itself is replaced. The camera height, the lens and the
+ * described action all still hold at a wider size, so rewriting more than the
+ * two or three words that state the framing would discard direction that is
+ * not at fault.
+ */
+export function widenShotSize(text: string, floor: ShotSize): string {
+  const found = leadShot(text);
+  if (!found) return text;
+  const phrase =
+    found.at === 0 ? PHRASES[floor][0]!.toUpperCase() + PHRASES[floor].slice(1) : PHRASES[floor];
+  return text.slice(0, found.at) + phrase + text.slice(found.at + found.len);
 }
 
 /**

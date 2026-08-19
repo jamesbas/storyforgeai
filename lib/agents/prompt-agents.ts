@@ -143,6 +143,14 @@ export const IMAGE_PROMPT_SYSTEM =
   "The headcount is a sentence of its own and carries counts and role nouns only: " +
   "no appearance, clothing, pose or placement belongs in it. Describe and place " +
   "each person in their own separate sentence. " +
+  // A three-hander written as a close-up rendered the first person described
+  // and dropped the other two: the frame had nowhere to put them. The model
+  // does not refuse an impossible framing, it just crops until the shot fits.
+  "Choose a shot size that can hold everyone you put in the frame. A close-up or extreme " +
+  "close-up is a frame around one person; two people need a medium close-up or wider, three " +
+  "need a medium shot or wider, and four or more a medium wide shot or wider. If you want a " +
+  "tight frame on one point of contact, put only the bodies that reach it in the shot and say " +
+  "so in the headcount. " +
   // A standing man behind a seated pair came back cropped at the neck in every
   // attempt. A lower camera did not fix it and nor did a wider shot size; seating
   // him did, first try. A cropped head is not cosmetic — the next scene inherits
@@ -558,10 +566,15 @@ function repairPart(part: ImagePart, gate: ImageGateContext): ImagePart {
   // A garment the model invented for a participant cannot be argued away in
   // the positive prompt, where naming it at all embeds it. The negative is the
   // only place "not this" means anything.
+  //
+  // Read from what the model wrote, not from the repair: the repair takes the
+  // garment back out of the positive prompt, and an exclusion derived from the
+  // repaired text would therefore always be empty. It has to come from the
+  // sentence that was wrong.
   const invented = [
     ...new Set([
-      ...inventedGarments(startFramePrompt, gate.establishedWardrobe?.start),
-      ...inventedGarments(endFramePrompt, gate.establishedWardrobe?.end),
+      ...inventedGarments(part.startFramePrompt, gate.establishedWardrobe?.start),
+      ...inventedGarments(part.endFramePrompt, gate.establishedWardrobe?.end),
     ]),
   ];
   return {

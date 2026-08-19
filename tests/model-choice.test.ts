@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { MockWangpClient } from "@/lib/wangp/mock-client";
 import { setWangpClient } from "@/lib/wangp/factory";
+import { sendsFrameReferences } from "@/lib/services/media-service";
+import type { Project } from "@/lib/schemas/project";
 import {
   buildImageManifest,
   buildVideoManifest,
@@ -63,6 +65,22 @@ describe("previewModelChoice", () => {
       imageRefs: ["/refs/mara.png"],
     });
     expect(withRefs.image?.modelType).toBe(manifest.modelType);
+  });
+
+  /**
+   * The case the settings screen missed. Turning character reference
+   * photographs off leaves a project reference-free only if nothing else sends
+   * one — and under `reuse_end_frame` every scene after the first renders its
+   * end frame against the frame it inherited. A project pinned to Krea 2 Turbo
+   * ran scene 1 on the pin and every scene after it on Flux 2 Klein, losing the
+   * Krea LoRA with it, while the screen showed no warning at all.
+   */
+  it("counts a carried frame as a reference image, with the library off", () => {
+    const project = (over: Partial<Project> = {}) =>
+      ({ sceneContinuity: "reuse_end_frame", useCharacterReferenceImages: false, ...over }) as Project;
+
+    expect(sendsFrameReferences(project())).toBe(true);
+    expect(sendsFrameReferences(project({ sceneContinuity: "cut" }))).toBe(false);
   });
 
   it("answers with null rather than throwing when nothing fits", async () => {

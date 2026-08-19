@@ -25,6 +25,7 @@
     "wangp:schema": "tsx scripts/wangp-schema.ts",
     "wangp:refs": "tsx scripts/wangp-refs.ts",
     "wangp:e2e": "tsx scripts/live-e2e.ts",
+    "render:preview": "tsx scripts/render-preview.ts",
     "prompts:check": "tsx scripts/prompt-check.ts",
     "prompts:preview": "tsx scripts/prompt-preview.ts",
     "h3:ab": "tsx scripts/h3-format-ab.ts",

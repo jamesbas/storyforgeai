@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getProjectRecord } from "@/lib/services/project-service";
 import { getWangpStatus, previewModelChoice } from "@/lib/services/wangp-service";
+import { sendsFrameReferences } from "@/lib/services/media-service";
 import { toErrorResponse } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
@@ -23,19 +24,26 @@ export async function GET(
     const { project } = await getProjectRecord(projectId);
     const status = await getWangpStatus();
 
+    // Two independent reasons a job carries reference images, and the screen
+    // has to name the right one: turning the character library off does not
+    // stop a carried frame being handed back to the model.
+    const characterRefs =
+      Boolean(project.useCharacterLibrary && project.characterIds?.length) &&
+      project.useCharacterReferenceImages !== false;
+    const carriedFrames = sendsFrameReferences(project);
+
     const choice = status.ok
       ? await previewModelChoice({
           modelStrategy: project.modelStrategy,
           imageModel: project.imageModel,
           videoModel: project.videoModel,
-          needsReferenceImages:
-            Boolean(project.useCharacterLibrary && project.characterIds?.length) &&
-            project.useCharacterReferenceImages !== false,
+          needsReferenceImages: characterRefs || carriedFrames,
         })
       : { image: null, video: null };
 
     return NextResponse.json({
       status,
+      refsNeededFor: { characters: characterRefs, carriedFrames },
       image: choice.image
         ? { modelType: choice.image.modelType, name: choice.image.name }
         : null,

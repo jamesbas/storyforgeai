@@ -9,6 +9,7 @@ import {
   withoutCharacterNegatives,
   withoutCharacterScopedTerms,
   withoutContradictions,
+  unfoldableTerms,
 } from "@/lib/agents/negative-prompt";
 import { familyOf, negativePromptReaches, supportsNegativePrompt } from "@/lib/wangp/family";
 import { imagePromptDirective, videoPromptDirective, hasNativeAudio } from "@/lib/agents/model-directives";
@@ -168,6 +169,23 @@ describe("an exclusion the positive prompt is asking for", () => {
       "art, blur",
     );
   });
+
+  /**
+   * The shipped case. Two men described "with short cropped hair" went out in
+   * the same job as an exclusion reading "Short hair", because an exact phrase
+   * match cannot see the adjective in the middle — so the render was pulled
+   * both ways on the one feature telling them apart.
+   */
+  it("sees a term the prompt asks for with a word in the middle", () => {
+    const prompt = "Two men with short cropped hair lean over the bed.";
+    expect(withoutContradictions("blur, short hair", prompt)).toBe("blur");
+  });
+
+  /** Two words far apart are two things, not the term. */
+  it("does not join words from opposite ends of the prompt", () => {
+    const prompt = "A short man stands by the door. She brushes her hair.";
+    expect(withoutContradictions("short hair", prompt)).toBe("short hair");
+  });
 });
 
 /**
@@ -222,6 +240,20 @@ describe("recovering a trait the positive prompt asked to be absent", () => {
     expect(negatedTraitsIn("with no other")).toEqual([]);
   });
 
+  /**
+   * "No one is cropped at or above the neck" is a sentence about the framing.
+   * Harvested as a trait it produced the exclusion `is cropped`, which folded
+   * back into the positive prompt on Krea as "the frame is free of … is cropped
+   * and is left as" — two fragments of English in every prompt that carried a
+   * framing note.
+   */
+  it("does not harvest a clause as though it were a thing", () => {
+    const framing =
+      "No one is cropped at or above the neck, and no one is left as an unlit silhouette.";
+    expect(negatedTraitsIn(framing)).toEqual([]);
+    expect(withNegatedTraits("blur", framing)).toBe("blur");
+  });
+
   it("leaves a prompt that states no absences alone", () => {
     expect(withNegatedTraits("blur, watermark", "a bright kitchen")).toBe("blur, watermark");
   });
@@ -241,10 +273,30 @@ describe("folding exclusions into the prompt for models that ignore them", () =>
     expect(clause).toContain("correct natural anatomy");
   });
 
-  /** An unmapped term still has to travel, or the user's intent is silently dropped. */
-  it("keeps terms it has no alternative for", () => {
-    const clause = positiveConstraintClause("glasses, moustache");
-    expect(clause).toContain("free of glasses and moustache");
+  /**
+   * The reverse of what this used to assert. Carrying an unmapped term through
+   * as "the frame is free of X" looked like preserving the author's intent and
+   * was the opposite: a model that cannot process negation reads it as X. A
+   * three-hander whose exclusions named four muscle attributes — all written to
+   * protect one woman's build — rendered two men the prompt calls "heavy-set"
+   * as muscular, in every take that carried the clause and none that did not.
+   */
+  it("drops a term it has no alternative for, rather than naming it", () => {
+    expect(positiveConstraintClause("glasses, moustache")).toBe("");
+    expect(unfoldableTerms("glasses, moustache")).toEqual(["glasses", "moustache"]);
+  });
+
+  /** The loss is real, so it has to be reportable. */
+  it("does not count a term it can render as an alternative as lost", () => {
+    expect(unfoldableTerms("blurry, glasses")).toEqual(["glasses"]);
+    expect(unfoldableTerms("twins, extra limbs")).toEqual([]);
+  });
+
+  it("still names what to render for the terms it can map", () => {
+    const clause = positiveConstraintClause("glasses, blurry, moustache");
+    expect(clause).toContain("crisp subject detail");
+    expect(clause).not.toContain("glasses");
+    expect(clause).not.toContain("free of");
   });
 
   it("says nothing when there is nothing to exclude", () => {

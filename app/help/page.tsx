@@ -868,8 +868,22 @@ export default function HelpPage() {
             any scene whose end frame has to show something the reference does not already
             contain — a different part of the set, a person who is not in it, or a prop in a
             different state. Conditioning is safe when the end frame is the same people in the same
-            place, framed differently. Wording is not a substitute: telling the model what to change
-            while showing it a picture of the thing unchanged is exactly what fails.
+            place, framed differently. The instruction sent with the reference now asks for the
+            edit rather than only listing what to preserve, and says outright that the location and
+            framing come from the scene — the earlier version asked nothing of the composition, so
+            the composition was preserved along with everything else. Treat that as an improvement,
+            not a guarantee: withholding the frame is still the only reliable lever.
+          </p>
+          <p className={p}>
+            <strong>A carried frame is a reference image.</strong> That confines the project to
+            image models marked <span className="font-semibold">✓ refs</span> — a pin that accepts
+            none renders the first scene and is quietly substituted for every scene after it, taking
+            its LoRAs with it. Project settings therefore offers the same choice for the whole
+            project: <strong>Show it the carried frame</strong>, or{" "}
+            <strong>Prompt and face swap only</strong>, which keeps your pinned model and its LoRAs
+            on every scene. The join is unaffected either way — a scene&apos;s end frame is still
+            the next scene&apos;s start frame — so what you trade is the set and wardrobe matching
+            frame to frame for the look of the model you chose.
           </p>
           <p className={p}>
             <strong>Watch for a head cropped out of a carried frame.</strong> That frame is the only

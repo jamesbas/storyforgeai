@@ -1,6 +1,12 @@
 import { splitSentences } from "@/lib/agents/media-prompt-spec";
 import { namesExplicitContent } from "@/lib/agents/explicitness";
-import { statedHeadcount } from "@/lib/media/seam";
+import {
+  isTighterThan,
+  minimumShotSizeFor,
+  shotSizeOf,
+  statedHeadcount,
+  widenShotSize,
+} from "@/lib/media/seam";
 import type { SceneDraft } from "@/lib/schemas/storyboard";
 
 /**
@@ -41,6 +47,8 @@ export const PROMPT_GATE_CODES = [
   "motion_in_still",
   /** Clothing on a body the act undresses, which outranks the act. */
   "wardrobe_contradicts_act",
+  /** A shot size too tight to hold the people the prompt puts in it. */
+  "framing_too_tight",
   /** The two frames of one scene disagree about how many people are in it. */
   "headcount_mismatch",
 ] as const;
@@ -199,6 +207,15 @@ function describesMotion(text: string): boolean {
 const GARMENTS =
   /\b(?:t-?shirts?|shirts?|blouses?|dress(?:es)?|skirts?|trousers|pants|jeans|denim|shorts|suits?|jackets?|coats?|bras?|brassieres?|panties|knickers|briefs|underwear|lingerie|robes?|gowns?|stockings|corsets?|socks|shoes|boots|leggings)\b/i;
 
+/** Anything that reads as clothing, including the words that stand in for it. */
+const GARMENT_CLAUSE = new RegExp(
+  `${GARMENTS.source}|\\b(?:garments?|clothing|clothes|outfits?|attire|fabric)\\b`,
+  "i",
+);
+
+/** How a prompt introduces what somebody has on. */
+const WORN_CLAUSE = /\b(?:wearing|dressed in|clad in|clothed in)\s+([^.,;]+)/gi;
+
 const STOPWORDS = new Set([
   "that",
   "this",
@@ -305,6 +322,37 @@ export function inventedGarments(prompt: string, established: string | undefined
   return [...new Set(found)].filter((garment) => !chosen.includes(garment));
 }
 
+/**
+ * Take the invented outfit back off, rather than arguing with it.
+ *
+ * The repair used to append "every participant is completely naked" and leave
+ * the garment sentence standing, so one prompt asserted both — and a sampler
+ * settles a contradiction by averaging, which is how a participant comes back
+ * with fabric-textured skin or a melted shape where the clothing was. Putting
+ * the garment in the negative prompt did not help either: `withoutContradictions`
+ * drops any exclusion the positive prompt names, so the term was removed again
+ * for appearing in the sentence this was supposed to fix. The repair cancelled
+ * itself at both ends.
+ *
+ * Replaced with the state the act requires rather than deleted, because the
+ * clause is usually mid-sentence and cutting it leaves "a man in his 40s,
+ * presses his pelvis" — and because an encoder can draw "naked" and cannot draw
+ * an absence. An outfit this scene's wardrobe actually established is left
+ * exactly as written.
+ */
+export function withoutInventedGarments(
+  prompt: string,
+  established: string | undefined,
+): string {
+  const chosen = (established ?? "").toLowerCase();
+  return prompt.replace(WORN_CLAUSE, (whole, clause: string) => {
+    if (!GARMENT_CLAUSE.test(clause)) return whole;
+    const named = clause.toLowerCase().match(new RegExp(GARMENTS.source, "gi")) ?? [];
+    if (named.length && named.every((garment) => chosen.includes(garment))) return whole;
+    return "naked";
+  });
+}
+
 function tidy(text: string): string {
   const trimmed = text.trim().replace(/[.\s]+$/, "");
   return trimmed ? `${trimmed}.` : "";
@@ -357,6 +405,15 @@ export function gateImagePrompt(
   // scene contains, and this check spent its first three releases switched off
   // for every project that was not sexually explicit.
   if (describesMotion(text)) codes.push("motion_in_still");
+
+  // A frame cannot hold more people than its shot size has room for, and the
+  // ones it cannot hold are simply not drawn. The stated headcount is the
+  // better source where the prompt gives one: it counts everybody in shot,
+  // while `participants` only knows the cast pinned from the library.
+  const people = Math.max(statedHeadcount(text) ?? 0, ctx.participants.length);
+  const floor = minimumShotSizeFor(people);
+  const size = shotSizeOf(text);
+  if (floor && size && isTighterThan(size, floor)) codes.push("framing_too_tight");
 
   if (!ctx.explicit) return codes;
   if (EUPHEMISMS.some((pattern) => pattern.test(text))) codes.push("euphemism");
@@ -461,6 +518,13 @@ export function gateRepairDirective(
         "wardrobe dresses them",
     );
   }
+  if (codes.includes("framing_too_tight")) {
+    reasons.push(
+      "the shot is too tight to hold the people you put in it, so the ones you named last are " +
+        "cropped out of the picture; open on a wider size — two people need a medium close-up " +
+        "or wider, three a medium shot, four or more a medium wide shot",
+    );
+  }
   if (codes.includes("headcount_mismatch")) {
     reasons.push(
       "the closing frame adds someone the opening frame does not contain, and no clip will " +
@@ -494,7 +558,22 @@ export function repairImagePrompt(
   codes: readonly PromptGateCode[],
   ctx: ImageGateContext,
 ): string {
-  const body = prompt.trim();
+  const established =
+    frame === "start" ? ctx.establishedWardrobe?.start : ctx.establishedWardrobe?.end;
+
+  // Both of these edit the prompt rather than adding to it, so they run before
+  // the paraphrase index below is built from it.
+  let body = prompt.trim();
+  if (codes.includes("framing_too_tight")) {
+    const floor = minimumShotSizeFor(
+      Math.max(statedHeadcount(body) ?? 0, ctx.participants.length),
+    );
+    if (floor) body = widenShotSize(body, floor);
+  }
+  if (codes.includes("wardrobe_contradicts_act")) {
+    body = withoutInventedGarments(body, established);
+  }
+
   const said = new Set(splitSentences(body).map(sentenceKey));
   const stems = contentStems(body);
 

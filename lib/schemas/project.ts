@@ -123,6 +123,21 @@ export const projectSchema = z.object({
    */
   useCharacterReferenceImages: z.boolean().optional(),
   /**
+   * Whether a carried-over frame conditions the end frame rendered against it.
+   *
+   * The project-level default for the per-scene `sceneEndFrameRefs` override.
+   * A carried frame is a reference image like any other, so leaving it on
+   * confines the project to models that accept one — which is why a pin such as
+   * Krea 2 Turbo rendered the first scene and was substituted for every scene
+   * after it. Turning it off keeps the pin and its LoRAs and leaves continuity
+   * to what already carries it: the previous scene's end frame still becomes
+   * this scene's start frame, and the face swap still corrects identity. What
+   * is lost is the model being shown the picture.
+   *
+   * Optional so projects created before it existed keep the old behaviour.
+   */
+  endFrameReferences: z.boolean().optional(),
+  /**
    * Images under this project's `concept-images` folder, with their provenance.
    *
    * Images that describe the piece rather than a character in it. What an image

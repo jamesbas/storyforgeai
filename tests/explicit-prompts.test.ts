@@ -544,7 +544,7 @@ describe("the scene that came back repeating itself", () => {
   };
 
   const written =
-    "Close-up, eye level. Blowjob: The second heavy-set black man in his 40s has his cock " +
+    "Medium shot, eye level. Blowjob: The second heavy-set black man in his 40s has his cock " +
     "(penis) deep in Mara's mouth; Man 1 is visible below as he thrusts his cock (penis) into " +
     "her pussy (vagina). Exactly three people are in frame: one woman and two men. Mara's lips " +
     "are stretched wide around the glistening shaft of the man's cock (penis), with moisture " +
@@ -555,6 +555,16 @@ describe("the scene that came back repeating itself", () => {
   /** The whole defect: this prompt was already correct and was repaired anyway. */
   it("accepts the prompt the model actually wrote", () => {
     expect(gateImagePrompt(written, "end", ctx)).toEqual([]);
+  });
+
+  /**
+   * This prompt shipped as a close-up, and was recorded here as one. Nothing
+   * then checked whether a close-up could hold the three people it names, and
+   * it cannot — which is the fault the frame-capacity check was added for.
+   */
+  it("catches the close-up this scene was originally written as", () => {
+    const asShipped = written.replace("Medium shot", "Close-up");
+    expect(gateImagePrompt(asShipped, "end", ctx)).toEqual(["framing_too_tight"]);
   });
 
   it("reads contact and position as they are really written", () => {

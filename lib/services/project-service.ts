@@ -266,6 +266,7 @@ export async function updateProjectModels(id: string, raw: unknown): Promise<Pro
       characterWardrobe: patch.characterWardrobe ?? record.project.characterWardrobe,
       useCharacterReferenceImages:
         patch.useCharacterReferenceImages ?? record.project.useCharacterReferenceImages,
+      endFrameReferences: patch.endFrameReferences ?? record.project.endFrameReferences,
       loras,
       sceneLoras: pruneSceneLoras(
         patch.sceneLoras ?? record.project.sceneLoras,

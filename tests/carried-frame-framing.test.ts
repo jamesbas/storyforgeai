@@ -76,19 +76,22 @@ describe("a frame the next scene inherits", () => {
   });
 
   /**
-   * A framing note appended after the cast sheet competes with the block that
-   * is most of a render prompt's length, and was ignored there. It goes with
-   * the shot description, which is the opening sentence.
+   * This note used to be inserted immediately after the shot size, so that a
+   * constraint on the shot sat with the shot and ahead of the appended cast
+   * sheet. Since 1.89 the sheet is skipped wherever the prompt describes its
+   * characters inline, so there is no longer a wall of text at the end to be
+   * lost behind — and the opening position cost more than it bought. Rendered
+   * live at a fixed seed against identical references, the scene's own prompt
+   * beat the same prompt carrying this note in front of it.
    */
-  it("states the framing with the framing, not at the end", async () => {
+  it("keeps the scene's own description at the front of the prompt", async () => {
     const record = await project("reuse_end_frame");
     await generateProjectMediaPhased(record.project.id, sceneIdsOf(record));
 
     for (const prompt of carrying()) {
-      const shot = prompt.split(". ")[0]!;
-      expect(prompt.startsWith(`${shot}. Frame wide enough to hold everyone:`)).toBe(true);
-      // Everything the scene originally said still follows it.
-      expect(prompt.indexOf(CARRY_MARKER)).toBeLessThan(prompt.length / 2);
+      // Nothing stands between the shot size and the first thing in the picture.
+      expect(prompt).not.toContain(`. ${CARRY_MARKER}`.slice(0, 30));
+      expect(prompt.indexOf(CARRY_MARKER)).toBeGreaterThan(prompt.length / 2);
     }
   });
 

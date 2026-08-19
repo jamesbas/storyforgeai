@@ -117,6 +117,8 @@ export const updateProjectModelsSchema = z.object({
   characterWardrobe: z.record(z.string()).optional(),
   /** Whether a character's reference photograph conditions the keyframes. */
   useCharacterReferenceImages: z.boolean().optional(),
+  /** Whether a carried-over frame conditions the end frame rendered against it. */
+  endFrameReferences: z.boolean().optional(),
   /**
    * Storyboard-wide LoRA stack. Like the model pins it only affects future
    * generations, so it stays editable for the life of the project.

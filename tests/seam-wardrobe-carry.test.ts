@@ -86,6 +86,30 @@ describe("the instruction that carries wardrobe across a seam", () => {
       expect(prompt).not.toContain("The character's wardrobe");
     }
   });
+
+  /**
+   * Preserve-only wording preserved the composition too. Asked for a medium
+   * shot of two characters walking away from a doorway toward a bed, the end
+   * frame returned the doorway — the reference's geography, not the scene's.
+   * Every model that can be handed a reference frame is an edit checkpoint, and
+   * an edit checkpoint answers the question it is asked, so the instruction now
+   * asks for the change and says where the geography comes from.
+   */
+  it("says the shot's geography comes from the scene, not the reference", async () => {
+    await twoScenesCarryingTheSeam();
+
+    const carried = client.prompts.filter((prompt) =>
+      prompt.includes("exactly as in the supplied reference"),
+    );
+    expect(carried.length).toBeGreaterThan(0);
+    for (const prompt of carried) {
+      expect(prompt).toContain("Edit the supplied reference frame into this shot");
+      expect(prompt).toContain(
+        "come from this scene's own description, not from the reference frame",
+      );
+      expect(prompt).toContain("Integrate every change naturally");
+    }
+  });
 });
 
 describe("what the prompt agents are told about people outside the cast", () => {

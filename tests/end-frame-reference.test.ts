@@ -4,9 +4,14 @@ import {
   duplicateProject,
   generateStoryboard,
   getProjectRecord,
+  updateProjectModels,
   updateSceneFraming,
 } from "@/lib/services/project-service";
-import { generateProjectMediaPhased, generateSceneMedia } from "@/lib/services/media-service";
+import {
+  generateProjectMediaPhased,
+  generateSceneMedia,
+  sendsFrameReferences,
+} from "@/lib/services/media-service";
 import { MockWangpClient } from "@/lib/wangp/mock-client";
 import { setWangpClient } from "@/lib/wangp/factory";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
@@ -154,5 +159,60 @@ describe("turning the end-frame reference off for one scene", () => {
     expect(keys).toHaveLength(1);
     expect(keys[0]).not.toBe(sceneId);
     expect(keys[0]).toBe(sceneIdsOf(copied)[1]);
+  });
+});
+
+/**
+ * The whole-project version of the same lever.
+ *
+ * A carried frame is a reference image, so leaving this on confines a project
+ * to models that accept one: a pin of Krea 2 Turbo rendered scene 1 and was
+ * substituted for the fourteen after it, dropping the Krea LoRA on the way.
+ * Turning it off keeps the pin and its LoRAs for every scene. What continues to
+ * carry the join is unchanged either way — the previous scene's end frame is
+ * still this scene's start frame — and identity still gets its face-swap pass.
+ */
+describe("withholding the carried frame for the whole project", () => {
+  it("sends no reference image on any scene", async () => {
+    const record = await chained();
+    await updateProjectModels(record.project.id, { endFrameReferences: false });
+
+    client.calls.length = 0;
+    await generateProjectMediaPhased(record.project.id, sceneIdsOf(record));
+
+    expect(conditioned()).toHaveLength(0);
+    expect(client.calls.every((call) => call.refs.length === 0)).toBe(true);
+  });
+
+  /** The join is what inheritance does, and inheritance is not what this controls. */
+  it("still carries each scene's ending into the next scene's opening", async () => {
+    const record = await chained();
+    await updateProjectModels(record.project.id, { endFrameReferences: false });
+    await generateProjectMediaPhased(record.project.id, sceneIdsOf(record));
+
+    const after = await getProjectRecord(record.project.id);
+    const scenes = sceneIdsOf(after);
+    for (const [index, sceneId] of scenes.entries()) {
+      const attempt = after.attempts?.[sceneId]?.at(-1);
+      if (index === 0) {
+        expect(attempt?.startImageInherited).toBeUndefined();
+        continue;
+      }
+      expect(attempt?.startImageInherited).toBe(true);
+      expect(attempt?.startImagePath).toBe(after.attempts?.[scenes[index - 1]!]?.at(-1)?.endImagePath);
+    }
+  });
+
+  it("lets a model that accepts no reference images render every scene", async () => {
+    const record = await chained();
+    await updateProjectModels(record.project.id, { endFrameReferences: false });
+
+    expect(sendsFrameReferences((await getProjectRecord(record.project.id)).project)).toBe(false);
+  });
+
+  it("is on unless it is turned off", async () => {
+    const record = await chained();
+    expect(record.project.endFrameReferences).toBeUndefined();
+    expect(sendsFrameReferences(record.project)).toBe(true);
   });
 });

@@ -161,20 +161,91 @@ const IMAGE_FRAME_CONTRACT =
   " This is one still frame. A still cannot show rhythm, pace or repetition: do not write " +
   "\"rhythmic\", \"continuous\", \"steady rhythm\", \"in and out\", \"back and forth\" or " +
   "\"with each thrust\". Freeze it — state where the bodies are at this single instant and how " +
-  "deep. Every frame of a sexual act must state all nine of these, and one missing any of them " +
+  "deep. Every frame of a sexual act must state all eleven of these, and one missing any of them " +
   "is unfinished:\n" +
   "1. The position, named: cowgirl, reverse cowgirl, missionary, doggy style, spit-roast, " +
-  "straddling, legs over his shoulders.\n" +
+  "straddling, legs over his shoulders. Where more than two people take part, name the " +
+  "arrangement covering every point of contact rather than only one of them. A named position " +
+  "carries a whole geometry; prepositions assembled by hand do not, and the model fills the gaps " +
+  "itself.\n" +
   "2. What is inside what: \"his cock (penis) inserted in her pussy (vagina)\", \"vaginal " +
-  "penetration\", \"anal penetration\", \"his cock (penis) in her mouth\".\n" +
+  "penetration\", \"anal penetration\", \"his cock (penis) in her mouth\". Describe the join " +
+  "itself and not the two parts side by side: name what the receiving part is doing around the " +
+  "entering one \u2014 \"her lips stretched tight around the shaft\", \"her labia stretched around " +
+  "him\". \"His cock at her parted lips\" is two objects near each other, and that is exactly " +
+  "what comes back: an open mouth, a cock beside it, and nothing joining them.\n" +
   "3. How far in: fully to the base, half withdrawn, the tip parting her labia.\n" +
   "4. The genital anatomy visible from this angle: her labia stretched around his shaft, his " +
   "balls against her, her clitoris exposed, the base of his cock still outside her.\n" +
   "5. Where every participant's limbs are, and what each pair of hands is doing.\n" +
   "6. Where skin meets skin: his hips against her buttocks, her thighs either side of his waist.\n" +
   "7. Wetness and sheen: glistening, sweat-slick, flushed skin, moisture where they join.\n" +
-  "8. Each face — expression, mouth, eyes — and where they are looking.\n" +
+  // Amended rather than added as a twelfth item: a supine woman told to turn her
+  // head toward the camera cannot also take a cock from a man at her shoulder,
+  // and the model resolved that contradiction by keeping the head angle and
+  // dropping the act. Requirements that contradict each other are worse than a
+  // requirement that is missing.
+  "8. Each face — expression, mouth, eyes — and where they are looking. Where a mouth is part " +
+  "of the act, the head is turned by the act and cannot be aimed anywhere else as well: write " +
+  "\"her head turned sharply to her left, chin lifted, his groin at her mouth\", never \"her " +
+  "head turned toward the camera\" in the same breath. State the turn, and state it toward the " +
+  "person it is serving rather than as a left, a right or a direction from the camera: a supine " +
+  "head with no turn stated renders face up, and a cock arriving from the side then passes " +
+  "across the cheek instead of entering the mouth. Put the head where the contact needs it and " +
+  "let the eyes look wherever is left. State it once, in one clause — its angle, what is at " +
+  "or in it, and the expression together. A head named in four places, turned in one, its lips " +
+  "parted in another and a hand cupping it in a third, is four heads to a model, and a frame " +
+  "written that way came back with two of the same woman sharing one body.\n" +
   "9. Breasts and nipples wherever the frame shows them.\n" +
+  // A live frame read "his cock (penis) positioned at her mouth for oral
+  // contact" and rendered a penis growing from the man's own face: the part was
+  // placed against her, and his body was never put anywhere it could reach her
+  // from. A model has no anatomy prior strong enough to supply the missing half.
+  "10. Where each participant's own body is, so that every part you name is anchored to the " +
+  "person it belongs to. A cock is at its owner's groin and reaches her from there: write \"he " +
+  "kneels at the left of frame, thighs either side of her shoulder, his groin at her cheek and " +
+  "his cock (penis) between her lips\", never \"his cock is at her mouth\" on its own. A part " +
+  "named only by what it touches, and never by whose body it leaves, is drawn growing out of " +
+  "the thing it is touching. The pose must also put the two parts within reach of each other: " +
+  "a man kneeling upright carries his groin two feet above a head lying flat on a mattress, so " +
+  "an oral contact there needs him astride her head with his hips lowered to her face, or her " +
+  "head raised and tilted back to him. Naming a contact does not move either body \u2014 a frame " +
+  "asking for one across a gap the pose forbids renders the pose and drops the contact, and " +
+  "the cock is not drawn at all. Close that gap by naming the posture that produces it, never " +
+  "by asking one part to travel: \"his hips lowered to her face\" is read as lowering all of " +
+  "him, and a man given that beside a woman on a bed lies down alongside her with his head at " +
+  "her head \u2014 which puts his cock back at his own face. Write \"he kneels upright, back " +
+  "straight, his groin at her mouth\" instead.\n" +
+  // Anchoring the body fixed the anatomy and exposed the next fault: "kneels
+  // beside her head, hips level with her face" is satisfied by kneeling behind
+  // it, where the camera cannot see the contact and the cock was simply absent.
+  // The first attempt at this rule asked for the staging in the camera's terms
+  // and cost the act itself, so it now asks for one clause and forbids talking
+  // about the photograph.
+  "11. Which way each body faces, in one short clause, so the act is not staged edge-on and " +
+  "hidden behind somebody. Say it as a fact about the room — \"he kneels at her left shoulder, " +
+  "facing her feet\" — never as a fact about the picture. \"In profile to the lens\", \"nothing " +
+  "blocks the view\" and \"both points of contact face the camera\" describe a photograph rather " +
+  "than a scene, and a model can construct none of them. Where something must be visible, say " +
+  "what is visible instead: \"half the shaft still outside her mouth\" puts it in the picture, " +
+  "\"unobstructed\" does not.\n" +
+  // Eleven requirements compete for one prompt, and the model resolves that
+  // competition by weighting the main clause. A rewrite that moved the staging
+  // into it and left the act trailing came back with three people correctly
+  // placed, correctly lit, and no penetration anywhere in the picture.
+  "The act itself is the main clause of its own sentence, and everything else is arranged " +
+  "around it. Write \"his cock (penis) is fully inserted in her pussy (vagina), her labia " +
+  "stretched around the shaft, as he kneels between her thighs\" \u2014 not \"he kneels between her " +
+  "thighs, his cock inserted in her pussy\". These eleven requirements compete for one prompt, " +
+  "and whichever of them holds the main clause is the one that gets rendered: framing and " +
+  "staging in front, with the act trailing behind as a phrase, returns a frame of people " +
+  "arranged correctly and joined to nothing. Where the frame holds more than one act, describe " +
+  "them to the same weight: sixty words on the oral contact and twenty on the penetration " +
+  "renders the first and quietly drops the second, in exactly the way a character described at " +
+  "four times the length of another renders twice and drops them. Equal weight is not the same " +
+  "wording: give each act its own vocabulary, because two contacts written in the same phrases " +
+  "are one description to a model, and it renders one of them properly and the other as an " +
+  "echo \u2014 a mouth closed against a cock that never entered it.\n" +
   // The rule this overrides is stated earlier and unconditionally, and the
   // model obeyed it: it dressed the man performing oral sex in black silk
   // trousers. An outfit is appended last and outranks the act it contradicts.

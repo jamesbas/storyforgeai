@@ -1,10 +1,13 @@
 import { randomInt, randomUUID } from "node:crypto";
 import type { ProjectRecord, Scene } from "@/lib/schemas/storyboard";
+import type { Project } from "@/lib/schemas/project";
 import type { SceneAttempt } from "@/lib/schemas/generation";
 import { repository } from "@/lib/db/store";
 import { getProjectRecord } from "@/lib/services/project-service";
 import { buildImageManifest, buildVideoManifest, runToCompletion } from "@/lib/services/wangp-service";
 import type { CastReference, FrameOptions } from "@/lib/services/wangp-service";
+import type { WangpGenerationSettings } from "@/lib/schemas/wangp";
+import type { SeamBreak } from "@/lib/media/seam";
 import { resolveSceneLoras } from "@/lib/services/lora-service";
 import { faceSwapSubjects, swapFace } from "@/lib/services/face-swap-service";
 import type { FramePerson } from "@/lib/services/face-swap-service";
@@ -17,12 +20,14 @@ import { resolveProjectCast } from "@/lib/services/character-service";
 import { charactersInFrame, charactersInScene } from "@/lib/agents/scene-cast";
 import { othersInFrame, wardrobeTimeline } from "@/lib/agents/wardrobe";
 import {
+  withActGuards,
   withMultiSubjectGuards,
   withNegatedTraits,
   withoutCharacterNegatives,
   withoutContradictions,
   withoutCharacterScopedTerms,
 } from "@/lib/agents/negative-prompt";
+import { depictsSexAct } from "@/lib/agents/prompt-gate";
 import { resolveReferenceImagePath } from "@/lib/db/character-store";
 import { config } from "@/lib/config";
 import { qcAgent } from "@/lib/agents/qc-agent";
@@ -293,24 +298,38 @@ function keyframeSeed(
  * only withholding the image did.
  *
  * The wording below asks the inherited frame to govern the people and yield on
- * everything else. Measured, it does not: asked for a medium shot of two
- * characters walking away from a doorway toward a bed, the end frame returned
- * the doorway, and the same prompt at the same seed with the reference withheld
- * obeyed it. So the instruction is a preference, not a guarantee, and a scene
- * whose end frame must show a part of the set the reference does not contain
- * needs `sceneEndFrameRefs[sceneId] = false` rather than better wording.
+ * everything else. An earlier version stated only what to preserve, and
+ * measured, it did not hold: asked for a medium shot of two characters walking
+ * away from a doorway toward a bed, the end frame returned the doorway, and the
+ * same prompt at the same seed with the reference withheld obeyed it.
+ *
+ * Every model that can be handed this is an instruction-following edit
+ * checkpoint — a model with no reference input never reaches here — and those
+ * models answer the question they are asked. Preserve-only wording asks nothing
+ * of the composition, so the composition is preserved too. It is therefore
+ * phrased as an edit: the change first, then what survives it, then where the
+ * geography comes from, which is the clause the doorway defeated.
+ *
+ * Still a preference rather than a guarantee. A scene whose end frame must show
+ * a part of the set the reference does not contain needs
+ * `sceneEndFrameRefs[sceneId] = false`.
  */
 const MATCH_INSTRUCTION = {
   inherited:
-    " The named characters' wardrobe, hair and styling are exactly as in the supplied reference" +
-    " frame; identical clothing on them." +
-    " Anyone else in this shot is dressed and styled only as this scene's own description says," +
-    " and never takes clothing from a person in the reference frame." +
-    " Follow this scene's own description for location, framing and action.",
+    " Edit the supplied reference frame into this shot: its location, framing, camera position" +
+    " and action come from this scene's own description, not from the reference frame." +
+    " The named characters' faces, wardrobe, hair and styling are exactly as in the supplied" +
+    " reference frame; identical clothing on them." +
+    " Anyone else is dressed and styled only as this scene's own description says, and never" +
+    " takes clothing from a person in the reference frame." +
+    " Integrate every change naturally and alter nothing else.",
   /** The one scene that depicts the costume change itself; its prompt names the outfit. */
   inheritedChangingWardrobe:
-    " The named characters' hair and styling are exactly as in the supplied reference frame." +
-    " Follow this scene's own description for location, framing, action and clothing.",
+    " Edit the supplied reference frame into this shot: its location, framing, camera position," +
+    " action and clothing come from this scene's own description, not from the reference frame." +
+    " The named characters' faces, hair and styling are exactly as in the supplied reference" +
+    " frame." +
+    " Integrate every change naturally and alter nothing else.",
 } as const;
 
 /** Does this scene depict a costume change, rather than arriving with one done? */
@@ -329,7 +348,26 @@ function changingWardrobe(record: ProjectRecord, sceneId: string): boolean {
  */
 function referencesStartFrame(record: ProjectRecord, sceneId: string, inherited: boolean): boolean {
   if (!inherited || !config.media.endFrameReferencesStartFrame) return false;
+  if (record.project.endFrameReferences === false) return false;
   return record.project.sceneEndFrameRefs?.[sceneId] !== false;
+}
+
+/**
+ * Whether this project will hand a rendered frame back to the image model as a
+ * reference, independently of the character library.
+ *
+ * Turning character reference photographs off does not make a project
+ * reference-free: under `reuse_end_frame` every scene from the second onward
+ * renders its end frame against the frame it inherited, and that is a reference
+ * image like any other. A model that accepts none — Krea 2 Turbo, Z-Image —
+ * therefore renders scene 1 on the pin and is substituted for every scene after
+ * it, taking its family's LoRAs with it. Asked at the project level because
+ * that is the question the settings screen has to answer before anything runs.
+ */
+export function sendsFrameReferences(project: Project): boolean {
+  if (project.endFrameReferences === false) return false;
+  const mode = project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY;
+  return mode === "reuse_end_frame" && config.media.endFrameReferencesStartFrame;
 }
 
 /**
@@ -366,26 +404,31 @@ function endFrameGainsPeople(scene: Scene): boolean {
  * for the heads: a medium shot at eye level holding a seated foreground figure
  * has nowhere to put a standing one's head, and no wording resolves a shot size
  * that cannot contain the staging.
+ *
+ * Kept short, and phrased as what the frame holds. The earlier version spent
+ * four clauses on it and said "no one is cropped" — which `negatedTraitsIn`
+ * then harvested into an exclusion reading `is cropped`.
  */
 const CARRY_INSTRUCTION =
   " Frame wide enough to hold everyone: every person in this shot has their whole head" +
-  " inside the frame, face visible and unobstructed, including anyone in the background" +
-  " or at the edge of the action. No one is cropped at or above the neck, and no one is" +
-  " left as an unlit silhouette.";
+  " inside the frame, lit and unobstructed, including anyone at the edge of the action.";
 
 /**
- * Place a framing note with the framing, ahead of the appended cast sheet.
+ * Place a framing note after the scene, not in front of it.
  *
- * The sheet is most of a render prompt's length, and anything after it competes
- * with a wall of appearance text — the same crowding that made an over-described
- * character render twice. The opening sentence is the shot description, so a
- * constraint on the shot belongs immediately after it.
+ * It used to be inserted immediately after the shot size, on the reasoning that
+ * a constraint on the shot belongs with the shot and that anything later would
+ * compete with the appended cast sheet. Since 1.89 that sheet is skipped
+ * wherever the prompt describes its characters inline, which is now the normal
+ * case, so the tail is no longer a wall of appearance text — and the opening
+ * position turned out to cost more than it bought. Rendered live at a fixed
+ * seed against the same references, the scene's own prompt beat the same prompt
+ * with this note and the match instruction in front of it; sixty words of
+ * framing boilerplate sat between the shot size and the first person in the
+ * picture.
  */
 function afterFraming(prompt: string, clause: string): string {
-  const end = prompt.indexOf(". ");
-  return end < 0
-    ? `${prompt}${clause}`
-    : `${prompt.slice(0, end + 1)}${clause}${prompt.slice(end + 1)}`;
+  return `${prompt}${clause}`;
 }
 
 /**
@@ -519,6 +562,111 @@ function resolveContinuity(record: ProjectRecord, scene: Scene): Continuity {
  * Section 8.2. Uses absolute-style mock paths from the WanGP client.
  */
 /**
+ * Compose the exclusions a job is actually sent from the terms the agent wrote.
+ *
+ * Applied here rather than to the stored text so existing projects are covered
+ * without a repair pass. Removals run before the two appenders, or
+ * `withNegatedTraits` would add a term back and have it stripped again as a
+ * contradiction with the prompt it was read from.
+ *
+ * `headcount` decides how much of this can be trusted: a term with no addressee
+ * is only safe to keep where there is a single body for it to land on, and the
+ * duplication guards only mean anything where there is more than one.
+ */
+function exclusionsFor(args: {
+  negative: string;
+  prompt: string;
+  headcount: number | null;
+  scene: Scene;
+  cast: readonly Character[];
+}): string {
+  const { negative, prompt, headcount, cast } = args;
+  return withNegatedTraits(
+    withActGuards(
+      withMultiSubjectGuards(
+        withoutContradictions(
+          withoutCharacterNegatives(
+            withoutCharacterScopedTerms(
+              negative,
+              cast.map((character) => character.name),
+              headcount,
+            ),
+            cast,
+            headcount,
+          ),
+          prompt,
+        ),
+        headcount,
+      ),
+      depictsSexAct(args.scene),
+    ),
+    prompt,
+  );
+}
+
+/**
+ * The same treatment for a clip, which had been getting none of it.
+ *
+ * The video pass sent `videoNegativePrompt` through untouched, so everything
+ * the image pass had learned not to do was still being done here: a term scoped
+ * to one character by name steered every body in the clip, and a library
+ * negative written about one person applied to all of them.
+ *
+ * The population is read from the frame the clip opens on rather than the
+ * clip's own prompt. A video prompt is deliberately told not to re-describe
+ * what the start frame already shows, so it almost never states a headcount —
+ * and an unknown headcount disarms both the stripping and the guards.
+ */
+async function videoExclusions(
+  record: ProjectRecord,
+  scene: Scene,
+  framePrompt: string | undefined,
+): Promise<string> {
+  const prompt = scene.prompts.videoPromptSegment;
+  return exclusionsFor({
+    negative: scene.prompts.videoNegativePrompt,
+    prompt,
+    headcount: statedHeadcount(framePrompt) ?? statedHeadcount(prompt),
+    scene,
+    cast: await resolveProjectCast(record.project),
+  });
+}
+
+/** Everything a keyframe job needs, composed but not submitted. */
+async function keyframeManifest(
+  record: ProjectRecord,
+  scene: Scene,
+  purpose: "start_frame" | "end_frame",
+  prompt: string,
+  castRefs: string[],
+  extraRefs: string[],
+): Promise<WangpGenerationSettings> {
+  const cast = await resolveProjectCast(record.project);
+  return buildImageManifest({
+    sceneId: scene.id,
+    purpose,
+    prompt,
+    negativePrompt: exclusionsFor({
+      negative: scene.prompts.imageNegativePrompt,
+      prompt,
+      headcount: statedHeadcount(prompt),
+      scene,
+      cast,
+    }),
+    modelStrategy: record.project.modelStrategy,
+    modelType: record.project.imageModel,
+    seed: keyframeSeed(record.project.sceneSeeds?.[scene.id], purpose),
+    steps: record.project.imageSteps,
+    frame: frameOf(record.project),
+    imageRefs: [...extraRefs, ...castRefs],
+    // A leading scene frame is the "main subject / landscape" reference; the
+    // cast portraits that follow are the people.
+    imageRefsLeadWithScene: extraRefs.length > 0,
+    loras: resolveSceneLoras(record.project, scene.id, "image"),
+  });
+}
+
+/**
  * Render one keyframe for a scene.
  *
  * Shared by full scene generation and the standalone preview so a preview shows
@@ -534,47 +682,9 @@ async function renderKeyframe(
   extraRefs: string[] = [],
   swapSubjects: readonly Character[] = [],
 ): Promise<{ id: string; path?: string; source?: string }> {
-  const cast = await resolveProjectCast(record.project);
-  const manifest = await buildImageManifest({
-    sceneId: scene.id,
-    purpose,
-    prompt,
-    // Applied here rather than to the stored text so existing projects are
-    // covered without a repair pass. Removals run before the two appenders, or
-    // `withNegatedTraits` would add a term back and have it stripped again as a
-    // contradiction with the prompt it was read from.
-    negativePrompt: withNegatedTraits(
-      withMultiSubjectGuards(
-        withoutContradictions(
-          withoutCharacterNegatives(
-            withoutCharacterScopedTerms(
-              scene.prompts.imageNegativePrompt,
-              cast.map((character) => character.name),
-              statedHeadcount(prompt),
-            ),
-            cast,
-            statedHeadcount(prompt),
-          ),
-          prompt,
-        ),
-        statedHeadcount(prompt),
-      ),
-      prompt,
-    ),
-    modelStrategy: record.project.modelStrategy,
-    modelType: record.project.imageModel,
-    seed: keyframeSeed(record.project.sceneSeeds?.[scene.id], purpose),
-    steps: record.project.imageSteps,
-    frame: frameOf(record.project),
-    imageRefs: [...extraRefs, ...castRefs],
-    // A leading scene frame is the "main subject / landscape" reference; the
-    // cast portraits that follow are the people.
-    imageRefsLeadWithScene: extraRefs.length > 0,
-    loras: resolveSceneLoras(record.project, scene.id, "image"),
-  });
+  const manifest = await keyframeManifest(record, scene, purpose, prompt, castRefs, extraRefs);
   const job = await runToCompletion(manifest.settings);
   const rendered = job.generatedFiles[0];
-
   // Swap before returning, so whatever consumes this frame — the end-frame
   // render, the clip, the next scene's inherited start — sees the corrected
   // face. Deferring it would mean those all carry the uncorrected one.
@@ -588,7 +698,7 @@ async function renderKeyframe(
     // One pass per character, each taking the last good output as its guide.
     // A failed pass costs its own correction, not the ones before it.
     let current = rendered;
-    const present = peopleInFrame(record, scene, prompt, cast);
+    const present = peopleInFrame(record, scene, prompt, await resolveProjectCast(record.project));
     for (const [index, subject] of swapSubjects.entries()) {
       logEvent("face_swap.pass", {
         sceneId: scene.id,
@@ -1066,7 +1176,11 @@ export async function generateProjectMediaPhased(
         ? await buildVideoManifest({
             sceneId: scene.id,
             prompt: scene.prompts.videoPromptSegment,
-            negativePrompt: scene.prompts.videoNegativePrompt,
+            negativePrompt: await videoExclusions(
+              record,
+              scene,
+              entry.inheritedPrompt ?? scene.prompts.startFramePrompt,
+            ),
             imageStart: entry.start,
             imageEnd: entry.end,
             modelStrategy: record.project.modelStrategy,
@@ -1155,6 +1269,115 @@ async function bankKeyframes(
   };
   await persistAttempt(projectId, scene, attempt, existing, record);
   return attempt.id;
+}
+
+export type FramePreview = {
+  sceneNumber: number;
+  sceneId: string;
+  purpose: "start_frame" | "end_frame";
+  /** False when the frame is inherited, so no job is submitted for it at all. */
+  rendered: boolean;
+  /** The scene this frame was carried in from, when it was not rendered. */
+  inheritedFrom?: number;
+  /** Why the chain broke here, when a scene that could have inherited did not. */
+  seamBreak?: SeamBreak;
+  /** Exactly what would go to Wan2GP. Absent for an inherited frame. */
+  settings?: WangpGenerationSettings["settings"];
+};
+
+/**
+ * Every job a batch would submit, composed but never sent.
+ *
+ * The prompt that reaches Wan2GP is not the prompt on the scene card: the card
+ * is the input to a chain of appenders — cast sheet, look, carry and match
+ * instructions — and the exclusions are folded into it at render time on a
+ * model that discards a negative prompt. Diagnosing a bad frame by reading the
+ * card therefore tells you very little, and the composed text existed nowhere a
+ * person could see it.
+ *
+ * The whole storyboard is walked because inheritance is a chain: which frames
+ * are rendered at all depends on every seam before them.
+ */
+export async function previewSceneRenders(projectId: string): Promise<FramePreview[]> {
+  const record = await getProjectRecord(projectId);
+  if (!record.storyboard) throw new ValidationError("Generate a storyboard before previewing");
+
+  const scenes = [...record.storyboard.scenes].sort((a, b) => a.sceneNumber - b.sceneNumber);
+  const mode = record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY;
+  const projectCast = await resolveProjectCast(record.project);
+  const useRefs = record.project.useCharacterReferenceImages !== false;
+  const castRefsFor = (scene: Scene, prompt: string) =>
+    useRefs
+      ? referenceImagePathsOf(
+          photographedSubject(
+            prompt,
+            charactersInFrame(prompt, charactersInScene(scene, projectCast)),
+            { sceneId: scene.id, purpose: "keyframe" },
+          ),
+        )
+      : [];
+
+  const out: FramePreview[] = [];
+  let previousEnd: string | undefined;
+  let previousScene: Scene | undefined;
+
+  for (const scene of scenes) {
+    const broken =
+      previousScene && previousEnd
+        ? seamBreak(previousScene, scene, { clipCarriesArrivals: clipCarriesArrivals(record) })
+        : null;
+    const inherited = mode === "reuse_end_frame" && !broken ? previousEnd : undefined;
+
+    if (inherited) {
+      out.push({
+        sceneNumber: scene.sceneNumber,
+        sceneId: scene.id,
+        purpose: "start_frame",
+        rendered: false,
+        inheritedFrom: previousScene!.sceneNumber,
+      });
+    } else {
+      const prompt = scene.prompts.startFramePrompt;
+      out.push({
+        sceneNumber: scene.sceneNumber,
+        sceneId: scene.id,
+        purpose: "start_frame",
+        rendered: true,
+        ...(broken ? { seamBreak: broken } : {}),
+        settings: (
+          await keyframeManifest(record, scene, "start_frame", prompt, castRefsFor(scene, prompt), [])
+        ).settings,
+      });
+    }
+
+    const conditionOnStart = conditionEndOnStart(record, scene, Boolean(inherited));
+    // The path is only ever a reference image, so the previous scene's recorded
+    // frame is the honest stand-in: it is the file the last run actually used.
+    const startPath = inherited ?? "<this scene's start frame>";
+    const endPrompt = endFramePromptFor(record, scene, conditionOnStart);
+    out.push({
+      sceneNumber: scene.sceneNumber,
+      sceneId: scene.id,
+      purpose: "end_frame",
+      rendered: true,
+      settings: (
+        await keyframeManifest(
+          record,
+          scene,
+          "end_frame",
+          endPrompt,
+          castRefsFor(scene, scene.prompts.endFramePrompt),
+          conditionOnStart ? [startPath] : [],
+        )
+      ).settings,
+    });
+
+    previousEnd =
+      chosenAttempt(record, scene.id)?.endImagePath ?? `<scene ${scene.sceneNumber} end frame>`;
+    previousScene = scene;
+  }
+
+  return out;
 }
 
 /** A scene's frame paths after the swap phase, with the originals preserved. */
@@ -1416,7 +1639,11 @@ export async function regenerateSceneVideo(
   const manifest = await buildVideoManifest({
     sceneId,
     prompt: scene.prompts.videoPromptSegment,
-    negativePrompt: scene.prompts.videoNegativePrompt,
+    negativePrompt: await videoExclusions(
+      loaded,
+      scene,
+      continuity.startImagePrompt ?? scene.prompts.startFramePrompt,
+    ),
     imageStart: previous.startImagePath,
     imageEnd: previous.endImagePath,
     videoSource: continuity.videoSource,
@@ -1568,7 +1795,11 @@ export async function generateSceneMedia(
     ? await buildVideoManifest({
         sceneId,
         prompt: scene.prompts.videoPromptSegment,
-        negativePrompt: scene.prompts.videoNegativePrompt,
+        negativePrompt: await videoExclusions(
+          record,
+          scene,
+          continuity.startImagePrompt ?? scene.prompts.startFramePrompt,
+        ),
         imageStart: startImagePath,
         imageEnd: endImagePath,
         videoSource: continuity.videoSource,

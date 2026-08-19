@@ -135,7 +135,9 @@ describe("scene continuity", () => {
     // Scene 2 inherits scene 1's ending, which still has to carry the cast.
     const sceneTwoEnd = sceneTwo.find((p) => p.includes("supplied reference frame"));
     expect(sceneTwoEnd).toBeDefined();
-    expect(sceneTwoEnd).toContain("Follow this scene's own description for location, framing and action");
+    expect(sceneTwoEnd).toContain(
+      "come from this scene's own description, not from the reference frame",
+    );
 
     setWangpClient(new MockWangpClient());
   });

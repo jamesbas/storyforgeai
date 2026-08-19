@@ -208,7 +208,14 @@ export function castSystemDirective(cast: readonly Character[], forRender = fals
     "attention by how much is written about each person, so describing one at four times the " +
     "length of another renders that one twice and drops the other. Keep every person in a shot " +
     "described to roughly the same length, and state each one's clothing in the same clause as " +
-    "the person, never as a separate sentence afterwards.";
+    "the person, never as a separate sentence afterwards. " +
+    // Two men written as "a heavy-set black man in his 40s" and "the second
+    // heavy-set black man" gave the model nothing to tell them apart, and a
+    // three-person frame came back with four people in it.
+    "Where two people in a shot would otherwise read the same, give each of them one detail " +
+    "that separates them \u2014 a beard, a shaved head, a tattoo, a scar, a different hairline. Two " +
+    "people described identically are one description to a model, which renders it twice and " +
+    "then has no idea how many people you asked for.";
 
   if (cast.length === 0) return forRender ? describeOthers : "";
   const names = cast.map((c) => c.name).join(", ");

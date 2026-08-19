@@ -27,6 +27,8 @@ type ModelsResponse = { models: WangpModel[]; total: number };
 /** What a job would actually run on, and whether WanGP is answering. */
 type ModelChoice = {
   status: { enabled: boolean; mode: "mock" | "live"; url: string; ok: boolean };
+  /** Why this project sends reference images, which decides what the notice says. */
+  refsNeededFor?: { characters: boolean; carriedFrames: boolean };
   image: { modelType: string; name: string } | null;
   video: { modelType: string; name: string } | null;
 };
@@ -117,6 +119,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
       qcEnabled?: boolean;
       characterWardrobe?: Record<string, string>;
       useCharacterReferenceImages?: boolean;
+      endFrameReferences?: boolean;
       loras?: LoraSelectionSet;
     }) => {
       setBusy(true);
@@ -182,6 +185,21 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
   const videoPreset = project.videoResolutionPreset ?? project.resolutionPreset;
   const pendingClip = clipSeconds ?? project.segmentSeconds;
 
+  // Two independent reasons a job carries reference images. Naming the wrong
+  // one sends the reader to a setting that will not fix anything: turning the
+  // character library off leaves every carried frame exactly as it was.
+  const characterRefs = choice?.refsNeededFor?.characters ?? false;
+  const carriedFrames = choice?.refsNeededFor?.carriedFrames ?? false;
+  const refsExplanation = carriedFrames
+    ? ", because every scene after the first renders its end frame against the frame it carried" +
+      " over, and the pinned model accepts no reference images. Pin a model marked ✓ refs — the" +
+      " Identity Edit variant of the same family keeps its LoRAs — or set scene continuity to" +
+      " Cut." +
+      (characterRefs ? " Character reference photographs need one too." : "")
+    : ", because this project sends character reference photographs and the pinned model does not" +
+      " accept them. Pin a model marked ✓ refs, or switch the likeness setting below to" +
+      " description and face swap to keep this pin.";
+
   const picker = (
     label: string,
     value: string | undefined,
@@ -212,11 +230,24 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           </option>
         ))}
       </select>
-      {!value && resolved ? (
-        <span className="block text-[11px] text-slate-400">
-          Currently renders on <strong className="text-slate-200">{resolved.name}</strong> —{" "}
-          <code>{resolved.modelType}</code>
-        </span>
+      {resolved && resolved.modelType !== value ? (
+        value ? (
+          // A pin that cannot take reference images is overridden at render
+          // time, so a picker showing it unqualified reports a model no job
+          // will run on.
+          <span className="block rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200">
+            {showReferenceSupport && carriedFrames && !characterRefs
+              ? "This pin only renders the first scene. "
+              : "This pin is not being used. "}
+            Renders run on <strong>{resolved.name}</strong> — <code>{resolved.modelType}</code>
+            {showReferenceSupport ? refsExplanation : ", because the pinned model is not in WanGP's catalogue."}
+          </span>
+        ) : (
+          <span className="block text-[11px] text-slate-400">
+            Currently renders on <strong className="text-slate-200">{resolved.name}</strong> —{" "}
+            <code>{resolved.modelType}</code>
+          </span>
+        )
       ) : null}
       <span className="text-[11px] text-slate-500">
         {total === 0
@@ -394,6 +425,56 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
                   Nothing bleeds onto other people in the shot, and any image model can be used. The
                   likeness comes from the written description and is corrected afterwards by the face
                   swap, so it needs a character with face swap enabled to hold up.
+                </span>
+              </span>
+            </label>
+          </div>
+        ) : null}
+
+        {(project.sceneContinuity ?? "reuse_end_frame") === "reuse_end_frame" ? (
+          <div className="space-y-2 rounded-md border border-white/10 bg-canvas/40 p-3">
+            <h4 className="text-sm font-semibold">How a scene picks up where the last one ended</h4>
+            <p className="text-xs text-slate-500">
+              Either way the previous scene&apos;s end frame becomes this scene&apos;s start frame,
+              so the join itself is never in question. This is only about whether the model is also
+              shown that picture while it renders the closing frame.
+            </p>
+            <label className="flex items-start gap-2 text-xs text-slate-300">
+              <input
+                type="radio"
+                name="end-frame-references"
+                className="mt-0.5 accent-accent"
+                disabled={busy}
+                checked={project.endFrameReferences !== false}
+                onChange={() => save({ endFrameReferences: true })}
+              />
+              <span>
+                <strong>Show it the carried frame</strong> — strongest continuity.
+                <span className="block text-slate-500">
+                  Wardrobe, hair, set and lighting hold across the join because the model can see
+                  them. A carried frame is a reference image, so this confines the project to models
+                  marked <span className="font-semibold">✓ refs</span> — a pin that accepts none
+                  renders the first scene and is substituted for every scene after it, its LoRAs
+                  going with it.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-xs text-slate-300">
+              <input
+                type="radio"
+                name="end-frame-references"
+                className="mt-0.5 accent-accent"
+                disabled={busy}
+                checked={project.endFrameReferences === false}
+                onChange={() => save({ endFrameReferences: false })}
+              />
+              <span>
+                <strong>Prompt and face swap only</strong> — keeps your pinned model.
+                <span className="block text-slate-500">
+                  No picture is sent, so any image model can render every scene and its LoRAs stay
+                  loaded throughout. Continuity then rests on the prompts describing wardrobe and
+                  set consistently, and on the face swap for identity. Choose this when the look of
+                  a particular model matters more than the set matching frame to frame.
                 </span>
               </span>
             </label>
