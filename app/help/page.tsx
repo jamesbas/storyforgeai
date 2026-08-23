@@ -11,6 +11,7 @@ import {
   TONE_PRESETS,
   type PresetOption,
 } from "@/lib/presets";
+import { MAX_CONCEPT_CHARACTERS } from "@/lib/types";
 import { ESTIMATE_HARDWARE } from "@/lib/wangp/render-estimate";
 
 export const metadata = {
@@ -189,6 +190,13 @@ export default function HelpPage() {
             Your idea in plain language. It is the seed for the creative brief, the story arc and
             every scene description, so a sentence with a subject, a setting and a change works far
             better than a single noun.
+          </p>
+          <p className={p}>
+            A full scene-by-scene treatment is welcome — the box counts its length against a limit
+            of {MAX_CONCEPT_CHARACTERS.toLocaleString("en-GB")} characters as you type. The limit
+            exists because every planning agent is handed the whole concept: one long enough to
+            overrun your planning model&apos;s context makes each of them fall back to a generic
+            plan, which reads as a poor film rather than an error.
           </p>
           <p className={p}>
             <strong>Expand with AI</strong>, above the box on the New Project form, offers a fuller

@@ -667,6 +667,50 @@ async function keyframeManifest(
 }
 
 /**
+ * Correct the faces in one already-rendered keyframe.
+ *
+ * Separate from the render so a caller with two frames to correct can render
+ * both before swapping either. WanGP holds one model at a time, so interleaving
+ * costs a model load per transition.
+ */
+async function swapFrame(
+  record: ProjectRecord,
+  scene: Scene,
+  purpose: "start_frame" | "end_frame",
+  rendered: string,
+  prompt: string,
+  swapSubjects: readonly Character[],
+): Promise<{ path: string; source?: string }> {
+  if (!swapSubjects.length) return { path: rendered };
+  // The swap prompt is unconditional: told to replace "the head of the woman"
+  // in a frame that has none, the model invents somewhere to put one.
+  if (scene.subjectFaceVisible === false) {
+    logEvent("face_swap.skipped", { reason: "no_face_in_shot", sceneId: scene.id, purpose });
+    return { path: rendered };
+  }
+
+  // One pass per character, each taking the last good output as its guide.
+  // A failed pass costs its own correction, not the ones before it.
+  let current = rendered;
+  const present = peopleInFrame(record, scene, prompt, await resolveProjectCast(record.project));
+  for (const [index, subject] of swapSubjects.entries()) {
+    logEvent("face_swap.pass", {
+      sceneId: scene.id,
+      purpose,
+      character: subject.id,
+      pass: index + 1,
+      of: swapSubjects.length,
+    });
+    const swapped = await swapFace(current, subject, { sceneId: scene.id, purpose }, {
+      wardrobe: present.find((p) => p.id === subject.id)?.wardrobe,
+      others: present.filter((p) => p.id !== subject.id),
+    });
+    if (swapped) current = swapped;
+  }
+  return current === rendered ? { path: rendered } : { path: current, source: rendered };
+}
+
+/**
  * Render one keyframe for a scene.
  *
  * Shared by full scene generation and the standalone preview so a preview shows
@@ -685,38 +729,9 @@ async function renderKeyframe(
   const manifest = await keyframeManifest(record, scene, purpose, prompt, castRefs, extraRefs);
   const job = await runToCompletion(manifest.settings);
   const rendered = job.generatedFiles[0];
-  // Swap before returning, so whatever consumes this frame — the end-frame
-  // render, the clip, the next scene's inherited start — sees the corrected
-  // face. Deferring it would mean those all carry the uncorrected one.
-  if (rendered && swapSubjects.length) {
-    // The swap prompt is unconditional: told to replace "the head of the woman"
-    // in a frame that has none, the model invents somewhere to put one.
-    if (scene.subjectFaceVisible === false) {
-      logEvent("face_swap.skipped", { reason: "no_face_in_shot", sceneId: scene.id, purpose });
-      return { id: manifest.id, path: rendered };
-    }
-    // One pass per character, each taking the last good output as its guide.
-    // A failed pass costs its own correction, not the ones before it.
-    let current = rendered;
-    const present = peopleInFrame(record, scene, prompt, await resolveProjectCast(record.project));
-    for (const [index, subject] of swapSubjects.entries()) {
-      logEvent("face_swap.pass", {
-        sceneId: scene.id,
-        purpose,
-        character: subject.id,
-        pass: index + 1,
-        of: swapSubjects.length,
-      });
-      const swapped = await swapFace(current, subject, { sceneId: scene.id, purpose }, {
-        wardrobe: present.find((p) => p.id === subject.id)?.wardrobe,
-        others: present.filter((p) => p.id !== subject.id),
-      });
-      if (swapped) current = swapped;
-    }
-    if (current !== rendered) return { id: manifest.id, path: current, source: rendered };
-  }
+  if (!rendered) return { id: manifest.id };
 
-  return { id: manifest.id, path: rendered };
+  return { id: manifest.id, ...(await swapFrame(record, scene, purpose, rendered, prompt, swapSubjects)) };
 }
 
 /**
@@ -1752,7 +1767,10 @@ export async function generateSceneMedia(
       prompt,
       await resolveCastReferenceImages(record, scene, prompt),
       extraRefs,
-      swapSubjects,
+      // Deliberately none: both frames render on the image model first and are
+      // corrected together below. WanGP holds one model at a time, so swapping
+      // inline made a two-frame scene load image → edit → image → edit.
+      [],
     );
 
   // Continuing from the previous clip supplies the opening state, so it skips
@@ -1763,8 +1781,6 @@ export async function generateSceneMedia(
       ? null
       : await keyframe("start_frame", scene.prompts.startFramePrompt);
 
-  const startImagePath = continuity.startImagePath ?? start?.path;
-
   /**
    * Show the end-frame render the image it has to match.
    *
@@ -1772,22 +1788,39 @@ export async function generateSceneMedia(
    * the prompt leaves unstated is reinvented — which is how a character ends up
    * in black trousers in one frame and blue jeans in the next. What the
    * reference may dictate depends on where it came from: see MATCH_INSTRUCTION.
+   *
+   * The reference is this scene's start frame as rendered, before its faces are
+   * corrected — the same frame the phased batch conditions on, since it swaps
+   * nothing until every keyframe is rendered. An inherited start frame is the
+   * exception: it is the previous scene's finished end frame and is already
+   * corrected.
    */
   const inheritedStart = Boolean(continuity.startImagePath);
   const conditionOnStartFrame = conditionEndOnStart(record, scene, inheritedStart);
   const matchInstruction = changingWardrobe(record, sceneId)
     ? MATCH_INSTRUCTION.inheritedChangingWardrobe
     : MATCH_INSTRUCTION.inherited;
+  const referenceFrame = continuity.startImagePath ?? start?.path;
 
+  const endPrompt = conditionOnStartFrame
+    ? `${scene.prompts.endFramePrompt}${matchInstruction}`
+    : scene.prompts.endFramePrompt;
   const end = await keyframe(
     "end_frame",
-    conditionOnStartFrame
-      ? `${scene.prompts.endFramePrompt}${matchInstruction}`
-      : scene.prompts.endFramePrompt,
-    conditionOnStartFrame ? [startImagePath!] : [],
+    endPrompt,
+    conditionOnStartFrame && referenceFrame ? [referenceFrame] : [],
   );
 
-  const endImagePath = end?.path;
+  // Both frames are rendered, so the edit model loads once for the pair.
+  const startSwap = start?.path
+    ? await swapFrame(record, scene, "start_frame", start.path, scene.prompts.startFramePrompt, swapSubjects)
+    : undefined;
+  const endSwap = end.path
+    ? await swapFrame(record, scene, "end_frame", end.path, endPrompt, swapSubjects)
+    : undefined;
+
+  const startImagePath = continuity.startImagePath ?? startSwap?.path;
+  const endImagePath = endSwap?.path;
 
   // `keyframes_only` stops here: no video model is loaded and the attempt is
   // just the two frames.
@@ -1837,8 +1870,8 @@ export async function generateSceneMedia(
     attemptNumber: existing.length + 1,
     startImagePath,
     endImagePath,
-    startImageSourcePath: start?.source,
-    endImageSourcePath: end?.source,
+    startImageSourcePath: startSwap?.source,
+    endImageSourcePath: endSwap?.source,
     startImageInherited: continuity.startImagePath ? true : undefined,
     videoPath: videoJob?.generatedFiles[0],
     settingsIds: [start?.id, end?.id, videoManifest?.id].filter(

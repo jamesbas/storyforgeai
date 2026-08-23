@@ -29,6 +29,8 @@ type ModelChoice = {
   status: { enabled: boolean; mode: "mock" | "live"; url: string; ok: boolean };
   /** Why this project sends reference images, which decides what the notice says. */
   refsNeededFor?: { characters: boolean; carriedFrames: boolean };
+  /** Pins WanGP has never heard of, as opposed to pins it overrode for a reason. */
+  pinMissing?: { image: boolean; video: boolean };
   image: { modelType: string; name: string } | null;
   video: { modelType: string; name: string } | null;
 };
@@ -71,6 +73,19 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
     setCounts({ image: img?.total ?? 0, video: vid?.total ?? 0 });
   }, []);
 
+  // Every pin, likeness and continuity setting on this screen feeds the
+  // resolution, so the preview has to be refetched after a save. Left to the
+  // mount effect alone it went on describing the previous pin, and the notice
+  // below then reported a perfectly good model as unused.
+  const loadChoice = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/projects/${projectId}/model-choice`);
+      if (res.ok) setChoice((await res.json()) as ModelChoice);
+    } catch {
+      // Advisory only: the pickers still work without knowing the default.
+    }
+  }, [projectId]);
+
   useEffect(() => {
     void (async () => {
       try {
@@ -85,14 +100,9 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
       } catch {
         setError("Failed to reach WanGP. Model lists are unavailable.");
       }
-      try {
-        const res = await fetch(`/api/projects/${projectId}/model-choice`);
-        if (res.ok) setChoice((await res.json()) as ModelChoice);
-      } catch {
-        // Advisory only: the pickers still work without knowing the default.
-      }
+      await loadChoice();
     })();
-  }, [projectId, showAll, loadModels]);
+  }, [projectId, showAll, loadModels, loadChoice]);
 
   // Only the characters this project pinned are worth showing here.
   useEffect(() => {
@@ -139,13 +149,14 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
         setRecord(next);
         setLoras(next.project.loras ?? { image: [], video: [] });
         setSaved(true);
+        await loadChoice();
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to save");
       } finally {
         setBusy(false);
       }
     },
-    [projectId],
+    [projectId, loadChoice],
   );
 
   if (!record) {
@@ -210,6 +221,8 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
     showReferenceSupport = false,
     /** What this picker resolves to when left on Automatic. */
     resolved?: { modelType: string; name: string } | null,
+    /** Whether the pin is absent from WanGP's catalogue, as opposed to overridden. */
+    pinMissing = false,
   ) => (
     <label className="block space-y-1">
       <span className="text-sm text-slate-300">{label}</span>
@@ -236,11 +249,15 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           // time, so a picker showing it unqualified reports a model no job
           // will run on.
           <span className="block rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200">
-            {showReferenceSupport && carriedFrames && !characterRefs
+            {showReferenceSupport && carriedFrames && !characterRefs && !pinMissing
               ? "This pin only renders the first scene. "
               : "This pin is not being used. "}
             Renders run on <strong>{resolved.name}</strong> — <code>{resolved.modelType}</code>
-            {showReferenceSupport ? refsExplanation : ", because the pinned model is not in WanGP's catalogue."}
+            {pinMissing
+              ? ", because the pinned model is not in WanGP's catalogue."
+              : showReferenceSupport
+                ? refsExplanation
+                : ", because it cannot serve this project's current settings."}
           </span>
         ) : (
           <span className="block text-[11px] text-slate-400">
@@ -330,6 +347,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           (next) => save({ imageModel: next }),
           true,
           choice?.image,
+          choice?.pinMissing?.image ?? false,
         )}
         {picker(
           "Video model (clips)",
@@ -339,6 +357,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           (next) => save({ videoModel: next }),
           false,
           choice?.video,
+          choice?.pinMissing?.video ?? false,
         )}
 
         {isMinimaxFamily(videoFamily) && (h3Fl2va || h3Ref2va) ? (

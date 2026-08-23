@@ -39,11 +39,12 @@ export async function GET(
           videoModel: project.videoModel,
           needsReferenceImages: characterRefs || carriedFrames,
         })
-      : { image: null, video: null };
+      : { image: null, video: null, pinMissing: { image: false, video: false } };
 
     return NextResponse.json({
       status,
       refsNeededFor: { characters: characterRefs, carriedFrames },
+      pinMissing: choice.pinMissing,
       image: choice.image
         ? { modelType: choice.image.modelType, name: choice.image.name }
         : null,

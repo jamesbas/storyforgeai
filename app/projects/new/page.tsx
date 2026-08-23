@@ -8,6 +8,38 @@ import { NewProjectForm } from "@/components/intake/new-project-form";
 import type { CreateProjectInput } from "@/lib/schemas/intake";
 import type { Project } from "@/lib/schemas/project";
 
+/** Field names as the form labels them, so the message points at a control. */
+const FIELD_LABELS: Record<string, string> = {
+  concept: "Concept",
+  requestedDurationSeconds: "Target duration",
+  segmentSeconds: "Clip length",
+  style: "Style",
+  tone: "Tone",
+  audience: "Audience",
+  characterWardrobe: "Wardrobe",
+};
+
+/**
+ * Name what actually failed.
+ *
+ * `toErrorResponse` sends "Validation failed" with the offending fields in
+ * `details`, and the screen used to show only the former — which says a form of
+ * twenty controls is wrong somewhere and leaves the reader to guess which.
+ */
+function describeFailure(data: {
+  error?: string;
+  details?: { fieldErrors?: Record<string, string[] | undefined>; formErrors?: string[] };
+}): string {
+  const fields = Object.entries(data.details?.fieldErrors ?? {})
+    .flatMap(([name, messages]) =>
+      (messages ?? []).map((message) => `${FIELD_LABELS[name] ?? name}: ${message}`),
+    )
+    .concat(data.details?.formErrors ?? []);
+
+  if (fields.length === 0) return data.error ?? "Failed to create project";
+  return `${data.error ?? "Validation failed"} — ${fields.join("; ")}`;
+}
+
 export default function NewProjectPage() {
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
@@ -24,8 +56,8 @@ export default function NewProjectPage() {
           body: JSON.stringify(values),
         });
         if (!res.ok) {
-          const data = (await res.json().catch(() => ({}))) as { error?: string };
-          throw new Error(data.error ?? "Failed to create project");
+          const data = (await res.json().catch(() => ({}))) as Parameters<typeof describeFailure>[0];
+          throw new Error(describeFailure(data));
         }
         const data = (await res.json()) as { project: Project };
 

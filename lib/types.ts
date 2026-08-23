@@ -150,3 +150,15 @@ export const DEFAULT_SCENE_CONTINUITY: SceneContinuityMode = "reuse_end_frame";
  */
 export const MIN_SEGMENT_SECONDS = 5;
 export const MAX_SEGMENT_SECONDS = 20;
+
+/**
+ * How long a concept may be.
+ *
+ * Not a storage limit — the record has never capped it. The bound exists
+ * because every planning agent is handed the whole concept, and a concept that
+ * overruns the planning model's context window makes each of them fall back to
+ * the deterministic builder, which looks like a bad film rather than an error.
+ * Roughly 5,000 tokens, so it fits a small local model with room for the rest
+ * of the payload.
+ */
+export const MAX_CONCEPT_CHARACTERS = 20_000;

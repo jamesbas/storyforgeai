@@ -5,6 +5,7 @@ import {
   CREATIVE_MODES,
   DEFAULT_SCENE_CONTINUITY,
   GENERATION_MODES,
+  MAX_CONCEPT_CHARACTERS,
   MAX_SEGMENT_SECONDS,
   MIN_SEGMENT_SECONDS,
   MODEL_STRATEGIES,
@@ -13,12 +14,21 @@ import {
   SEGMENT_SECONDS,
 } from "@/lib/types";
 
+/** Stated in characters because that is what the form can count as you type. */
+const conceptField = z
+  .string()
+  .min(1, "concept is required")
+  .max(
+    MAX_CONCEPT_CHARACTERS,
+    `concept is limited to ${MAX_CONCEPT_CHARACTERS.toLocaleString("en-GB")} characters`,
+  );
+
 /**
  * Intake validation for the New Project form and POST /api/projects.
  * Permissive defaults keep the demo path frictionless (spec Section 2.1).
  */
 export const createProjectSchema = z.object({
-  concept: z.string().min(1, "concept is required").max(5000),
+  concept: conceptField,
   requestedDurationSeconds: z.number().int().positive().max(3600),
   /** Clip length. Shorter segments mean more scenes for the same runtime. */
   segmentSeconds: z
@@ -60,7 +70,7 @@ export const createProjectSchema = z.object({
  * described as a three-act story is worse than the sentence it replaced.
  */
 export const enhanceConceptSchema = z.object({
-  concept: z.string().min(1, "concept is required").max(5000),
+  concept: conceptField,
   requestedDurationSeconds: z.number().int().positive().max(3600),
   style: z.string().min(1).default("cinematic"),
   tone: z.string().min(1).default("neutral"),

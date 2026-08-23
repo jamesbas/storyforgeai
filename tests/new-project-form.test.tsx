@@ -1,7 +1,8 @@
 import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NewProjectForm } from "@/components/intake/new-project-form";
+import { MAX_CONCEPT_CHARACTERS } from "@/lib/types";
 
 describe("NewProjectForm", () => {
   it("renders the concept field and submit button", () => {
@@ -58,5 +59,34 @@ describe("NewProjectForm", () => {
     await user.click(screen.getByRole("button", { name: /create storyboard/i }));
 
     expect(onSubmit.mock.calls[0]![1]).toEqual([]);
+  });
+
+  /**
+   * The limit used to be knowable only by tripping it, and the screen then said
+   * "Validation failed" without naming the field. A pasted treatment could be
+   * refused with nothing on the page explaining why.
+   */
+  describe("concept length", () => {
+    it("counts the concept against the limit", async () => {
+      const user = userEvent.setup();
+      render(<NewProjectForm onSubmit={vi.fn()} />);
+
+      await user.type(screen.getByLabelText(/concept/i), "A robot.");
+      expect(screen.getByTestId("concept-length")).toHaveTextContent(
+        `8 / ${MAX_CONCEPT_CHARACTERS.toLocaleString("en-GB")} characters`,
+      );
+    });
+
+    it("refuses to submit an over-long concept and says so", () => {
+      render(<NewProjectForm onSubmit={vi.fn()} />);
+
+      fireEvent.change(screen.getByLabelText(/concept/i), {
+        target: { value: "x".repeat(MAX_CONCEPT_CHARACTERS + 1) },
+      });
+
+      expect(screen.getByTestId("concept-length")).toHaveTextContent(/too long/i);
+      expect(screen.getByRole("button", { name: /create storyboard/i })).toBeDisabled();
+      expect(screen.getByRole("button", { name: /expand with ai/i })).toBeDisabled();
+    });
   });
 });

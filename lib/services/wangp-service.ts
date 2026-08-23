@@ -394,7 +394,16 @@ export async function previewModelChoice(args: {
   imageModel?: string;
   videoModel?: string;
   needsReferenceImages?: boolean;
-}): Promise<{ image: WangpModel | null; video: WangpModel | null }> {
+}): Promise<{
+  image: WangpModel | null;
+  video: WangpModel | null;
+  /**
+   * A pin WanGP has never heard of. Distinct from a pin that was overridden
+   * for a reason — the screen has to say which, and "not in the catalogue" is
+   * a claim it cannot make from the resolved model alone.
+   */
+  pinMissing: { image: boolean; video: boolean };
+}> {
   const client = getWangpClient();
   const [imageModels, videoModels] = await Promise.all([
     client.listModels("image"),
@@ -410,6 +419,10 @@ export async function previewModelChoice(args: {
   };
 
   return {
+    pinMissing: {
+      image: Boolean(args.imageModel) && !findPinned(imageModels, args.imageModel),
+      video: Boolean(args.videoModel) && !findPinned(videoModels, args.videoModel),
+    },
     image: attempt(() =>
       pickImageModel(
         imageModels,

@@ -6,6 +6,7 @@ import {
   ASPECT_RATIOS,
   CREATIVE_MODES,
   GENERATION_MODES,
+  MAX_CONCEPT_CHARACTERS,
   MAX_SEGMENT_SECONDS,
   MIN_SEGMENT_SECONDS,
   RESOLUTION_PRESETS,
@@ -149,6 +150,7 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
 
   const field = "rounded-md border border-white/10 bg-canvas px-3 py-2 text-sm outline-none focus:border-accent";
   const label = "block text-xs font-medium uppercase tracking-wide text-slate-400";
+  const conceptTooLong = concept.length > MAX_CONCEPT_CHARACTERS;
 
   /**
    * Preset dropdown with a free-text escape hatch.
@@ -207,7 +209,7 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
           <button
             type="button"
             onClick={() => void requestSuggestion()}
-            disabled={enhancing || concept.trim().length === 0}
+            disabled={enhancing || concept.trim().length === 0 || conceptTooLong}
             className="text-xs text-accent underline underline-offset-2 disabled:no-underline disabled:opacity-40"
           >
             {enhancing ? "Expanding…" : "Expand with AI"}
@@ -223,6 +225,16 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
           placeholder="A short film about a lighthouse keeper who befriends a storm."
           className={`mt-1 w-full ${field}`}
         />
+        <p
+          data-testid="concept-length"
+          className={`mt-1 text-right text-xs ${
+            conceptTooLong ? "text-red-300" : "text-slate-500"
+          }`}
+        >
+          {concept.length.toLocaleString("en-GB")} /{" "}
+          {MAX_CONCEPT_CHARACTERS.toLocaleString("en-GB")} characters
+          {conceptTooLong ? " — too long to create a project" : ""}
+        </p>
         <p className="mt-1 text-xs text-slate-500">
           Every agent downstream reads this and nothing else describes your idea, so a fuller
           concept produces a fuller film. Expand with AI develops the opening, causal progression,
@@ -518,7 +530,7 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
 
       <button
         type="submit"
-        disabled={submitting}
+        disabled={submitting || conceptTooLong}
         className="rounded-md bg-accent-solid px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
       >
         {submitting ? "Creating…" : "Create Storyboard"}

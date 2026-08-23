@@ -93,6 +93,27 @@ describe("previewModelChoice", () => {
     await expect(previewModelChoice({ modelStrategy: "auto" })).resolves.toEqual({
       image: null,
       video: null,
+      pinMissing: { image: false, video: false },
     });
+  });
+
+  /**
+   * The settings screen used to state a reason it could not know. A pin that is
+   * present in the catalogue and still overridden was reported as absent from
+   * it, which sent the reader looking for a model that was there all along.
+   */
+  it("separates a pin that is absent from one that was overridden", async () => {
+    const present = await previewModelChoice({ modelStrategy: "auto" });
+    const known = await previewModelChoice({
+      modelStrategy: "auto",
+      videoModel: present.video?.modelType,
+    });
+    expect(known.pinMissing.video).toBe(false);
+
+    const unknown = await previewModelChoice({
+      modelStrategy: "auto",
+      videoModel: "no_such_model",
+    });
+    expect(unknown.pinMissing.video).toBe(true);
   });
 });
