@@ -12,7 +12,7 @@ import { LiveWangpClient } from "@/lib/wangp/live-client";
  * genuinely undefined. Test and production took opposite branches, and the
  * suite proved nothing about the code that ships.
  *
- *   $env:WANGP_MCP_URL="http://100.71.40.31:7866/mcp"
+ *   $env:WANGP_MCP_URL="http://100.64.0.10:7866/mcp"
  *   npx tsx scripts/fixture-drift.ts
  *
  * Output is a shortlist for review, not a verdict. A missing key only matters

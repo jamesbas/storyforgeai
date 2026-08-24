@@ -409,7 +409,7 @@ a trade-off to make deliberately:
 to one interface stops `localhost` being served:
 
 ```env
-STORYFORGE_BIND_HOST=100.71.40.31              # this machine's tailnet address
+STORYFORGE_BIND_HOST=100.64.0.10               # this machine's tailnet address
 STORYFORGE_ALLOWED_HOSTS=box.tailnet.ts.net
 ```
 

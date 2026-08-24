@@ -166,7 +166,7 @@ describe("bind configuration", () => {
   });
 
   it("does not mistake a wildcard or LAN bind for loopback", () => {
-    for (const host of ["0.0.0.0", "192.168.1.20", "100.71.40.31", "::"]) {
+    for (const host of ["0.0.0.0", "192.168.1.20", "100.64.0.10", "::"]) {
       expect(isLoopbackBind(host), host).toBe(false);
     }
   });
@@ -181,6 +181,6 @@ describe("bind configuration", () => {
   });
 
   it("accepts a non-loopback bind once the allowlist is named deliberately", () => {
-    expect(bindConfigError("100.71.40.31", true)).toBeNull();
+    expect(bindConfigError("100.64.0.10", true)).toBeNull();
   });
 });

@@ -33,7 +33,7 @@ Decomposed into five capabilities:
 
 This is the single most important constraint, and it reshapes the whole design.
 
-The WanGP MCP server at `http://100.71.40.31:7866/mcp` advertises **11 tools**:
+The WanGP MCP server advertises **11 tools**:
 
 ```
 wangp_list_models          wangp_get_model_metadata      wangp_get_model_schema
