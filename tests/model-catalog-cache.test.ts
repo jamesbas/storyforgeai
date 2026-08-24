@@ -37,6 +37,11 @@ function clientWith(availability: () => string) {
 const availabilityOf = async (client: LiveWangpClient) =>
   (await client.listModels("image"))[0]?.metadata.availability;
 
+/** Let a refresh running behind the caller finish. */
+const settle = async () => {
+  for (let i = 0; i < 20; i += 1) await Promise.resolve();
+};
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date("2026-08-16T12:00:00Z"));
@@ -68,8 +73,25 @@ describe("how long a model catalogue stays good", () => {
     status = "available";
     vi.setSystemTime(new Date("2026-08-16T12:01:01Z"));
 
+    // The expired copy is handed back rather than made to wait for a walk that
+    // is one call per ten models, and the walk it started lands behind it.
+    expect(await availabilityOf(client)).toBe("missing");
+    await settle();
+
     expect(await availabilityOf(client)).toBe("available");
     expect(calls()).toBe(2);
+  });
+
+  /**
+   * The pickers ask for the image list and the video list. Both come out of one
+   * catalogue, so a cold start must not walk it twice.
+   */
+  it("walks once for callers that arrive together", async () => {
+    const { client, calls } = clientWith(() => "available");
+
+    await Promise.all([client.listModels("image"), client.listModels("video")]);
+
+    expect(calls()).toBe(1);
   });
 
   it("refetches immediately when asked to", async () => {

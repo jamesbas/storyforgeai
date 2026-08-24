@@ -46,6 +46,9 @@ export class LiveWangpClient implements WangpClient {
    */
   private modelCache?: { at: number; models: WangpModel[] };
 
+  /** The discovery walk in flight, so parallel callers share one. */
+  private modelRefresh?: Promise<WangpModel[]>;
+
   constructor(endpoint: string) {
     this.transport = new WangpMcpTransport(endpoint);
   }
@@ -59,34 +62,68 @@ export class LiveWangpClient implements WangpClient {
     }
   }
 
+  /**
+   * The catalogue, answered from cache the moment there is one.
+   *
+   * A cold walk is one MCP call per ten models — around fifteen for a WanGP
+   * install of any size — so waiting for it stalled every visit to project
+   * settings that fell outside the TTL. An expired copy is handed back and
+   * refreshed behind the caller instead: the picker opens instantly, and a
+   * model that finished downloading appears on the next read or on Refresh.
+   */
   async listModels(mainOutput?: "image" | "video" | "audio"): Promise<WangpModel[]> {
-    if (!this.modelCache || Date.now() - this.modelCache.at >= MODEL_CACHE_TTL_MS) {
-      const { entries, pages } = await this.listModelEntries();
-
-      const models: WangpModel[] = [];
-      for (const entry of entries) {
-        // Discovery payloads often omit media_inputs; enrich only when needed so
-        // a large model catalog does not trigger a metadata call per model.
-        const source = asRecord(entry);
-        const modelType =
-          typeof source?.model_type === "string"
-            ? source.model_type
-            : typeof source?.modelType === "string"
-              ? source.modelType
-              : undefined;
-        const needsMetadata = Boolean(modelType) && !source?.media_inputs && !source?.mediaInputs;
-        const metadata = needsMetadata ? await this.getMetadata(modelType!) : undefined;
-
-        const model = normalizeModel(entry, metadata);
-        if (model) models.push(model);
-      }
-
-      this.modelCache = { at: Date.now(), models };
-      logEvent("wangp.discovery", { mode: "live", count: models.length, pages, listed: entries.length });
+    const cached = this.modelCache;
+    if (!cached || Date.now() - cached.at >= MODEL_CACHE_TTL_MS) {
+      const refresh = this.refreshModels();
+      // Nothing to show on the first load, so that one waits. A failed
+      // background walk leaves the stale copy standing and is retried by the
+      // next caller.
+      if (!cached) await refresh;
+      else void refresh.catch(() => undefined);
     }
 
-    const models = this.modelCache.models;
+    const models = this.modelCache?.models ?? [];
     return mainOutput ? models.filter((m) => produces(m, mainOutput)) : models;
+  }
+
+  /** One walk at a time, however many callers are waiting on it. */
+  private refreshModels(): Promise<WangpModel[]> {
+    if (!this.modelRefresh) {
+      this.modelRefresh = this.discoverModels()
+        .then((models) => {
+          this.modelCache = { at: Date.now(), models };
+          return models;
+        })
+        .finally(() => {
+          this.modelRefresh = undefined;
+        });
+    }
+    return this.modelRefresh;
+  }
+
+  private async discoverModels(): Promise<WangpModel[]> {
+    const { entries, pages } = await this.listModelEntries();
+
+    const models: WangpModel[] = [];
+    for (const entry of entries) {
+      // Discovery payloads often omit media_inputs; enrich only when needed so
+      // a large model catalog does not trigger a metadata call per model.
+      const source = asRecord(entry);
+      const modelType =
+        typeof source?.model_type === "string"
+          ? source.model_type
+          : typeof source?.modelType === "string"
+            ? source.modelType
+            : undefined;
+      const needsMetadata = Boolean(modelType) && !source?.media_inputs && !source?.mediaInputs;
+      const metadata = needsMetadata ? await this.getMetadata(modelType!) : undefined;
+
+      const model = normalizeModel(entry, metadata);
+      if (model) models.push(model);
+    }
+
+    logEvent("wangp.discovery", { mode: "live", count: models.length, pages, listed: entries.length });
+    return models;
   }
 
   /**
@@ -153,7 +190,13 @@ export class LiveWangpClient implements WangpClient {
   }
 
 
-  /** Drop the cached catalogue, for an explicit refresh. */
+  /**
+   * Drop the cached catalogue, for an explicit refresh.
+   *
+   * A walk already in flight is left alone — it started after the reset was
+   * asked for in every case that matters, and its result is as fresh as one
+   * begun now.
+   */
   resetModelCache(): void {
     this.modelCache = undefined;
   }

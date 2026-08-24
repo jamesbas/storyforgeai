@@ -55,6 +55,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
   const [videoModels, setVideoModels] = useState<WangpModel[]>([]);
   const [counts, setCounts] = useState({ image: 0, video: 0 });
   const [showAll, setShowAll] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -65,20 +66,32 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
   const [confirmClip, setConfirmClip] = useState(false);
   const [choice, setChoice] = useState<ModelChoice | null>(null);
 
-  const loadModels = useCallback(async (all: boolean) => {
+  const loadModels = useCallback(async (all: boolean, rediscover = false) => {
     const suffix = all ? "" : "&installed=1";
-    const [img, vid] = await Promise.all([
-      fetch(`/api/wangp/models?output=image${suffix}`).then((r) =>
-        r.ok ? (r.json() as Promise<ModelsResponse>) : null,
-      ),
-      fetch(`/api/wangp/models?output=video${suffix}`).then((r) =>
-        r.ok ? (r.json() as Promise<ModelsResponse>) : null,
-      ),
-    ]);
+    const get = (output: "image" | "video", refresh = false) =>
+      fetch(`/api/wangp/models?output=${output}${suffix}${refresh ? "&refresh=1" : ""}`, {
+        cache: "no-store",
+      }).then((r) => (r.ok ? (r.json() as Promise<ModelsResponse>) : null));
+
+    // One catalogue backs both lists, so only the first request asks for a
+    // re-read and the second is sent after it. In parallel they race: the
+    // video request would discard the catalogue the image request had just
+    // walked and walk it a second time.
+    const img = await get("image", rediscover);
+    const vid = await get("video");
     setImageModels(img?.models ?? []);
     setVideoModels(vid?.models ?? []);
     setCounts({ image: img?.total ?? 0, video: vid?.total ?? 0 });
   }, []);
+
+  const refreshModels = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await loadModels(showAll, true);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadModels, showAll]);
 
   // Every pin, likeness and continuity setting on this screen feeds the
   // resolution, so the preview has to be refetched after a save. Left to the
@@ -325,18 +338,29 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
       <section className="space-y-4 rounded-lg border border-white/10 bg-panel/40 p-4">
         <div className="flex items-baseline justify-between">
           <h2 className="font-semibold">Generation models</h2>
-          <label className="flex items-center gap-2 text-[11px] text-slate-400">
-            <input
-              type="checkbox"
-              checked={showAll}
-              onChange={(e) => setShowAll(e.target.checked)}
-            />
-            Show models that are not installed
-          </label>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 text-[11px] text-slate-400">
+              <input
+                type="checkbox"
+                checked={showAll}
+                onChange={(e) => setShowAll(e.target.checked)}
+              />
+              Show models that are not installed
+            </label>
+            <button
+              type="button"
+              onClick={() => void refreshModels()}
+              disabled={refreshing}
+              className="shrink-0 rounded-md border border-white/10 px-2 py-1.5 text-[11px] text-slate-400 hover:text-slate-200 disabled:opacity-50"
+            >
+              {refreshing ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
         </div>
         <p className="text-xs text-slate-500">
           Uninstalled models still work, but WanGP downloads the weights before rendering —
-          often tens of gigabytes, with no progress shown here.
+          often tens of gigabytes, with no progress shown here. The list is read once and kept,
+          so Refresh is what picks up a model installed since this app started.
         </p>
 
         {wangpReachable === false ? (

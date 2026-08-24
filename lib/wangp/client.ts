@@ -26,4 +26,6 @@ export interface WangpClient {
    * doubles still satisfy the interface.
    */
   allowsFilesystemPaths?(): Promise<boolean>;
+  /** Discard any cached catalogue, so the next listing is re-read. */
+  resetModelCache?(): void;
 }

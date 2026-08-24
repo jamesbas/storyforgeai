@@ -92,6 +92,29 @@ export async function listWangpModels(
   return models;
 }
 
+/** Forget the catalogue, so the next listing walks WanGP again. */
+export function resetWangpModelCache(): void {
+  getWangpClient().resetModelCache?.();
+}
+
+/**
+ * Read the catalogue once at startup so nothing else has to wait for it.
+ *
+ * WanGP returns ten models per call, so a cold read of a full install is a
+ * fifteen-call walk — long enough to be a visible stall the first time a
+ * project's settings are opened. Failure is ignored: WanGP is often started
+ * after StoryForgeAI, and the first real request re-reads.
+ */
+export async function warmWangpModelCache(): Promise<void> {
+  try {
+    await getWangpClient().listModels();
+  } catch (err) {
+    logEvent("wangp.discovery.warm_failed", {
+      message: err instanceof Error ? err.message : "unknown",
+    });
+  }
+}
+
 export async function getWangpModelSchema(modelType: string): Promise<WangpModelSchema> {
   return getWangpClient().getModelSchema(modelType);
 }

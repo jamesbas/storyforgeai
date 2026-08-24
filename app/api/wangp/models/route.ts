@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listWangpModels } from "@/lib/services/wangp-service";
+import { listWangpModels, resetWangpModelCache } from "@/lib/services/wangp-service";
 import { toErrorResponse } from "@/lib/http";
 
 export const dynamic = "force-dynamic";
@@ -7,6 +7,13 @@ export const dynamic = "force-dynamic";
 export async function GET(request: Request) {
   try {
     const params = new URL(request.url).searchParams;
+
+    // A listing is otherwise answered from the cached catalogue and re-read
+    // behind the caller, so the picker's Refresh button needs a way to say it
+    // wants to wait for the current truth — a model that has just finished
+    // downloading, most often.
+    if (params.get("refresh") === "1") resetWangpModelCache();
+
     const output = params.get("output");
     const filter = output === "image" || output === "video" || output === "audio" ? output : undefined;
     const models = await listWangpModels(filter);

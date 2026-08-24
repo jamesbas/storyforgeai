@@ -31,4 +31,12 @@ export async function register() {
     const { reconcileStartup } = await import("@/lib/tasks/startup");
     await reconcileStartup();
   }
+
+  // Read the model catalogue now rather than making the first project-settings
+  // visit pay for it. Deliberately not awaited: WanGP may not be up yet, and
+  // the boot should not wait on a machine that never runs it.
+  if (config.flags.wangpMcp) {
+    const { warmWangpModelCache } = await import("@/lib/services/wangp-service");
+    void warmWangpModelCache();
+  }
 }

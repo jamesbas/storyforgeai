@@ -43,6 +43,7 @@ export type TelemetryEvent =
   | "wangp.discovery"
   | "agent.segment_gap_filled"
   | "wangp.discovery.unpaged"
+  | "wangp.discovery.warm_failed"
   | "wangp.model.selected"
   | "wangp.health.failed"
   | "wangp.job.submitted"
