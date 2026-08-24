@@ -31,6 +31,13 @@ export const wardrobeChangeSchema = z
      * video models handle badly.
      */
     mode: z.enum(["within", "between"]),
+    /**
+     * Set when the storyboard folded this in from a scene draft, absent when a
+     * person set it. Scene ids are reused across regenerations, so without a
+     * marker a change derived from an older draft is indistinguishable from a
+     * deliberate one and outlives the scene that asked for it.
+     */
+    origin: z.literal("story").optional(),
   })
   .refine((c) => Boolean(c.characterId) !== Boolean(c.subject), {
     message: "A wardrobe change names either a cast member or a subject, not both and not neither.",

@@ -303,21 +303,48 @@ function cardText(scene: SceneDraft): string {
   return `${scene.actionDescription ?? ""} ${scene.visualDescription ?? ""} ${scene.storyBeat ?? ""}`;
 }
 
+/**
+ * What a character says or imagines, which is not what the frame shows.
+ *
+ * A card can put an act in the story without putting it in the picture: "he
+ * answers that he wouldn't mind having her suck his cock" is a line of dialogue
+ * across a close-up of two clothed faces. Matching the act vocabulary anywhere
+ * in the card cannot tell that from an act being performed, and the cost is not
+ * a stray flag — the frame is then asked for anatomy, contact and a position it
+ * has no business showing, and the wardrobe check undresses people the scene
+ * dressed on purpose.
+ *
+ * The clause ends at a conjunction that hands the sentence back to what is
+ * shown, so "she says his name as he thrusts into her" loses the speech and
+ * keeps the act. Speech that runs to the end of the sentence takes the rest
+ * with it, which is the point.
+ */
+const REPORTED_CLAUSE =
+  /\b(?:says?|said|saying|answers?|answered|asks?|asked|repl(?:y|ies|ied)|tells?|told|admits?|admitted|confess(?:es|ed)?|suggests?|suggested|offers?|offered|proposes?|proposed|promis(?:es|ed)|wonders?|wondered|imagines?|imagining|imagined|remembers?|remembered|thinks?|thinking|thought|jokes?|joked|teases?|teased|whispers?|whispered|murmurs?|murmured)\b(?:(?!\b(?:as|while|when|until|before|after)\b)[^.;!?])*/gi;
+
+/** The card with talk and daydreams removed, leaving what a render must draw. */
+function shownText(scene: SceneDraft): string {
+  return cardText(scene).replace(REPORTED_CLAUSE, " ");
+}
+
 /** Whether the card puts a sexual act in this scene, however coyly it says so. */
 export function depictsSexAct(scene: SceneDraft): boolean {
-  return SEX_ACT.test(cardText(scene));
+  return SEX_ACT.test(shownText(scene));
 }
 
 /** Whether the card leaves anyone bare, whether or not an act follows. */
 function depictsUndress(scene: SceneDraft): boolean {
-  return UNDRESSED_STATE.test(cardText(scene)) || depictsSexAct(scene);
+  return UNDRESSED_STATE.test(shownText(scene)) || depictsSexAct(scene);
 }
 
 /** Sentences of the card that state outright what happens. */
 function explicitSentences(scene: SceneDraft): string[] {
+  // Filtered on the sentence with its talk removed, but the whole sentence is
+  // what gets pasted: a line that is only dialogue drops out, while one that
+  // speaks and acts keeps both halves rather than arriving as a fragment.
   return [scene.actionDescription, scene.visualDescription, scene.storyBeat]
     .flatMap((field) => splitSentences(field ?? ""))
-    .filter(namesExplicitContent);
+    .filter((sentence) => namesExplicitContent(sentence.replace(REPORTED_CLAUSE, " ")));
 }
 
 /**

@@ -277,7 +277,12 @@ describe("folding what the storyboard proposed", () => {
   it("matches the agent's character name to a cast id", () => {
     const folded = foldWardrobeChanges(project(), drafts, [MARA]);
     expect(folded.wardrobeChanges?.s2).toEqual([
-      { characterId: "char-mara", wardrobe: "jeans and a white t-shirt", mode: "within" },
+      {
+        characterId: "char-mara",
+        wardrobe: "jeans and a white t-shirt",
+        mode: "within",
+        origin: "story",
+      },
     ]);
   });
 
@@ -295,7 +300,7 @@ describe("folding what the storyboard proposed", () => {
       },
     ];
     expect(foldWardrobeChanges(project(), unknown, [MARA]).wardrobeChanges?.s2).toEqual([
-      { subject: "the two men", wardrobe: "bare-chested", mode: "within" },
+      { subject: "the two men", wardrobe: "bare-chested", mode: "within", origin: "story" },
     ]);
   });
 

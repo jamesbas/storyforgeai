@@ -1,6 +1,7 @@
 import type { Project } from "@/lib/schemas/project";
 import type { Character } from "@/lib/schemas/character";
 import type { SceneWardrobe, WardrobeChange } from "@/lib/schemas/wardrobe";
+import { wardrobeKeyOf } from "@/lib/schemas/wardrobe";
 import { isContinuousTake } from "@/lib/agents/continuity";
 
 /**
@@ -245,8 +246,19 @@ export function wardrobeOf(project: Project, character: Character): string | und
  * A name the cast recognises becomes a change for that character; anything else
  * becomes a change for an unnamed subject rather than being discarded, since
  * "the two men" is a perfectly good way to refer to people who were never
- * pinned. Existing entries for a scene are left alone: those were set by a
- * person, and an agent re-run should not quietly overrule them.
+ * pinned.
+ *
+ * Scene ids are deterministic, so regenerating a storyboard reuses them for
+ * whatever scene now occupies each slot. An entry folded from an older draft
+ * therefore re-attaches to a scene that may have nothing to do with it — live,
+ * a scene rewritten into a clothed conversation kept an undress folded in when
+ * it had been the scene where she undressed, and every prompt written for it
+ * afterwards was corrected against a wardrobe the card no longer described.
+ *
+ * So what this folded is rebuilt from the current drafts, and what a person set
+ * is not: `origin` is the only thing that can tell them apart, and a change
+ * with no draft behind it cannot be re-derived. A subject someone dressed by
+ * hand keeps that outfit even when the story proposes another.
  */
 export function foldWardrobeChanges(
   project: Project,
@@ -255,30 +267,47 @@ export function foldWardrobeChanges(
 ): Project {
   const byName = new Map(cast.map((c) => [c.name.trim().toLocaleLowerCase(), c] as const));
   const merged: Record<string, WardrobeChange[]> = { ...(project.wardrobeChanges ?? {}) };
-  let added = 0;
+  let changed = false;
 
   for (const draft of drafts) {
-    if (merged[draft.id]?.length) continue;
-    const changes = (draft.wardrobeChanges ?? []).flatMap<WardrobeChange>((proposed) => {
+    const existing = merged[draft.id] ?? [];
+    const byHand = existing.filter((change) => change.origin !== "story");
+    const spokenFor = new Set(byHand.map(wardrobeKeyOf));
+    const fromStory = (draft.wardrobeChanges ?? []).flatMap<WardrobeChange>((proposed) => {
       const subject = proposed.character.trim();
       const wardrobe = proposed.newWardrobe.trim();
       if (!subject || !wardrobe) return [];
       const character = byName.get(subject.toLocaleLowerCase());
       const mode = proposed.depictedOnScreen ? ("within" as const) : ("between" as const);
-      return [
-        character
-          ? { characterId: character.id, wardrobe, mode }
-          : { subject, wardrobe, mode },
-      ];
+      const change: WardrobeChange = character
+        ? { characterId: character.id, wardrobe, mode, origin: "story" }
+        : { subject, wardrobe, mode, origin: "story" };
+      return spokenFor.has(wardrobeKeyOf(change)) ? [] : [change];
     });
-    if (changes.length) {
-      merged[draft.id] = changes;
-      added += changes.length;
-    }
+
+    const next = [...byHand, ...fromStory];
+    if (sameChanges(existing, next)) continue;
+    changed = true;
+    if (next.length) merged[draft.id] = next;
+    else delete merged[draft.id];
   }
 
-  if (added === 0) return project;
+  if (!changed) return project;
   return { ...project, wardrobeChanges: merged };
+}
+
+function sameChanges(a: readonly WardrobeChange[], b: readonly WardrobeChange[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((change, i) => {
+    const other = b[i]!;
+    return (
+      change.characterId === other.characterId &&
+      change.subject === other.subject &&
+      change.wardrobe === other.wardrobe &&
+      change.mode === other.mode &&
+      change.origin === other.origin
+    );
+  });
 }
 
 type DraftWardrobeChange = {
