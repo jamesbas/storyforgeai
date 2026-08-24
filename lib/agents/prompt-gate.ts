@@ -672,9 +672,14 @@ export function repairImagePrompt(
     // written about the two people on the other side of the room. Positive
     // phrasing throughout: the encoder cannot represent "no lingerie", so the
     // garment itself goes to the negative prompt instead.
-    additions.push(
+    //
+    // Through `unsaid` like every other addition: the model echoes this back
+    // from the prompt it was shown, and one live scene carried it twice, which
+    // a sampler weights twice.
+    const guard = unsaid(
       "Everyone taking part in the act is completely naked; anyone else in frame keeps the clothing described.",
     );
+    if (guard) additions.push(guard);
   }
   if (codes.includes("participant_missing") && ctx.participants.length) {
     additions.push(`In frame: ${ctx.participants.join(", ")}.`);

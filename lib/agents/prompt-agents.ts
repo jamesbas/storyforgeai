@@ -416,8 +416,18 @@ export async function attachScenePrompts(
         participants: sceneCast.map((c) => c.name),
         explicit: isExplicitProject(project) || isExplicitScene(draft),
         establishedWardrobe: {
-          start: establishedGarments(wardrobe?.start, wardrobe?.othersStart, sceneCast),
-          end: establishedGarments(wardrobe?.end, wardrobe?.othersEnd, sceneCast),
+          start: establishedGarments(
+            wardrobe?.start,
+            wardrobe?.othersStart,
+            sceneCast,
+            context.visualBible?.characters,
+          ),
+          end: establishedGarments(
+            wardrobe?.end,
+            wardrobe?.othersEnd,
+            sceneCast,
+            context.visualBible?.characters,
+          ),
         },
         wardrobeChange: Boolean(wardrobe?.within.length),
         inheritsOpening,
@@ -593,17 +603,29 @@ function repairPart(part: ImagePart, gate: ImageGateContext): ImagePart {
  * invented for a participant in a sex act is the failure — it is appended last,
  * outranks the act, and produced a man in black silk trousers performing oral
  * sex. This is what tells the two apart.
+ *
+ * The visual bible counts, and leaving it out was the whole bug. Only pinned
+ * cast have a wardrobe field, so everybody else — a husband, a waiter, anyone
+ * the story invented rather than the library — had no authorised clothing at
+ * all, and every garment written for them read as invented. Live, that rewrote
+ * a fully dressed husband to "naked" in nine consecutive scenes and stripped a
+ * waiter's uniform the moment he walked through the door. Clothes come off here
+ * by wardrobe change, which is explicit and per scene; anything else is the
+ * model's invention and still goes.
  */
-function establishedGarments(
+export function establishedGarments(
   cast: Record<string, string> | undefined,
   others: Record<string, string> | undefined,
   sceneCast: readonly Character[],
+  bible: readonly { description: string }[] | undefined,
 ): string {
   const inScene = new Set(sceneCast.map((c) => c.id));
   const worn = Object.entries(cast ?? {})
     .filter(([id]) => inScene.has(id))
     .map(([, outfit]) => outfit);
-  return [...worn, ...Object.values(others ?? {})].join(" ").toLocaleLowerCase();
+  return [...worn, ...Object.values(others ?? {}), ...(bible ?? []).map((c) => c.description)]
+    .join(" ")
+    .toLocaleLowerCase();
 }
 
 /**
