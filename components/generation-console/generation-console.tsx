@@ -5,7 +5,14 @@ import Link from "next/link";
 import { useLoadEffect } from "@/components/shared/use-load-effect";
 import type { WangpJob, WangpModel } from "@/lib/schemas/wangp";
 
-type Status = { enabled: boolean; mode: string; url: string; ok: boolean };
+type Status = {
+  enabled: boolean;
+  mode: string;
+  url: string;
+  ok: boolean;
+  /** Whether WanGP accepts the reference-image paths every render sends. */
+  filesystemReads?: boolean;
+};
 
 export function GenerationConsole({ projectId }: { projectId: string }) {
   const [status, setStatus] = useState<Status | null>(null);
@@ -104,6 +111,16 @@ export function GenerationConsole({ projectId }: { projectId: string }) {
         ) : (
           <span className="text-slate-400">Checking…</span>
         )}
+        {status?.filesystemReads === false ? (
+          <p
+            data-testid="wangp-filesystem-reads"
+            className="mt-3 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+          >
+            This WanGP server was started without filesystem reads, so it will refuse every
+            keyframe and clip: each one is sent a reference image by path. Restart Wan2GP with{" "}
+            <code>--mcp-allow-read-file-system</code> to render.
+          </p>
+        ) : null}
       </section>
 
       <div className="grid gap-4 md:grid-cols-2">

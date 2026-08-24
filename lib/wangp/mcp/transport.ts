@@ -95,6 +95,34 @@ function isTransportFailure(err: unknown): boolean {
   );
 }
 
+/**
+ * The flag whose absence rejects every render StoryForgeAI submits.
+ *
+ * `wgp.py --mcp` takes the `--mcp-` prefixed spelling; running
+ * `shared/mcp_server.py` directly takes the bare one.
+ */
+export const FILESYSTEM_READS_FLAG = "--mcp-allow-read-file-system";
+
+/**
+ * Say what a tool failure means for this app.
+ *
+ * WanGP made server filesystem paths opt-in, and every keyframe StoryForgeAI
+ * renders hands it a path — a character photograph, the frame carried over from
+ * the last scene. The server's own wording asks for a Gallery id, which is a
+ * WanGP concept the operator has no way to act on from here.
+ */
+function explainToolFailure(toolName: string, details: string): string {
+  if (/direct filesystem paths are disabled/i.test(details)) {
+    return (
+      "WanGP rejected the reference images this render needs: its MCP server was started " +
+      `without filesystem reads. Restart Wan2GP with ${FILESYSTEM_READS_FLAG} ` +
+      "(or --allow-read-file-system if you launch shared/mcp_server.py directly). " +
+      `Original error: ${details}`
+    );
+  }
+  return `WanGP tool ${toolName} failed${details ? `: ${details}` : "."}`;
+}
+
 export class WangpMcpTransport {
   private client?: McpClient;
   private connecting?: Promise<McpClient>;
@@ -170,7 +198,7 @@ export class WangpMcpTransport {
         .filter((item) => item.type === "text" && item.text)
         .map((item) => item.text)
         .join(" ");
-      throw new Error(`WanGP tool ${toolName} failed${details ? `: ${details}` : "."}`);
+      throw new Error(explainToolFailure(toolName, details));
     }
 
     if (result.structuredContent !== undefined) {

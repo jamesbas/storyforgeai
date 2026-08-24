@@ -149,6 +149,42 @@ main_output, outputs, inputs, media_inputs, capabilities,
 setting_values, name, availability
 ```
 
+### 4.0 The catalogue is paged, and the page is *ten*
+
+`wangp_list_models` takes `limit` and `offset`, defaults `limit` to 10, and clamps it server-side:
+
+```python
+limit = max(1, min(int(limit), 10))
+```
+
+Ask for 500 and you get 10. **One unparameterised call does not return the catalogue** — it returns
+the first ten model types in whatever order the server enumerates them. A live server here holds
+217 models across 22 pages, and the first page was nine `ace_step_*` audio models plus one more.
+Anything selecting a video model from that page finds nothing and reports the pinned model as
+uninstalled.
+
+There is no total count and no "has more" flag, so the loop needs three stop conditions, each for a
+different server behaviour:
+
+```ts
+while (offset < MAX_DISCOVERED_MODELS) {
+  const page = await call({ include_availability: true, limit: PAGE, offset });
+  const added = mergeByModelType(page);          // de-duplicate on model_type
+  if (page.length < PAGE) break;                 // end of catalogue
+  if (page.length > PAGE) break;                 // server ignored limit, sent everything
+  if (added === 0) break;                        // server honoured limit, ignored offset
+  offset += PAGE;
+}
+```
+
+De-duplicate by `model_type` rather than trusting offsets to be stable, cap the walk so a
+misbehaving server cannot loop forever, and if the *first* paged call throws, retry once with no
+arguments — that is what a Wan2GP predating these parameters needs.
+
+Log the shape of the walk (`{ count, pages, listed }`). A catalogue that arrives in one page when
+you expected twenty-two is the only visible symptom of this failing, and by the time it reaches a
+model picker it looks like missing weights.
+
 ### 4.1 `main_output` lies — read `outputs`
 
 **This one bites early.** LTX-2 reports `main_output: "image"` while its `outputs` array contains
@@ -363,6 +399,35 @@ Three counter-intuitive facts:
 uploads. Good news: a bad path fails the job immediately with `[Errno 2]` rather than silently
 rendering the wrong thing. Bad news: if WanGP is on another machine, these paths must be valid
 *there*.
+
+### 7.4 Paths are refused entirely unless WanGP was launched to allow them
+
+Recent Wan2GP builds treat a filesystem path in a media setting as a security boundary. Unless the
+server was started with **`--mcp-allow-read-file-system`**, `_resolve_generation_media` raises a
+`PermissionError` and the job fails with *"direct filesystem paths are disabled"*. It applies to
+every media key — `image_start`, `image_end`, `image_refs`, `video_source` and the rest — so an
+application that works by handing WanGP paths does not partially work without the flag. It fails
+every job.
+
+The flag is passed through `wgp.py`, so a launcher wraps it as
+`python wgp.py --mcp-server --mcp-allow-read-file-system …`.
+
+**Detect it before you spend a render.** There is no capability field to read, but there is a
+reliable proxy: WanGP registers the `wangp_list_files` tool **only** when filesystem reads are
+enabled. Asking the server for its tool list answers the question for free:
+
+```ts
+async allowsFilesystemPaths(): Promise<boolean> {
+  return (await this.transport.findTool(["wangp_list_files"])) !== undefined;
+}
+```
+
+Surface it as a warning at startup rather than a per-job error. The alternative is discovering it
+on the first scene of a batch that has already been queueing for an hour.
+
+Worth wrapping the raw failure too — *"direct filesystem paths are disabled"* is accurate and
+tells an operator nothing about what to do. Rewrite it to name the flag, and append the original
+so nothing is lost.
 
 ---
 

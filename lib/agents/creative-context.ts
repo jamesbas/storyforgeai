@@ -94,6 +94,20 @@ export function segmentsMissingFrom(
   return missing;
 }
 
+/**
+ * One segment's entry, however the model chose to key it.
+ *
+ * Exposed so a gap-filling follow-up can normalise what comes back: the second
+ * call is as free to answer "Scene 19" as "19", and the merged map has to end
+ * up keyed the one way `segmentsMissingFrom` will agree is covered.
+ */
+export function planEntryFor(
+  map: Record<string, string> | undefined,
+  sceneNumber: number,
+): string | undefined {
+  return sceneEntry(map, { id: `scene-${sceneNumber}`, sceneNumber });
+}
+
 /** The portion of the plans that belongs to one specific scene. */
 export function sceneCreativeSlice(
   plans: CreativePlans | undefined,

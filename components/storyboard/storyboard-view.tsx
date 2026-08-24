@@ -18,6 +18,7 @@ import { DEFAULT_SCENE_CONTINUITY, GENERATION_MODES, generationStages } from "@/
 import { resolveSceneLoras } from "@/lib/lora/scene-selection";
 import { effectiveTriggerWords } from "@/lib/lora/trigger-words";
 import { latestExecution } from "@/lib/schemas/provenance";
+import { promptAuthorshipSentence } from "@/components/storyboard/prompt-authorship";
 import type { LoraCatalog, SceneLoraOverride } from "@/lib/schemas/lora";
 import type { LlmRuntimeStatus } from "@/lib/services/llm-runtime-service";
 import type { PhaseProgress, SceneQueueEntry } from "@/lib/services/scene-queue";
@@ -72,6 +73,13 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   // end frame prompts — hand edits included — that never went stale.
   const rewriteVideoPrompts = useCallback(
     () => rewritePrompts([], ["video"]),
+    [rewritePrompts],
+  );
+  // The mirror case: a change to the keyframe rules or the image model leaves
+  // the clip prompts perfectly good, and rewriting them costs a model call per
+  // scene to replace text that was never at fault.
+  const rewriteImagePrompts = useCallback(
+    () => rewritePrompts([], ["image"]),
     [rewritePrompts],
   );
 
@@ -980,13 +988,18 @@ export function StoryboardView({ projectId }: { projectId: string }) {
               )}
             </p>
           ))}
+          <p className="mt-2 text-[11px] text-amber-200/70" data-testid="fallback-prompt-authorship">
+            {promptAuthorshipSentence(
+              record.executions,
+              storyboard.scenes.map((scene) => scene.id),
+            )}
+          </p>
           <p className="mt-2 text-[11px] text-amber-200/70">
-            This affects the scene cards only. Each scene&apos;s image and video prompts are written
-            by separate per-scene calls and are unaffected — expand <strong>Prompts</strong> on any
-            card to see what will actually be sent to WanGP. Long storyboards are the usual cause:
-            every card is produced in one request, so a project with many segments can exceed what
-            the model will return in one go. Load the planning model and regenerate, and if it keeps
-            happening, raise <code>OPENAI_MAX_TOKENS</code> or shorten the project.
+            Long storyboards are the usual cause: every card is produced in one request, so a
+            project with many segments can exceed what the model will return in one go. Load the
+            planning model and regenerate, and if it keeps happening, raise{" "}
+            <code>OPENAI_MAX_TOKENS</code> — but keep it below the context length the model was
+            loaded with, since prompt and output share it — or shorten the project.
           </p>
           <button
             type="button"
@@ -1247,6 +1260,16 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
                 >
                   {rewritingAll ? "Rewriting prompts…" : "Rewrite all video prompts"}
+                </button>
+                {/* And the other half, for a change to the keyframe rules. */}
+                <button
+                  onClick={() => void rewriteImagePrompts()}
+                  data-testid="rewrite-image-prompts"
+                  disabled={busy || rewritingAll || queue?.active}
+                  title="Re-run only the image prompt agent over every scene card, against the image model pinned now. The clip prompts are left as they are."
+                  className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
+                >
+                  {rewritingAll ? "Rewriting prompts…" : "Rewrite all image prompts"}
                 </button>
                 {queue?.active ? (
                   <button

@@ -26,7 +26,14 @@ type ModelsResponse = { models: WangpModel[]; total: number };
 
 /** What a job would actually run on, and whether WanGP is answering. */
 type ModelChoice = {
-  status: { enabled: boolean; mode: "mock" | "live"; url: string; ok: boolean };
+  status: {
+    enabled: boolean;
+    mode: "mock" | "live";
+    url: string;
+    ok: boolean;
+    /** Whether WanGP accepts the reference-image paths every render sends. */
+    filesystemReads?: boolean;
+  };
   /** Why this project sends reference images, which decides what the notice says. */
   refsNeededFor?: { characters: boolean; carriedFrames: boolean };
   /** Pins WanGP has never heard of, as opposed to pins it overrode for a reason. */
@@ -336,6 +343,17 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
             WanGP is not answering at <code>{choice?.status.url}</code>, so no models can be listed
             and nothing will render. Your existing pins are kept — start WanGP and reload this page.
+          </p>
+        ) : null}
+
+        {choice?.status.filesystemReads === false ? (
+          <p
+            data-testid="wangp-filesystem-reads"
+            className="rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs text-amber-200"
+          >
+            WanGP was started without filesystem reads, so it will refuse every keyframe and clip:
+            each one is sent a reference image by path. Restart Wan2GP with{" "}
+            <code>--mcp-allow-read-file-system</code> to render. Model pins below still work.
           </p>
         ) : null}
 

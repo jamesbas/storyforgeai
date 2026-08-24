@@ -27,13 +27,14 @@ import { conceptVisualsDirective, conceptVisualsPayload } from "@/lib/agents/con
 import { explicitnessDirective } from "@/lib/agents/explicitness";
 import { cameraContinuityDirective } from "@/lib/agents/continuity";
 import {
+  planEntryFor,
   planningPayload,
   precedenceDirective,
   segmentsMissingFrom,
   type CreativePlans,
 } from "@/lib/agents/creative-context";
 import type { ConceptVisuals, StoryPlan } from "@/lib/schemas/agents";import type { Character } from "@/lib/schemas/character";
-import type { PlanningProvider } from "@/lib/agents/llm/provider";
+import type { PlanningProvider, ProviderResult } from "@/lib/agents/llm/provider";
 import { logEvent } from "@/lib/telemetry";
 
 export const VARIANT_EXPLORER_SYSTEM =
@@ -325,18 +326,99 @@ function segmentGap(
   };
 }
 
+/** A per-scene plan map, and how many follow-up calls it is worth. */
+type PlanMapField = "sceneIntent" | "sceneShotPlans";
+const MAX_GAP_ROUNDS = 2;
+
+const gapEntriesSchema = z.object({ entries: z.record(z.string()) });
+
+/**
+ * Ask again for the segments the first answer left out.
+ *
+ * These plans were one call for the whole project, and a model that stops
+ * early — 18 entries for a 24-segment piece was the case that prompted this —
+ * left those scenes with no directorial intent and no shot plan at all. The
+ * shortfall was detected and reported and nothing acted on it.
+ *
+ * Bounded on both sides: at most two extra calls, and it stops the moment a
+ * round adds nothing, because a model with nothing to say for a scene will say
+ * nothing however many times it is asked.
+ */
+function withSegmentGapsFilled<T>(
+  primary: () => Promise<ProviderResult<T>>,
+  options: {
+    field: PlanMapField;
+    provider: PlanningProvider;
+    system: string;
+    payload: Record<string, unknown>;
+    segmentCount: number | undefined;
+    read: (value: T) => Record<string, string> | undefined;
+    write: (value: T, map: Record<string, string>) => T;
+  },
+): () => Promise<ProviderResult<T>> {
+  return async () => {
+    const first = await primary();
+    if (!first.ok) return first;
+
+    let map = { ...(options.read(first.value) ?? {}) };
+    for (let round = 1; round <= MAX_GAP_ROUNDS; round += 1) {
+      const missing = segmentsMissingFrom(map, options.segmentCount);
+      if (missing.length === 0) break;
+
+      const filled = await providerCall(
+        options.provider,
+        `${options.system}\n\nFOLLOW-UP. An earlier answer covered most of this piece but left ` +
+          `segments ${missing.join(", ")} without an entry. Return only "entries": one line for ` +
+          `each of those segment numbers, keyed by the number as a string. Write nothing for any ` +
+          `other segment, and do not repeat what the earlier entries already say.`,
+        JSON.stringify({
+          ...options.payload,
+          alreadyWritten: map,
+          writeOnlyTheseSegments: missing,
+        }),
+        gapEntriesSchema,
+      )();
+      if (!filled.ok) break;
+
+      // Keyed by the plain number whatever the model answered with, so the next
+      // round — and `segmentsMissingFrom` — agree the segment is covered.
+      let added = 0;
+      for (const sceneNumber of missing) {
+        const entry = planEntryFor(filled.value.entries, sceneNumber);
+        if (!entry) continue;
+        map[String(sceneNumber)] = entry;
+        added += 1;
+      }
+      logEvent("agent.segment_gap_filled", {
+        agent: options.field,
+        round,
+        requested: missing.length,
+        filled: added,
+      });
+      if (added === 0) break;
+    }
+
+    return { ...first, value: options.write(first.value, map) };
+  };
+}
+
 export async function directorAgent(
   project: Project,
   provider: PlanningProvider | null,
   ctx: CanvasContext = {},
 ): Promise<DirectorialPlan> {
-  const user = JSON.stringify({
+  const payload = {
     project,
     selectedDirection: directionOf(ctx.selectedVariant),
     cast: ctx.cast ?? [],
     storyPlan: ctx.storyPlan,
     plans: planningPayload(ctx.plans),
-  });
+  };
+  const system =
+    DIRECTOR_SYSTEM +
+    explicitnessDirective(project, "plan") +
+    castSystemDirective(ctx.cast ?? []) +
+    precedenceDirective(ctx.cast ?? [], ctx.plans);
 
   const { value } = await executeArtifact<DirectorialPlan>({
     artifact: "directorial_plan",
@@ -347,14 +429,17 @@ export async function directorAgent(
     provider,
     onExecution: ctx.onExecution,
     llm: provider
-      ? providerCall(
-          provider,
-          DIRECTOR_SYSTEM +
-            explicitnessDirective(project, "plan") +
-            castSystemDirective(ctx.cast ?? []) +
-            precedenceDirective(ctx.cast ?? [], ctx.plans),
-          user,
-          directorialPlanSchema,
+      ? withSegmentGapsFilled(
+          providerCall(provider, system, JSON.stringify(payload), directorialPlanSchema),
+          {
+            field: "sceneIntent",
+            provider,
+            system,
+            payload,
+            segmentCount: project.segmentCount,
+            read: (plan) => plan.sceneIntent,
+            write: (plan, sceneIntent) => ({ ...plan, sceneIntent }),
+          },
         )
       : undefined,
     fallback: () => buildDirectorialPlan(project),
@@ -370,12 +455,16 @@ export async function cinematographerAgent(
   provider: PlanningProvider | null,
   ctx: CanvasContext = {},
 ): Promise<CinematographyPlan> {
-  const user = JSON.stringify({
+  const payload = {
     project,
     selectedDirection: directionOf(ctx.selectedVariant),
     storyPlan: ctx.storyPlan,
     plans: planningPayload(ctx.plans),
-  });
+  };
+  const system =
+    CINEMATOGRAPHER_SYSTEM +
+    cameraContinuityDirective(project) +
+    precedenceDirective(ctx.cast ?? [], ctx.plans);
 
   const { value } = await executeArtifact<CinematographyPlan>({
     artifact: "cinematography_plan",
@@ -386,13 +475,17 @@ export async function cinematographerAgent(
     provider,
     onExecution: ctx.onExecution,
     llm: provider
-      ? providerCall(
-          provider,
-          CINEMATOGRAPHER_SYSTEM +
-            cameraContinuityDirective(project) +
-            precedenceDirective(ctx.cast ?? [], ctx.plans),
-          user,
-          cinematographyPlanSchema,
+      ? withSegmentGapsFilled(
+          providerCall(provider, system, JSON.stringify(payload), cinematographyPlanSchema),
+          {
+            field: "sceneShotPlans",
+            provider,
+            system,
+            payload,
+            segmentCount: project.segmentCount,
+            read: (plan) => plan.sceneShotPlans,
+            write: (plan, sceneShotPlans) => ({ ...plan, sceneShotPlans }),
+          },
         )
       : undefined,
     fallback: () => buildCinematographyPlan(project),

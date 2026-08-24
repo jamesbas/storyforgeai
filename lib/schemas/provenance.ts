@@ -146,3 +146,45 @@ export function latestExecution(
   }
   return undefined;
 }
+
+/** Who wrote one pass of the prompts, counted across a storyboard. */
+export type PromptAuthorship = {
+  total: number;
+  llm: number;
+  hybrid: number;
+  deterministic: number;
+  /** Scenes whose prompts predate provenance, so nothing can be claimed. */
+  unrecorded: number;
+};
+
+/**
+ * How many scenes actually got model-written prompts.
+ *
+ * The storyboard's fallback notice used to state that the per-scene prompts
+ * were unaffected by a scene-card fallback. That is true of the mechanism and
+ * routinely false of the run: the same exhausted context that loses the cards
+ * loses the prompt calls too, and one live 24-scene project fell back on the
+ * cards while 20 of its 24 image prompts fell back as well. The record knew;
+ * only the screen was guessing.
+ */
+export function promptAuthorship(
+  executions: ArtifactExecution[] | undefined,
+  sceneIds: readonly string[],
+  pass: "image_prompt" | "video_prompt",
+): PromptAuthorship {
+  const tally: PromptAuthorship = {
+    total: sceneIds.length,
+    llm: 0,
+    hybrid: 0,
+    deterministic: 0,
+    unrecorded: 0,
+  };
+  for (const sceneId of sceneIds) {
+    const source = latestExecution(executions, `${sceneId}.${pass}`)?.source;
+    if (source === "llm") tally.llm += 1;
+    else if (source === "hybrid") tally.hybrid += 1;
+    else if (source === "deterministic") tally.deterministic += 1;
+    else tally.unrecorded += 1;
+  }
+  return tally;
+}

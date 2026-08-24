@@ -205,7 +205,7 @@ function describesMotion(text: string): boolean {
 }
 
 const GARMENTS =
-  /\b(?:t-?shirts?|shirts?|blouses?|dress(?:es)?|skirts?|trousers|pants|jeans|denim|shorts|suits?|jackets?|coats?|bras?|brassieres?|panties|knickers|briefs|underwear|lingerie|robes?|gowns?|stockings|corsets?|socks|shoes|boots|leggings)\b/i;
+  /\b(?:t-?shirts?|shirts?|blouses?|dress(?:es)?|skirts?|trousers|slacks|chinos|pants|jeans|denim|shorts|suits?|jackets?|blazers?|coats?|sweaters?|hoodies?|cardigans?|bras?|brassieres?|panties|knickers|briefs|thongs?|underwear|lingerie|robes?|gowns?|stockings|tights|corsets?|socks|shoes|boots|leggings)\b/i;
 
 /** Anything that reads as clothing, including the words that stand in for it. */
 const GARMENT_CLAUSE = new RegExp(
@@ -215,6 +215,17 @@ const GARMENT_CLAUSE = new RegExp(
 
 /** How a prompt introduces what somebody has on. */
 const WORN_CLAUSE = /\b(?:wearing|dressed in|clad in|clothed in)\s+([^.,;]+)/gi;
+
+/**
+ * A nudity word the rest of the sentence then dresses.
+ *
+ * "naked with dark slacks and an unbuttoned charcoal-grey dress shirt" states
+ * both at once, and the model writes it readily once an earlier scene has been
+ * repaired to "naked" — it reads that as a description to elaborate on rather
+ * than a state to keep. `WORN_CLAUSE` cannot see it: there is no "wearing".
+ * Eight scenes of one live run shipped this way, flagged and unrepaired.
+ */
+const UNDONE_NUDITY = /\b(naked|nude|undressed)\s+(?:with|in)\s+([^.,;]+)/gi;
 
 const STOPWORDS = new Set([
   "that",
@@ -345,12 +356,17 @@ export function withoutInventedGarments(
   established: string | undefined,
 ): string {
   const chosen = (established ?? "").toLowerCase();
-  return prompt.replace(WORN_CLAUSE, (whole, clause: string) => {
-    if (!GARMENT_CLAUSE.test(clause)) return whole;
+  const invented = (clause: string): boolean => {
+    if (!GARMENT_CLAUSE.test(clause)) return false;
     const named = clause.toLowerCase().match(new RegExp(GARMENTS.source, "gi")) ?? [];
-    if (named.length && named.every((garment) => chosen.includes(garment))) return whole;
-    return "naked";
-  });
+    return !(named.length && named.every((garment) => chosen.includes(garment)));
+  };
+
+  return prompt
+    .replace(UNDONE_NUDITY, (whole, state: string, clause: string) =>
+      invented(clause) ? state : whole,
+    )
+    .replace(WORN_CLAUSE, (whole, clause: string) => (invented(clause) ? "naked" : whole));
 }
 
 function tidy(text: string): string {
@@ -623,9 +639,15 @@ export function repairImagePrompt(
     }
   }
   if (codes.includes("wardrobe_contradicts_act")) {
-    // Positive phrasing: the encoder cannot represent "no lingerie", so the
+    // Scoped to the act, not the frame. "Every participant" was read as
+    // everyone visible, so a hotel server standing at the edge of one shipped
+    // frame — fully dressed, holding a tray — was undressed by a sentence
+    // written about the two people on the other side of the room. Positive
+    // phrasing throughout: the encoder cannot represent "no lingerie", so the
     // garment itself goes to the negative prompt instead.
-    additions.push("Every participant is completely naked, bare skin throughout.");
+    additions.push(
+      "Everyone taking part in the act is completely naked; anyone else in frame keeps the clothing described.",
+    );
   }
   if (codes.includes("participant_missing") && ctx.participants.length) {
     additions.push(`In frame: ${ctx.participants.join(", ")}.`);

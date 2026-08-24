@@ -184,6 +184,50 @@ knowing before building an unattended batch queue on top of it.
 
 ---
 
+## 9. `wangp_list_models` silently truncates to ten
+
+**Severity: High.**
+
+`limit` defaults to 10 and is clamped server-side by
+`max(1, min(int(limit), 10))`. Requesting 500 returns 10, with no total count, no
+`has_more`, and no indication the result is a fragment. A client that asks once
+gets the first ten model types and every reason to believe that is the catalogue.
+
+On a server holding 217 models, that first page was nine `ace_step_*` audio
+models and one other. Both of our model pickers emptied, and every pinned model
+was reported as not installed — a diagnosis that sends the operator to reinstall
+weights that were never missing.
+
+The clamp itself is defensible. Publishing a total, or any `has_more` flag, would
+make it safe. As it stands the correct and the incorrect call are
+indistinguishable from the response.
+
+---
+
+## 10. Filesystem paths are refused with no way to ask in advance
+
+**Severity: High.**
+
+Media settings holding a path raise `PermissionError` — *"direct filesystem paths
+are disabled"* — unless the server was launched with
+`--mcp-allow-read-file-system`. That is a reasonable default. Two things make it
+expensive:
+
+1. **It is all-or-nothing and per-job.** Every keyframe we send is a path, so the
+   flag being absent does not degrade the integration, it fails 100% of jobs — and
+   only at generation time, after the queue has been built.
+2. **There is no capability to query.** Nothing in the status or tool metadata
+   states whether reads are permitted. The only detectable signal is indirect:
+   `wangp_list_files` is registered *only* when the flag is set, so its presence
+   in the tool list is a usable proxy. That works, but it is an inference from an
+   implementation detail rather than a contract, and it will break the day the
+   tool is registered unconditionally.
+
+A `filesystem_reads: bool` in whatever `wangp_get_status` returns would cost
+nothing and let a client warn before it queues an hour of work.
+
+---
+
 ## Summary for a maintainer
 
 If only one thing on this list were addressed, I would pick **issue 1**. The
@@ -191,8 +235,8 @@ others cost me hours; that one produced confidently wrong output three times in
 three different ways, and in each case the logs on both sides said everything had
 worked.
 
-The common thread across issues 1, 2, 3 and 5 is the same: **the failure mode is
-silence.** A wrong LoRA stack, an ignored field, a hidden model, a dropped
-reference image — none of them raise, and all of them yield output that looks
-entirely plausible. Errors are cheap to handle. It is the successes that lie
-which are expensive.
+The common thread across issues 1, 2, 3, 5 and 9 is the same: **the failure mode
+is silence.** A wrong LoRA stack, an ignored field, a hidden model, a dropped
+reference image, a catalogue truncated to its first page — none of them raise, and
+all of them yield output that looks entirely plausible. Errors are cheap to
+handle. It is the successes that lie which are expensive.

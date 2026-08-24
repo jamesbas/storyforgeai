@@ -465,6 +465,8 @@ spend time re-deriving them.
 | 1.51 | A person joining a shot mid-scene replaced by a duplicate | The end frame is conditioned on its own start frame, whose population contradicts it. 1.48's failure at the within-scene join. **Did not fix `s13 end`** — see §2b. |
 | 1.52 | Character-scoped negative terms suppressing a trait globally | `dark skin for <character>` in a scene led by a black man. A negative prompt has no addressee. |
 | 1.53 | The appended cast sheet crowding out the shot | Full stored descriptions plus a detached `Wearing exactly:`. Trimmed to a budget, wardrobe bound into the same clause. **This was the cause** — see §2d. |
+| 2.18 | A prompt reading *"completely naked with dark slacks and a white shirt"* | Two separate faults. The garment vocabulary the stripper matched on was incomplete (no `slacks`, `chinos`, `blazer`, `sweater`, `hoodie`, `cardigan`, `tights`, `thong`), and it only recognised the `wearing <garment>` form — a model that writes `naked with <garment>` produced a contradiction no pass was looking for. Both forms are now stripped, against a wider vocabulary. |
+| 2.18 | The act guard undressing people who were only in the room | Its sentence read *"Every participant is completely naked, bare skin throughout"* — and "participant" is not a distinction an image model draws. It now reads *"Everyone taking part in the act is completely naked; anyone else in frame keeps the clothing described."* |
 | — | A hand-edited project file invisible to the running app | The repository hydrated once per process and never re-read, so an external correction stayed unseen until a restart and was overwritten by the next save. |
 
 **The recurring shape:** the same "who is in this shot" question was answered from
@@ -478,6 +480,14 @@ times — 1.47 (a portrait of someone not in the shot), 1.48 (an inherited frame
 missing an arriving character), 1.51 (a start frame missing a character the end
 frame adds). Any new code path that passes an image alongside a prompt should be
 checked against this before anything else.
+
+**A standing caution on the garment stripper.** It is tempting to widen it to a
+bare `in <garment>`, which would catch *"naked, in stockings"*. Do not. The same
+pattern matches *"the waiter in a black jacket"* — a bystander who is supposed to
+be dressed — and the stripper cannot tell them apart, because the contradiction it
+is looking for is a property of a sentence and `in` is not scoped to a person.
+Widening it trades a rare visible fault for a common invisible one. There is a
+test pinning this; if it starts failing, the fix is the test, not the rule.
 
 ---
 

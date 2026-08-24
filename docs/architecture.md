@@ -671,6 +671,79 @@ Notable design points:
 - **The SDK is a guarded dynamic import**, so a missing `openai` package degrades
   to deterministic output instead of crashing the build.
 
+### 3.6 The story plan is written once and reused — which makes its failure structural
+
+The narrative arc (`record.storyPlan`) is generated on whichever path reaches it
+first and then **reused by everything after it**. The canvas needs it because the
+Director writes `sceneIntent` keyed by scene number and the canvas runs before
+any storyboard exists; `generateStoryboard` then reuses it rather than paying for
+it twice. That caching is correct — and it is also why a single failure here is
+the most expensive failure in the system.
+
+```mermaid
+flowchart TD
+    A["canvas run or generateStoryboard"] --> B{"storyPlanNeedsWriting?"}
+    B -->|"no stored plan"| C["storyArchitectAgent"]
+    B -->|"stored, provenance llm/hybrid"| K["reuse it"]
+    B -->|"stored, provenance deterministic<br/>or none recorded"| D{"planning provider?"}
+    D -->|no| K
+    D -->|yes| C
+    C --> E{"model answered<br/>with segmentCount beats?"}
+    E -->|yes| F["real beats → storyboardAgent"]
+    E -->|no| G["buildStoryPlan template<br/>'Advance beat N of the narrative'"]
+    F --> H["persist + record story_plan provenance"]
+    G --> H
+```
+
+**Why this matters more than any other fallback.** The Storyboard Artist writes
+cards in batches of four (`CARDS_PER_CALL`), each batch handed the beats for its
+own slice. Given template beats it has no story to divide, so it invents one as
+it goes — and by the last batch of a long project it has run out of invention and
+repeats itself. Observed live on a 24-scene project: five consecutive scenes
+titled "The Aftermath", with the storyboard itself recorded as `llm (ok)`,
+24 of 24 cards model-written. The cards were not the fault. The arc beneath them
+was template text.
+
+Two rules follow, and both are enforced in `project-service.ts`:
+
+- **The Story Architect's provenance is always collected.** `withStoryPlan` used
+  to call it without an `onExecution` collector, so a project could carry zero
+  `story_plan` records and nothing could tell a real arc from a template one.
+- **A builder-written arc is not permanent.** `storyPlanNeedsWriting` rewrites it
+  the next time a planning model is available. Absent provenance counts as
+  suspect and is rewritten once. Without a provider nothing is rewritten, because
+  that would only re-emit the same template.
+
+Diagnosing it: `storyPlan.segmentBeats` matching `/Advance beat \d+ of the
+narrative/` is the template, whatever the storyboard's own provenance says.
+
+### 3.7 Per-scene plan maps fill their own gaps
+
+`directorialPlan.sceneIntent` and `cinematographyPlan.sceneShotPlans` are
+`z.record(z.string())` keyed by segment number, and both were written in **one
+call for the whole project**. A model that stops part way down leaves the
+remaining scenes with no direction at all — live, `sceneIntent covers 18 of 24
+segments`, detected by `segmentGap()` and reported honestly while nothing acted
+on it.
+
+`withSegmentGapsFilled()` now wraps the primary call:
+
+```
+plan call → segmentsMissingFrom(map, segmentCount)
+          → follow-up asking only for those numbers
+            (payload carries alreadyWritten + writeOnlyTheseSegments)
+          → merge, normalising "Scene 19" → "19" via planEntryFor
+          → repeat, max 2 rounds, stop early if a round adds nothing
+```
+
+Bounded on both sides deliberately. The follow-up requests only
+`{ entries: Record<string, string> }` rather than the whole plan, so a second
+call cannot re-roll `cameraLanguage` and the rest. A round that adds nothing ends
+the loop, because a model with nothing to say for a scene will say nothing however
+many times it is asked. Whatever gap survives is still reported as
+`short_collection` with the real remaining count — the fill does not paper over a
+genuine shortfall.
+
 ---
 
 ## 4. Media generation & the QC loop
@@ -732,6 +805,34 @@ support (video), then project `modelStrategy` (`prefer_wan` / `prefer_ltx` /
 `prefer_hunyuan`), then quality rank. Models that report multiple outputs — LTX-2
 reports `["image","video"]` — are matched against the full output list rather than
 the first entry.
+
+**Discovery pages, and the catalogue is not a fact.** `wangp_list_models` caps a
+response at ten records (`max(1, min(limit, 10))` server side) and defaults to
+ten, so `LiveWangpClient.listModelEntries()` walks it with `limit`/`offset` until
+a page is short, over-long, or adds nothing new. It is worth understanding *why*
+the loop needs all three stop conditions: a short page is the end of the
+catalogue, an over-long one is a server ignoring the arguments and sending
+everything, and a page with no new model types is a server honouring `limit` and
+ignoring `offset`. A first call that throws falls back to one unparameterised
+request, which is what a Wan2GP predating the arguments needs.
+
+Getting this wrong is silent. Before the paging loop existed, one unpaged request
+returned the first ten model types alphabetically — nine music models and one
+video model — so both pickers emptied and every pinned model was reported as
+absent from the catalogue. No layer raised an error, because "not in the
+catalogue" has always been treated as a fact rather than a symptom. Anything that
+reports a pin as missing should be read as *possibly* a discovery fault.
+
+**Server file paths are opt-in.** Wan2GP rejects a path in any of
+`image_start`, `image_end`, `image_refs`, `video_source` and nine other settings
+unless it was started with `--mcp-allow-read-file-system`. Every keyframe this app
+renders hands it a path — a character photograph, or the frame carried over from
+the previous scene — so a server without the flag fails every job in a batch.
+`LiveWangpClient.allowsFilesystemPaths()` detects it without spending a render:
+Wan2GP registers `wangp_list_files` **only** when the flag is set, so the
+advertised tool list answers the question. It surfaces as
+`WangpStatus.filesystemReads` and is warned about on the generation console and
+project settings.
 
 ### 4.1 LoRAs and trigger words
 
@@ -1369,6 +1470,21 @@ The repository and WanGP client are both pinned to `globalThis` so they survive
 Next.js hot-module reloads and are shared across route handlers. Note that
 `STORYFORGE_PERSISTENCE` is currently parsed but inert — the in-memory store is
 always selected.
+
+### 9.1 Only the app loads `.env.local`
+
+Next loads `.env.local` automatically. **`tsx` does not**, so every script under
+`npm run` reads whatever `lib/config.ts` falls back to unless it is told
+otherwise. That is not a cosmetic difference: a diagnostic that reports *your*
+configuration while running on someone else's defaults is worse than one that
+reports nothing, because it is believed. It had `llm:context` printing
+`OPENAI_MAX_TOKENS: 12000` against a file that said 16000, and left every WanGP
+probe looking for a server on `127.0.0.1`.
+
+Every config-reading script therefore runs as
+`tsx --env-file-if-exists=.env.local`. The `-if-exists` form matters — plain
+`--env-file` throws when the file is absent, which is the normal state of a fresh
+clone and of CI.
 
 ---
 

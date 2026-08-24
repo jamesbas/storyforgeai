@@ -18,4 +18,12 @@ export interface WangpClient {
   getJob(jobId: string): Promise<WangpJob>;
   cancelJob(jobId: string): Promise<WangpJob>;
   health(): Promise<boolean>;
+  /**
+   * Whether the server will accept a file path for a reference image.
+   *
+   * Every keyframe this app renders hands WanGP a path, so a server with
+   * filesystem reads disabled fails every job. Optional so the existing test
+   * doubles still satisfy the interface.
+   */
+  allowsFilesystemPaths?(): Promise<boolean>;
 }

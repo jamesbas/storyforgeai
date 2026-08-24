@@ -41,6 +41,8 @@ export type TelemetryEvent =
   | "scene_queue.skipped_existing"
   | "llm.runtime"
   | "wangp.discovery"
+  | "agent.segment_gap_filled"
+  | "wangp.discovery.unpaged"
   | "wangp.model.selected"
   | "wangp.health.failed"
   | "wangp.job.submitted"

@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { access } from "node:fs/promises";
-import { appendExecution, type ArtifactExecution } from "@/lib/schemas/provenance";
+import {
+  appendExecution,
+  latestExecution,
+  type ArtifactExecution,
+} from "@/lib/schemas/provenance";
 import { createProjectSchema, renameProjectSchema, updateProjectModelsSchema } from "@/lib/schemas/intake";
 import { computeSegmentation } from "@/lib/duration";
 import { DEFAULT_SCENE_CONTINUITY, generationStages } from "@/lib/types";
@@ -648,7 +652,11 @@ export async function generateStoryboard(
       selectedVariant,
       cast,
       plans,
-      storyPlan: record.storyPlan,
+      // Withheld when the stored arc came from the builder, so the orchestrator
+      // writes a real one rather than building 24 cards on template beats.
+      storyPlan: storyPlanNeedsWriting(record, Boolean(getPlanningProvider()))
+        ? undefined
+        : record.storyPlan,
       conceptVisuals: record.conceptVisuals,
       correlationId,
       onExecution: (execution) => executions.push(execution),
@@ -1385,14 +1393,39 @@ export async function updatePlan(
  * segment numbers. Generating the arc here makes its per-scene direction real,
  * and `generateStoryboard` then reuses it rather than paying for it twice.
  */
-async function withStoryPlan(record: ProjectRecord): Promise<ProjectRecord> {
-  if (record.storyPlan) return record;
+/**
+ * Whether the stored narrative arc is worth keeping.
+ *
+ * The arc is written once and reused by every later run, which is right when a
+ * model wrote it and wrong when the builder did. A project whose Story
+ * Architect failed kept `Advance beat 7 of the narrative and raise the stakes.`
+ * for every segment, and no rerun of the canvas or the storyboard could
+ * dislodge it — the Storyboard Artist was handed template text and invented an
+ * arc of its own, batch by batch, until it ran out and repeated itself.
+ *
+ * Absent provenance counts as suspect: it is regenerated once, after which the
+ * record says which it was.
+ */
+function storyPlanNeedsWriting(record: ProjectRecord, hasProvider: boolean): boolean {
+  if (!record.storyPlan) return true;
+  // Without a provider the rewrite would only produce the same template again.
+  if (!hasProvider) return false;
+  const source = latestExecution(record.executions, "story_plan")?.source;
+  return source !== "llm" && source !== "hybrid";
+}
 
+async function withStoryPlan(record: ProjectRecord): Promise<ProjectRecord> {
   const provider = getPlanningProvider();
+  if (!storyPlanNeedsWriting(record, Boolean(provider))) return record;
+
+  const executions: ArtifactExecution[] = [];
+  const correlationId = randomUUID();
   const ctx: AgentContext = {
     project: record.project,
     cast: await resolveProjectCast(record.project),
     selectedVariant: record.variants?.find((v) => v.id === record.selectedVariantId),
+    correlationId,
+    onExecution: (execution) => executions.push(execution),
   };
   ctx.brief = applyVariantToBrief(await intakeAgent(ctx, provider), ctx.selectedVariant);
   const storyPlan = await storyArchitectAgent(ctx, provider);
@@ -1400,6 +1433,7 @@ async function withStoryPlan(record: ProjectRecord): Promise<ProjectRecord> {
   const updated: ProjectRecord = {
     ...record,
     storyPlan,
+    executions: withExecutions(record.executions, executions),
     history: appendHistory(record, "story_plan.generated"),
   };
   await repository.update(record.project.id, updated);

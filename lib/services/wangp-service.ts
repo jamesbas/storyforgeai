@@ -56,6 +56,11 @@ export type WangpStatus = {
   mode: "mock" | "live";
   url: string;
   ok: boolean;
+  /**
+   * Whether WanGP will accept the reference-image paths every render sends.
+   * Undefined when it could not be determined — an unreachable or mock server.
+   */
+  filesystemReads?: boolean;
 };
 
 /**
@@ -72,7 +77,10 @@ export type FrameOptions = {
 export async function getWangpStatus(): Promise<WangpStatus> {
   const client = getWangpClient();
   const ok = await client.health().catch(() => false);
-  return { enabled: wangpEnabled(), mode: client.mode, url: config.wangp.url, ok };
+  const filesystemReads = ok
+    ? await client.allowsFilesystemPaths?.().catch(() => undefined)
+    : undefined;
+  return { enabled: wangpEnabled(), mode: client.mode, url: config.wangp.url, ok, filesystemReads };
 }
 
 export async function listWangpModels(

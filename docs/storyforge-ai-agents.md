@@ -264,10 +264,26 @@ story arc**"; there is no story arc in its input.
 
 **(c) They plan scenes that do not exist.** `directorialPlanSchema.sceneIntent` and
 `cinematographyPlanSchema.sceneShotPlans` are `Record<string, string>` keyed by scene. The canvas
-runs *before* the storyboard, and the story plan is never persisted — so at canvas time there are no
-scenes and no beats. The best either agent can do is key by segment number and guess what happens
-there. `sceneEntry()` in `creative-context.ts` gamely accepts `"3"`, `"scene 3"`, `"Scene 3"` and the
-scene id, which is sound defensive coding around a structurally impossible request.
+runs *before* the storyboard, so at canvas time there are no scenes — only a segment count. The best
+either agent can do is key by segment number and guess what happens there. `sceneEntry()` in
+`creative-context.ts` gamely accepts `"3"`, `"scene 3"`, `"Scene 3"` and the scene id, which is
+sound defensive coding around a structurally impossible request.
+
+Partly addressed since: the story plan **is** now persisted and handed to the canvas, so the beats
+at least exist. What the agents still lack is scene cards.
+
+**(c.2) And they plan them all in one call, which is where they run out.** Asking for a
+`Record<string, string>` covering every segment means a model that tires part way down leaves the
+remaining scenes with no direction at all — `sceneIntent` covering 18 of 24 segments was the
+observed case, correctly detected by `segmentGap()` and reported as `short_collection` while nothing
+acted on it. `withSegmentGapsFilled()` now follows up, asking only for the missing segment numbers
+and carrying `alreadyWritten` so the model does not repeat itself. It is bounded at two rounds and
+stops early when a round adds nothing, because a model with nothing to say about scene 19 will keep
+having nothing to say. A surviving gap is still reported honestly rather than padded.
+
+Note the follow-up requests `{ entries: Record<string, string> }` rather than the whole plan. A
+second full-plan call would re-roll `cameraLanguage` and the rest of the fields that were already
+fine — the gap fill must not be able to change anything except the gap.
 
 What partially rescues these agents is `withSchemaHint()`, which appends the schema's key names and
 types to every system prompt. The model therefore learns *what fields exist* even when the prompt
@@ -347,6 +363,19 @@ Ordered by value:
    **Director** generates one when the project has none, since its prompt is the one that names the
    story arc; `generateStoryboard` then reuses it via `OrchestratorDeps.storyPlan` rather than
    paying twice, and persists a fresh one through `onStoryPlan`.
+
+   **With one correction that took a while to find.** Reuse was unconditional, so a plan the Story
+   Architect had *failed* to write — a numbered template, `"Advance beat 7 of the narrative"` — was
+   cached as permanently as a real one. Every regeneration afterwards rebuilt the scene cards on it
+   and could not improve them, because the thing that was wrong was never re-run. Worse, the canvas
+   path recorded no provenance for the call at all, so nothing downstream could distinguish the two
+   cases. `withStoryPlan` now collects executions, and `storyPlanNeedsWriting()` rewrites any plan
+   whose provenance is not `llm`/`hybrid` — including absent provenance — whenever a planning
+   provider exists. Nothing is rewritten without a provider, since that would only re-emit the same
+   template.
+
+   The general rule this is an instance of: **a cache of an artifact that has a fallback must cache
+   which one it got.** Otherwise the first bad result is the last result.
 3. ~~**Pass the cast** to the Art Director.~~ **Done**, and to the World Builder and Director too.
 4. ~~**Chain the canvas agents.**~~ **Done.** `canvasContext()` hands each agent the plans already
    approved, so the Cinematographer lights the Director's intent instead of inventing a second mood.

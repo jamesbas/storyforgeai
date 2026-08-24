@@ -10,6 +10,17 @@ import { logEvent } from "@/lib/telemetry";
 const MODEL_CACHE_TTL_MS = 60_000;
 
 /**
+ * How many models one `wangp_list_models` call returns.
+ *
+ * WanGP clamps the argument with `max(1, min(limit, 10))` and defaults it to
+ * ten, so asking for more is silently ignored. Ten is the whole page.
+ */
+const MODEL_PAGE_SIZE = 10;
+
+/** A stop so a server that ignores `offset` cannot page for ever. */
+const MAX_DISCOVERED_MODELS = 2_000;
+
+/**
  * Live WanGP MCP client (spec Section 23).
  *
  * Implements the same `WangpClient` interface as `MockWangpClient`, so the
@@ -50,8 +61,7 @@ export class LiveWangpClient implements WangpClient {
 
   async listModels(mainOutput?: "image" | "video" | "audio"): Promise<WangpModel[]> {
     if (!this.modelCache || Date.now() - this.modelCache.at >= MODEL_CACHE_TTL_MS) {
-      const raw = await this.transport.call("wangp_list_models", { include_availability: true });
-      const entries = Array.isArray(raw) ? raw : [];
+      const { entries, pages } = await this.listModelEntries();
 
       const models: WangpModel[] = [];
       for (const entry of entries) {
@@ -72,16 +82,92 @@ export class LiveWangpClient implements WangpClient {
       }
 
       this.modelCache = { at: Date.now(), models };
-      logEvent("wangp.discovery", { mode: "live", count: models.length });
+      logEvent("wangp.discovery", { mode: "live", count: models.length, pages, listed: entries.length });
     }
 
     const models = this.modelCache.models;
     return mainOutput ? models.filter((m) => produces(m, mainOutput)) : models;
   }
 
+  /**
+   * Every model the server has, gathered a page at a time.
+   *
+   * WanGP capped `wangp_list_models` at ten records per call and made ten the
+   * default. One unpaged request therefore returns the first ten model types
+   * alphabetically — nine music models and one video model — which is how a
+   * 216-model catalogue turned into an empty picker with no error anywhere.
+   */
+  private async listModelEntries(): Promise<{ entries: unknown[]; pages: number }> {
+    const entries: unknown[] = [];
+    const seen = new Set<string>();
+    let pages = 0;
+
+    /** New rows in this page. Zero means the server is repeating itself. */
+    const collect = (raw: unknown): { added: number; size: number } => {
+      const page = Array.isArray(raw) ? raw : [];
+      let added = 0;
+      for (const entry of page) {
+        const source = asRecord(entry);
+        const key = source?.model_type ?? source?.modelType;
+        const id = typeof key === "string" && key ? key : undefined;
+        // A row with no model type cannot be de-duplicated, and normalizeModel
+        // will drop it anyway.
+        if (id) {
+          if (seen.has(id)) continue;
+          seen.add(id);
+        }
+        entries.push(entry);
+        added += 1;
+      }
+      return { added, size: page.length };
+    };
+
+    for (let offset = 0; offset < MAX_DISCOVERED_MODELS; offset += MODEL_PAGE_SIZE) {
+      let raw: unknown;
+      try {
+        raw = await this.transport.call("wangp_list_models", {
+          include_availability: true,
+          limit: MODEL_PAGE_SIZE,
+          offset,
+        });
+      } catch (err) {
+        // A server predating these arguments rejects them outright — and has no
+        // cap, so one plain call is the entire catalogue.
+        if (offset > 0) throw err;
+        logEvent("wangp.discovery.unpaged", {
+          reason: err instanceof Error ? err.message : "unknown",
+        });
+        collect(await this.transport.call("wangp_list_models", { include_availability: true }));
+        return { entries, pages: 1 };
+      }
+
+      pages += 1;
+      const { added, size } = collect(raw);
+      // A short page is the end of the catalogue. A page longer than we asked
+      // for, or one carrying nothing new, is a server ignoring the arguments —
+      // in both cases there is nothing further to ask for.
+      if (size < MODEL_PAGE_SIZE || size > MODEL_PAGE_SIZE || added === 0) break;
+    }
+
+    return { entries, pages };
+  }
+
+
   /** Drop the cached catalogue, for an explicit refresh. */
   resetModelCache(): void {
     this.modelCache = undefined;
+  }
+
+  /**
+   * Whether this server accepts a file path where a reference image is wanted.
+   *
+   * Read off the advertised tool list rather than by trying a render: WanGP
+   * registers `wangp_list_files` only when it was started with filesystem
+   * reads, so its presence is the same switch that decides whether a keyframe
+   * job is accepted or refused.
+   */
+  async allowsFilesystemPaths(): Promise<boolean> {
+    return (await this.transport.findTool(["wangp_list_files"])) !== undefined;
   }
 
   async getModelSchema(modelType: string): Promise<WangpModelSchema> {

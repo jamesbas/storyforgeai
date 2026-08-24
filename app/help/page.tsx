@@ -320,6 +320,14 @@ export default function HelpPage() {
             beside it above the scene list.
           </p>
           <p className={p}>
+            <strong>Rewrite all image prompts</strong> is the mirror image, and exists for the
+            reverse situation: keyframes that came out wrong while the clips are fine. Wardrobe that
+            contradicts itself, a character described where they should have been named, a swap
+            preset changed after the fact — all of it lives in the two still prompts and none of it
+            in the clip. Rewriting both halves would discard working video prompts to fix something
+            they had no part in, so this one leaves them exactly as they are.
+          </p>
+          <p className={p}>
             A single scene can be done on its own with <strong>Regenerate these prompts</strong> in
             the scene card&apos;s Prompts panel. One thing the rewrite does not touch is clip
             length: if the new model renders shorter clips than the old one, set that on the
@@ -1157,6 +1165,26 @@ export default function HelpPage() {
             <strong>Regenerate storyboard</strong> in the banner rather than proceeding to media, or
             you will spend GPU hours rendering placeholder writing.
           </p>
+          <p className={p}>
+            The banner also tells you <strong>how many prompts the model wrote</strong> — because a
+            fallback storyboard does not always mean fallback prompts. The scene cards and the prompts
+            are written by different agents in separate calls, so a model that was unreachable for
+            one may have been fine for the other. Rather than guess, the banner counts what actually
+            happened and reports it: all of them, some of them, or none. Where it says the model wrote
+            them, the prompts are worth keeping and only the cards beneath them need redoing.
+          </p>
+
+          <p className={p}>
+            An amber banner about the <strong>story arc</strong> is a deeper version of the same
+            problem, and worth understanding because it does not look like a failure. The narrative
+            beats are written once, before the scene cards, and every later step builds on them. If
+            that step falls back, the Storyboard Artist gets a numbered outline instead of a story —
+            and rather than failing it invents an arc as it goes, then runs out of invention and
+            starts repeating itself. The tell is several late scenes with near-identical titles while
+            the storyboard reports itself as model-written, because it was: it just had nothing to
+            work from. Regenerating with a working planning model rewrites the arc first, which is
+            why it fixes the cards too.
+          </p>
 
           <p className={p}>
             Each scene card also carries two panels of its own. <strong>Prompts</strong> is editable —
@@ -1776,6 +1804,31 @@ export default function HelpPage() {
           <p className={p}>
             That&apos;s expected in demo mode — the app is using the built-in mock backend. Enable the
             WanGP integration to connect to a real server.
+          </p>
+
+          <h3 className={h3}>Every scene fails with &quot;direct filesystem paths are disabled&quot;.</h3>
+          <p className={p}>
+            WanGP refuses to read files from disk unless it was started with{" "}
+            <code>--mcp-allow-read-file-system</code>. StoryForgeAI hands it a path for almost every
+            job — a character photograph, a reference image, or the end frame carried into the next
+            scene — so without that flag a whole batch fails rather than a single scene. Restart
+            WanGP with the flag; nothing needs changing on this side.
+          </p>
+          <p className={p}>
+            You do not have to fail a render to find out. The Generation Console and the project
+            settings screen both check when they load and warn beforehand, because a batch that dies
+            on scene one after an hour of queueing is an expensive way to learn it.
+          </p>
+
+          <h3 className={h3}>The image or video model picker is empty, or says my pinned model is missing.</h3>
+          <p className={p}>
+            Read that as a question rather than an answer: it means the model was not in the list
+            WanGP returned, which is not the same as it not being installed. WanGP sends its
+            catalogue ten models at a time, so an older version of this app — or a connection that
+            drops partway through the pages — sees only the beginning of an alphabetical list and
+            concludes everything after it is gone. Reload the settings screen first. If the list is
+            still short, check the WanGP server is reachable and up to date before repinning
+            anything.
           </p>
 
           <h3 className={h3}>Are my projects saved permanently?</h3>

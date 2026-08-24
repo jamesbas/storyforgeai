@@ -174,6 +174,21 @@ Expose the setting so operators can pin the known-good rung and skip the wasted 
 Also note not every schema converts to JSON Schema. Records, unions and defaults often fail
 conversion; fall through to the next rung rather than erroring.
 
+> **The "Structured Output" toggle in LM Studio's Inference tab is not this.** It governs LM
+> Studio's own chat window. Verified by sending `response_format: {type:"json_schema", …}` over the
+> API with the toggle **off**: the response came back constrained to the schema — exactly the
+> declared properties, enum respected. Your application supplies the format in the request body and
+> the toggle has no bearing on it. Do not send anyone to switch it on when structured output is
+> failing; the cause is elsewhere.
+
+> **Grammar-constrained decoding guarantees the shape and nothing else.** A 27B model quantised to
+> `IQ2_M`, asked under a schema for a shot description, returned
+> `{"title":"Lighthouse Keeper at Dawn","people":-128,"shotSize":"medium"}`. Valid against the
+> schema; a negative headcount. Structured output cannot rescue a model too degraded to hold
+> meaning, it only makes the nonsense well-formed. **Treat roughly `Q4_K_M` as the floor for
+> schema-constrained work, and prefer a smaller model at higher precision over a larger one at two
+> bits** — schema adherence is the first thing low-bit quantisation loses.
+
 ### 4.2 Spell out the schema in the prompt
 
 A prompt that says *"return JSON matching the CreativeBrief schema"* is meaningless to a model that
@@ -360,6 +375,20 @@ the *loaded* value, not the advertised one.
 
 If you build long prompts, check this at startup and warn loudly. It is the most common cause of
 "it worked yesterday" reports after someone reloads a model with different settings.
+
+> **Worked example, because the arithmetic is easy to get backwards.** A 27B was loaded at
+> `loaded_context_length: 12032` while the application still had `max_tokens: 16000` from a previous
+> model. The cap exceeded the entire window, so it could never be honoured: 19 of 24 calls in one
+> run came back `finish_reason: "length"` with no usable content, and the artifact they fed fell
+> back to a template. `max_context_length` was 262144 the whole time and told you nothing useful.
+> **The number to check is `loaded_context_length`, and `max_tokens` must leave room for the prompt
+> beside it.**
+>
+> Symmetrically, a large cap is not a cause of anything on its own. In the same project a 24-scene
+> prompt measured 1,983 tokens and produced 5,197 tokens of output against a 32,768 window and a
+> 16,000 cap — a third of what was available, `finish_reason: "stop"`. When an artifact comes back
+> *short but well-formed*, the cap is not the constraint: **a truncated JSON response does not
+> parse**, so truncation shows up as a parse failure, never as a valid-but-incomplete object.
 
 ### 7.2 Measure prompt size without paying for generation
 
