@@ -28,7 +28,7 @@ describe("a character's face-swap prompt", () => {
   it("survives creation", async () => {
     const characters = await isolated();
     const created = await characters.createCharacter({
-      name: "Jaime",
+      name: "Dane",
       description: "A man in his fifties.",
       faceSwap: true,
       faceSwapPrompt: "swap the man",
@@ -41,7 +41,7 @@ describe("a character's face-swap prompt", () => {
   it("survives an edit", async () => {
     const characters = await isolated();
     const created = await characters.createCharacter({
-      name: "Jaime",
+      name: "Dane",
       description: "A man in his fifties.",
       faceSwap: true,
     });
@@ -59,13 +59,13 @@ describe("a character's face-swap prompt", () => {
   it("keeps the stored prompt when an edit does not mention it", async () => {
     const characters = await isolated();
     const created = await characters.createCharacter({
-      name: "Jaime",
+      name: "Dane",
       description: "A man in his fifties.",
       faceSwap: true,
       faceSwapPrompt: "swap the man",
     });
 
-    const updated = await characters.updateCharacter(created.id, { name: "Jaime R" });
+    const updated = await characters.updateCharacter(created.id, { name: "Dane R" });
 
     expect(updated.faceSwapPrompt).toBe("swap the man");
   });
@@ -74,7 +74,7 @@ describe("a character's face-swap prompt", () => {
   it("falls back to the default when cleared", async () => {
     const characters = await isolated();
     const created = await characters.createCharacter({
-      name: "Jaime",
+      name: "Dane",
       description: "A man in his fifties.",
       faceSwap: true,
       faceSwapPrompt: "swap the man",

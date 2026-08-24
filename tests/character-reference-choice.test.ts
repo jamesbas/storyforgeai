@@ -146,29 +146,29 @@ describe("choosing how a likeness reaches the frame", () => {
       description: "A woman in her fifties.",
     });
     await env.characters.setReferenceImage(mara.id, pngFile());
-    const jaime = await env.characters.createCharacter({
-      name: "Jaime",
+    const dane = await env.characters.createCharacter({
+      name: "Dane",
       description: "A man in his fifties, in a white polo shirt.",
     });
-    await env.characters.setReferenceImage(jaime.id, pngFile());
+    await env.characters.setReferenceImage(dane.id, pngFile());
 
     const project = await env.projects.createProject({
-      concept: "Mara and Jaime share a hotel suite.",
+      concept: "Mara and Dane share a hotel suite.",
       requestedDurationSeconds: 20,
       useCharacterLibrary: true,
-      characterIds: [mara.id, jaime.id],
+      characterIds: [mara.id, dane.id],
     });
     const built = await env.projects.generateStoryboard(project.id);
     const scene = built.storyboard!.scenes[0]!;
 
-    // The card holds both; only the end frame frames Jaime.
+    // The card holds both; only the end frame frames Dane.
     await env.projects.updateSceneCard(project.id, scene.id, {
-      visualDescription: "Mara stands by the door. Jaime waits in a corner chair.",
-      actionDescription: "Mara looks toward Jaime.",
+      visualDescription: "Mara stands by the door. Dane waits in a corner chair.",
+      actionDescription: "Mara looks toward Dane.",
     });
     await env.projects.updateScenePrompts(project.id, scene.id, {
       startFramePrompt: "Close on Mara alone at the door. Exactly one person is in frame.",
-      endFramePrompt: "Jaime rises from the corner chair as Mara turns to look at him.",
+      endFramePrompt: "Dane rises from the corner chair as Mara turns to look at him.",
     });
 
     const client = new env.MockWangpClient();
@@ -176,14 +176,14 @@ describe("choosing how a likeness reaches the frame", () => {
     env.setWangpClient(client);
     await env.media.generateSceneMedia(project.id, scene.id);
 
-    const jaimePhoto = (await env.characters.getCharacter(jaime.id)).referenceImages![0]!;
+    const danePhoto = (await env.characters.getCharacter(dane.id)).referenceImages![0]!;
     const refsFor = (needle: string) =>
       submitted.mock.calls
         .filter(([settings]) => String((settings as Record<string, unknown>).prompt ?? "").includes(needle))
         .flatMap(([settings]) => ((settings as Record<string, unknown>).image_refs as string[]) ?? []);
 
-    expect(refsFor("alone at the door").some((p) => p.includes(jaimePhoto))).toBe(false);
-    expect(refsFor("rises from the corner chair").some((p) => p.includes(jaimePhoto))).toBe(true);
+    expect(refsFor("alone at the door").some((p) => p.includes(danePhoto))).toBe(false);
+    expect(refsFor("rises from the corner chair").some((p) => p.includes(danePhoto))).toBe(true);
   });
 
   /**
@@ -202,28 +202,28 @@ describe("choosing how a likeness reaches the frame", () => {
       description: "A woman in her fifties.",
     });
     await env.characters.setReferenceImage(mara.id, pngFile());
-    const jaime = await env.characters.createCharacter({
-      name: "Jaime",
+    const dane = await env.characters.createCharacter({
+      name: "Dane",
       description: "A man in his fifties.",
     });
-    await env.characters.setReferenceImage(jaime.id, pngFile());
+    await env.characters.setReferenceImage(dane.id, pngFile());
 
     const project = await env.projects.createProject({
-      concept: "Mara and Jaime share a hotel suite.",
+      concept: "Mara and Dane share a hotel suite.",
       requestedDurationSeconds: 20,
       useCharacterLibrary: true,
-      characterIds: [mara.id, jaime.id],
+      characterIds: [mara.id, dane.id],
     });
     const built = await env.projects.generateStoryboard(project.id);
     const scene = built.storyboard!.scenes[0]!;
 
     await env.projects.updateSceneCard(project.id, scene.id, {
-      visualDescription: "Mara and Jaime stand together by the window.",
+      visualDescription: "Mara and Dane stand together by the window.",
       actionDescription: "They look out at the street.",
     });
     await env.projects.updateScenePrompts(project.id, scene.id, {
-      startFramePrompt: "Wide shot. Mara stands beside Jaime at the window.",
-      endFramePrompt: "Wide shot. Mara leans on Jaime at the window.",
+      startFramePrompt: "Wide shot. Mara stands beside Dane at the window.",
+      endFramePrompt: "Wide shot. Mara leans on Dane at the window.",
     });
 
     const client = new env.MockWangpClient();
@@ -233,7 +233,7 @@ describe("choosing how a likeness reaches the frame", () => {
 
     const photos = [
       (await env.characters.getCharacter(mara.id)).referenceImages![0]!,
-      (await env.characters.getCharacter(jaime.id)).referenceImages![0]!,
+      (await env.characters.getCharacter(dane.id)).referenceImages![0]!,
     ];
     for (const [settings] of submitted.mock.calls) {
       const refs = ((settings as Record<string, unknown>).image_refs as string[]) ?? [];

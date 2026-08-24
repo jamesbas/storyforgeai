@@ -12,9 +12,9 @@ const MARA = {
   referenceImagePaths: [],
 } as unknown as Character;
 
-const JAIME = {
-  id: "c-jaime",
-  name: "Jaime",
+const DANE = {
+  id: "c-dane",
+  name: "Dane",
   description: "A man in his 50s.",
   wardrobe: "blue jeans and a white polo shirt",
   referenceImagePaths: [],
@@ -26,9 +26,9 @@ const change = (character: string, newWardrobe: string, depictedOnScreen = true)
 
 describe("castWardrobeAfter", () => {
   it("re-dresses a character from a change declared in an earlier draft", () => {
-    const { cast } = castWardrobeAfter([MARA, JAIME], [{}, change("Mara", "nude")]);
+    const { cast } = castWardrobeAfter([MARA, DANE], [{}, change("Mara", "nude")]);
     expect(cast.find((c) => c.name === "Mara")!.wardrobe).toBe("nude");
-    expect(cast.find((c) => c.name === "Jaime")!.wardrobe).toBe(JAIME.wardrobe);
+    expect(cast.find((c) => c.name === "Dane")!.wardrobe).toBe(DANE.wardrobe);
   });
 
   it("keeps the last change when a character changes twice", () => {
@@ -60,8 +60,8 @@ describe("castWardrobeAfter", () => {
   });
 
   it("leaves the cast untouched when no change has been declared", () => {
-    const { cast, others } = castWardrobeAfter([MARA, JAIME], [{}, {}, {}]);
-    expect(cast.map((c) => c.wardrobe)).toEqual([MARA.wardrobe, JAIME.wardrobe]);
+    const { cast, others } = castWardrobeAfter([MARA, DANE], [{}, {}, {}]);
+    expect(cast.map((c) => c.wardrobe)).toEqual([MARA.wardrobe, DANE.wardrobe]);
     expect(others).toEqual({});
   });
 });

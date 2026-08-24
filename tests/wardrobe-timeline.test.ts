@@ -237,7 +237,7 @@ describe("unnamed people", () => {
     });
 
     it("drops a subject the frame never mentions", () => {
-      const body = "A tight shot of Jaime's face. Exactly one person is in frame: Jaime.";
+      const body = "A tight shot of Dane's face. Exactly one person is in frame: Dane.";
       expect(othersInFrame(body, others)).toEqual({});
     });
 

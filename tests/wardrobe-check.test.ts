@@ -97,16 +97,16 @@ describe("spotting an outfit that contradicts the action", () => {
    * fix that does nothing and a banner that never clears.
    */
   it("leaves a scene alone once someone has ruled on its wardrobe", () => {
-    const JAIME: Character = { ...MARA, id: "char-jaime", name: "Jaime" };
+    const DANE: Character = { ...MARA, id: "char-dane", name: "Dane" };
     const watched = project({
-      characterWardrobe: { "char-mara": "short black silk robe", "char-jaime": "blue jeans" },
+      characterWardrobe: { "char-mara": "short black silk robe", "char-dane": "blue jeans" },
       wardrobeChanges: {
         "p1-scene-002": [{ characterId: "char-mara", wardrobe: "nude", mode: "between" }],
       },
     });
     const scenes = [scene(2, "He watches as she climaxes.")];
 
-    expect(wardrobeContradictions(watched, scenes, [MARA, JAIME])).toEqual([]);
+    expect(wardrobeContradictions(watched, scenes, [MARA, DANE])).toEqual([]);
   });
 });
 

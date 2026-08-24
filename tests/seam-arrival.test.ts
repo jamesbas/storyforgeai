@@ -152,7 +152,7 @@ describe("the seam across an arrival", () => {
  */
 describe("counting the people a prompt states", () => {
   it("reads the clause the prompt agents write", () => {
-    expect(statedHeadcount("Wide shot. Exactly two people are in frame: Mara and Jaime.")).toBe(2);
+    expect(statedHeadcount("Wide shot. Exactly two people are in frame: Mara and Dane.")).toBe(2);
     expect(statedHeadcount("Close-up. Exactly one person is in frame: Mara.")).toBe(1);
   });
 

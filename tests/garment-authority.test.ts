@@ -38,7 +38,7 @@ describe("who is allowed to be wearing something", () => {
 describe("clothing the project specified is not clothing the model invented", () => {
   it("leaves an unpinned character in the outfit the visual bible gave him", () => {
     const prompt =
-      "Reyes, wearing an unbuttoned charcoal-grey dress shirt and dark slacks, sits on the bed.";
+      "Dane, wearing an unbuttoned charcoal-grey dress shirt and dark slacks, sits on the bed.";
     expect(withoutInventedGarments(prompt, `${PINNED} ${BIBLE}`)).toBe(prompt);
   });
 
@@ -52,7 +52,7 @@ describe("clothing the project specified is not clothing the model invented", ()
     // Pinned against the old behaviour so the regression stays visible. This is
     // what shipped: an unpinned husband, correctly dressed by the model from the
     // bible, rewritten to "naked" in nine consecutive scenes.
-    const prompt = "Reyes, wearing an unbuttoned charcoal-grey dress shirt, sits on the bed.";
+    const prompt = "Dane, wearing an unbuttoned charcoal-grey dress shirt, sits on the bed.";
     expect(withoutInventedGarments(prompt, PINNED)).toContain("naked");
   });
 
@@ -62,7 +62,7 @@ describe("clothing the project specified is not clothing the model invented", ()
   });
 
   it("reports only the garments no authority named", () => {
-    const prompt = "Reyes in dark slacks beside a woman in a leather corset.";
+    const prompt = "Dane in dark slacks beside a woman in a leather corset.";
     const found = inventedGarments(prompt, `${PINNED} ${BIBLE}`);
     expect(found).not.toContain("slacks");
     expect(found).toContain("corset");

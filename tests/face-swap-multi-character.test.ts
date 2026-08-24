@@ -70,7 +70,7 @@ async function castOfTwo(characters: Characters) {
   await characters.setReferenceImage(first.id, referenceUpload());
 
   const second = await characters.createCharacter({
-    name: "Jaime",
+    name: "Dane",
     description: "A man in his fifties.",
     faceSwap: true,
     faceSwapPrompt: "swap the man",

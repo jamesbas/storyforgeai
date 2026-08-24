@@ -55,24 +55,24 @@ describe("reading a negative prompt as a sampler does", () => {
 });
 
 /**
- * The agents write `dark skin for Jaime`, which reads as per-person direction
+ * The agents write `dark skin for Dane`, which reads as per-person direction
  * and is nothing of the sort: a negative prompt has no addressee, so the
  * sampler steers the whole frame away from dark skin — including the character
  * who is supposed to have it.
  */
 describe("exclusions the agents aimed at one character", () => {
-  const CAST = ["Jaime", "Mara"];
+  const CAST = ["Dane", "Mara"];
 
   it("drops them when more than one person is in frame", () => {
     expect(
-      withoutCharacterScopedTerms("blur, dark skin for Jaime, short hair for Mara", CAST, 3),
+      withoutCharacterScopedTerms("blur, dark skin for Dane, short hair for Mara", CAST, 3),
     ).toBe("blur");
   });
 
   /** The agents write both prepositions; catching one left the other unchecked. */
   it("catches the 'on <name>' phrasing as well as 'for <name>'", () => {
     expect(withoutCharacterScopedTerms("blur, black hair on Mara", CAST, 3)).toBe("blur");
-    expect(withoutCharacterScopedTerms("blur, blue eyes to Jaime", CAST, 3)).toBe("blur");
+    expect(withoutCharacterScopedTerms("blur, blue eyes to Dane", CAST, 3)).toBe("blur");
   });
 
   /** Anchored to a cast name, so an ordinary term containing "on" survives. */
@@ -84,14 +84,14 @@ describe("exclusions the agents aimed at one character", () => {
 
   /** With one person the scope is redundant rather than wrong. */
   it("keeps the trait and drops the name when the frame holds one person", () => {
-    expect(withoutCharacterScopedTerms("blur, dark skin for Jaime", CAST, 1)).toBe(
+    expect(withoutCharacterScopedTerms("blur, dark skin for Dane", CAST, 1)).toBe(
       "blur, dark skin",
     );
   });
 
   /** An exclusion that cannot be aimed is a liability, so silence is not consent. */
   it("drops them when the prompt states no population", () => {
-    expect(withoutCharacterScopedTerms("blur, dark skin for Jaime", CAST, null)).toBe("blur");
+    expect(withoutCharacterScopedTerms("blur, dark skin for Dane", CAST, null)).toBe("blur");
   });
 
   it("leaves an ordinary term that merely contains 'for' alone", () => {
@@ -101,7 +101,7 @@ describe("exclusions the agents aimed at one character", () => {
   });
 
   it("does nothing without a cast to match against", () => {
-    expect(withoutCharacterScopedTerms("dark skin for Jaime", [], 3)).toBe("dark skin for Jaime");
+    expect(withoutCharacterScopedTerms("dark skin for Dane", [], 3)).toBe("dark skin for Dane");
   });
 });
 
