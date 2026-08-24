@@ -3,6 +3,7 @@ import { buildStoryPlan } from "@/lib/agents/mock-agents";
 import { creativeModeDirective } from "@/lib/agents/look";
 import { explicitnessDirective } from "@/lib/agents/explicitness";
 import { executeArtifact, providerCall } from "@/lib/agents/provenance";
+import { asSegmentMap, withSegmentGapsFilled } from "@/lib/agents/segment-gaps";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import { SEGMENT_SECONDS } from "@/lib/types";
 import type { AgentContext } from "@/lib/agents/types";
@@ -68,7 +69,16 @@ export async function storyArchitectAgent(
   ctx: AgentContext,
   provider: PlanningProvider | null,
 ): Promise<StoryPlan> {
-  const user = JSON.stringify({ project: ctx.project, brief: ctx.brief });
+  const payload = { project: ctx.project, brief: ctx.brief };
+  const user = JSON.stringify(payload);
+  const system =
+    storyArchitectSystem(ctx.project.segmentSeconds, ctx.project.segmentCount) +
+    creativeModeDirective(ctx.project) +
+    // The beats written here are what the storyboard elaborates. A beat
+    // that ends at the moment it becomes explicit has already decided
+    // the piece is coy, and no downstream agent can restore an event
+    // that was never in the plan.
+    explicitnessDirective(ctx.project, "plan");
 
   const { value } = await executeArtifact<StoryPlan>({
     artifact: "story_plan",
@@ -78,19 +88,24 @@ export async function storyArchitectAgent(
     builderVersion: BUILDER_VERSION,
     provider,
     onExecution: ctx.onExecution,
+    // A short arc used to be discarded whole — logline, progression and every
+    // beat the model did write — for a numbered template. It is the artifact
+    // every later agent builds on, so that was the most expensive fallback in
+    // the app: six live runs in a row recorded `deterministic/short_collection`
+    // while every other canvas agent returned `llm/ok`.
     llm: provider
-      ? providerCall(
+      ? withSegmentGapsFilled(providerCall(provider, system, user, storyPlanSchema), {
+          field: "segmentBeats",
           provider,
-          storyArchitectSystem(ctx.project.segmentSeconds, ctx.project.segmentCount) +
-            creativeModeDirective(ctx.project) +
-            // The beats written here are what the storyboard elaborates. A beat
-            // that ends at the moment it becomes explicit has already decided
-            // the piece is coy, and no downstream agent can restore an event
-            // that was never in the plan.
-            explicitnessDirective(ctx.project, "plan"),
-          user,
-          storyPlanSchema,
-        )
+          system,
+          payload,
+          segmentCount: ctx.project.segmentCount,
+          read: (plan) => asSegmentMap.read(plan.segmentBeats),
+          write: (plan, map) => ({
+            ...plan,
+            segmentBeats: asSegmentMap.write(map, ctx.project.segmentCount),
+          }),
+        })
       : undefined,
     // One beat per segment, even if the model returned a different count.
     validate: (plan) =>
