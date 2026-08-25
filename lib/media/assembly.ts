@@ -49,9 +49,31 @@ export function selectApprovedAttempt(
   return { attempt: usable };
 }
 
+/**
+ * The newest take of a scene that could be approved, if any.
+ *
+ * Exported so the screen offering "approve all" and the service performing it
+ * answer from the same rule. A button counting scenes the service would then
+ * decline is the failure this avoids.
+ */
+export function bulkApprovableAttempt(
+  record: ProjectRecord,
+  sceneId: string,
+): SceneAttempt | undefined {
+  if (!selectApprovedAttempt(record, sceneId).reason) return undefined;
+  const attempts = record.attempts?.[sceneId] ?? [];
+  return [...attempts].reverse().find((a) => (a.videoPath ?? "").trim().length > 0);
+}
+
+/** Scenes `approveAllScenes` would approve, in scene order. */
+export function bulkApprovableScenes(record: ProjectRecord): string[] {
+  return (record.storyboard?.scenes ?? [])
+    .filter((scene) => bulkApprovableAttempt(record, scene.id))
+    .map((scene) => scene.id);
+}
+
 /** Every scene that blocks assembly, in scene order. */
-export function assemblyPrerequisites(record: ProjectRecord): MissingApproval[] {
-  const missing: MissingApproval[] = [];
+export function assemblyPrerequisites(record: ProjectRecord): MissingApproval[] {  const missing: MissingApproval[] = [];
   for (const scene of record.storyboard?.scenes ?? []) {
     const { reason } = selectApprovedAttempt(record, scene.id);
     if (reason) {

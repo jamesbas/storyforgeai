@@ -14,6 +14,11 @@ import type { FramePerson } from "@/lib/services/face-swap-service";
 import { referenceImagesOf } from "@/lib/schemas/character";
 import type { Character } from "@/lib/schemas/character";
 import { seamBreak, statedHeadcount } from "@/lib/media/seam";
+import {
+  bulkApprovableAttempt,
+  selectApprovedAttempt,
+  type MissingApproval,
+} from "@/lib/media/assembly";
 import { saveImportedFrame } from "@/lib/media/imported-frames";
 import { DEFAULT_SCENE_CONTINUITY, generationStages } from "@/lib/types";
 import { resolveProjectCast } from "@/lib/services/character-service";
@@ -2202,4 +2207,79 @@ export async function approveAttempt(
   };
   await repository.update(projectId, updated);
   return updated;
+}
+
+export type BulkApprovalResult = {
+  approved: number;
+  /** Scenes that still block assembly, with the reason they could not be taken. */
+  skipped: MissingApproval[];
+};
+
+/**
+ * Approve the newest usable take for every scene that has one.
+ *
+ * Eighteen scenes approved a card at a time is the case this answers. What it
+ * deliberately does not do is make the project *look* ready: a scene that never
+ * rendered, or whose only take produced no video, has nothing to approve and is
+ * returned as skipped rather than counted. Assembly reads the same
+ * `selectApprovedAttempt` afterwards, so a claim made here that the cut cannot
+ * honour would surface immediately anyway.
+ *
+ * A scene that is already approved is left exactly as it is, even when a newer
+ * take exists — choosing an older one is a decision, not a gap to fill.
+ *
+ * One write for the whole project, not one per scene: a bulk action that fails
+ * halfway should not leave a record no one asked for.
+ */
+export async function approveAllScenes(
+  projectId: string,
+): Promise<{ record: ProjectRecord; result: BulkApprovalResult }> {
+  const record = await getProjectRecord(projectId);
+  const attemptsBySceneId = { ...(record.attempts ?? {}) };
+  const skipped: MissingApproval[] = [];
+  const approvedSceneIds: string[] = [];
+
+  for (const scene of record.storyboard?.scenes ?? []) {
+    if (!selectApprovedAttempt(record, scene.id).reason) continue;
+
+    const attempts = attemptsBySceneId[scene.id] ?? [];
+    const usable = bulkApprovableAttempt(record, scene.id);
+    if (!usable) {
+      skipped.push({
+        sceneId: scene.id,
+        sceneNumber: scene.sceneNumber,
+        sceneTitle: scene.title,
+        reason: attempts.length ? "no_approved_attempt" : "no_attempt",
+      });
+      continue;
+    }
+
+    attemptsBySceneId[scene.id] = attempts.map((a) => ({ ...a, approved: a.id === usable.id }));
+    approvedSceneIds.push(scene.id);
+  }
+
+  if (!approvedSceneIds.length) {
+    return { record, result: { approved: 0, skipped } };
+  }
+
+  const at = new Date().toISOString();
+  let updated: ProjectRecord = { ...record, attempts: attemptsBySceneId };
+  for (const sceneId of approvedSceneIds) {
+    updated = withSceneStatus(updated, sceneId, "approved");
+  }
+  updated = {
+    ...updated,
+    history: [
+      ...(updated.history ?? []),
+      { at, action: "scenes.approved", detail: `${approvedSceneIds.length} scenes` },
+    ],
+  };
+
+  await repository.update(projectId, updated);
+  logEvent("scenes.bulk_approved", {
+    projectId,
+    approved: approvedSceneIds.length,
+    skipped: skipped.length,
+  });
+  return { record: updated, result: { approved: approvedSceneIds.length, skipped } };
 }

@@ -4,6 +4,7 @@ import {
   storyboardToMarkdown,
   generationManifestToJson,
 } from "@/lib/export/serialize";
+import { exportContentDisposition } from "@/lib/export/file-name";
 import { toErrorResponse } from "@/lib/http";
 import { ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
@@ -19,13 +20,17 @@ export async function GET(request: Request, props: Params) {
     const format = new URL(request.url).searchParams.get("format") ?? "json";
     logEvent("storyboard.exported", { projectId: params.projectId, format });
 
+    const title = record.project.title;
+    const attachment = (base: string, extension: string) =>
+      exportContentDisposition(base, title, extension);
+
     if (format === "md" || format === "markdown") {
       const markdown = storyboardToMarkdown(record);
       return new Response(markdown, {
         status: 200,
         headers: {
           "content-type": "text/markdown; charset=utf-8",
-          "content-disposition": `attachment; filename="storyboard.md"`,
+          "content-disposition": attachment("storyboard", "md"),
         },
       });
     }
@@ -38,7 +43,7 @@ export async function GET(request: Request, props: Params) {
         status: 200,
         headers: {
           "content-type": "application/json; charset=utf-8",
-          "content-disposition": `attachment; filename="animatic-plan.json"`,
+          "content-disposition": attachment("animatic-plan", "json"),
         },
       });
     }
@@ -48,7 +53,7 @@ export async function GET(request: Request, props: Params) {
         status: 200,
         headers: {
           "content-type": "application/json; charset=utf-8",
-          "content-disposition": `attachment; filename="generation-manifest.json"`,
+          "content-disposition": attachment("generation-manifest", "json"),
         },
       });
     }
@@ -61,7 +66,7 @@ export async function GET(request: Request, props: Params) {
         status: 200,
         headers: {
           "content-type": "application/json; charset=utf-8",
-          "content-disposition": `attachment; filename="final-cut-plan.json"`,
+          "content-disposition": attachment("final-cut-plan", "json"),
         },
       });
     }
@@ -71,7 +76,7 @@ export async function GET(request: Request, props: Params) {
       status: 200,
       headers: {
         "content-type": "application/json; charset=utf-8",
-        "content-disposition": `attachment; filename="storyboard.json"`,
+        "content-disposition": attachment("storyboard", "json"),
       },
     });
   } catch (err) {

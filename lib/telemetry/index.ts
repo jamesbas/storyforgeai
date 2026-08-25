@@ -12,6 +12,7 @@ export type TelemetryEvent =
   | "project.concept_fidelity"
   | "canvas_queue.enqueued"
   | "scene.video_only"
+  | "scenes.bulk_approved"
   | "canvas_queue.cancelled"
   | "canvas_queue.failed"
   | "project.updated"

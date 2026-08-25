@@ -5,7 +5,13 @@ import Link from "next/link";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { MediaDescriptor } from "@/lib/media/refs";
 import { generationStages } from "@/lib/types";
-import { assemblyReadiness, type MissingApproval, type MissingApprovalReason } from "@/lib/media/assembly";
+import {
+  assemblyReadiness,
+  bulkApprovableScenes,
+  type MissingApproval,
+  type MissingApprovalReason,
+} from "@/lib/media/assembly";
+import type { BulkApprovalResult } from "@/lib/services/media-service";
 import { useLoadEffect } from "@/components/shared/use-load-effect";
 import { AsyncStatus } from "@/components/shared/async-status";
 import { AudioCuePanel } from "@/components/assembly/audio-cue-panel";
@@ -25,6 +31,7 @@ export function AssemblyView({ projectId }: { projectId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState<MissingApproval[] | null>(null);
+  const [approved, setApproved] = useState<BulkApprovalResult | null>(null);
   const [deepy, setDeepy] = useState<string | null>(null);
 
   const load = useCallback(
@@ -74,6 +81,29 @@ export function AssemblyView({ projectId }: { projectId: string }) {
     }
   }, [projectId, load]);
 
+  const approveAll = useCallback(async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/approve-all`, { method: "POST" });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(data.error ?? "Failed to approve scenes");
+      }
+      const data = (await res.json()) as { record: ProjectRecord; result: BulkApprovalResult };
+      // The server's own count, not the button's optimism: a scene with no
+      // rendered take cannot be approved and is reported rather than assumed.
+      setApproved(data.result);
+      setConflict(null);
+      setRecord(data.record);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setBusy(false);
+    }
+  }, [projectId, load]);
+
   const askDeepy = useCallback(
     async (sceneId: string, target: string) => {
       const res = await fetch(`/api/projects/${projectId}/scenes/${sceneId}/deepy`, {
@@ -93,6 +123,7 @@ export function AssemblyView({ projectId }: { projectId: string }) {
   const canAssemble = record ? generationStages(record.project.generationMode).assembly : false;
   const readiness = record ? assemblyReadiness(record) : null;
   const missingApprovals = conflict ?? readiness?.missingApprovals ?? [];
+  const approvable = record ? bulkApprovableScenes(record) : [];
   const approvalsMet = Boolean(readiness?.ready) && missingApprovals.length === 0;
   const cut = media.find((m) => m.role === "final_cut" && m.available)
     ?? media.find((m) => m.role === "rough_cut" && m.available);
@@ -116,6 +147,16 @@ export function AssemblyView({ projectId }: { projectId: string }) {
           </p>
         </div>
         <div className="flex gap-2">
+          {canAssemble && approvable.length > 0 && (
+            <button
+              onClick={approveAll}
+              disabled={busy}
+              data-testid="approve-all-button"
+              className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
+            >
+              {busy ? "Approving…" : `Approve all scenes (${approvable.length})`}
+            </button>
+          )}
           <button
             onClick={assemble}
             disabled={busy || !canAssemble || !approvalsMet}
@@ -148,6 +189,15 @@ export function AssemblyView({ projectId }: { projectId: string }) {
           <p className="text-sm" role="status" aria-live="polite" data-testid="approval-count">
             {readiness.approvedScenes} of {readiness.totalScenes} scenes approved
           </p>
+          {approved && (
+            <p className="mt-1 text-xs text-slate-400" data-testid="bulk-approval-result">
+              {approved.approved > 0
+                ? `Approved ${approved.approved} ${approved.approved === 1 ? "scene" : "scenes"}.`
+                : "Nothing was approved."}
+              {approved.skipped.length > 0 &&
+                ` ${approved.skipped.length} still needs media before it can be approved.`}
+            </p>
+          )}
           {missingApprovals.length > 0 ? (
             <>
               <p className="mt-1 text-xs text-slate-400">
