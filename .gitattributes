@@ -1,0 +1,4 @@
+# The launcher package ships MANIFEST.json, a record of each file's SHA-256.
+# Line-ending conversion would rewrite those files on checkout and invalidate
+# every hash in it, so the bytes are stored and restored exactly as committed.
+wan2gp-mcp-launcher/** -text

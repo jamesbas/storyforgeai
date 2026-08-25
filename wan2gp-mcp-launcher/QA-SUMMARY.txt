@@ -1,0 +1,54 @@
+WAN2GP LAUNCHER QA SUMMARY
+============================
+
+Package version: 1.2
+
+Validated assumptions:
+- Wan2GP application root: C:\pinokio\api\wan.git\app (override with WAN2GP_PATH)
+- Virtual-environment Python: found under venv\, env\ or .venv\ inside that root
+- Native Wan2GP MCP launch flags:
+  --mcp
+  --mcp-transport streamable-http
+  --mcp-host
+  --mcp-port
+  --mcp-allow-read-file-system
+- Streamable HTTP client endpoint path: /mcp
+- Bind address: the local Tailscale IPv4 address, or 127.0.0.1 when absent
+- Default MCP port: 7866
+
+Corrections made after QA:
+1. Replaced fragile Tailscale executable property access with safe discovery.
+2. Added Tailscale adapter fallback if tailscale.exe is not on PATH.
+3. Added IPv4 and local-interface validation.
+4. Added MCP file and command-option preflight checks.
+5. Added a dedicated Validate action and one-click validation file.
+6. Added port-conflict detection before startup.
+7. Added process-start-time and command identity checks to prevent stale PID
+   reuse from terminating an unrelated process.
+8. Added process-tree termination for the validated Wan2GP instance.
+9. Added Python unbuffered mode for timely log updates.
+10. Increased startup monitoring to 180 seconds by default.
+11. Moved live log viewing to a separate PowerShell window.
+12. Added separate standard-output and error logs.
+
+Limit of this QA:
+The package was statically reviewed and checked against the current upstream
+Wan2GP MCP documentation. It cannot be fully executed against the user's
+Windows GPU machine from the artifact environment. The included preflight
+validation performs the machine-specific checks before first launch.
+
+
+VERSION 1.2 CORRECTION
+----------------------
+The v1.1 package contained one PowerShell parser error at the stopped-status
+message:
+
+    "Port $Port: ..."
+
+PowerShell interpreted "$Port:" as an invalid scoped-variable reference.
+It has been corrected to:
+
+    "Port ${Port}: ..."
+
+A QA rule now scans for bare variable names immediately followed by a colon,
+while allowing valid scoped references such as $env:LOCALAPPDATA.

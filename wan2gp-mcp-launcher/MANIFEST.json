@@ -1,0 +1,26 @@
+{
+  "QA-REPORT.json": {
+    "bytes": 805,
+    "sha256": "697fbb44e64229908814fd34f395c83fd68f9a1c10e6f46e8fd08ba268ff9077"
+  },
+  "QA-SUMMARY.txt": {
+    "bytes": 2095,
+    "sha256": "de270a39d81635db302683421a7e8573c50d0460b730646e10512292c4cc73f8"
+  },
+  "README.txt": {
+    "bytes": 5693,
+    "sha256": "0ab35ea4fc924e71ccd320b30d7d608d9c473f30bb18b43b0dc1dd599727c270"
+  },
+  "Validate-Wan2GP-MCP.cmd": {
+    "bytes": 265,
+    "sha256": "066d74037481f02d17b4a0aa885312389daadbbf328b96e8eb0cbaa05d77a6fa"
+  },
+  "Wan2GP-MCP-Launcher.cmd": {
+    "bytes": 252,
+    "sha256": "df8d563c32e7cd9d3e2e29f769015f4e08fc1a74687d25f407f1e1bf56ab1d37"
+  },
+  "Wan2GP-MCP-Launcher.ps1": {
+    "bytes": 35012,
+    "sha256": "3d8cba9872706a576c15e917c32af1beea20dae9bdcf00061d7ab8b8b35a9caa"
+  }
+}

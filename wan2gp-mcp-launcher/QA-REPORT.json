@@ -1,0 +1,20 @@
+{
+  "package_version": "1.2",
+  "qa_result": "passed_static_validation_after_parser_fix",
+  "fixed_issue": {
+    "line_type": "PowerShell interpolated string",
+    "invalid_form": "$Port:",
+    "correct_form": "${Port}:",
+    "reason": "A colon directly after a variable name is parsed as a scope/provider separator."
+  },
+  "checks": {
+    "delimiter_scan": "passed",
+    "ambiguous_variable_colon_scan": "passed",
+    "required_mcp_tokens": "passed",
+    "global_python_kill_absent": true,
+    "preflight_validation_included": true,
+    "stale_pid_protection_included": true,
+    "port_conflict_detection_included": true
+  },
+  "machine_execution_limit": "Full execution against the user's Windows, Tailscale, Pinokio, and GPU environment remains dependent on running Validate-Wan2GP-MCP.cmd locally."
+}
