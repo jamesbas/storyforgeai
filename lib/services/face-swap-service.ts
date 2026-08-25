@@ -5,6 +5,7 @@ import { findPinned } from "@/lib/wangp/model-router";
 import {
   FACE_SWAP_PROMPT,
   FACE_SWAP_SETTINGS,
+  faceSwapImageSettings,
 } from "@/lib/wangp/face-swap-preset";
 import { referenceImagesOf, wantsFaceSwap } from "@/lib/schemas/character";
 import { isUndressed, positiveGarments } from "@/lib/agents/wardrobe";
@@ -181,8 +182,11 @@ export async function swapFace(
         frame.others ?? [],
       )}`,
       // Picture 1 is the frame being corrected; Picture 2 is the face to apply.
-      image_guide: imagePath,
-      image_refs: [referencePath],
+      ...faceSwapImageSettings(
+        imagePath,
+        referencePath,
+        schema.fields.some((field) => field.name === "image_guide"),
+      ),
       model_type: model.modelType,
     };
 

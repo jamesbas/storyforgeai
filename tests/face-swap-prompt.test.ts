@@ -35,7 +35,17 @@ class RecordingClient extends MockWangpClient {
   }
 
   async getModelSchema(modelType: string): Promise<WangpModelSchema> {
-    return { modelType, defaultSettings: { prompt: "" }, fields: [{ name: "prompt", type: "string" }] };
+    // Declares `image_guide`, as the pinned Qwen edit model does live. A
+    // definition without it takes the ordered-reference path instead, covered
+    // in face-swap-reference-contract.test.ts.
+    return {
+      modelType,
+      defaultSettings: { prompt: "" },
+      fields: [
+        { name: "prompt", type: "string" },
+        { name: "image_guide", type: "string" },
+      ],
+    };
   }
 
   async generate(settings: Record<string, unknown>): Promise<WangpJob> {

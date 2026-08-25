@@ -112,7 +112,19 @@ available on this server".
 
 ## 4. There is no LoRA discovery tool
 
-**Severity: Medium.**
+**Severity: Medium. Resolved server-side — `wangp_list_loras` now exists.**
+
+> **Update, 2026-08-24 (server 1.10.1).** The server now advertises
+> `wangp_list_loras(model_type, name?)`, returning identifiers relative to the
+> model's LoRA directory that can be passed straight to `activated_loras`.
+> Discovery is recursive, so it also finds LoRAs in subfolders that a
+> non-recursive filesystem scan misses. This app still reads the filesystem,
+> because the sidecar metadata it needs for trigger words is not part of that
+> tool's result — but the inventory itself no longer has to come from disk, and
+> a client on a different host than the server should prefer the tool.
+
+The original finding, retained because the mapping problems below still apply
+to any filesystem fallback:
 
 Eleven tools are advertised and none of them list LoRAs, so discovery has to read
 the `loras/` folder from the filesystem. That forces a client into the same host

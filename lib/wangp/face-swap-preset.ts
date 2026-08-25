@@ -40,14 +40,12 @@ export const FACE_SWAP_STEPS = 4;
 /**
  * Settings a face-swap job needs beyond prompt and images.
  *
- * `video_prompt_type: "IV"` is what activates the reference alongside the guide
- * image on this model — the same counter-intuitive letter mechanism the
- * keyframe path uses.
+ * `video_prompt_type` is set per job by `faceSwapImageSettings`, since the
+ * letter depends on which reference contract the model publishes.
  */
 export const FACE_SWAP_SETTINGS: Record<string, unknown> = {
   image_mode: 1,
   image_prompt_type: "",
-  video_prompt_type: "IV",
   image_refs_relative_size: 50,
   remove_background_images_ref: 1,
   num_inference_steps: FACE_SWAP_STEPS,
@@ -60,3 +58,28 @@ export const FACE_SWAP_SETTINGS: Record<string, unknown> = {
   activated_loras: FACE_SWAP_LORAS.map((lora) => lora.name),
   loras_multipliers: FACE_SWAP_LORAS.map((lora) => lora.strength).join(" "),
 };
+
+/**
+ * How this model wants to be handed the frame being corrected.
+ *
+ * Two live contracts. The older Qwen edit definition takes the frame in
+ * `image_guide` and pairs it with the face through `video_prompt_type: "IV"`.
+ * The current one has dropped `image_guide` for an ordered `image_refs`, where
+ * `"KI"` marks the first entry as the shot and the rest as people to place in
+ * it.
+ *
+ * Decided by what the model declares rather than by version, because getting it
+ * wrong is silent: WanGP sets only the fields a schema declares, so a guide
+ * sent to a definition that no longer has one is discarded without complaint
+ * and the job runs on the face alone — which still returns a picture, of the
+ * wrong shot.
+ */
+export function faceSwapImageSettings(
+  framePath: string,
+  referencePath: string,
+  declaresImageGuide: boolean,
+): Record<string, unknown> {
+  return declaresImageGuide
+    ? { image_guide: framePath, image_refs: [referencePath], video_prompt_type: "IV" }
+    : { image_refs: [framePath, referencePath], video_prompt_type: "KI" };
+}

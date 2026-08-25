@@ -2,7 +2,11 @@ import { describe, it, expect } from "vitest";
 import { castPromptSuffix, castSheet, describedInline } from "@/lib/agents/cast";
 import { referenceImagesOf, wantsFaceSwap } from "@/lib/schemas/character";
 import { faceSwapSubjects } from "@/lib/services/face-swap-service";
-import { FACE_SWAP_LORAS, FACE_SWAP_SETTINGS } from "@/lib/wangp/face-swap-preset";
+import {
+  FACE_SWAP_LORAS,
+  FACE_SWAP_SETTINGS,
+  faceSwapImageSettings,
+} from "@/lib/wangp/face-swap-preset";
 import type { Character } from "@/lib/schemas/character";
 
 /**
@@ -251,9 +255,10 @@ describe("the face-swap preset", () => {
     expect(FACE_SWAP_SETTINGS.guidance_scale).toBe(1);
   });
 
-  /** "IV" is what activates the reference alongside the guide image. */
+  /** The activating letter now depends on which reference contract the model
+   * publishes, so it is chosen per job rather than fixed in the preset. */
   it("sets the activating prompt-type letters and strips the reference background", () => {
-    expect(FACE_SWAP_SETTINGS.video_prompt_type).toBe("IV");
+    expect(faceSwapImageSettings("/frame.png", "/face.png", true).video_prompt_type).toBe("IV");
     expect(FACE_SWAP_SETTINGS.image_prompt_type).toBe("");
     expect(FACE_SWAP_SETTINGS.remove_background_images_ref).toBe(1);
   });
