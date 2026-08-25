@@ -10,6 +10,8 @@
  * live together and are applied as a unit.
  */
 
+import type { WangpModelSchema } from "@/lib/schemas/wangp";
+
 export const FACE_SWAP_PROMPT =
   "head_swap: start with Picture 1 as the base image, keeping its lighting, environment, " +
   "and background. remove the head of only the woman from Picture 1 completely and replace " +
@@ -58,6 +60,31 @@ export const FACE_SWAP_SETTINGS: Record<string, unknown> = {
   activated_loras: FACE_SWAP_LORAS.map((lora) => lora.name),
   loras_multipliers: FACE_SWAP_LORAS.map((lora) => lora.strength).join(" "),
 };
+
+/**
+ * The preset reduced to the fields this checkpoint actually publishes.
+ *
+ * Face swap is the one generation path that does not build its request through
+ * `buildSettingsManifest`, so it was the one path that could hand a model a
+ * control it has never heard of. Live on server 1.10.1,
+ * `qwen_image_edit_plus2_20B` publishes neither a declaration nor a default for
+ * `image_mode`, and `krea2_turbo_edit` publishes no `guidance_scale` at all —
+ * there CFG is disabled rather than zero, and a fallback value is a schema
+ * error rather than a harmless no-op.
+ *
+ * Knowing a field means declaring it *or* publishing a default for it, not
+ * declaring it alone: `model_mode` and `masking_strength` are real controls on
+ * the swap model that appear only among its defaults.
+ */
+export function faceSwapSettingsFor(schema: WangpModelSchema): Record<string, unknown> {
+  const known = new Set([
+    ...schema.fields.map((field) => field.name),
+    ...Object.keys(schema.defaultSettings ?? {}),
+  ]);
+  return Object.fromEntries(
+    Object.entries(FACE_SWAP_SETTINGS).filter(([name]) => known.has(name)),
+  );
+}
 
 /**
  * How this model wants to be handed the frame being corrected.

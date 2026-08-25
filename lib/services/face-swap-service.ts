@@ -4,9 +4,10 @@ import { getWangpClient } from "@/lib/wangp/factory";
 import { findPinned } from "@/lib/wangp/model-router";
 import {
   FACE_SWAP_PROMPT,
-  FACE_SWAP_SETTINGS,
   faceSwapImageSettings,
+  faceSwapSettingsFor,
 } from "@/lib/wangp/face-swap-preset";
+import { singlePromptGenType } from "@/lib/wangp/settings";
 import { referenceImagesOf, wantsFaceSwap } from "@/lib/schemas/character";
 import { isUndressed, positiveGarments } from "@/lib/agents/wardrobe";
 import { resolveReferenceImagePath } from "@/lib/db/character-store";
@@ -172,15 +173,20 @@ export async function swapFace(
     }
 
     const schema = await client.getModelSchema(model.modelType);
+    const prompt = `${character.faceSwapPrompt?.trim() || FACE_SWAP_PROMPT}${swapTargetClause(
+      { wardrobe: frame.wardrobe, description: character.description },
+      frame.others ?? [],
+    )}`;
+    const genType = singlePromptGenType(schema, prompt);
     const settings: Record<string, unknown> = {
       ...schema.defaultSettings,
-      ...FACE_SWAP_SETTINGS,
+      ...faceSwapSettingsFor(schema),
       // Only the prompt is per-character; the LoRAs, steps and solver in
       // FACE_SWAP_SETTINGS are a matched set and stay as the preset defines.
-      prompt: `${character.faceSwapPrompt?.trim() || FACE_SWAP_PROMPT}${swapTargetClause(
-        { wardrobe: frame.wardrobe, description: character.description },
-        frame.others ?? [],
-      )}`,
+      prompt,
+      // The swap prompt is an editable textarea, and this model's saved state
+      // splits on line breaks.
+      ...(genType ? { multi_prompts_gen_type: genType } : {}),
       // Picture 1 is the frame being corrected; Picture 2 is the face to apply.
       ...faceSwapImageSettings(
         imagePath,

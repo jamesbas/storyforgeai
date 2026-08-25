@@ -35,15 +35,26 @@ class RecordingClient extends MockWangpClient {
   }
 
   async getModelSchema(modelType: string): Promise<WangpModelSchema> {
-    // Declares `image_guide`, as the pinned Qwen edit model does live. A
-    // definition without it takes the ordered-reference path instead, covered
-    // in face-swap-reference-contract.test.ts.
+    // Mirrors what `qwen_image_edit_plus2_20B` publishes live: `image_guide`
+    // declared, and the preset's controls present as declarations or defaults.
+    // A thinner fake would pass while the real request lost its LoRA stack.
     return {
       modelType,
-      defaultSettings: { prompt: "" },
+      defaultSettings: {
+        prompt: "",
+        model_mode: 0,
+        masking_strength: 1,
+        // The real model ships this, and it is what splits a prompt on newlines.
+        multi_prompts_gen_type: "PG",
+      },
       fields: [
         { name: "prompt", type: "string" },
         { name: "image_guide", type: "string" },
+        { name: "num_inference_steps", type: "number" },
+        { name: "guidance_scale", type: "number" },
+        { name: "sample_solver", type: "string" },
+        { name: "activated_loras", type: "string" },
+        { name: "loras_multipliers", type: "string" },
       ],
     };
   }
@@ -153,5 +164,32 @@ describe("the prompt a swap is sent with", () => {
 
     expect(client.settings?.image_guide).toBe("/frame.png");
     expect((client.settings?.image_refs as string[])[0]).toMatch(/ref\.png$/);
+  });
+  /**
+   * The swap prompt is an editable textarea, and this model's saved state reads
+   * a line break as a boundary between generations — four paragraphs become
+   * four requests against the one task submitted. Face swap does not go through
+   * `buildSettingsManifest`, which is where every other path is corrected.
+   */
+  it("tells the model a multi-line swap prompt is still one generation", async () => {
+    const client = new RecordingClient();
+    setWangpClient(client);
+    const character = await characterWithReference({
+      faceSwapPrompt: "Swap the head.\n\nKeep the lighting.",
+    });
+
+    await swapFace("/frame.png", character, { sceneId: "s1", purpose: "start_frame" });
+
+    expect(client.settings?.multi_prompts_gen_type).toBe("FG");
+  });
+
+  it("does not write the setting for a single-line prompt", async () => {
+    const client = new RecordingClient();
+    setWangpClient(client);
+    const character = await characterWithReference({ faceSwapPrompt: "Swap the head." });
+
+    await swapFace("/frame.png", character, { sceneId: "s1", purpose: "start_frame" });
+
+    expect(client.settings?.multi_prompts_gen_type).toBe("PG");
   });
 });

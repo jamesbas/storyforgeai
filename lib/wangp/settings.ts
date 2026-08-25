@@ -176,11 +176,35 @@ function applyLoras(
 }
 
 /**
+ * What a line break in the prompt means to this model, when it needs correcting.
+ *
+ * `multi_prompts_gen_type` decides whether a carriage return separates two
+ * generations or is simply text. WanGP's saved state arrives as "PG", under
+ * which a four-paragraph prompt becomes four generation requests against the
+ * one task submitted — the server rejects the mismatch, and where it does not,
+ * the clip bears no relation to any of the sections. A hand-made run of the
+ * same model that worked has "FG".
+ *
+ * Exported because face swap builds its request without `buildSettingsManifest`
+ * and inherits the model's "PG" the same way. Its prompt is a five-row textarea,
+ * so a line break in it is a keystroke away.
+ *
+ * Written directly rather than through `setIf`: this is saved UI state rather
+ * than a declared field, exactly like `batch_size`.
+ */
+export function singlePromptGenType(
+  schema: WangpModelSchema,
+  prompt: unknown,
+): "FG" | undefined {
+  if (typeof prompt !== "string" || !prompt.includes("\n")) return undefined;
+  return "multi_prompts_gen_type" in (schema.defaultSettings ?? {}) ? "FG" : undefined;
+}
+
+/**
  * Build a settings manifest from a model's default settings, changing only
  * schema-supported fields (spec Sections 11.2 / 11.3). FPS and video length are
  * validated against the model's allowed values when present.
- */
-export function buildSettingsManifest(
+ */export function buildSettingsManifest(
   schema: WangpModelSchema,
   overrides: ManifestOverrides,
 ): WangpGenerationSettings {
@@ -244,20 +268,8 @@ export function buildSettingsManifest(
   }
 
   // One prompt, however many lines it has.
-  //
-  // `multi_prompts_gen_type` decides what a carriage return in the prompt
-  // means. WanGP's saved state for MiniMax H3 arrives as "PG", and a labelled
-  // multi-section prompt sent under it came back as a clip bearing no relation
-  // to any of its sections. A hand-made run of the same model that worked has
-  // "FG", so that is what a multi-line prompt is sent with. Written directly
-  // because it is saved UI state rather than a declared field, exactly like
-  // `batch_size`.
-  if (
-    String(overrides.prompt).includes("\n") &&
-    "multi_prompts_gen_type" in schema.defaultSettings
-  ) {
-    settings.multi_prompts_gen_type = "FG";
-  }
+  const genType = singlePromptGenType(schema, overrides.prompt);
+  if (genType) settings.multi_prompts_gen_type = genType;
 
   // The step-skipping cache is deliberately not set here.
   //
