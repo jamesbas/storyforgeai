@@ -1,12 +1,45 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import { MAX_REFERENCE_IMAGES, referenceImagesOf } from "@/lib/schemas/character";
-import { FACE_SWAP_PROMPT } from "@/lib/wangp/face-swap-preset";
+import {
+  MAX_FACE_SWAP_PROMPT,
+  MAX_FACE_SWAP_STEPS,
+  MIN_FACE_SWAP_STEPS,
+  MAX_REFERENCE_IMAGES,
+  faceSwapPromptOf,
+  referenceImagesOf,
+} from "@/lib/schemas/character";
+import {
+  DEFAULT_FACE_SWAP_METHOD,
+  DEFAULT_FACE_SWAP_SUBJECT,
+  FACE_SWAP_METHODS,
+  FACE_SWAP_STEP_HINT,
+  FACE_SWAP_SUBJECTS,
+  faceSwapPromptFor,
+  isDefaultFaceSwapPrompt,
+  type FaceSwapMethod,
+  type FaceSwapSubject,
+} from "@/lib/wangp/face-swap-preset";
 import { useLoadEffect } from "@/components/shared/use-load-effect";
 import type { Character } from "@/lib/schemas/character";
 
 type CharactersResponse = { characters: Character[] };
+
+/** What each engine is good at, in the terms someone choosing has to decide on. */
+const FACE_SWAP_METHOD_CHOICES: { value: FaceSwapMethod; title: string; detail: string }[] = [
+  {
+    value: "krea",
+    title: "Krea Identity Edit (Turbo)",
+    detail:
+      "A model built for identity transfer, run bare with no LoRAs. Tests better on likeness and is the recommended choice.",
+  },
+  {
+    value: "qwen",
+    title: "Qwen Image Edit + head LoRA",
+    detail:
+      "The original recipe: a head-swap LoRA on a 4-step Lightning schedule. Worth trying where Krea drifts on a difficult face.",
+  },
+];
 
 const EMPTY_DRAFT = {
   name: "",
@@ -15,8 +48,52 @@ const EMPTY_DRAFT = {
   wardrobe: "",
   negativePrompt: "",
   faceSwap: false,
-  faceSwapPrompt: "",
+  faceSwapPromptKrea: "",
+  faceSwapPromptQwen: "",
+  faceSwapStepsKrea: "",
+  faceSwapStepsQwen: "",
+  faceSwapMethod: DEFAULT_FACE_SWAP_METHOD as FaceSwapMethod,
+  faceSwapSubject: DEFAULT_FACE_SWAP_SUBJECT as FaceSwapSubject,
 };
+
+type Draft = typeof EMPTY_DRAFT;
+
+const STEPS_FIELD = {
+  krea: "faceSwapStepsKrea",
+  qwen: "faceSwapStepsQwen",
+} as const satisfies Record<FaceSwapMethod, keyof Draft>;
+
+const PROMPT_FIELD = {
+  krea: "faceSwapPromptKrea",
+  qwen: "faceSwapPromptQwen",
+} as const satisfies Record<FaceSwapMethod, keyof Draft>;
+
+/**
+ * Re-seed whichever boxes are still showing a default.
+ *
+ * Changing the subject is a statement about who the character is, so it has to
+ * reach the wording — otherwise picking "man" leaves two prompts talking about
+ * a woman. It must not reach wording someone typed themselves, which is the
+ * only thing separating a helpful default from losing their work.
+ */
+function withSubject(draft: Draft, subject: FaceSwapSubject): Draft {
+  const next = { ...draft, faceSwapSubject: subject };
+  for (const method of FACE_SWAP_METHODS) {
+    const field = PROMPT_FIELD[method];
+    if (isDefaultFaceSwapPrompt(draft[field])) next[field] = faceSwapPromptFor(method, subject);
+  }
+  return next;
+}
+
+/** Both boxes filled from the defaults, for a character that has none yet. */
+function seededPrompts(draft: Draft): Draft {
+  const next = { ...draft };
+  for (const method of FACE_SWAP_METHODS) {
+    const field = PROMPT_FIELD[method];
+    if (!next[field].trim()) next[field] = faceSwapPromptFor(method, draft.faceSwapSubject);
+  }
+  return next;
+}
 
 /**
  * The global character library.
@@ -87,7 +164,16 @@ export function CharacterLibrary() {
         wardrobe: draft.wardrobe || undefined,
         negativePrompt: draft.negativePrompt || undefined,
         faceSwap: draft.faceSwap,
-        faceSwapPrompt: draft.faceSwapPrompt || undefined,
+        faceSwapPrompts: {
+          krea: draft.faceSwapPromptKrea || undefined,
+          qwen: draft.faceSwapPromptQwen || undefined,
+        },
+        faceSwapSteps: {
+          krea: Number(draft.faceSwapStepsKrea) || undefined,
+          qwen: Number(draft.faceSwapStepsQwen) || undefined,
+        },
+        faceSwapMethod: draft.faceSwapMethod,
+        faceSwapSubject: draft.faceSwapSubject,
       });
       const ok = editingId
         ? await request(
@@ -219,14 +305,13 @@ export function CharacterLibrary() {
               type="checkbox"
               checked={draft.faceSwap}
               onChange={(e) =>
-                setDraft((d) => ({
-                  ...d,
-                  faceSwap: e.target.checked,
-                  // Seed the wording so it can be edited rather than written
-                  // from nothing. Ticking is when it first becomes relevant.
-                  faceSwapPrompt:
-                    e.target.checked && !d.faceSwapPrompt ? FACE_SWAP_PROMPT : d.faceSwapPrompt,
-                }))
+                setDraft((d) =>
+                  // Seed both boxes so the wording can be edited rather than
+                  // written from nothing. Ticking is when it first matters.
+                  e.target.checked
+                    ? seededPrompts({ ...d, faceSwap: true })
+                    : { ...d, faceSwap: false },
+                )
               }
               className="mt-1"
             />
@@ -242,40 +327,152 @@ export function CharacterLibrary() {
           </label>
         </div>
         {draft.faceSwap ? (
-          <div>
-            <div className="flex items-baseline justify-between gap-3">
-              <label htmlFor="character-face-swap-prompt" className={label}>
-                Face-swap prompt
-              </label>
-              <button
-                type="button"
-                onClick={() => setDraft((d) => ({ ...d, faceSwapPrompt: FACE_SWAP_PROMPT }))}
-                disabled={draft.faceSwapPrompt === FACE_SWAP_PROMPT}
-                className="text-[11px] text-accent underline underline-offset-2 disabled:no-underline disabled:opacity-40"
-              >
-                Reset to default
-              </button>
+          <fieldset data-testid="face-swap-method">
+            <legend className={label}>Face-swap method</legend>
+            <div className="mt-1 space-y-2">
+              {FACE_SWAP_METHOD_CHOICES.map((choice) => (
+                <label key={choice.value} className="flex items-start gap-2">
+                  <input
+                    type="radio"
+                    name="face-swap-method"
+                    value={choice.value}
+                    checked={draft.faceSwapMethod === choice.value}
+                    onChange={() => setDraft((d) => ({ ...d, faceSwapMethod: choice.value }))}
+                    className="mt-1"
+                  />
+                  <span>
+                    <span className="text-xs text-slate-200">{choice.title}</span>
+                    <span className="mt-1 block text-[11px] text-slate-500">{choice.detail}</span>
+                  </span>
+                </label>
+              ))}
             </div>
-            <textarea
-              id="character-face-swap-prompt"
-              rows={5}
-              maxLength={1000}
-              value={draft.faceSwapPrompt}
-              onChange={(e) => setDraft((d) => ({ ...d, faceSwapPrompt: e.target.value }))}
-              className={`mt-1 w-full ${field}`}
-            />
             <p className="mt-1 text-[11px] text-slate-500">
-              Starts as the default wording, which you edit rather than replace.{" "}
-              <strong>Picture 1</strong> is the rendered frame and <strong>Picture 2</strong> is this
-              character&apos;s reference photo. The default names &ldquo;the woman&rdquo;, so change
-              that for a man. Where two characters share a frame, say which person this one is —
-              &ldquo;the man&rdquo;, &ldquo;the blonde woman&rdquo; — because the model cannot
-              otherwise tell them apart. Only the wording is yours; the LoRAs and step count stay as
-              the preset sets them. Clear the box to fall back to the default.{" "}
-              {counter(draft.faceSwapPrompt, 1000)}
+              Each engine keeps its own prompt below, so switching back and forth costs nothing and
+              neither wording is lost. If the chosen model is not installed in WanGP the swap is
+              skipped rather than run on the other one, since the two produce visibly different
+              faces.
+            </p>
+          </fieldset>
+        ) : null}
+        {draft.faceSwap ? (
+          <div>
+            <label htmlFor="character-face-swap-subject" className={label}>
+              Refer to this character as
+            </label>
+            <select
+              id="character-face-swap-subject"
+              value={draft.faceSwapSubject}
+              onChange={(e) => setDraft((d) => withSubject(d, e.target.value as FaceSwapSubject))}
+              className={`mt-1 ${field}`}
+            >
+              {FACE_SWAP_SUBJECTS.map((subject) => (
+                <option key={subject} value={subject}>
+                  the {subject}
+                </option>
+              ))}
+            </select>
+            <p className="mt-1 text-[11px] text-slate-500">
+              Both engines have to name the person they are editing, and neither can be told
+              &ldquo;the character&rdquo;. This only rewrites the prompts below while they are still
+              the default wording — once you have edited one, it is left alone.
             </p>
           </div>
         ) : null}
+        {draft.faceSwap
+          ? FACE_SWAP_METHOD_CHOICES.map((choice) => {
+              const fieldName = PROMPT_FIELD[choice.value];
+              const value = draft[fieldName];
+              const fallback = faceSwapPromptFor(choice.value, draft.faceSwapSubject);
+              const active = draft.faceSwapMethod === choice.value;
+              return (
+                <div key={choice.value}>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <label htmlFor={`character-face-swap-prompt-${choice.value}`} className={label}>
+                      {choice.title} prompt{" "}
+                      {active ? (
+                        <span className="text-accent" data-testid={`prompt-active-${choice.value}`}>
+                          — in use
+                        </span>
+                      ) : null}
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setDraft((d) => ({ ...d, [fieldName]: fallback }))}
+                      disabled={value === fallback}
+                      className="text-[11px] text-accent underline underline-offset-2 disabled:no-underline disabled:opacity-40"
+                    >
+                      Reset to default
+                    </button>
+                  </div>
+                  <textarea
+                    id={`character-face-swap-prompt-${choice.value}`}
+                    data-testid={`face-swap-prompt-${choice.value}`}
+                    rows={choice.value === "krea" ? 4 : 5}
+                    maxLength={MAX_FACE_SWAP_PROMPT}
+                    value={value}
+                    onChange={(e) => setDraft((d) => ({ ...d, [fieldName]: e.target.value }))}
+                    className={`mt-1 w-full ${field}`}
+                  />
+                  <p className="mt-1 text-[11px] text-slate-500">
+                    {choice.value === "krea" ? (
+                      <>
+                        Krea wants a short edit instruction. It reads the rendered frame as{" "}
+                        <strong>the first image</strong> and this character&apos;s reference photo as{" "}
+                        <strong>the 2nd reference image</strong>.
+                      </>
+                    ) : (
+                      <>
+                        Qwen wants a long transplant instruction. It reads the rendered frame as{" "}
+                        <strong>Picture 1</strong> and this character&apos;s reference photo as{" "}
+                        <strong>Picture 2</strong>.
+                      </>
+                    )}{" "}
+                    Where two characters share a frame, say which person this one is — &ldquo;the
+                    man&rdquo;, &ldquo;the blonde woman&rdquo; — because the model cannot otherwise
+                    tell them apart. Clear the box to fall back to the default.{" "}
+                    {counter(value, MAX_FACE_SWAP_PROMPT)}
+                  </p>
+                  <div className="mt-2 flex items-baseline gap-2">
+                    <label
+                      htmlFor={`character-face-swap-steps-${choice.value}`}
+                      className="text-[11px] text-slate-400"
+                    >
+                      Steps
+                    </label>
+                    <input
+                      id={`character-face-swap-steps-${choice.value}`}
+                      data-testid={`face-swap-steps-${choice.value}`}
+                      type="number"
+                      min={MIN_FACE_SWAP_STEPS}
+                      max={MAX_FACE_SWAP_STEPS}
+                      value={draft[STEPS_FIELD[choice.value]]}
+                      placeholder={String(FACE_SWAP_STEP_HINT[choice.value])}
+                      onChange={(e) =>
+                        setDraft((d) => ({ ...d, [STEPS_FIELD[choice.value]]: e.target.value }))
+                      }
+                      className={`w-20 ${field}`}
+                    />
+                    <span className="text-[11px] text-slate-500">
+                      {choice.value === "krea" ? (
+                        <>
+                          Empty uses the model&apos;s own default (
+                          {FACE_SWAP_STEP_HINT.krea}). More steps favour keeping the original
+                          composition; this is the main dial worth turning here.
+                        </>
+                      ) : (
+                        <>
+                          Empty uses {FACE_SWAP_STEP_HINT.qwen}, which is not a free number — the
+                          head LoRA expects the accelerator&apos;s four-step schedule, so changing it
+                          is an experiment rather than a tuning.
+                        </>
+                      )}
+                    </span>
+                  </div>
+                </div>
+              );
+            })
+          : null}
         <div>
           <label htmlFor="character-wardrobe" className={label}>
             Default wardrobe (optional)
@@ -411,10 +608,14 @@ export function CharacterLibrary() {
                       wardrobe: character.wardrobe ?? "",
                       negativePrompt: character.negativePrompt ?? "",
                       faceSwap: Boolean(character.faceSwap),
-                      // An existing character saved before this field existed
-                      // opens on the default rather than on an empty box.
-                      faceSwapPrompt:
-                        character.faceSwapPrompt ?? (character.faceSwap ? FACE_SWAP_PROMPT : ""),
+                      // A character saved before the split kept one prompt, and
+                      // it was written against Qwen, so it opens as Qwen's.
+                      faceSwapPromptKrea: faceSwapPromptOf(character, "krea"),
+                      faceSwapPromptQwen: faceSwapPromptOf(character, "qwen"),
+                      faceSwapStepsKrea: String(character.faceSwapSteps?.krea ?? ""),
+                      faceSwapStepsQwen: String(character.faceSwapSteps?.qwen ?? ""),
+                      faceSwapMethod: character.faceSwapMethod ?? DEFAULT_FACE_SWAP_METHOD,
+                      faceSwapSubject: character.faceSwapSubject ?? DEFAULT_FACE_SWAP_SUBJECT,
                     });
                   }}
                   className="text-accent hover:underline disabled:opacity-50"

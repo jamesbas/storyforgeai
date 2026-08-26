@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
-import { createProject, generateStoryboard } from "@/lib/services/project-service";
+import {
+  createProject,
+  generateStoryboard,
+  getProjectRecord,
+  updateProjectModels,
+} from "@/lib/services/project-service";
 import {
   enqueueProjectScenes,
   getQueue,
@@ -73,6 +78,65 @@ describe("scene generation queue", () => {
       record.storyboard!.scenes.length,
     );
     await waitForQueue();
+  });
+
+  /**
+   * A scene with keyframes and no clip is unfinished, so it has to be queued —
+   * but it needs the clip, not a second pair of frames. Re-rendering them costs
+   * two image jobs to arrive back where it started, and supersedes whatever was
+   * done to them since: a face swap, a hand edit, an imported frame.
+   */
+  describe("a scene that banked keyframes but never got its clip", () => {
+    async function keyframesWithoutClips() {
+      const project = await createProject({
+        concept: "A courier crosses a flooded city.",
+        requestedDurationSeconds: 60,
+        generationMode: "keyframes_only",
+      });
+      const record = await generateStoryboard(project.id);
+      await enqueueProjectScenes(record.project.id);
+      await waitForQueue();
+
+      // The frames exist; the project now wants clips too.
+      return updateProjectModels(record.project.id, { generationMode: "video_segments" });
+    }
+
+    it("is queued for the clip alone", async () => {
+      const record = await keyframesWithoutClips();
+      const queued = await enqueueProjectScenes(record.project.id);
+
+      expect(queued.length).toBe(record.storyboard!.scenes.length);
+      expect(queued.every((entry) => entry.scope === "video")).toBe(true);
+    });
+
+    it("keeps the frames it already had", async () => {
+      const record = await keyframesWithoutClips();
+      const sceneId = record.storyboard!.scenes[0]!.id;
+      const before = record.attempts![sceneId]!.at(-1)!;
+
+      await enqueueProjectScenes(record.project.id);
+      await waitForQueue();
+
+      const after = (await getProjectRecord(record.project.id)).attempts![sceneId]!.at(-1)!;
+      expect(after.videoPath).toBeTruthy();
+      expect(after.startImagePath).toBe(before.startImagePath);
+      expect(after.endImagePath).toBe(before.endImagePath);
+    });
+
+    /** "Regenerate all" is the explicit ask for a redo, and must still redo. */
+    it("is redone in full when that is what was asked for", async () => {
+      const record = await keyframesWithoutClips();
+      const queued = await enqueueProjectScenes(record.project.id, { includeGenerated: true });
+
+      expect(queued.every((entry) => entry.scope === "full")).toBe(true);
+    });
+
+    it("still runs a full pass where there is nothing to reuse", async () => {
+      const record = await seed();
+      const queued = await enqueueProjectScenes(record.project.id);
+
+      expect(queued.every((entry) => entry.scope === "full")).toBe(true);
+    });
   });
 
   it("cancels the scenes that have not started", async () => {

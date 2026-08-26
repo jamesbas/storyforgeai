@@ -5,6 +5,8 @@
  * with an empty environment (generic-build-spec Section 5.2).
  */
 
+import type { FaceSwapMethod } from "@/lib/wangp/face-swap-preset";
+
 function bool(value: string | undefined, fallback = false): boolean {
   if (value === undefined) return fallback;
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
@@ -245,8 +247,17 @@ export const config = {
      * it. Off here disables the feature globally regardless of character setup.
      */
     faceSwapEnabled: bool(process.env.FACE_SWAP_ENABLED, true),
-    /** WanGP model used for the swap. Must be a Qwen Image Edit variant. */
-    faceSwapModel: str(process.env.FACE_SWAP_MODEL, "qwen_image_edit_plus2_20B"),
+    /**
+     * The checkpoint behind each swap engine, chosen per character in Settings.
+     *
+     * `qwen` must be a Qwen Image Edit variant, because its preset carries
+     * Qwen-architecture LoRAs. `krea` must be a Krea Identity Edit variant
+     * (`krea2_raw_edit` is the non-distilled sibling), which runs bare.
+     */
+    faceSwapModels: {
+      qwen: str(process.env.FACE_SWAP_MODEL, "qwen_image_edit_plus2_20B"),
+      krea: str(process.env.FACE_SWAP_KREA_MODEL, "krea2_turbo_edit"),
+    } satisfies Record<FaceSwapMethod, string>,
   },
   sceneQueue: {
     /**

@@ -3,12 +3,22 @@ import { logEvent } from "@/lib/telemetry";
 import { getWangpClient } from "@/lib/wangp/factory";
 import { findPinned } from "@/lib/wangp/model-router";
 import {
-  FACE_SWAP_PROMPT,
   faceSwapImageSettings,
+  faceSwapPresetFor,
   faceSwapSettingsFor,
+  faceSwapTargetClauseFor,
+  faceSwapTaskFlagsFor,
+  DEFAULT_FACE_SWAP_METHOD,
+  type FaceSwapMethod,
 } from "@/lib/wangp/face-swap-preset";
 import { singlePromptGenType } from "@/lib/wangp/settings";
-import { referenceImagesOf, wantsFaceSwap } from "@/lib/schemas/character";
+import {
+  faceSwapMethodOf,
+  faceSwapPromptOf,
+  faceSwapStepsOf,
+  referenceImagesOf,
+  wantsFaceSwap,
+} from "@/lib/schemas/character";
 import { isUndressed, positiveGarments } from "@/lib/agents/wardrobe";
 import { resolveReferenceImagePath } from "@/lib/db/character-store";
 import type { Character } from "@/lib/schemas/character";
@@ -18,16 +28,21 @@ import type { Character } from "@/lib/schemas/character";
  *
  * Reference conditioning gets identity close; it does not get it exact, because
  * the base model is still synthesising a face rather than transplanting one.
- * This runs a dedicated Qwen Image Edit pass that replaces the head in a
- * generated frame with the head from the character's reference photo.
+ * This runs a dedicated image-edit pass that replaces the head in a generated
+ * frame with the head from the character's reference photo.
+ *
+ * Which engine runs it is a per-character setting. Krea 2 Turbo Identity Edit
+ * is a purpose-built identity model and the default; the Qwen Image Edit recipe
+ * with its head LoRA is kept for characters the Krea path does not suit. Both
+ * take the same prompt and the same reference photo.
  *
  * It is deliberately *not* a background job. The end frame is rendered against
  * the start frame, and the clip is rendered from both, so a swap that landed
  * afterwards would be overwritten by the very frames it was meant to correct.
  * The swap has to sit between renders, which makes it a synchronous step.
  *
- * The whole pass is four Lightning steps — seconds, not the minutes a keyframe
- * costs — so the ordering constraint is cheap to honour.
+ * The whole pass is a handful of distilled steps — seconds, not the minutes a
+ * keyframe costs — so the ordering constraint is cheap to honour.
  */
 
 /**
@@ -87,8 +102,16 @@ function hairToken(description: string | undefined): string | undefined {
  *
  * Empty when the frame holds nobody else — a single-figure shot has nothing to
  * confuse and keeps the template exactly as written.
+ *
+ * Phrased for the engine running the pass: "Picture 1" is Qwen's name for the
+ * frame and means nothing to Krea, which is addressed in terms of the first
+ * image.
  */
-export function swapTargetClause(target: FramePerson, others: readonly FramePerson[]): string {
+export function swapTargetClause(
+  target: FramePerson,
+  others: readonly FramePerson[],
+  method: FaceSwapMethod = DEFAULT_FACE_SWAP_METHOD,
+): string {
   if (others.length === 0) return "";
 
   const phrase = wardrobePhrase(target.wardrobe);
@@ -104,10 +127,7 @@ export function swapTargetClause(target: FramePerson, others: readonly FramePers
   }
   if (parts.length === 0) return "";
 
-  return (
-    ` In Picture 1, replace only the head of the person ${parts.join(" ")}.` +
-    " Leave every other person in Picture 1 exactly as they are."
-  );
+  return faceSwapTargetClauseFor(method, parts.join(" "));
 }
 
 /**
@@ -162,27 +182,41 @@ export async function swapFace(
   try {
     const client = getWangpClient();
     const images = await client.listModels("image");
-    const model = findPinned(images, config.media.faceSwapModel);
+    const method = faceSwapMethodOf(character);
+    const pin = config.media.faceSwapModels[method];
+    const model = findPinned(images, pin);
     if (!model) {
+      // Deliberately not falling back to the other engine. The two produce
+      // visibly different faces, so a silent substitution would show up as the
+      // character changing appearance with nothing on screen to explain it.
       logEvent("face_swap.skipped", {
         ...context,
         reason: "model_not_installed",
-        model: config.media.faceSwapModel,
+        method,
+        model: pin,
       });
       return null;
     }
 
     const schema = await client.getModelSchema(model.modelType);
-    const prompt = `${character.faceSwapPrompt?.trim() || FACE_SWAP_PROMPT}${swapTargetClause(
+    const prompt = `${faceSwapPromptOf(character, method)}${swapTargetClause(
       { wardrobe: frame.wardrobe, description: character.description },
       frame.others ?? [],
+      method,
     )}`;
     const genType = singlePromptGenType(schema, prompt);
+    const steps = faceSwapStepsOf(character, method);
     const settings: Record<string, unknown> = {
       ...schema.defaultSettings,
-      ...faceSwapSettingsFor(schema),
-      // Only the prompt is per-character; the LoRAs, steps and solver in
-      // FACE_SWAP_SETTINGS are a matched set and stay as the preset defines.
+      ...faceSwapSettingsFor(schema, faceSwapPresetFor(method)),
+      // Deliberately unfiltered: these describe the request, not the model, so
+      // no schema publishes them and the field filter would drop them.
+      ...faceSwapTaskFlagsFor(method),
+      // The prompt and the step count are the two things a character may set;
+      // whatever else the chosen engine needs is a matched set and stays as its
+      // preset defines. Filtered like everything else, so a checkpoint with no
+      // step control is not handed one.
+      ...(steps ? faceSwapSettingsFor(schema, { num_inference_steps: steps }) : {}),
       prompt,
       // The swap prompt is an editable textarea, and this model's saved state
       // splits on line breaks.
@@ -205,7 +239,13 @@ export async function swapFace(
       return null;
     }
 
-    logEvent("face_swap.applied", { ...context, character: character.name, model: model.modelType });
+    logEvent("face_swap.applied", {
+      ...context,
+      character: character.name,
+      method,
+      model: model.modelType,
+      steps: settings.num_inference_steps,
+    });
     return output;
   } catch (err) {
     // A swap is an enhancement. Losing it must not lose the frame.

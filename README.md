@@ -33,11 +33,11 @@ recent updates are kept below — every release ever made is in
 
 | Version | Date | What changed |
 | --- | --- | --- |
+| **2.33** | 2026-08-26 | **New projects can start from a default image model, video model and LoRA stack.** Set them once under **Settings → Default models & LoRAs** and every project created afterwards begins there, instead of rebuilding the same selection each time. The LoRAs are the point: a stack is a dozen deliberate choices, each with its own strength and trigger word, and re-picking them per project was the real cost. Step counts travel with the models, since those are model-specific too. Three things make it safe to change whenever you like. Projects that already exist are never touched — the defaults are read once at creation and copied onto the project, so editing them cannot re-pin a storyboard part-way through a render. A model chosen explicitly for a project still wins over the default, which still wins over the environment pin. And a LoRA stack is checked against the model the project actually lands on: a catalogue belongs to one model family, so anything the new model does not have is dropped at creation rather than riding along as a name that resolves to nothing. Each project remains free to differ under Project → Settings, and the New Project form says in one line what it will start with rather than leaving it to be discovered later. |
+| **2.32** | 2026-08-26 | **Reference images can now shape the story, not just the look.** Attach pictures on the New Project form, press **Expand with AI**, and they are read alongside your words while the concept is still being written — so a photograph can suggest a place, a period, weather or a situation you had not yet settled, and the result arrives in the concept box as text you edit or reject. This is the only point in the pipeline where an image can affect what happens: everywhere else it is turned into a description of setting, palette and light, which by design records no events at all. That was the gap — you could show the app a picture of your idea, but only after describing the idea, and the picture then only adjusted the colours. The images are read for that one call and never stored, and your typed note still leads where the two disagree. The Variant Explorer now receives the reference reading too, so the story directions you choose between are informed by the pictures rather than the concept alone. And the app now says what the images actually did: the status line reports how many were read, the settings panel says whether a reading is missing, out of date, or taken from exactly the files you have — and both say plainly when nothing was looked at because no vision model is configured, instead of returning prose that reads as though it had been. **Generate all media no longer re-renders keyframes it could have reused.** A scene that banked its frames and never got a clip — a batch that died, a run you cancelled, a project switched from *Keyframes only* to *Video segments* — was queued for a full pass, because a scene without a clip counts as unfinished. It is unfinished, and skipping it would strand it one step short; but redoing the frames cost two image jobs per scene to arrive back where it started, and pushed any face swap, hand edit or imported frame into a superseded attempt. Those scenes are now queued for the clip alone, built on the frames already chosen. **Regenerate all** is the explicit ask for a redo and still redoes everything, and the batch panel says how many scenes are reusing their keyframes so it is clear which happened. |
+| **2.31** | 2026-08-25 | **Face swap can now use Krea Identity Edit, and does by default.** Until now every swap ran the same recipe — a Qwen Image Edit checkpoint driven by a head-swap LoRA on a four-step schedule. Krea's Identity Edit Turbo model is purpose-built for exactly this job and tests better on likeness, so a character can now be pointed at either, chosen under **Face swap generated frames** in the character library. The two want genuinely different wording, though — Qwen a long transplant instruction addressed to "Picture 1", Krea a short edit addressed to "the first image" — and a prompt tuned for one does noticeably worse on the other. So a character now keeps **both prompts**, each editable, and the app sends whichever matches the selected engine: switching back and forth is a click rather than a rewrite, and neither version is lost. The defaults also name the character as a woman or a man, so a male character no longer starts from wording that has to be corrected in four places. Krea is the default, including for characters saved before this existed; a single prompt saved earlier was written against Qwen, so it stays Qwen's. Two things worth knowing: Krea runs bare, with no LoRAs at all, so the Qwen head LoRA is not silently loaded onto a model it was not built for; and if the engine you chose is not installed in Wan2GP the swap is skipped rather than quietly run on the other one, since the two produce visibly different faces and a substitution would look like the character changing appearance. Face-swap prompts now allow 4,000 characters rather than 1,000, because getting a difficult likeness out of an identity model turns out to need long, specific wording, and each engine carries its own step count so the one number Wan2GP actually exposes for Krea can be tried without disturbing Qwen's four-step schedule. **This release also repairs the Qwen face swap, which 2.30 broke outright.** That release stopped sending a model any setting the model does not publish, which was right for tuning values and wrong for one flag: `image_mode`, which is how a request says "this is a still, not a video". No checkpoint publishes it, so it was filtered away — and because the Qwen edit definition can also emit video, every Qwen swap since has failed with "You must provide a Control Video", the frame having been read as a control video nobody supplied. It failed silently, keeping the unswapped frame, which is why it looked like the pass simply never ran. Krea was never affected: it has no video mode to be confused about. |
 | **2.30** | 2026-08-25 | **Face swap no longer sends a model settings it does not have, or splits a swap prompt in two.** Every other kind of render is built from the selected model's own published fields, so it can only ever ask for controls that model understands. Face swap was the exception: it applied a fixed preset over the top, which meant it could hand a checkpoint a setting that checkpoint has never heard of. Harmless on the model it was written for, and not harmless in general — several current models publish no guidance setting at all, where CFG is switched off rather than set to zero, and sending a value is rejected outright rather than ignored. Pointing face swap at one of those would have failed every swap. The preset is now filtered to what the selected model actually publishes. The same gap left the swap prompt exposed to a Wan2GP rule the rest of the app already handles: a line break in a prompt is read as a boundary between separate generations, so a swap prompt written across two paragraphs — easy, since it is an editable text box — became two requests against the one job that was sent. It is now marked as a single prompt, as every other prompt already was. |
 | **2.29** | 2026-08-25 | **Exports are named after the project, and every scene can be approved at once.** Every project exported as `storyboard.json` or `storyboard.md`, so two of them in a downloads folder were indistinguishable and the second quietly became `storyboard (1).json`. Exports now carry the title — `storyboard-Swing Deep.json` — across all five formats. And a project whose clips are all rendered no longer has to be approved a card at a time: the Assembly screen offers **Approve all scenes**, which takes the newest rendered take for every scene still waiting. It only counts scenes it can genuinely approve — one that has not been rendered has nothing to take — and says afterwards how many were approved and how many still need media, rather than reporting a project ready for a cut it cannot produce. A scene you deliberately approved on an older take is left alone. |
-| **2.28** | 2026-08-24 | **Face swap no longer depends on a Wan2GP field that newer models have dropped.** The frame being corrected was always handed over in `image_guide`. Recent Qwen edit definitions replace that with an ordered reference list, where the first entry is the shot and the rest are the people to place in it. Wan2GP sets only the fields a model declares, so on one of those newer definitions the frame would have been discarded without any error and the swap would have run on the face photograph alone — returning a perfectly good picture of the wrong shot. Which form to use is now read from the model rather than assumed, so both contracts work and a future change of swap model cannot quietly lose the frame. |
-| **2.27** | 2026-08-24 | **A story arc that stops a few beats short is no longer thrown away and replaced with a numbered template.** The Story Architect had to return exactly one beat per segment or its whole answer was discarded — logline, emotional progression and every beat it did write — in favour of "Advance beat 7 of the narrative and raise the stakes", once per segment. A local model rarely returns all twenty-four of those in one go, so this fired on six consecutive runs of one project while every other planning agent succeeded. It was invisible from the storyboard, because the scene cards that followed still reported themselves as model-written, and they were: they simply had no story underneath them. That is why long projects drift and start repeating titles near the end. The missing beats are now requested on their own, exactly as the Director and Cinematographer have been since 2.21, keeping everything the model already wrote. Bounded at two extra requests, and a shortfall it genuinely cannot fill is still reported rather than papered over. |
-| **2.26** | 2026-08-24 | **Project settings no longer stalls while it re-reads your model list.** Wan2GP hands out models ten at a time, so listing a full install is a walk of fifteen or more requests. That walk was repeated every time the settings page was opened more than a minute after the last one — which is every visit, in practice, when you drop in to change a LoRA and come back later to change another. The list is now read once when the app starts and answered from memory afterwards, so the pickers appear immediately; when the copy is stale it is still handed straight over and re-read behind you rather than making you wait. A **Refresh** button beside the *Show models that are not installed* checkbox forces a fresh read, which is what to press after installing a model in Wan2GP while StoryForgeAI is running. The image and video lists also no longer each pay for their own walk of the same catalogue. |
 
 ---
 
@@ -617,6 +617,35 @@ call goes through one chain whenever `OPENAI_BASE_URL` is set, which also covers
 the Agentic Canvas firing several agents and a second browser tab. Hosted APIs
 have no such limit and are left to run in parallel.
 
+## Default models and LoRAs for new projects
+
+**Settings → Default models & LoRAs** holds the image model, video model, step
+counts and LoRA stacks a newly created project starts from. It exists for the
+LoRAs: a stack is a dozen deliberate choices, each with a strength and a trigger
+word, and rebuilding it for every project is the tax this removes.
+
+Three rules make it safe to change at any time.
+
+**Existing projects are never touched.** The defaults are read once, when a
+project is created, and copied onto it. Nothing consults them afterwards, so
+editing them cannot re-pin a storyboard part-way through a render.
+
+**An explicit choice still wins.** Precedence is what you chose for this project,
+then these defaults, then the `DEFAULT_IMAGE_MODEL` environment pin — oldest and
+weakest, since it cannot be changed without a restart.
+
+**A LoRA stack is checked against the model the project actually lands on.** A
+catalogue belongs to one model family, so a stack chosen for the default image
+model is meaningless on a project pinned to a different one. Anything the new
+model does not have is dropped at creation and logged, rather than riding along
+as names that resolve to nothing. If WanGP cannot be reached the selection is
+carried over untouched — an unreachable server is not evidence that a LoRA is
+wrong.
+
+Each project can still be set differently under **Project → Settings**, exactly
+as before. The New Project form says in one line what the project will start
+with, so it is not a surprise discovered later.
+
 ## Concept images
 
 A project can hold up to six images that describe the piece rather than a
@@ -635,19 +664,42 @@ setting, lighting, mood, subjects, wardrobe, palette and details, and the
 planning agents read that. The images themselves never reach the image
 generator.
 
-The Intake Producer, Visual Bible, World Builder and Art Director all receive
-it. The Storyboard Artist does not — not an oversight: it already carries the
-longest prompt in the app, and it reads the Visual Bible, so the look reaches it
-there rather than as another directive competing for attention.
+The Intake Producer, Visual Bible, World Builder, Art Director and Variant
+Explorer all receive it. The Storyboard Artist does not — not an oversight: it
+already carries the longest prompt in the app, and it reads the Visual Bible, so
+the look reaches it there rather than as another directive competing for
+attention.
 
-**There is no order to remember.** Generating a storyboard, or running any
-canvas agent, reads the references first if they have not been read or the
-images have changed since. Currency is decided by which files a reading came
-from, not by a timestamp, so adding or removing an image invalidates it exactly
-when it should.
+**What a reference cannot do is change the story.** The reading records setting,
+lighting, palette, wardrobe and mood, and has no field for an event — the
+Concept Reader is explicitly forbidden from guessing at what happens. So a
+reference steers how the film looks, not what occurs in it. The one place that
+is not true is **Expand with AI**, below.
+
+**There is no order to remember.** Generating a storyboard, exploring directions,
+or running any canvas agent reads the references first if they have not been read
+or the images have changed since. Currency is decided by which files a reading
+came from, not by a timestamp, so adding or removing an image invalidates it
+exactly when it should. The settings panel says which state you are in — unread,
+out of date, or read from exactly these files.
 
 You can also add references on the New Project form. They are uploaded once the
 project exists, since the upload is keyed by project id.
+
+### Letting a picture shape the story
+
+**Expand with AI reads any reference images you have attached.** This is the only
+place an image can influence what happens rather than how it looks, and it works
+because of *when* it runs: the concept is still being written, so a photograph
+can suggest a place, a period, weather or a situation you had not yet decided,
+and the result lands in the concept box as ordinary text you edit or reject.
+
+The pictures are encoded for that one call and never stored — the project they
+would belong to does not exist yet. Your typed note still leads: where an image
+suggests something the note rules out, the note wins. The status line reports how
+many images were actually read, and says so plainly when none were because no
+vision model is configured, rather than handing back prose that reads as though
+they had been.
 
 ### When a reference disagrees with your concept
 
@@ -722,6 +774,15 @@ panel underneath does the same for a subset.
 The frames come from each scene's chosen attempt, so a face swap or a
 hand-swapped frame is what the new clip is built on.
 
+**Generate all media** does this by itself where it applies. A scene that banked
+its keyframes and never got a clip — a batch that died, a project switched from
+*Keyframes only* to *Video segments*, a run you cancelled — is queued for the
+clip alone rather than being re-rendered from scratch. It is still unfinished, so
+skipping it would strand it one step short; but redoing the frames would cost two
+image jobs to arrive back where it started, and would push a face swap or a
+hand-edited frame into a superseded attempt. **Regenerate all** is the explicit
+ask for a redo, and still redoes everything.
+
 ### Continuity, and why a subset is not always a subset
 
 The frame-chained modes — **cut** and **continue from previous end frame** —
@@ -788,10 +849,36 @@ lighting — so the clip prompt gets the character's name and one instruction to
 them steady. Repeating the description there spends the prompt on appearance the
 model can already see, at the cost of the motion it cannot.
 
-**Face swap.** Optional per character. After each keyframe renders, a Qwen Image
-Edit pass replaces the head in the generated frame with the head from the
-character's first reference image — four Lightning steps, so seconds rather than
-minutes.
+**Face swap.** Optional per character. After each keyframe renders, an image-edit
+pass replaces the head in the generated frame with the head from the character's
+first reference image — seconds rather than the minutes a keyframe costs.
+
+Two engines can do it, chosen per character in Settings:
+
+| Method | What it is | When to use it |
+|---|---|---|
+| **Krea Identity Edit (Turbo)** | A checkpoint built for identity transfer, run bare with no LoRAs. The default. | First choice. Tests better on likeness. |
+| **Qwen Image Edit + head LoRA** | The original recipe: a head-swap LoRA on a 4-step Lightning schedule. | Worth trying where Krea drifts on a difficult face. |
+
+Both take the same reference photo, but not the same wording — Qwen wants a long
+transplant instruction addressed to "Picture 1" and "Picture 2", Krea a short edit
+addressed to "the first image" and "the 2nd reference image", and a prompt tuned
+for one does measurably worse on the other. A character therefore stores **both
+prompts**, and the app sends whichever matches the selected engine. Switching is a
+click, and neither wording is lost.
+
+The defaults also name the character as a **woman** or a **man**, chosen per
+character, so a male character no longer starts from wording that has to be
+corrected in four places.
+
+Each engine also carries its own **step count**, left empty to use that engine's
+default. This is the only numeric dial worth turning: Krea's contract publishes
+no guidance, solver, mask or reference-boost control at all, so the prompt and
+the step count are the whole tuning surface. Raising Krea's from 8 favours
+keeping the original composition. Qwen's 4 is not a free number — the head LoRA
+expects the accelerator's four-step schedule — so changing that one is an
+experiment rather than a tuning, which is why the two are stored separately and
+neither follows the character onto the other engine.
 
 It is synchronous, and the ordering is the point:
 
@@ -804,9 +891,13 @@ both, so a swap arriving afterwards would be overwritten by the frames it was
 meant to correct. A failed swap keeps the original frame rather than failing the
 scene.
 
-Requires a reference image, a Qwen Image Edit model, and both face-swap LoRAs in
-WanGP's `loras/qwen` folder. Disable globally with `FACE_SWAP_ENABLED=false`;
-change the model with `FACE_SWAP_MODEL`.
+Requires a reference image and the chosen model installed in WanGP — the Qwen
+method additionally needs both face-swap LoRAs in WanGP's `loras/qwen` folder.
+If the chosen model is not installed the swap is skipped rather than run on the
+other engine, since the two produce visibly different faces and a silent
+substitution would read as the character changing appearance. Disable globally
+with `FACE_SWAP_ENABLED=false`; change the checkpoints with `FACE_SWAP_MODEL`
+and `FACE_SWAP_KREA_MODEL`.
 
 **More than one character in a frame.** Each opted-in character gets its own pass
 and the passes chain, the second editing the first one's output, so both faces end
@@ -822,7 +913,9 @@ pass took his head and gave him her face.
 So the discriminator comes from the scene rather than the template. Each pass
 carries a sentence built from that frame, naming the target by what separates them
 from the other people actually in it — wardrobe first, since that settles nearly
-every shot, falling through to hair colour where two people are undressed. It also
+every shot, falling through to hair colour where two people are undressed. That
+sentence is phrased for the engine running the pass, since "Picture 1" means
+nothing to Krea. It also
 tells the pass to leave everyone else alone, which matters because the passes
 chain and a later one could otherwise undo an earlier correction. A shot holding
 one person gets no such sentence and uses the template exactly as written.

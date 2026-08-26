@@ -42,9 +42,22 @@ describe("naming the head a swap should replace", () => {
 
   /** Passes chain, and until now nothing told a later one to leave the earlier alone. */
   it("protects the other people in the frame", () => {
-    expect(swapTargetClause(MARA, [DANE])).toContain(
+    expect(swapTargetClause(MARA, [DANE], "krea")).toContain(
+      "Leave every other person in the first image exactly as they are",
+    );
+    expect(swapTargetClause(MARA, [DANE], "qwen")).toContain(
       "Leave every other person in Picture 1 exactly as they are",
     );
+  });
+
+  /**
+   * "Picture 1" is Qwen's name for the frame and means nothing to Krea, whose
+   * own prompt calls it the first image.
+   */
+  it("names the frame the way the chosen engine does", () => {
+    expect(swapTargetClause(MARA, [DANE], "qwen")).toContain("In Picture 1");
+    expect(swapTargetClause(MARA, [DANE], "krea")).not.toContain("Picture 1");
+    expect(swapTargetClause(MARA, [DANE], "krea")).toContain("In the first image");
   });
 
   /** The word that caused the failure must not come back through the wardrobe. */

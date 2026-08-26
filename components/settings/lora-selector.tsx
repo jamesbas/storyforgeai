@@ -20,7 +20,13 @@ export function LoraSelector({
   disabled = false,
   modelType,
 }: {
-  projectId: string;
+  /**
+   * Absent on the app-wide defaults screen, where no project exists yet. The
+   * catalogue is then read from `modelType` directly; the project form passes
+   * an id because a project may leave its pin on automatic, in which case only
+   * the server knows which model will be used.
+   */
+  projectId?: string;
   kind: LoraKind;
   value: LoraSelection[];
   onChange: (next: LoraSelection[]) => void;
@@ -38,11 +44,30 @@ export function LoraSelector({
 
   const load = useCallback(
     async (refresh = false, isCurrent: () => boolean = () => true) => {
+      const scope = projectId
+        ? `projectId=${encodeURIComponent(projectId)}&kind=${kind}`
+        : modelType
+          ? `model=${encodeURIComponent(modelType)}`
+          : null;
+
+      if (!scope) {
+        // Nothing to look up yet. Saying so beats an empty list, which reads as
+        // "this model has no LoRAs".
+        if (isCurrent()) {
+          setCatalog({
+            supported: false,
+            modelType: "",
+            reason: `Choose a default ${kind} model first, then its LoRAs can be listed.`,
+          });
+          setLoading(false);
+        }
+        return;
+      }
+
       setLoading(true);
       try {
         const res = await fetch(
-          `/api/wangp/loras?projectId=${encodeURIComponent(projectId)}&kind=${kind}` +
-            (refresh ? "&refresh=1" : ""),
+          `/api/wangp/loras?${scope}` + (refresh ? "&refresh=1" : ""),
           { cache: "no-store" },
         );
         const next: LoraCatalog = res.ok
@@ -57,7 +82,7 @@ export function LoraSelector({
         if (isCurrent()) setLoading(false);
       }
     },
-    [projectId, kind],
+    [projectId, kind, modelType],
   );
 
   useLoadEffect(

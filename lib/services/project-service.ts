@@ -78,6 +78,7 @@ import { trackAgentRun } from "@/lib/services/agent-runs";
 import { planOn, planSpecFor } from "@/lib/agents/plan-fields";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { config } from "@/lib/config";
+import { inheritedGeneration } from "@/lib/services/generation-defaults-service";
 import { logEvent } from "@/lib/telemetry";
 
 /**
@@ -116,6 +117,10 @@ export async function createProject(raw: unknown): Promise<Project> {
   const input = createProjectSchema.parse(raw);
   const seg = computeSegmentation(input.requestedDurationSeconds, input.segmentSeconds);
   const now = new Date().toISOString();
+  const inherited = await inheritedGeneration({
+    imageModel: input.imageModel,
+    videoModel: input.videoModel,
+  });
   const project: Project = {
     id: randomUUID(),
     title: deriveTitle(input.concept),
@@ -138,9 +143,15 @@ export async function createProject(raw: unknown): Promise<Project> {
     generationMode: input.generationMode,
     qcEnabled: input.qcEnabled,
     modelStrategy: input.modelStrategy,
-    // A new project starts on the default pin; an existing one is never moved.
-    imageModel: input.imageModel ?? config.defaults.imageModel ?? undefined,
-    videoModel: input.videoModel,
+    // A new project starts on the app-wide defaults; an existing one is never
+    // moved, so changing them cannot reach back into work already under way.
+    imageModel: inherited.imageModel,
+    videoModel: inherited.videoModel,
+    ...(inherited.imageSteps ? { imageSteps: inherited.imageSteps } : {}),
+    ...(inherited.videoSteps ? { videoSteps: inherited.videoSteps } : {}),
+    ...(inherited.loras?.image.length || inherited.loras?.video.length
+      ? { loras: inherited.loras }
+      : {}),
     useCharacterLibrary: input.useCharacterLibrary,
     characterIds: input.useCharacterLibrary ? input.characterIds : [],
     characterWardrobe: input.useCharacterLibrary ? input.characterWardrobe : {},
@@ -155,6 +166,8 @@ export async function createProject(raw: unknown): Promise<Project> {
     id: project.id,
     segmentCount: seg.segmentCount,
     segmentSeconds: seg.segmentSeconds,
+    imageLoras: project.loras?.image.length ?? 0,
+    videoLoras: project.loras?.video.length ?? 0,
   });
   return project;
 }
@@ -717,12 +730,13 @@ async function autoStartMedia(record: ProjectRecord): Promise<void> {
 
 export async function generateVariants(id: string): Promise<ProjectRecord> {
   return trackAgentRun(id, "variants", "Variant Explorer", async () => {
-    const record = await getProjectRecord(id);
+    const record = await withConceptVisuals(await getProjectRecord(id));
     const provider = getPlanningProvider();
     const run = executionRun();
     const variants = await variantExplorerAgent(record.project, provider, {
       onExecution: run.onExecution,
       correlationId: run.correlationId,
+      conceptVisuals: record.conceptVisuals,
     });
     const updated: ProjectRecord = {
       ...record,

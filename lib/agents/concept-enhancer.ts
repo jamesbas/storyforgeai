@@ -79,9 +79,39 @@ export const CONCEPT_ENHANCER_SYSTEM = [
   "of padding it. The result must still be meaningfully different and more actionable.",
 ].join("\n");
 
+/**
+ * Added only when pictures actually reached the model.
+ *
+ * Kept as a separate block for the reason QC and the Concept Reader both
+ * record: a prompt that says "the attached images show" when nothing was
+ * attached does not produce an empty answer, it produces an invented one.
+ *
+ * The permission here is deliberately wider than the Concept Reader's. That
+ * agent is forbidden from inventing story because its output is a look record
+ * threaded into the visual agents. This one is writing the concept itself,
+ * before anything downstream exists, and the writer is present to accept or
+ * reject it — so a picture is allowed to suggest what happens, not merely what
+ * it looks like. That is the whole point of showing it one.
+ */
+export const CONCEPT_ENHANCER_VISUAL = [
+  "",
+  "REFERENCE IMAGES. The writer has attached pictures of what they have in mind. Read them as",
+  "part of the brief, not as decoration.",
+  "- Take setting, period, atmosphere, materials, weather and light from them where the note is",
+  "  silent, and let what they show suggest events the note has not yet decided.",
+  "- The typed note still leads. Where a picture suggests something the note rules out, follow the",
+  "  note and ignore the picture on that point.",
+  "- Where the pictures disagree with each other, take what they share.",
+  "- Write the film, not the photographs. Do not describe the images back, do not refer to them,",
+  "  and do not narrate a tour of what is in them.",
+  "- Report only what they support. An accurate short development is worth more than a rich",
+  "  invented one.",
+].join("\n");
+
 export async function enhanceConcept(
   input: EnhanceConceptInput,
   provider: PlanningProvider,
+  images: readonly string[] = [],
 ): Promise<ConceptEnhancement> {
   const targetWords = conceptWordTarget(input.requestedDurationSeconds);
   const user = JSON.stringify({
@@ -95,16 +125,20 @@ export async function enhanceConcept(
     creativeModeGuidance: CREATIVE_MODE_DOCS[input.creativeMode],
   });
 
+  const system = images.length
+    ? CONCEPT_ENHANCER_SYSTEM + "\n" + CONCEPT_ENHANCER_VISUAL
+    : CONCEPT_ENHANCER_SYSTEM;
+  const options = images.length ? { images } : undefined;
+
   // `generate` carries the failure reason; `generateJson` collapses it to null,
   // which left the screen able to say only that nothing came back.
   let raw: string | undefined;
   if (provider.generate) {
-    const result = await provider.generate(CONCEPT_ENHANCER_SYSTEM, user, enhancedConceptSchema);
+    const result = await provider.generate(system, user, enhancedConceptSchema, options);
     if (!result.ok) return { ok: false, reason: describe(result.reason, result.detail) };
     raw = result.value.concept;
   } else {
-    raw = (await provider.generateJson(CONCEPT_ENHANCER_SYSTEM, user, enhancedConceptSchema))
-      ?.concept;
+    raw = (await provider.generateJson(system, user, enhancedConceptSchema, options))?.concept;
   }
 
   const concept = raw?.trim();

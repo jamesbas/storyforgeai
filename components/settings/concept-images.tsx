@@ -7,6 +7,25 @@ import type { ConceptImage, ConceptImageKind } from "@/lib/schemas/project";
 const MAX_CONCEPT_IMAGES = 6;
 
 /**
+ * Whether the stored reading was taken from the reference images now present.
+ *
+ * The reading is refreshed automatically before the storyboard and each canvas
+ * plan, so a stale one corrects itself — but until then nothing on screen said
+ * which state you were in, and a reading that predates the picture you just
+ * added looks exactly like one that does not.
+ */
+function readingState(
+  references: readonly ConceptImage[],
+  visuals: ConceptVisuals | undefined,
+): "none" | "unread" | "stale" | "current" {
+  if (references.length === 0) return "none";
+  if (!visuals) return "unread";
+  const have = references.map((image) => image.name).sort().join("\u0000");
+  const read = [...visuals.sources].sort().join("\u0000");
+  return have === read ? "current" : "stale";
+}
+
+/**
  * Concept images for a project, split by where they came from.
  *
  * References are pictures from outside the project whose look we want; they are
@@ -120,6 +139,7 @@ export function ConceptImages({
   const references = images.filter((image) => image.kind === "reference");
   const renders = images.filter((image) => image.kind === "render");
   const full = images.length >= MAX_CONCEPT_IMAGES;
+  const reading = readingState(references, visuals);
 
   return (
     <section className="space-y-5 rounded-lg border border-white/10 bg-panel/40 p-4">
@@ -159,6 +179,18 @@ export function ConceptImages({
         onRemove={remove}
         onRun={run}
       />
+      {reading === "unread" || reading === "stale" ? (
+        <p
+          data-testid="reference-reading-state"
+          className="rounded-md border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-[11px] text-sky-200"
+        >
+          {reading === "unread"
+            ? "These references have not been read yet, so nothing has used them. "
+            : "The reading below was taken from a different set of images, so it is out of date. "}
+          They are read automatically before the storyboard and each canvas plan is generated —
+          press <strong>Read references</strong> to see what they say now.
+        </p>
+      ) : null}
       {visuals ? <VisualsReport visuals={visuals} /> : null}
 
       <Group
@@ -289,7 +321,12 @@ function VisualsReport({ visuals }: { visuals: ConceptVisuals }) {
           Written from the typed concept, not the images. Set OPENAI_VISION_MODEL to have the
           pictures actually looked at.
         </p>
-      ) : null}
+      ) : (
+        <p className="text-[11px] text-slate-500">
+          Read from {visuals.sources.length} image
+          {visuals.sources.length === 1 ? "" : "s"}: {visuals.sources.join(", ")}
+        </p>
+      )}
       <dl className="space-y-1 text-xs">
         {rows
           .filter(([, value]) => value.trim().length > 0)

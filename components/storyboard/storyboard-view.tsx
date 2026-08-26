@@ -205,6 +205,10 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const keyframesDone =
     queue?.entries.filter((e) => e.completedPhase || e.state === "completed").length ?? 0;
 
+  /** Scenes this batch is only rendering a clip for, having found usable frames. */
+  const clipOnlyCount =
+    queue?.entries.filter((e) => e.scope === "video" && e.state !== "cancelled").length ?? 0;
+
   /**
    * One sentence for the batch, changing only when a phase or a scene does.
    *
@@ -1206,6 +1210,12 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                     {queue.phase.phase === "keyframes" && stages.video
                       ? " — clips start once every keyframe is done"
                       : ""}
+                  </p>
+                ) : null}
+                {clipOnlyCount > 0 ? (
+                  <p className="mt-1 text-xs text-slate-400" data-testid="queue-clip-only">
+                    {clipOnlyCount} scene{clipOnlyCount === 1 ? "" : "s"} already had keyframes, so
+                    only the clip is being rendered. Any face swap or hand-edited frame is kept.
                   </p>
                 ) : null}
                 <AsyncStatus

@@ -199,7 +199,8 @@ export async function variantExplorerAgent(
   provider: PlanningProvider | null,
   ctx: CanvasContext = {},
 ): Promise<CreativeVariant[]> {
-  const user = JSON.stringify({ project });
+  const conceptVisuals = conceptVisualsPayload(ctx.conceptVisuals);
+  const user = JSON.stringify({ project, ...(conceptVisuals ? { conceptVisuals } : {}) });
   let repair: VariantSetRepair | undefined;
 
   const { value } = await executeArtifact<CreativeVariant[]>({
@@ -214,7 +215,7 @@ export async function variantExplorerAgent(
       ? async () => {
           const result = await providerCall(
             provider,
-            VARIANT_EXPLORER_SYSTEM,
+            VARIANT_EXPLORER_SYSTEM + conceptVisualsDirective(ctx.conceptVisuals),
             user,
             variantsSchema,
           )();

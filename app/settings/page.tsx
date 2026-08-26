@@ -4,6 +4,7 @@ import { useCallback, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/shell/app-shell";
 import { CharacterLibrary } from "@/components/settings/character-library";
+import { GenerationDefaults } from "@/components/settings/generation-defaults";
 import { useLoadEffect } from "@/components/shared/use-load-effect";
 import type { Project } from "@/lib/schemas/project";
 
@@ -42,13 +43,15 @@ export default function SettingsPage() {
 
         <CharacterLibrary />
 
+        <GenerationDefaults />
+
         <section className="space-y-3 rounded-lg border border-white/10 bg-panel/40 p-4">
           <div>
             <h2 className="font-semibold">Per-project generation models</h2>
             <p className="mt-1 text-xs text-slate-500">
-              Image and video model pins are chosen per project, because the right model depends on
-              the aspect ratio, clip length and look of that specific piece. Pick a project to edit
-              its pins.
+              Each project keeps its own pins, starting from the defaults above and free to differ.
+              The right model often depends on the aspect ratio, clip length and look of that
+              specific piece. Pick a project to edit its pins.
             </p>
           </div>
           <ul className="space-y-2">

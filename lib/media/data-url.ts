@@ -63,3 +63,41 @@ export async function loadImagesAsDataUrls(
   }
   return urls;
 }
+
+/** The formats above, as the content types an upload declares. */
+const ACCEPTED_MIME = new Set(Object.values(MIME));
+
+/**
+ * The same encoding for an upload that never reaches disk.
+ *
+ * The concept helper runs before a project exists, so its images have nowhere
+ * to be stored and no id to be stored under. They are read for one call and
+ * dropped, which is also why nothing here needs cleaning up afterwards.
+ *
+ * Same skip-on-error discipline as the path version: a file this host cannot
+ * decode is a missing input, not a failed request.
+ */
+export async function uploadsAsDataUrls(
+  files: readonly File[],
+  purpose: string,
+): Promise<string[]> {
+  const urls: string[] = [];
+  for (const file of files) {
+    const mime = file.type.toLowerCase();
+    if (!ACCEPTED_MIME.has(mime)) {
+      logEvent("image.skipped", { purpose, path: file.name, reason: "unsupported_format" });
+      continue;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      logEvent("image.skipped", { purpose, path: file.name, reason: "too_large", bytes: file.size });
+      continue;
+    }
+    try {
+      const bytes = Buffer.from(await file.arrayBuffer());
+      urls.push(`data:${mime};base64,${bytes.toString("base64")}`);
+    } catch {
+      logEvent("image.skipped", { purpose, path: file.name, reason: "unreadable" });
+    }
+  }
+  return urls;
+}

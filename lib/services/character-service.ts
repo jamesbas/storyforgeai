@@ -27,6 +27,24 @@ const IMAGE_TYPES: Readonly<Record<string, string>> = {
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
+/** Drop blank sides so an untouched box reads as "use the default", not "". */
+function cleanPrompts(
+  prompts: { qwen?: string; krea?: string } | undefined,
+): Character["faceSwapPrompts"] {
+  const qwen = prompts?.qwen?.trim() || undefined;
+  const krea = prompts?.krea?.trim() || undefined;
+  return qwen || krea ? { qwen, krea } : undefined;
+}
+
+/** Same, for the step counts: an empty box means the engine's own default. */
+function cleanSteps(
+  steps: { qwen?: number; krea?: number } | undefined,
+): Character["faceSwapSteps"] {
+  const qwen = steps?.qwen || undefined;
+  const krea = steps?.krea || undefined;
+  return qwen || krea ? { qwen, krea } : undefined;
+}
+
 export async function listCharacters(): Promise<Character[]> {
   return characterStore.list();
 }
@@ -49,6 +67,10 @@ export async function createCharacter(raw: unknown): Promise<Character> {
     negativePrompt: input.negativePrompt?.trim() || undefined,
     faceSwap: input.faceSwap || undefined,
     faceSwapPrompt: input.faceSwapPrompt?.trim() || undefined,
+    faceSwapPrompts: cleanPrompts(input.faceSwapPrompts),
+    faceSwapSteps: cleanSteps(input.faceSwapSteps),
+    faceSwapMethod: input.faceSwapMethod,
+    faceSwapSubject: input.faceSwapSubject,
     createdAt: now,
     updatedAt: now,
   };
@@ -79,6 +101,14 @@ export async function updateCharacter(id: string, raw: unknown): Promise<Charact
       patch.faceSwapPrompt === undefined
         ? existing.faceSwapPrompt
         : patch.faceSwapPrompt.trim() || undefined,
+    faceSwapPrompts:
+      patch.faceSwapPrompts === undefined
+        ? existing.faceSwapPrompts
+        : cleanPrompts(patch.faceSwapPrompts),
+    faceSwapSteps:
+      patch.faceSwapSteps === undefined ? existing.faceSwapSteps : cleanSteps(patch.faceSwapSteps),
+    faceSwapMethod: patch.faceSwapMethod ?? existing.faceSwapMethod,
+    faceSwapSubject: patch.faceSwapSubject ?? existing.faceSwapSubject,
     updatedAt: new Date().toISOString(),
   };
   await characterStore.save(updated);

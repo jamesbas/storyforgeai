@@ -501,7 +501,8 @@ export async function clearSceneSeed(projectId: string, sceneId: string): Promis
   return updated;
 }
 
-/** The attempt a scene is currently represented by: approved first, else latest. */function chosenAttempt(record: ProjectRecord, sceneId: string): SceneAttempt | undefined {
+/** The attempt a scene is currently represented by: approved first, else latest. */
+export function chosenAttempt(record: ProjectRecord, sceneId: string): SceneAttempt | undefined {
   const attempts = record.attempts?.[sceneId] ?? [];
   return attempts.find((a) => a.approved) ?? attempts[attempts.length - 1];
 }

@@ -8,8 +8,8 @@ import { swapFace } from "@/lib/services/face-swap-service";
 import { config } from "@/lib/config";
 import {
   FACE_SWAP_LORAS,
-  FACE_SWAP_PROMPT,
   FACE_SWAP_STEPS,
+  faceSwapPromptFor,
 } from "@/lib/wangp/face-swap-preset";
 import type { Character } from "@/lib/schemas/character";
 import type { WangpJob, WangpModel, WangpModelSchema } from "@/lib/schemas/wangp";
@@ -17,8 +17,10 @@ import type { WangpJob, WangpModel, WangpModelSchema } from "@/lib/schemas/wangp
 /**
  * Which prompt a swap is sent with, and what must not change alongside it.
  *
- * The preset is a matched set — the head LoRA expects the Lightning schedule —
- * so a per-character prompt is allowed to change the wording and nothing else.
+ * Pinned to the Qwen engine throughout: the preset is a matched set — the head
+ * LoRA expects the Lightning schedule — so a per-character prompt is allowed to
+ * change the wording and nothing else. The Krea engine is the default and is
+ * covered separately.
  */
 class RecordingClient extends MockWangpClient {
   settings: Record<string, unknown> | null = null;
@@ -26,7 +28,7 @@ class RecordingClient extends MockWangpClient {
   async listModels(): Promise<WangpModel[]> {
     return [
       {
-        modelType: config.media.faceSwapModel,
+        modelType: config.media.faceSwapModels.qwen,
         name: "Qwen Image Edit",
         mainOutput: "image",
         outputs: ["image"],
@@ -93,6 +95,7 @@ async function characterWithReference(overrides: Partial<Character>): Promise<Ch
     description: "A person.",
     referenceImages: ["ref.png"],
     faceSwap: true,
+    faceSwapMethod: "qwen",
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides,
@@ -105,7 +108,26 @@ afterEach(async () => {
 });
 
 describe("the prompt a swap is sent with", () => {
+  const QWEN_DEFAULT = faceSwapPromptFor("qwen", "woman");
+
   it("uses the character's own prompt when it has one", async () => {
+    const client = new RecordingClient();
+    setWangpClient(client);
+    const character = await characterWithReference({
+      faceSwapPrompts: { qwen: "swap the man" },
+    });
+
+    await swapFace("/frame.png", character, { sceneId: "s1", purpose: "start_frame" });
+
+    expect(client.settings?.prompt).toBe("swap the man");
+  });
+
+  /**
+   * A record written before the wording was split per engine kept one prompt,
+   * and it was tuned against Qwen. Losing it on upgrade would silently undo
+   * whatever someone had got working.
+   */
+  it("still honours a single prompt saved before the split", async () => {
     const client = new RecordingClient();
     setWangpClient(client);
     const character = await characterWithReference({ faceSwapPrompt: "swap the man" });
@@ -122,17 +144,17 @@ describe("the prompt a swap is sent with", () => {
 
     await swapFace("/frame.png", character, { sceneId: "s1", purpose: "start_frame" });
 
-    expect(client.settings?.prompt).toBe(FACE_SWAP_PROMPT);
+    expect(client.settings?.prompt).toBe(QWEN_DEFAULT);
   });
 
   it("treats a whitespace-only prompt as absent", async () => {
     const client = new RecordingClient();
     setWangpClient(client);
-    const character = await characterWithReference({ faceSwapPrompt: "   " });
+    const character = await characterWithReference({ faceSwapPrompts: { qwen: "   " } });
 
     await swapFace("/frame.png", character, { sceneId: "s1", purpose: "start_frame" });
 
-    expect(client.settings?.prompt).toBe(FACE_SWAP_PROMPT);
+    expect(client.settings?.prompt).toBe(QWEN_DEFAULT);
   });
 
   /**

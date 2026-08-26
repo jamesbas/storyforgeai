@@ -111,6 +111,66 @@ describe("gating the face swap on the planned shot", () => {
 });
 
 /**
+ * The single-frame preview on the storyboard.
+ *
+ * It exists so a prompt can be judged from one still rather than a whole scene,
+ * which only holds if it is corrected the same way a real render would be. It
+ * reaches the swap down a different entry point from full generation, so
+ * nothing above this covers it.
+ */
+describe("previewing one keyframe", () => {
+  async function previewOne(faceVisible: boolean) {
+    const { characters, projects, media, swapFace } = await isolated();
+
+    const character = await characters.createCharacter({
+      name: "Lead",
+      description: "A woman in her fifties.",
+      faceSwap: true,
+      faceSwapMethod: "qwen",
+    });
+    await characters.setReferenceImage(character.id, referenceUpload());
+
+    const created = await projects.createProject({
+      concept: "A woman lines up a shot in a quiet bar.",
+      requestedDurationSeconds: 20,
+      generationMode: "keyframes_only",
+      useCharacterLibrary: true,
+      characterIds: [character.id],
+    });
+    const withStoryboard = await projects.generateStoryboard(created.id);
+    const sceneId = withStoryboard.storyboard!.scenes[0]!.id;
+    if (!faceVisible) {
+      await projects.updateSceneFraming(created.id, sceneId, { subjectFaceVisible: false });
+    }
+
+    const record = await media.generateSceneKeyframe(created.id, sceneId, "start_frame");
+    return { swapFace, record, sceneId, character };
+  }
+
+  it("runs the swap on a previewed frame", async () => {
+    const { swapFace, record, sceneId } = await previewOne(true);
+
+    expect(swapFace.mock.calls.length).toBe(1);
+    expect(record.previews![sceneId]!.startFramePath).toBe("/swapped.png");
+  });
+
+  /** The engine is per character, so the preview has to carry the character. */
+  it("hands the swap the character, engine choice and all", async () => {
+    const { swapFace, character } = await previewOne(true);
+
+    expect(swapFace.mock.calls[0]![1].id).toBe(character.id);
+    expect(swapFace.mock.calls[0]![1].faceSwapMethod).toBe("qwen");
+  });
+
+  it("still honours a shot planned without a face", async () => {
+    const { swapFace, record, sceneId } = await previewOne(false);
+
+    expect(swapFace.mock.calls.length).toBe(0);
+    expect(record.previews![sceneId]!.startFramePath).toBeTruthy();
+  });
+});
+
+/**
  * The repair path. The automatic pass is decided before anything is drawn, and
  * the plan can be wrong in either direction — a shot planned as a close-up of
  * hands can come back framing the face.

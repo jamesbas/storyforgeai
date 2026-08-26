@@ -21,6 +21,7 @@ import {
 } from "@/lib/presets";
 import type { CreateProjectInput } from "@/lib/schemas/intake";
 import type { Character } from "@/lib/schemas/character";
+import type { GenerationDefaults } from "@/lib/schemas/generation-defaults";
 import { AsyncStatus } from "@/components/shared/async-status";
 
 export type NewProjectFormProps = {
@@ -31,6 +32,51 @@ export type NewProjectFormProps = {
   onSubmit: (values: CreateProjectInput, references: File[]) => Promise<void> | void;
   submitting?: boolean;
 };
+
+/**
+ * What the suggestion was actually written from.
+ *
+ * Attaching pictures and getting back prose that reads as though they were seen
+ * is the failure worth guarding against: without a vision model the provider
+ * drops them silently and answers from the text alone.
+ */
+function suggestionStatus(result: {
+  imagesRead?: number;
+  imagesSupplied?: number;
+  visionAvailable?: boolean;
+}): string {
+  const supplied = result.imagesSupplied ?? 0;
+  if (supplied === 0) return "Suggestion ready. Review it below.";
+  if (!result.visionAvailable) {
+    return (
+      "Suggestion ready, but written from your text alone — no vision model is configured, so " +
+      "the images were not read. Set OPENAI_VISION_MODEL to have them looked at."
+    );
+  }
+  const read = result.imagesRead ?? 0;
+  if (read === 0) {
+    return "Suggestion ready, but none of the images could be read. Review it below.";
+  }
+  const skipped = supplied - read;
+  const tail = skipped > 0 ? ` ${skipped} could not be read.` : "";
+  return `Suggestion ready, written from your concept and ${read} reference image${read === 1 ? "" : "s"}.${tail} Review it below.`;
+}
+
+/**
+ * What this project will be pinned to, in one line.
+ *
+ * Null when nothing is configured, so a fresh install shows no note at all
+ * rather than a sentence saying nothing will happen.
+ */
+function describeDefaults(defaults: GenerationDefaults): string | null {
+  const parts: string[] = [];
+  if (defaults.imageModel) parts.push(`image model ${defaults.imageModel}`);
+  if (defaults.videoModel) parts.push(`video model ${defaults.videoModel}`);
+  const loras = defaults.loras.image.length + defaults.loras.video.length;
+  if (loras > 0) parts.push(`${loras} LoRA${loras === 1 ? "" : "s"}`);
+  if (parts.length === 0) return null;
+  return `This project will start with your saved defaults: ${parts.join(", ")}.`;
+}
 
 export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormProps) {
   const [concept, setConcept] = useState("");
@@ -54,6 +100,7 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
   const [characterIds, setCharacterIds] = useState<string[]>([]);
   const [characterWardrobe, setCharacterWardrobe] = useState<Record<string, string>>({});
   const [characters, setCharacters] = useState<Character[]>([]);
+  const [defaultsNote, setDefaultsNote] = useState<string | null>(null);
   const [enhancing, setEnhancing] = useState(false);
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [enhanceStatus, setEnhanceStatus] = useState<string | null>(null);
@@ -66,6 +113,21 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
         if (res.ok) setCharacters(((await res.json()) as { characters: Character[] }).characters);
       } catch {
         // non-fatal: the library is optional, the form still works without it
+      }
+    })();
+  }, []);
+
+  // Saying what a project will be pinned to, rather than letting it be
+  // discovered afterwards on the settings screen.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const res = await fetch("/api/settings/generation-defaults", { cache: "no-store" });
+        if (!res.ok) return;
+        const { defaults } = (await res.json()) as { defaults: GenerationDefaults };
+        setDefaultsNote(describeDefaults(defaults));
+      } catch {
+        // non-fatal: the note is informational, and the defaults still apply
       }
     })();
   }, []);
@@ -86,34 +148,54 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
     setEnhancing(true);
     setEnhanceFailed(false);
     setSuggestion(null);
-    setEnhanceStatus("Expanding your concept\u2026");
+    setEnhanceStatus(
+      references.length > 0
+        ? `Expanding your concept, reading ${references.length} reference image${references.length === 1 ? "" : "s"}\u2026`
+        : "Expanding your concept\u2026",
+    );
     try {
-      const res = await fetch("/api/concept/enhance", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          concept,
-          requestedDurationSeconds: Number(duration),
-          style,
-          tone,
-          audience,
-          creativeMode,
-        }),
-      });
-      if (!res.ok) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        throw new Error(body.error ?? "Could not expand the concept.");
+      // Multipart only when there are pictures to send; the route still takes
+      // JSON, and a plain expansion has no reason to pay for a form body.
+      let body: BodyInit;
+      let headers: HeadersInit | undefined;
+      const fields = {
+        concept,
+        requestedDurationSeconds: Number(duration),
+        style,
+        tone,
+        audience,
+        creativeMode,
+      };
+      if (references.length > 0) {
+        const form = new FormData();
+        for (const [key, value] of Object.entries(fields)) form.append(key, String(value));
+        for (const file of references) form.append("images", file);
+        body = form;
+      } else {
+        body = JSON.stringify(fields);
+        headers = { "content-type": "application/json" };
       }
-      const body = (await res.json()) as { concept: string };
-      setSuggestion(body.concept);
-      setEnhanceStatus("Suggestion ready. Review it below.");
+
+      const res = await fetch("/api/concept/enhance", { method: "POST", body, ...(headers ? { headers } : {}) });
+      if (!res.ok) {
+        const errorBody = (await res.json().catch(() => ({}))) as { error?: string };
+        throw new Error(errorBody.error ?? "Could not expand the concept.");
+      }
+      const result = (await res.json()) as {
+        concept: string;
+        imagesRead?: number;
+        imagesSupplied?: number;
+        visionAvailable?: boolean;
+      };
+      setSuggestion(result.concept);
+      setEnhanceStatus(suggestionStatus(result));
     } catch (e) {
       setEnhanceFailed(true);
       setEnhanceStatus(e instanceof Error ? e.message : "Could not expand the concept.");
     } finally {
       setEnhancing(false);
     }
-  }, [concept, duration, style, tone, audience, creativeMode]);
+  }, [concept, duration, style, tone, audience, creativeMode, references]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -290,7 +372,8 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
         <p className="mt-1 text-xs text-slate-500">
           Pictures whose look you want, from outside this project. They are read into a written
           description the planning agents use; the concept above still leads. Add none and nothing
-          changes.
+          changes. Add some before pressing <strong>Expand with AI</strong> and they are read into
+          the expansion too, so a picture can shape the story rather than only the look.
         </p>
         <input
           id="references"
@@ -301,12 +384,22 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
           className={`mt-2 text-xs text-slate-400 file:mr-3 file:rounded-md file:border file:border-white/10 file:bg-panel/60 file:px-3 file:py-1.5 file:text-xs file:text-slate-200`}
         />
         {references.length > 0 ? (
-          <p className="mt-1 text-xs text-slate-400">
+          <p className="mt-1 text-xs text-slate-400" data-testid="reference-count">
             {references.length} image{references.length === 1 ? "" : "s"} will be uploaded once the
-            project is created.
+            project is created, and read now if you press <strong>Expand with AI</strong>.
           </p>
         ) : null}
       </div>
+      {defaultsNote ? (
+        <p className="text-xs text-slate-400" data-testid="generation-defaults-note">
+          {defaultsNote} Change them for this project afterwards under Project → Settings, or change
+          what every new project starts from under{" "}
+          <Link href="/settings" className="text-accent underline underline-offset-2">
+            Settings
+          </Link>
+          .
+        </p>
+      ) : null}
       <div className="grid gap-4 sm:grid-cols-2">
         <div>
           <label htmlFor="duration" className={label}>

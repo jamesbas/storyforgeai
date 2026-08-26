@@ -4,8 +4,9 @@ import { referenceImagesOf, wantsFaceSwap } from "@/lib/schemas/character";
 import { faceSwapSubjects } from "@/lib/services/face-swap-service";
 import {
   FACE_SWAP_LORAS,
-  FACE_SWAP_SETTINGS,
+  QWEN_FACE_SWAP_SETTINGS,
   faceSwapImageSettings,
+  faceSwapTaskFlagsFor,
 } from "@/lib/wangp/face-swap-preset";
 import type { Character } from "@/lib/schemas/character";
 
@@ -241,25 +242,26 @@ describe("the face-swap preset", () => {
   it("keeps the LoRA order and multipliers aligned", () => {
     // The accelerator must stay a full URL: it lives in `loras_accelerators`,
     // not the model's lora folder, so a bare filename does not resolve.
-    expect(FACE_SWAP_SETTINGS.activated_loras).toEqual([
+    expect(QWEN_FACE_SWAP_SETTINGS.activated_loras).toEqual([
       "https://huggingface.co/DeepBeepMeep/Qwen_image/resolve/main/loras_accelerators/Qwen-Image-Edit-2511-Lightning-4steps-V1.0-bf16.safetensors",
       "bfs_head_v5_2511_merged_version_rank_16_fp16.safetensors",
     ]);
-    expect(FACE_SWAP_SETTINGS.loras_multipliers).toBe("0.8 0.5");
+    expect(QWEN_FACE_SWAP_SETTINGS.loras_multipliers).toBe("0.8 0.5");
     expect(FACE_SWAP_LORAS.map((l) => l.strength)).toEqual([0.8, 0.5]);
   });
 
   it("runs the four-step Lightning schedule", () => {
-    expect(FACE_SWAP_SETTINGS.num_inference_steps).toBe(4);
-    expect(FACE_SWAP_SETTINGS.sample_solver).toBe("lightning");
-    expect(FACE_SWAP_SETTINGS.guidance_scale).toBe(1);
+    expect(QWEN_FACE_SWAP_SETTINGS.num_inference_steps).toBe(4);
+    expect(QWEN_FACE_SWAP_SETTINGS.sample_solver).toBe("lightning");
+    expect(QWEN_FACE_SWAP_SETTINGS.guidance_scale).toBe(1);
   });
 
   /** The activating letter now depends on which reference contract the model
    * publishes, so it is chosen per job rather than fixed in the preset. */
   it("sets the activating prompt-type letters and strips the reference background", () => {
     expect(faceSwapImageSettings("/frame.png", "/face.png", true).video_prompt_type).toBe("IV");
-    expect(FACE_SWAP_SETTINGS.image_prompt_type).toBe("");
-    expect(FACE_SWAP_SETTINGS.remove_background_images_ref).toBe(1);
+    expect(QWEN_FACE_SWAP_SETTINGS.image_prompt_type).toBe("");
+    // Published in no schema, so it travels with the unfiltered recipe values.
+    expect(faceSwapTaskFlagsFor("qwen").remove_background_images_ref).toBe(1);
   });
 });

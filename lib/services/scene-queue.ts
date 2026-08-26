@@ -1,6 +1,7 @@
 import {
   generateSceneMedia,
   canRunPhased,
+  chosenAttempt,
   generateProjectMediaPhased,
   regenerateSceneVideo,
 } from "@/lib/services/media-service";
@@ -127,6 +128,13 @@ export function getQueue(projectId: string): {
  *
  * Already-generated scenes are skipped so the button is safe to press twice;
  * `regenerateAll` forces the whole storyboard instead.
+ *
+ * A scene that banked its keyframes and never got a clip is queued for the clip
+ * alone. It is unfinished, so skipping it would strand it one step short — but
+ * re-rendering the frames costs two image jobs to arrive back where it started,
+ * and supersedes whatever was done to them in the meantime: a face swap, a hand
+ * edit, an imported frame. `regenerateAll` still redoes everything, which is
+ * what it is for.
  */
 export async function enqueueProjectScenes(
   projectId: string,
@@ -166,12 +174,22 @@ export async function enqueueProjectScenes(
     );
     if (done && !options.includeGenerated) continue;
 
+    // Read from the chosen attempt rather than any attempt, because that is the
+    // one `regenerateSceneVideo` will build the clip from. No start frame means
+    // nothing to reuse, and a full pass is then the right answer.
+    const reusable = chosenAttempt(record, scene.id);
+    const clipOnly =
+      !options.includeGenerated &&
+      stages.video &&
+      Boolean(reusable?.startImagePath) &&
+      !reusable?.videoPath;
+
     const entry: SceneQueueEntry = {
       projectId,
       sceneId: scene.id,
       sceneNumber: scene.sceneNumber,
       state: "pending",
-      scope: "full",
+      scope: clipOnly ? "video" : "full",
       attempts: 0,
     };
     state.entries.push(entry);
@@ -180,7 +198,11 @@ export async function enqueueProjectScenes(
 
   if (queued.length === 0) return [];
 
-  logEvent("scene_queue.enqueued", { projectId, scenes: queued.length });
+  logEvent("scene_queue.enqueued", {
+    projectId,
+    scenes: queued.length,
+    clipOnly: queued.filter((entry) => entry.scope === "video").length,
+  });
   await freeGpuForGeneration();
   void drain();
   return queued;

@@ -210,6 +210,17 @@ export default function HelpPage() {
             until you press <em>Use this</em>, and <em>Keep mine</em> discards it. It needs a planning
             model configured; without one the button says so rather than failing quietly.
           </p>
+          <p className={p}>
+            <strong>Attach reference images before you press it and they are read too.</strong> This
+            is the one place a picture can shape what <em>happens</em> rather than only how it looks:
+            everywhere else in the pipeline the images are turned into a description of setting,
+            palette and light, which by design carries no events. Here they are read alongside your
+            words while the concept is still being written, so a photograph can suggest a place, a
+            period, weather, or a situation you had not yet decided. Your typed note still leads —
+            where a picture suggests something the note rules out, the note wins. The status line
+            afterwards says how many images were actually read, and tells you plainly when none were
+            because no vision model is configured.
+          </p>
 
           <h3 className={h3}>Duration &amp; clip length</h3>
           <p className={p}>
@@ -595,15 +606,27 @@ export default function HelpPage() {
             it is the frame everything downstream uses.
           </p>
           <p className={p}>
-            The pass is four steps with an accelerator LoRA, so it costs seconds rather than the
-            minutes a keyframe takes. With <em>Continue from previous end frame</em> continuity you
-            pay for roughly one swap per scene. If it fails, the original frame is kept and the scene
-            still completes — a lost improvement, not a lost render.
+            The pass costs seconds rather than the minutes a keyframe takes. With{" "}
+            <em>Continue from previous end frame</em> continuity you pay for roughly one swap per
+            scene. If it fails, the original frame is kept and the scene still completes — a lost
+            improvement, not a lost render.
           </p>
           <p className={p}>
-            The character needs a reference image, and WanGP needs a Qwen Image Edit model with its
-            two face-swap LoRAs installed. Beyond that there is no limit on how many characters can
-            use it.
+            <strong>Which engine does it</strong> is a per-character choice, shown once you tick the
+            box. <strong>Krea Identity Edit (Turbo)</strong> is a checkpoint built for identity
+            transfer, run bare with no LoRAs, and is the default because it tests better on likeness.{" "}
+            <strong>Qwen Image Edit + head LoRA</strong> is the original recipe — a head-swap LoRA on
+            a four-step Lightning schedule — and is worth trying where Krea drifts on a difficult
+            face. They want different wording, so a character stores a prompt for each and the app
+            sends whichever matches the selected engine: switching back and forth is a click, and
+            neither version is lost.
+          </p>
+          <p className={p}>
+            The character needs a reference image, and WanGP needs the chosen model installed — the
+            Qwen method additionally needs its two face-swap LoRAs. If the chosen model is missing the
+            swap is skipped rather than run on the other engine, because the two produce visibly
+            different faces and quietly substituting one would look like the character changing
+            appearance for no reason. Beyond that there is no limit on how many characters can use it.
           </p>
           <p className={p}>
             <strong>More than one character in a frame.</strong> Each opted-in character gets its own
@@ -612,11 +635,24 @@ export default function HelpPage() {
           </p>
           <p className={p}>
             Because the passes chain, each one needs to say <em>which</em> person it is replacing.
-            The default wording names &quot;the woman&quot;, which is wrong for a man and ambiguous
-            when two women share a frame, so a character can carry its own{" "}
-            <strong>Face-swap prompt</strong> in the character library. Leave it empty to use the
-            default. Only the wording is yours — the LoRAs, step count and solver are a matched
-            recipe and stay as they are.
+            The defaults name the character as a woman or a man — set which in the character library
+            — but that is not enough when two women share a frame, so a character can edit either{" "}
+            <strong>face-swap prompt</strong> freely. Qwen&apos;s reads the rendered frame as{" "}
+            <strong>Picture 1</strong> and the reference photo as <strong>Picture 2</strong>;
+            Krea&apos;s reads them as <strong>the first image</strong> and{" "}
+            <strong>the 2nd reference image</strong>, and wants a much shorter instruction. Clear
+            either box to fall back to that engine&apos;s default. Only the wording is yours —
+            whatever else the engine needs is a matched recipe and stays as it is.
+          </p>
+          <p className={p}>
+            <strong>Steps.</strong> Each engine also carries its own step count, under its prompt,
+            left empty to use that engine&apos;s default. It is the only numeric dial worth turning:
+            Krea publishes no guidance, solver, mask or reference-boost control at all, so the prompt
+            and the step count are the whole tuning surface. Raising Krea&apos;s from 8 favours
+            keeping the original composition. Qwen&apos;s 4 is not a free number — its head LoRA
+            expects the accelerator&apos;s four-step schedule — so changing that is an experiment
+            rather than a tuning. They are kept apart so a count that suits one engine never follows
+            the character onto the other.
           </p>
           <p className={p}>
             <strong>Write that prompt generically, and let the app do the pointing.</strong> It is a
