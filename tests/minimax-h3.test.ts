@@ -289,15 +289,21 @@ describe("video resolution ceiling", () => {
 
 describe("clip length guidance", () => {
   /**
-   * 362 frames at H3's native 24fps, read from a live `minimax_h3_fl2va`
-   * schema. The earlier 20s figure came from a stale reading and made the
-   * project settings screen promise a single pass it would not get.
+   * 481 frames at H3's native 24fps, read from live WanGP v12.647 defaults for
+   * both pruned variants. `fps * seconds + 1` makes a 20s clip exactly 481, so
+   * the whole range this app offers fits in one pass. An earlier build windowed
+   * at 362 and the screen promised a single pass it would not get; the numbers
+   * moved, so this is read from the shipped defaults rather than carried over.
    */
-  it("recommends staying inside MiniMax's single window", () => {
-    const advice = clipLengthGuidance("minimax");
-    expect(advice?.singleWindowSeconds).toBe(15);
-    expect(advice?.recommendedSeconds).toBe(15);
-    expect(advice!.recommendedSeconds).toBeLessThanOrEqual(advice!.singleWindowSeconds);
+  it("covers the app's whole clip-length range in one window", () => {
+    for (const family of ["minimax", "minimax_ref2va"] as const) {
+      const advice = clipLengthGuidance(family);
+      expect(advice?.singleWindowSeconds).toBe(20);
+      expect(advice?.recommendedSeconds).toBe(20);
+      expect(advice!.recommendedSeconds).toBeLessThanOrEqual(advice!.singleWindowSeconds);
+      // Nothing here may impose a hard frame cap: both variants slide instead.
+      expect(advice?.maxFrames).toBeUndefined();
+    }
   });
 
   it("has no opinion about families without a known boundary", () => {
@@ -305,7 +311,8 @@ describe("clip length guidance", () => {
     expect(recommendedSegmentSeconds("wan")).toBe(20);
   });
 
-  it("recommends 15s for MiniMax", () => {
-    expect(recommendedSegmentSeconds("minimax")).toBe(15);
+  it("seeds a MiniMax project at the full clip length", () => {
+    expect(recommendedSegmentSeconds("minimax")).toBe(20);
+    expect(recommendedSegmentSeconds("minimax_ref2va")).toBe(20);
   });
 });

@@ -189,6 +189,21 @@ describe("the six-section prompt", () => {
     expect([...positions].sort((a, b) => a - b)).toEqual(positions);
   });
 
+  /**
+   * The guide breaks after the four prose labels and keeps the two audio fields
+   * on the label line. No blank line anywhere: Wan2GP reads one as a
+   * sliding-window separator and would split the scene into two generations.
+   */
+  it("lays the sections out the way the guide writes them", () => {
+    expect(rendered).toContain("subject_definitions:\n");
+    expect(rendered).toContain("summary:\n");
+    expect(rendered).toContain("retention_analysis:\n");
+    expect(rendered).toContain("detailed_description:\n");
+    expect(rendered).toContain("overall_soundscape: Rain on glass");
+    expect(rendered).toContain("non_diegetic_music: Low strings, slow.");
+    expect(rendered).not.toContain("\n\n");
+  });
+
   it("anchors both ends in the description itself, not only the bookkeeping", () => {
     // A build that named the anchors only in subject_definitions and
     // retention_analysis reached its closing frame correctly and opened on
@@ -229,6 +244,26 @@ describe("the six-section prompt", () => {
     expect(rendered).toContain("attribute_transfer");
   });
 
+  /** The guide separates a retention marker from its reason with a hyphen. */
+  it("separates each retention marker from its reason the way the guide does", () => {
+    const analysis = rendered.slice(
+      rendered.indexOf("retention_analysis:"),
+      rendered.indexOf("detailed_description:"),
+    );
+    expect(analysis).toContain("fully_preserved - ");
+    expect(analysis).toContain("attribute_transfer - ");
+    expect(analysis).not.toContain("—");
+  });
+
+  /** `detailed_description` states what the whole video is before [Shot 1]. */
+  it("opens the description with the target-video statement", () => {
+    const description = rendered.slice(rendered.indexOf("detailed_description:"));
+    expect(description).toContain("The target video is a single continuous shot");
+    expect(description.indexOf("The target video is")).toBeLessThan(
+      description.indexOf("[Shot 1]"),
+    );
+  });
+
   it("puts the style sentences before the shot marker", () => {
     const description = rendered.slice(rendered.indexOf("detailed_description:"));
     expect(description.indexOf("Warm naturalistic")).toBeLessThan(description.indexOf("[Shot 1]"));
@@ -245,8 +280,8 @@ describe("the six-section prompt", () => {
       hasStart: true,
       hasEnd: true,
     });
-    expect(silent).toContain("overall_soundscape:\nN/A");
-    expect(silent).toContain("non_diegetic_music:\nN/A");
+    expect(silent).toContain("overall_soundscape: N/A");
+    expect(silent).toContain("non_diegetic_music: N/A");
   });
 
   it("says what each anchor picture shows, not only that it is an anchor", () => {

@@ -184,6 +184,21 @@ describe("spoken lines", () => {
     expect(prompt).toContain("(S2) said: <d>[English] Not yet.</d>");
   });
 
+  /**
+   * The guide asks for one id per speaker, held for the whole prompt. Numbering
+   * each line instead reads as a room full of people and can be voiced that way.
+   */
+  it("keeps one id per named speaker across an exchange", () => {
+    const prompt = renderH3Prompt({
+      ...spoken,
+      body: 'Ana says, "Now." Ben said "Not yet." Ana says, "We go."',
+    });
+    expect(prompt).toContain("Ana (S1) says: <d>[English] Now.</d>");
+    expect(prompt).toContain("Ben (S2) said: <d>[English] Not yet.</d>");
+    expect(prompt).toContain("Ana (S1) says: <d>[English] We go.</d>");
+    expect(prompt).not.toContain("(S3)");
+  });
+
   it("never rewrites a prompt that already carries markup", () => {
     const already = 'Ana (S1) says: <d>[English] Now.</d> A sign reads "OPEN".';
     expect(renderH3Prompt({ ...spoken, body: already })).toContain('A sign reads "OPEN".');

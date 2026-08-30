@@ -1,6 +1,15 @@
 import type { ModelFamily } from "@/lib/wangp/family";
 
 /**
+ * Wan2GP starts a new video at every blank line in a prompt, so one anywhere in
+ * an H3 prompt splits the scene into separate generations. Single breaks are
+ * safe and wanted — the labelled fields are meant to sit on their own lines.
+ */
+export function withoutBlankLines(prompt: string): string {
+  return prompt.replace(/[ \t]*\r?\n(?:[ \t]*\r?\n)+/g, "\n").trim();
+}
+
+/**
  * MiniMax H3's native prompt envelope.
  *
  * H3 does not take one blob of prose. Its published guide
@@ -127,7 +136,8 @@ const DIALOGUE_TAG = /<d>\s*\[[^\]]*\]\s*([\s\S]*?)<\/d>/g;
  * after the verb left real dialogue untagged, and an untagged line inside this
  * format is description: the model shows someone speaking and says nothing.
  */
-const SPOKEN_CLAUSE = /\b(says?|said)\b([^"“”\n]{0,80}?)[,:]?\s*["“]([^"”]+)["”]/g;
+const SPOKEN_CLAUSE =
+  /(?:\b(\p{Lu}[\p{L}'’-]*)\s+)?\b(says?|said)\b([^"“”\n]{0,80}?)[,:]?\s*["“]([^"”]+)["”]/gu;
 
 /**
  * Tag spoken lines so H3 performs them instead of describing them.
@@ -145,16 +155,25 @@ export function markDialogue(text: string): string {
   DIALOGUE_TAG.lastIndex = 0;
   if (DIALOGUE_TAG.test(text)) return text;
 
-  let speaker = 0;
+  const ids = new Map<string, number>();
+  let speakers = 0;
   return text.replace(
     SPOKEN_CLAUSE,
-    (_match, verb: string, delivery: string, line: string) => {
-      speaker += 1;
+    (_match, name: string | undefined, verb: string, delivery: string, line: string) => {
+      // One id per speaker for the whole prompt: a character who talks twice was
+      // being numbered twice, which reads as two people and can be voiced as two.
+      const key = name?.toLocaleLowerCase();
+      let id = key ? ids.get(key) : undefined;
+      if (id === undefined) {
+        speakers += 1;
+        id = speakers;
+        if (key) ids.set(key, id);
+      }
       // How it is said belongs beside the verb, not inside the tag: the guide is
       // explicit that only the words between `<d>` and `</d>` are uttered, so a
       // delivery swept in there would be read out as part of the line.
       const said = `${verb}${delivery.replace(/[\s,:]+$/, "")}`;
-      return `(S${speaker}) ${said}: <d>[English] ${line.trim()}</d>`;
+      return `${name ? `${name} ` : ""}(S${id}) ${said}: <d>[English] ${line.trim()}</d>`;
     },
   );
 }
@@ -191,7 +210,7 @@ export function renderH3Prompt(parts: H3PromptParts): string {
     `non_diegetic_music: ${tidy(parts.score) || "N/A"}`,
   ].join("\n");
 
-  return header ? `${header}\n${fields}` : fields;
+  return withoutBlankLines(header ? `${header}\n${fields}` : fields);
 }
 
 /** Whether a prompt has already been put in the envelope. */
@@ -231,12 +250,14 @@ export function stripH3Envelope(prompt: string): string {
   if (!isH3Prompt(prompt)) return stripDialogueMarkup(prompt);
 
   const after = prompt.slice(prompt.indexOf("integrated_multimodal_description:"));
+  // Reads either layout, so a prompt stored under one setting still strips
+  // cleanly under the other.
   const timeline = after
     .replace(/^integrated_multimodal_description:\s*/, "")
-    .split(/\n\s*(?:overall_soundscape|non_diegetic_music):/)[0] ?? "";
+    .split(/\s*(?:overall_soundscape|non_diegetic_music):/)[0] ?? "";
 
-  const sound = /\n\s*overall_soundscape:\s*([\s\S]*?)(?=\n\s*non_diegetic_music:|$)/.exec(prompt);
-  const music = /\n\s*non_diegetic_music:\s*([\s\S]*)$/.exec(prompt);
+  const sound = /overall_soundscape:\s*([\s\S]*?)(?=\s*non_diegetic_music:|$)/.exec(prompt);
+  const music = /non_diegetic_music:\s*([\s\S]*)$/.exec(prompt);
 
   // The audio layers are still direction, just unlabelled: folded back in so a
   // fallback render loses the format without losing the intent.

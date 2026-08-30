@@ -433,8 +433,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
                 <strong>Reference mode</strong> — about {ref2vaEstimateMinutes(castSize)} min per
                 clip with {castSize === 1 ? "1 character" : `${castSize} characters`}{" "}
                 in the scene. Holds each pinned character&apos;s face for the whole clip, not just
-                at its two ends. Costs roughly 5 more minutes per character, and clips are capped
-                at {clipLengthGuidance("minimax_ref2va")?.recommendedSeconds}s.
+                at its two ends. Costs roughly 5 more minutes per character.
                 {h3Ref2va ? "" : " No reference-mode checkpoint is installed."}
               </span>
             </label>
@@ -640,11 +639,20 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           </div>
           {clipAdvice ? (
             <p className="text-xs text-slate-400" data-testid="clip-length-advice">
-              This model renders up to {clipAdvice.singleWindowSeconds}s in one pass. Longer clips
-              are stitched together from overlapping passes inside WanGP, where StoryForgeAI can
-              neither tune the join nor see that it happened —{" "}
-              <strong>{clipAdvice.recommendedSeconds}s</strong> is recommended so every seam is one
-              you control between scenes.
+              {clipAdvice.singleWindowSeconds >= MAX_SEGMENT_SECONDS ? (
+                <>
+                  This model renders up to {clipAdvice.singleWindowSeconds}s in one pass, so every
+                  clip length available here is a single pass with no stitched seam inside it.
+                </>
+              ) : (
+                <>
+                  This model renders up to {clipAdvice.singleWindowSeconds}s in one pass. Longer
+                  clips are stitched together from overlapping passes inside WanGP, where
+                  StoryForgeAI can neither tune the join nor see that it happened —{" "}
+                  <strong>{clipAdvice.recommendedSeconds}s</strong> is recommended so every seam is
+                  one you control between scenes.
+                </>
+              )}
             </p>
           ) : null}
         </div>

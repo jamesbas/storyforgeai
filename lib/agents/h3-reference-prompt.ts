@@ -1,4 +1,4 @@
-import { markDialogue, stripDialogueMarkup } from "@/lib/agents/h3-prompt";
+import { markDialogue, stripDialogueMarkup, withoutBlankLines } from "@/lib/agents/h3-prompt";
 import type { ModelFamily } from "@/lib/wangp/family";
 
 /**
@@ -119,6 +119,12 @@ const SECTIONS = [
 ] as const;
 
 const SHOT = "[Shot 1]";
+
+/** The guide keeps the two audio fields on the label's own line. */
+const INLINE_SECTIONS = new Set<(typeof SECTIONS)[number]>([
+  "overall_soundscape",
+  "non_diegetic_music",
+]);
 
 function tidy(value: string | undefined): string {
   return (value ?? "").replace(/\s+/g, " ").trim();
@@ -267,7 +273,7 @@ function retentionLines(
 
   if (hasVideoSource) {
     lines.push(
-      "<Video 1> (continues into [Shot 1]): fully_preserved — the final visual and audio state, " +
+      "<Video 1> (continues into [Shot 1]): fully_preserved - the final visual and audio state, " +
         "subject identities, props, setting, lighting, camera trajectory and ongoing motion carry " +
         "directly into the new shot.",
     );
@@ -275,13 +281,13 @@ function retentionLines(
 
   if (start) {
     lines.push(
-      `${start} ([Shot 1] first frame): fully_preserved — the opening composition, camera ` +
+      `${start} ([Shot 1] first frame): fully_preserved - the opening composition, camera ` +
         "position, set dressing and lighting are reproduced exactly at the start of the shot.",
     );
   }
   if (end) {
     lines.push(
-      `${end} ([Shot 1] last frame): fully_preserved — the closing framing, subject position and ` +
+      `${end} ([Shot 1] last frame): fully_preserved - the closing framing, subject position and ` +
         "lighting are reached exactly at the end of the shot.",
     );
   }
@@ -289,7 +295,7 @@ function retentionLines(
   subjects.forEach((subject, index) => {
     const marker = subject.retention ?? "attribute_transfer";
     lines.push(
-      `<Subject ${index + 1}> (appears in [Shot 1]): ${marker} — facial identity is carried over ` +
+      `<Subject ${index + 1}> (appears in [Shot 1]): ${marker} - facial identity is carried over ` +
         "with no drift across the clip; the photograph's own pose, framing, wardrobe and " +
         "background are not.",
     );
@@ -357,7 +363,14 @@ export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
     "",
   );
   const style = tidy(parts.style);
-  const timeline = [SHOT, continuedOpening, opening, body, closing].filter(Boolean).join(" ");
+  // The guide opens `detailed_description` with a whole-video statement ahead of
+  // the first shot marker; the anchors are asserted in the sentences after it.
+  const overview = hasVideoSource
+    ? "The target video is a single continuous shot that continues directly from <Video 1>."
+    : "The target video is a single continuous shot.";
+  const timeline = [overview, style, SHOT, continuedOpening, opening, body, closing]
+    .filter(Boolean)
+    .join(" ");
 
   const journey =
     hasVideoSource
@@ -373,13 +386,20 @@ export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
     }`.trim(),
     retention_analysis:
       retentionLines(parts.hasStart, parts.hasEnd, subjects, hasVideoSource).join("\n") || "N/A",
-    detailed_description: style ? `${style}\n${timeline}` : timeline,
+    detailed_description: timeline,
     overall_soundscape: tidy(parts.soundscape) || "N/A",
     non_diegetic_music: tidy(parts.score) || "N/A",
   };
 
-  // Label on its own line, matching the layout of the render that worked.
-  return SECTIONS.map((section) => `${section}:\n${values[section]}`).join("\n");
+  // A blank line anywhere would make Wan2GP start a second video, so the whole
+  // prompt is normalised rather than trusting every value to be single-spaced.
+  return withoutBlankLines(
+    SECTIONS.map((section) =>
+      INLINE_SECTIONS.has(section)
+        ? `${section}: ${values[section]}`
+        : `${section}:\n${values[section]}`,
+    ).join("\n"),
+  );
 }
 
 /** Whether a prompt is already in this format. */
@@ -403,8 +423,10 @@ export function stripH3ReferencePrompt(prompt: string): string {
   if (!isH3ReferencePrompt(prompt)) return stripDialogueMarkup(prompt);
 
   const section = (name: string): string => {
+    // Reads either layout, so a prompt stored under one setting still strips
+    // cleanly under the other.
     const pattern = new RegExp(
-      `(?:^|\\n)\\s*${name}:\\s*([\\s\\S]*?)(?=\\n\\s*(?:${SECTIONS.join("|")}):|$)`,
+      `${name}:\\s*([\\s\\S]*?)(?=\\s*(?:${SECTIONS.join("|")}):|$)`,
     );
     return tidy(pattern.exec(prompt)?.[1]);
   };

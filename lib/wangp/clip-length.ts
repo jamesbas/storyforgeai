@@ -26,17 +26,19 @@ export type ClipLengthGuidance = {
  * `singleWindowSeconds`. The numbers exist so the operator is choosing rather
  * than discovering.
  *
- * MiniMax H3's FL2VA variants report `sliding_window_size: 362` at a native
- * 24fps, which is 15.1s — so StoryForge's own 20s default already crosses it.
- * 15s is recommended to sit just inside.
+ * MiniMax H3 windows at `sliding_window_size: 481`, read from live WanGP
+ * v12.647 defaults for both `minimax_h3_fl2va_pruned` and
+ * `minimax_h3_ref2va_pruned`. At H3's native 24fps that is 20.04s, and
+ * `fps * seconds + 1` puts a 20s clip at exactly 481 frames — so both variants
+ * cover this app's whole clip-length range in a single pass.
  *
- * Ref2VA keeps 14s as the cost-conscious recommendation. Current Wan2GP builds
- * also process longer Ref2VA clips as sliding windows; the prompt commands
- * control each window's duration and overlap rather than imposing a hard cap.
+ * Earlier builds windowed at 362 (15.1s), and Ref2VA was additionally capped
+ * near 337 frames. Neither holds now; the numbers here are read from the
+ * shipped model defaults rather than carried forward.
  */
 const GUIDANCE: Partial<Record<ModelFamily, ClipLengthGuidance>> = {
-  minimax: { recommendedSeconds: 15, singleWindowSeconds: 15 },
-  minimax_ref2va: { recommendedSeconds: 14, singleWindowSeconds: 14 },
+  minimax: { recommendedSeconds: 20, singleWindowSeconds: 20 },
+  minimax_ref2va: { recommendedSeconds: 20, singleWindowSeconds: 20 },
 };
 
 export function clipLengthGuidance(family: ModelFamily): ClipLengthGuidance | undefined {
