@@ -3,6 +3,7 @@
 import { useCallback, useState } from "react";
 import { LoraSelector } from "@/components/settings/lora-selector";
 import { AsyncStatus } from "@/components/shared/async-status";
+import { CollapsibleSection } from "@/components/shared/collapsible-section";
 import { useLoadEffect } from "@/components/shared/use-load-effect";
 import type { GenerationDefaults } from "@/lib/schemas/generation-defaults";
 import type { LoraSelectionSet } from "@/lib/schemas/lora";
@@ -100,28 +101,18 @@ export function GenerationDefaults() {
 
   if (!defaults) {
     return (
-      <section className="rounded-lg border border-white/10 bg-panel/40 p-4">
-        <h2 className="font-semibold">Default models &amp; LoRAs</h2>
+      <CollapsibleSection testId="generation-defaults-section" title="Default models & LoRAs">
         <AsyncStatus testId="generation-defaults-status" message={status} failed={failed} busy />
-      </section>
+      </CollapsibleSection>
     );
   }
 
   return (
-    <section className="space-y-5 rounded-lg border border-white/10 bg-panel/40 p-4">
-      <div>
-        <h2 className="font-semibold">
-          Default models &amp; LoRAs{" "}
-          <span className="text-xs font-normal text-slate-500">— for new projects</span>
-        </h2>
-        <p className="mt-1 text-xs text-slate-500">
-          What a newly created project starts from, so a LoRA stack is built once rather than for
-          every project. <strong>Existing projects are never changed by this</strong> — they own
-          their own pins, and each can still be set differently under Project → Settings. A LoRA
-          that the project&apos;s model does not have is dropped when the project is created, since
-          a catalogue belongs to one model family.
-        </p>
-      </div>
+    <CollapsibleSection
+      testId="generation-defaults-section"
+      title="Default models & LoRAs"
+      description="What a newly created project starts from, so a LoRA stack is built once rather than for every project. Existing projects are never changed by this — they own their own pins, and each can still be set differently under Project → Settings. A LoRA that the project's model does not have is dropped when the project is created, since a catalogue belongs to one model family."
+    >
 
       <label className="flex items-center gap-2 text-xs text-slate-400">
         <input
@@ -204,7 +195,7 @@ export function GenerationDefaults() {
       </div>
 
       <AsyncStatus testId="generation-defaults-status" message={status} failed={failed} busy={busy} />
-    </section>
+    </CollapsibleSection>
   );
 }
 

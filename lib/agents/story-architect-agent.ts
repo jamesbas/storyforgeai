@@ -94,18 +94,24 @@ export async function storyArchitectAgent(
     // the app: six live runs in a row recorded `deterministic/short_collection`
     // while every other canvas agent returned `llm/ok`.
     llm: provider
-      ? withSegmentGapsFilled(providerCall(provider, system, user, storyPlanSchema), {
+      ? withSegmentGapsFilled(
+          providerCall(provider, system, user, storyPlanSchema, {
+            systemPromptScope: "storyboard",
+          }),
+          {
           field: "segmentBeats",
           provider,
           system,
           payload,
           segmentCount: ctx.project.segmentCount,
+          systemPromptScope: "storyboard",
           read: (plan) => asSegmentMap.read(plan.segmentBeats),
           write: (plan, map) => ({
             ...plan,
             segmentBeats: asSegmentMap.write(map, ctx.project.segmentCount),
           }),
-        })
+          },
+        )
       : undefined,
     // One beat per segment, even if the model returned a different count.
     validate: (plan) =>

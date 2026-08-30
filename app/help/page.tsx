@@ -31,12 +31,13 @@ const TOC: Section[] = [
   { id: "workflow", title: "7. The end-to-end workflow" },
   { id: "pages", title: "8. Every screen explained" },
   { id: "agents", title: "9. The creative team (agents)" },
-  { id: "wangp", title: "10. WanGP & generation" },
-  { id: "qc", title: "11. QC, attempts & approval" },
-  { id: "assembly", title: "12. Assembly & exports" },
-  { id: "deepy", title: "13. Deepy assist" },
-  { id: "flags", title: "14. Modes & feature flags" },
-  { id: "faq", title: "15. FAQ & troubleshooting" },
+  { id: "systemprompts", title: "10. Custom system prompts" },
+  { id: "wangp", title: "11. WanGP & generation" },
+  { id: "qc", title: "12. QC, attempts & approval" },
+  { id: "assembly", title: "13. Assembly & exports" },
+  { id: "deepy", title: "14. Deepy assist" },
+  { id: "flags", title: "15. Modes & feature flags" },
+  { id: "faq", title: "16. FAQ & troubleshooting" },
 ];
 
 function Anchor({ id }: { id: string }) {
@@ -1471,10 +1472,124 @@ export default function HelpPage() {
           </p>
         </section>
 
+        {/* 10. Custom system prompts */}
+        <section className={card}>
+          <Anchor id="systemprompts" />
+          <h2 className={h2}>10. Custom system prompts</h2>
+          <p className={p}>
+            <strong>Settings → LM Studio system prompts</strong> lets you add your own standing
+            instructions to every AI planning call, for all projects. It is optional. Left empty,
+            StoryForgeAI sends exactly what it always sent.
+          </p>
+
+          <h3 className={h3}>A system prompt saved inside LM Studio does not reach these calls</h3>
+          <p className={p}>
+            LM Studio&apos;s Config Presets apply to its own chat window. StoryForgeAI talks to the
+            server over the OpenAI-compatible API and supplies its own conversation, so a system
+            prompt you typed into the LM Studio UI is not part of it. This settings page is where
+            that instruction now belongs. To see exactly what the model received, run{" "}
+            <code>lms log stream</code> in a terminal and trigger one agent.
+          </p>
+
+          <h3 className={h3}>Your text is added to StoryForgeAI&apos;s, never instead of it</h3>
+          <p className={p}>
+            Each call carries one system message, assembled in this order: your custom instructions
+            first, then StoryForgeAI&apos;s built-in agent contract, then the JSON schema the answer
+            is validated against. That contract is not decoration — it names the required fields,
+            the continuity rules and the output shape. So you never need to paste StoryForgeAI&apos;s
+            own wording in, and where the two disagree about structure, the built-in contract wins.
+          </p>
+
+          <h3 className={h3}>Three scopes, because the workflows want different things</h3>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li className={li}>
+              <strong>Agentic Canvas</strong> — Variant Explorer, World Builder, Director,
+              Cinematographer, Art Director. Planning only. These agents never write render prompts.
+            </li>
+            <li className={li}>
+              <strong>Storyboard</strong> — Intake, Story Architect, Visual Bible, Storyboard
+              Artist. Writes the brief, the arc, the continuity guide and the scene cards. It is
+              explicitly told <em>not</em> to write image or video prompts yet.
+            </li>
+            <li className={li}>
+              <strong>Render prompts</strong> — Image Prompt and Video Prompt agents. The only scope
+              that writes the text actually sent to the image and video models.
+            </li>
+          </ul>
+          <p className={p}>
+            All three are required together. That is deliberate: a half-configured policy is the
+            state where one workflow behaves differently from the others for no visible reason.
+            Clearing all three returns every agent to the built-in prompts.
+          </p>
+
+          <h3 className={h3}>Four ways to get this wrong</h3>
+          <p className={p}>
+            None of these produce an error. They produce worse output, which is harder to notice.
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li className={li}>
+              <strong>Render rules in a planning scope.</strong> Telling the Storyboard scope to
+              &quot;write start and end stills&quot; contradicts the instruction those agents
+              already carry, and they start producing prompts instead of the scene card.
+            </li>
+            <li className={li}>
+              <strong>Restating a character&apos;s appearance.</strong> The character library already
+              appends the canonical description to the scenes that character appears in. Writing it
+              again in a system prompt describes the person twice, and a subject described twice
+              renders twice — duplicated or deformed people. Physical detail belongs in the
+              character library, not here.
+            </li>
+            <li className={li}>
+              <strong>Redefining a JSON field.</strong> <code>charactersPresent</code> means the
+              supplied cast visible in that shot, not everyone in the room;{" "}
+              <code>forbiddenContradictions</code> are world and continuity rules, not one
+              character&apos;s body negatives. Redefining either leaves two contradictory
+              definitions in the same message.
+            </li>
+            <li className={li}>
+              <strong>Writing too much.</strong> A storyboard issues roughly <code>4 + 2N</code>{" "}
+              model calls plus retries — about fifty on a 24-scene project — and your text rides on
+              every one. It competes with the story, the plans and the cast for the model&apos;s
+              context window. Aim for 100 to 150 words per scope.
+            </li>
+          </ul>
+
+          <h3 className={h3}>What StoryForgeAI already sends, so you need not repeat it</h3>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li className={li}>&quot;Return only valid JSON&quot;, plus the expected keys.</li>
+            <li className={li}>
+              On explicit projects: that the work is adult and the act must be shown rather than
+              implied, and that each body part is named in both a colloquial and a clinical
+              register, because any given checkpoint was trained on one vocabulary or the other.
+            </li>
+            <li className={li}>
+              For keyframes: open with shot size and camera height, state an explicit headcount,
+              give each person their own sentence, choose a shot size that can hold everyone, and
+              anchor every named body part to the body it belongs to.
+            </li>
+            <li className={li}>
+              The project style and tone, and each present character&apos;s description and
+              wardrobe, appended automatically at render time.
+            </li>
+          </ul>
+
+          <h3 className={h3}>What a good custom prompt looks like</h3>
+          <p className={p}>
+            Standing policy that is true of every project: precedence, discipline, house style. Not
+            facts about one character, one scene or one shot — those belong on the project, the
+            character library and the scene card, where they are already scoped correctly.
+          </p>
+          <p className={p}>
+            After saving, generate one scene and expand <strong>Prompts</strong> on the scene card.
+            That is the text that will be sent to WanGP, and it is the only reliable way to confirm
+            your instructions helped rather than crowded something out.
+          </p>
+        </section>
+
         {/* 9. WanGP */}
         <section className={card}>
           <Anchor id="wangp" />
-          <h2 className={h2}>10. WanGP &amp; generation</h2>
+          <h2 className={h2}>11. WanGP &amp; generation</h2>
           <p className={p}>
             StoryForgeAI generates media through WanGP/Wan2GP. It is <strong>discovery-first</strong>:
             it lists available models, prefers ones that support start frames (for scene continuity),
@@ -1704,7 +1819,7 @@ export default function HelpPage() {
         {/* 8. QC */}
         <section className={card}>
           <Anchor id="qc" />
-          <h2 className={h2}>11. QC, attempts &amp; approval</h2>
+          <h2 className={h2}>12. QC, attempts &amp; approval</h2>
           <p className={p}>
             Generating media for a scene creates an <strong>attempt</strong> — a start frame, an end
             frame, and a video clip.
@@ -1736,7 +1851,7 @@ export default function HelpPage() {
         {/* 9. Assembly */}
         <section className={card}>
           <Anchor id="assembly" />
-          <h2 className={h2}>12. Assembly &amp; exports</h2>
+          <h2 className={h2}>13. Assembly &amp; exports</h2>
           <p className={p}>
             Assembly builds a final-cut plan from your approved clips and produces a rough cut. The last
             scene&apos;s trim is applied automatically so the total runtime matches your request.
@@ -1780,7 +1895,7 @@ export default function HelpPage() {
         {/* 10. Deepy */}
         <section className={card}>
           <Anchor id="deepy" />
-          <h2 className={h2}>13. Deepy assist</h2>
+          <h2 className={h2}>14. Deepy assist</h2>
           <p className={p}>
             Deepy is an optional media helper. On the Assembly page you can &quot;Ask Deepy&quot; about a
             clip to inspect it, extract the final frame, transcribe audio, suggest why a generation
@@ -1792,7 +1907,7 @@ export default function HelpPage() {
         {/* 11. Flags */}
         <section className={card}>
           <Anchor id="flags" />
-          <h2 className={h2}>14. Modes &amp; feature flags</h2>
+          <h2 className={h2}>15. Modes &amp; feature flags</h2>
           <p className={p}>
             Every external integration is off by default. An administrator can enable them via
             environment variables (see the project README and the <a href="/about" className="text-accent underline underline-offset-2">About</a> page for current status):
@@ -1815,7 +1930,7 @@ export default function HelpPage() {
         {/* 12. FAQ */}
         <section className={card}>
           <Anchor id="faq" />
-          <h2 className={h2}>15. FAQ &amp; troubleshooting</h2>
+          <h2 className={h2}>16. FAQ &amp; troubleshooting</h2>
 
           <h3 className={h3}>Why are all my scenes 20 seconds?</h3>
           <p className={p}>

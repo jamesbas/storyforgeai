@@ -49,6 +49,7 @@ export async function visualBibleAgent(
             conceptVisualsDirective(ctx.conceptVisuals),
           user,
           visualBibleSchema,
+          { systemPromptScope: "storyboard" },
         )
       : undefined,
     fallback: () => buildVisualBible(ctx.project, cast, ctx.plans),

@@ -248,6 +248,7 @@ export async function storyboardAgent(
       system + batchDirective(start + 1, end, wanted) + carriedWardrobeDirective(cast, now),
       user,
       sceneDraftsSchema,
+      { systemPromptScope: "storyboard" },
     );
     const returned = result?.scenes ?? [];
     if (returned.length !== end - start) batchReason ??= returned.length ? "short_collection" : "unknown";

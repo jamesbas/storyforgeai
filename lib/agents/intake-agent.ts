@@ -36,6 +36,7 @@ export async function intakeAgent(
           INTAKE_SYSTEM + conceptVisualsDirective(ctx.conceptVisuals),
           user,
           creativeBriefSchema,
+          { systemPromptScope: "storyboard" },
         )
       : undefined,
     fallback: () => buildCreativeBrief(ctx.project),

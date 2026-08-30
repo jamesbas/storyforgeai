@@ -517,6 +517,7 @@ export async function attachScenePrompts(
                 precedenceDirective(sceneCast, plans),
               user,
               videoPartSchema,
+              { systemPromptScope: "render_prompts" },
             ),
             fallback: () => videoPart,
           });
@@ -647,7 +648,9 @@ function gatedImageCall(
   gated: { codes: PromptGateCode[] },
 ): () => Promise<ProviderResult<ImagePart>> {
   return async () => {
-    const first = await providerCall(provider, system, user, imagePartSchema)();
+    const first = await providerCall(provider, system, user, imagePartSchema, {
+      systemPromptScope: "render_prompts",
+    })();
     if (!first.ok) return first;
     const codes = gateFindings(first.value, gate);
     if (!codes.length) return first;
@@ -658,6 +661,7 @@ function gatedImageCall(
       system + gateRepairDirective(codes, gate),
       user,
       imagePartSchema,
+      { systemPromptScope: "render_prompts" },
     )();
     if (retry.ok) {
       const retryCodes = gateFindings(retry.value, gate);

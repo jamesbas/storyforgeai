@@ -218,6 +218,7 @@ export async function variantExplorerAgent(
             VARIANT_EXPLORER_SYSTEM + conceptVisualsDirective(ctx.conceptVisuals),
             user,
             variantsSchema,
+            { systemPromptScope: "agentic_canvas" },
           )();
           if (!result.ok) return result;
           if (!result.value.variants.length) {
@@ -294,6 +295,7 @@ export async function worldBuilderAgent(
             conceptVisualsDirective(ctx.conceptVisuals),
           user,
           worldBibleSchema,
+          { systemPromptScope: "agentic_canvas" },
         )
       : undefined,
     fallback: () => buildWorldBible(project),
@@ -358,13 +360,16 @@ export async function directorAgent(
     onExecution: ctx.onExecution,
     llm: provider
       ? withSegmentGapsFilled(
-          providerCall(provider, system, JSON.stringify(payload), directorialPlanSchema),
+          providerCall(provider, system, JSON.stringify(payload), directorialPlanSchema, {
+            systemPromptScope: "agentic_canvas",
+          }),
           {
             field: "sceneIntent",
             provider,
             system,
             payload,
             segmentCount: project.segmentCount,
+            systemPromptScope: "agentic_canvas",
             read: (plan) => plan.sceneIntent,
             write: (plan, sceneIntent) => ({ ...plan, sceneIntent }),
           },
@@ -404,13 +409,16 @@ export async function cinematographerAgent(
     onExecution: ctx.onExecution,
     llm: provider
       ? withSegmentGapsFilled(
-          providerCall(provider, system, JSON.stringify(payload), cinematographyPlanSchema),
+          providerCall(provider, system, JSON.stringify(payload), cinematographyPlanSchema, {
+            systemPromptScope: "agentic_canvas",
+          }),
           {
             field: "sceneShotPlans",
             provider,
             system,
             payload,
             segmentCount: project.segmentCount,
+            systemPromptScope: "agentic_canvas",
             read: (plan) => plan.sceneShotPlans,
             write: (plan, sceneShotPlans) => ({ ...plan, sceneShotPlans }),
           },
@@ -454,6 +462,7 @@ export async function artDirectorAgent(
             conceptVisualsDirective(ctx.conceptVisuals),
           user,
           artDirectionPlanSchema,
+          { systemPromptScope: "agentic_canvas" },
         )
       : undefined,
     fallback: () => buildArtDirectionPlan(project),

@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { directorAgent, cinematographerAgent } from "@/lib/agents/canvas-agents";
 import { segmentsMissingFrom } from "@/lib/agents/creative-context";
-import type { PlanningProvider } from "@/lib/agents/llm/provider";
+import type { GenerateOptions, PlanningProvider } from "@/lib/agents/llm/provider";
 import type { Project } from "@/lib/schemas/project";
 
 /**
@@ -27,10 +27,17 @@ const project = {
 /** Answers with `upTo` segments first, then everything asked for after that. */
 function shortThenComplete(upTo: number, field: "sceneIntent" | "sceneShotPlans") {
   const calls: string[] = [];
+  const scopes: (string | undefined)[] = [];
   const provider: PlanningProvider = {
     name: "fake",
-    async generateJson(_system: string, user: string) {
+    async generateJson(
+      _system: string,
+      user: string,
+      _schema: unknown,
+      options?: GenerateOptions,
+    ) {
       calls.push(user);
+      scopes.push(options?.systemPromptScope);
       const asked = (JSON.parse(user) as { writeOnlyTheseSegments?: number[] })
         .writeOnlyTheseSegments;
       if (asked) {
@@ -58,12 +65,12 @@ function shortThenComplete(upTo: number, field: "sceneIntent" | "sceneShotPlans"
           };
     },
   } as unknown as PlanningProvider;
-  return { provider, calls };
+  return { provider, calls, scopes };
 }
 
 describe("a directorial plan that covers only some segments", () => {
   it("asks again for exactly the segments it left out", async () => {
-    const { provider, calls } = shortThenComplete(18, "sceneIntent");
+    const { provider, calls, scopes } = shortThenComplete(18, "sceneIntent");
 
     const plan = await directorAgent(project, provider);
 
@@ -71,6 +78,7 @@ describe("a directorial plan that covers only some segments", () => {
     expect(calls).toHaveLength(2);
     const followUp = JSON.parse(calls[1]!) as { writeOnlyTheseSegments: number[] };
     expect(followUp.writeOnlyTheseSegments).toEqual([19, 20, 21, 22, 23, 24]);
+    expect(scopes).toEqual(["agentic_canvas", "agentic_canvas"]);
   });
 
   it("keeps what the first answer wrote", async () => {

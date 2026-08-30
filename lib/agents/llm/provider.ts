@@ -2,6 +2,7 @@ import type { ZodType, ZodTypeDef } from "zod";
 import { config } from "@/lib/config";
 import { logEvent } from "@/lib/telemetry";
 import { withSchemaHint } from "@/lib/agents/llm/schema-hint";
+import { resolveSystemPrompt, type SystemPromptScope } from "@/lib/agents/llm/system-prompt";
 import type { FailureReason } from "@/lib/schemas/provenance";
 
 /**
@@ -56,6 +57,8 @@ export interface PlanningProvider {
 export type GenerateOptions = {
   /** Data URLs to send alongside the text. Requires OPENAI_VISION_MODEL. */
   images?: readonly string[];
+  /** App-wide custom prompt policy to apply to this workflow. */
+  systemPromptScope?: SystemPromptScope;
 };
 
 /**
@@ -261,11 +264,12 @@ function createOpenAiProvider(): PlanningProvider {
           });
         }
 
+        const resolvedSystem = await resolveSystemPrompt(system, options.systemPromptScope);
         const messages: ChatMessage[] = [
           // Agent prompts name a schema the model has never seen, so spell out
           // the expected keys. Without this, small local models return
           // plausible JSON with the wrong shape.
-          { role: "system", content: withSchemaHint(system, schema) },
+          { role: "system", content: withSchemaHint(resolvedSystem, schema) },
           {
             role: "user",
             content: useVision

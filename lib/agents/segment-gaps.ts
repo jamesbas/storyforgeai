@@ -3,7 +3,11 @@ import { z } from "zod";
 import { planEntryFor, segmentsMissingFrom } from "@/lib/agents/creative-context";
 import { providerCall } from "@/lib/agents/provenance";
 import { logEvent } from "@/lib/telemetry";
-import type { PlanningProvider, ProviderResult } from "@/lib/agents/llm/provider";
+import type {
+  PlanningProvider,
+  ProviderResult,
+  GenerateOptions,
+} from "@/lib/agents/llm/provider";
 
 /** A per-segment collection, and how many follow-up calls it is worth. */
 export type PlanMapField = "sceneIntent" | "sceneShotPlans" | "segmentBeats";
@@ -33,6 +37,7 @@ export function withSegmentGapsFilled<T>(
     system: string;
     payload: Record<string, unknown>;
     segmentCount: number | undefined;
+    systemPromptScope?: GenerateOptions["systemPromptScope"];
     read: (value: T) => Record<string, string> | undefined;
     write: (value: T, map: Record<string, string>) => T;
   },
@@ -58,6 +63,7 @@ export function withSegmentGapsFilled<T>(
           writeOnlyTheseSegments: missing,
         }),
         gapEntriesSchema,
+        { systemPromptScope: options.systemPromptScope },
       )();
       if (!filled.ok) break;
 

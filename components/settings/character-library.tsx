@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { CollapsibleSection } from "@/components/shared/collapsible-section";
 import {
   MAX_FACE_SWAP_PROMPT,
   MAX_FACE_SWAP_STEPS,
@@ -227,15 +228,11 @@ export function CharacterLibrary() {
   );
 
   return (
-    <section className="space-y-4 rounded-lg border border-white/10 bg-panel/40 p-4">
-      <div>
-        <h2 className="font-semibold">Character library</h2>
-        <p className="mt-1 text-xs text-slate-500">
-          Describe a character once and reuse them across projects. When a project opts in, these
-          descriptions are locked into the visual bible, the scene cards, and every image and video
-          prompt — which is what keeps a face from changing between clips.
-        </p>
-      </div>
+    <CollapsibleSection
+      testId="character-library-section"
+      title="Character library"
+      description="Describe a character once and reuse them across projects. When a project opts in, these descriptions are locked into the visual bible, the scene cards, and every image and video prompt — which is what keeps a face from changing between clips."
+    >
 
       {error ? (
         <p role="alert" className="rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-300">
@@ -696,6 +693,6 @@ export function CharacterLibrary() {
         and Qwen Image Edit both do. The video clip inherits the identity from those two frames, so
         nothing extra is needed there.
       </p>
-    </section>
+    </CollapsibleSection>
   );
 }
