@@ -74,6 +74,8 @@ export type ManifestOverrides = {
   durationSeconds?: number;
   /** The model can render past one window, so a published window size is not a clip ceiling. */
   slidingWindows?: boolean;
+  /** Explicit WanGP sliding-window size, replacing mutable per-model UI state. */
+  slidingWindowSize?: number;
   /**
    * A hard ceiling on `video_length`, for variants with no sliding-window
     * support. H3 may publish its single-window size as a field bound, but that
@@ -265,6 +267,13 @@ export function singlePromptGenType(
     }
     if (overrides.maxFrames !== undefined) frames = Math.min(overrides.maxFrames, frames);
     settings.video_length = frames;
+  }
+
+  if (
+    overrides.slidingWindowSize !== undefined &&
+    (fieldNames.has("sliding_window_size") || "sliding_window_size" in schema.defaultSettings)
+  ) {
+    settings.sliding_window_size = overrides.slidingWindowSize;
   }
 
   // One prompt, however many lines it has.

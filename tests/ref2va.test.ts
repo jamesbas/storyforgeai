@@ -496,6 +496,7 @@ class Ref2vaClient extends MockWangpClient {
       defaultSettings: {
         prompt: "",
         resolution: "832x480",
+        sliding_window_size: 362,
         image_prompt_type: "",
         video_prompt_type: "",
         multi_prompts_gen_type: "PG",
@@ -573,6 +574,7 @@ describe("the Ref2VA manifest", () => {
   it("lets Wan2GP stitch a request beyond the recommended single window", async () => {
     const manifest = await ref2vaManifest({ durationSeconds: 20 });
     expect(manifest.settings.video_length).toBe(481);
+    expect(manifest.settings.sliding_window_size).toBe(481);
   });
 
   it("prompts in the six-section format", async () => {

@@ -288,22 +288,47 @@ describe("video resolution ceiling", () => {
 });
 
 describe("clip length guidance", () => {
-  /**
-   * 481 frames at H3's native 24fps, read from live WanGP v12.647 defaults for
-   * both pruned variants. `fps * seconds + 1` makes a 20s clip exactly 481, so
-   * the whole range this app offers fits in one pass. An earlier build windowed
-   * at 362 and the screen promised a single pass it would not get; the numbers
-   * moved, so this is read from the shipped defaults rather than carried over.
-   */
+  /** 481 frames at H3's native 24fps covers the full 20-second app limit. */
   it("covers the app's whole clip-length range in one window", () => {
     for (const family of ["minimax", "minimax_ref2va"] as const) {
       const advice = clipLengthGuidance(family);
       expect(advice?.singleWindowSeconds).toBe(20);
+      expect(advice?.slidingWindowFrames).toBe(481);
       expect(advice?.recommendedSeconds).toBe(20);
       expect(advice!.recommendedSeconds).toBeLessThanOrEqual(advice!.singleWindowSeconds);
       // Nothing here may impose a hard frame cap: both variants slide instead.
       expect(advice?.maxFrames).toBeUndefined();
     }
+  });
+
+  it.each([
+    "minimax_h3_fl2va_pruned",
+    "minimax_h3_fl2va_pruned_pdd",
+    "minimax_h3_ref2va_pruned",
+    "minimax_h3_ref2va_pruned_pdd",
+  ])("replaces the saved 362-frame window for %s", (modelType) => {
+    const schema: WangpModelSchema = {
+      ...h3Schema,
+      modelType,
+      defaultSettings: {
+        ...h3Schema.defaultSettings,
+        model_type: modelType,
+        sliding_window_size: 362,
+      },
+    };
+    const advice = clipLengthGuidance(familyOf(modelType));
+    const manifest = buildSettingsManifest(schema, {
+      sceneId: "s1",
+      purpose: "video_segment",
+      prompt: "x",
+      fps: 24,
+      durationSeconds: 20,
+      slidingWindows: true,
+      slidingWindowSize: advice?.slidingWindowFrames,
+    });
+
+    expect(manifest.settings.video_length).toBe(481);
+    expect(manifest.settings.sliding_window_size).toBe(481);
   });
 
   it("has no opinion about families without a known boundary", () => {

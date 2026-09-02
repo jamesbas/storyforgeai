@@ -610,6 +610,7 @@ export async function buildVideoManifest(args: {
     fps: args.fps ?? config.defaults.fps,
     durationSeconds: args.durationSeconds,
     slidingWindows: isMinimaxFamily(family),
+    slidingWindowSize: clipLengthGuidance(family)?.slidingWindowFrames,
     // A hard stop only for a variant that genuinely publishes one. Current H3
     // variants use Wan2GP sliding windows, so their guidance leaves this unset.
     maxFrames: clipLengthGuidance(family)?.maxFrames,

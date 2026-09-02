@@ -52,6 +52,7 @@ class TwoModelClient extends MockWangpClient {
       defaultSettings: {
         prompt: "",
         resolution: "832x480",
+        sliding_window_size: 362,
         image_prompt_type: "",
         multi_prompts_gen_type: "PG",
         model_type: modelType,
@@ -136,6 +137,7 @@ describe("with the flag on and H3 resolved", () => {
       durationSeconds: 20,
     });
     expect(manifest.settings.video_length).toBe(481);
+    expect(manifest.settings.sliding_window_size).toBe(481);
   });
 
   it("continues from a source clip and tells H3 what Video 1 means", async () => {
