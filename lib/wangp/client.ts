@@ -25,7 +25,7 @@ export interface WangpClient {
    * filesystem reads disabled fails every job. Optional so the existing test
    * doubles still satisfy the interface.
    */
-  allowsFilesystemPaths?(): Promise<boolean>;
+  allowsFilesystemPaths?(): Promise<boolean | undefined>;
   /** Discard any cached catalogue, so the next listing is re-read. */
   resetModelCache?(): void;
 }

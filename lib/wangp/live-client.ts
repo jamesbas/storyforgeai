@@ -204,13 +204,13 @@ export class LiveWangpClient implements WangpClient {
   /**
    * Whether this server accepts a file path where a reference image is wanted.
    *
-   * Read off the advertised tool list rather than by trying a render: WanGP
-   * registers `wangp_list_files` only when it was started with filesystem
-   * reads, so its presence is the same switch that decides whether a keyframe
-   * job is accepted or refused.
+   * `wangp_list_files` proves that reads are enabled when advertised. Its
+   * absence is inconclusive: newer WanGP builds can accept generation paths
+   * without exposing the file-browser tool. A real refusal is still explained
+   * by the generation transport without spending a render on this probe.
    */
-  async allowsFilesystemPaths(): Promise<boolean> {
-    return (await this.transport.findTool(["wangp_list_files"])) !== undefined;
+  async allowsFilesystemPaths(): Promise<boolean | undefined> {
+    return (await this.transport.findTool(["wangp_list_files"])) ? true : undefined;
   }
 
   async getModelSchema(modelType: string): Promise<WangpModelSchema> {

@@ -14,6 +14,13 @@ media generation, audio, and assembly happen.
   LLM path, and both must emit the **same artifact shape**. A missing, disabled, or
   misbehaving LLM degrades to the deterministic builder — it never fails a request.
 
+![StoryForgeAI technical infographic showing the Next.js experience, TypeScript control plane, validated creative artifacts, Wan2GP MCP adapter, media engine, and per-scene context resolution](presentations/generated/StoryForgeAI-Technical-Infographic.png)
+
+*The solution view: StoryForgeAI owns orchestration and project state while
+Wan2GP remains the independent media engine. An
+[editable PowerPoint version](presentations/generated/StoryForgeAI-Technical-Infographic.pptx)
+is included with the architecture assets.*
+
 ---
 
 ## 1. System context
@@ -828,11 +835,12 @@ reports a pin as missing should be read as *possibly* a discovery fault.
 unless it was started with `--mcp-allow-read-file-system`. Every keyframe this app
 renders hands it a path — a character photograph, or the frame carried over from
 the previous scene — so a server without the flag fails every job in a batch.
-`LiveWangpClient.allowsFilesystemPaths()` detects it without spending a render:
-Wan2GP registers `wangp_list_files` **only** when the flag is set, so the
-advertised tool list answers the question. It surfaces as
-`WangpStatus.filesystemReads` and is warned about on the generation console and
-project settings.
+`LiveWangpClient.allowsFilesystemPaths()` can prove support without spending a
+render when Wan2GP advertises `wangp_list_files`. The reverse is not reliable:
+newer builds can accept generation paths without exposing that file-browser
+tool, so its absence leaves `WangpStatus.filesystemReads` unknown rather than
+raising a false warning. A real path refusal is translated into the required
+restart flag when a generation call returns it.
 
 ### 4.1 LoRAs and trigger words
 

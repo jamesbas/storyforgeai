@@ -61,9 +61,9 @@ describe("a WanGP server that refuses filesystem paths", () => {
 });
 
 /**
- * `wangp_list_files` is registered only when the server was started with
- * filesystem reads, so the advertised tool list answers the question without
- * spending a render to find out.
+ * `wangp_list_files` proves that filesystem reads are enabled when advertised.
+ * Its absence is not proof of refusal: newer servers can accept generation
+ * paths without exposing the file-browser tool.
  */
 describe("detecting the setting before a batch is started", () => {
   const clientAdvertising = (names: string[]) => {
@@ -75,8 +75,8 @@ describe("detecting the setting before a batch is started", () => {
     return client;
   };
 
-  it("reports paths refused when the filesystem tools are absent", async () => {
-    expect(await clientAdvertising(["wangp_list_models"]).allowsFilesystemPaths()).toBe(false);
+  it("leaves path support unknown when the filesystem tools are absent", async () => {
+    expect(await clientAdvertising(["wangp_list_models"]).allowsFilesystemPaths()).toBeUndefined();
   });
 
   it("reports paths accepted when they are advertised", async () => {
