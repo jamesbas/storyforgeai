@@ -1,5 +1,6 @@
 import { storyPlanSchema, type StoryPlan } from "@/lib/schemas/agents";
 import { buildStoryPlan } from "@/lib/agents/mock-agents";
+import { denouementBudget } from "@/lib/agents/beat-budget";
 import { creativeModeDirective } from "@/lib/agents/look";
 import { explicitnessDirective } from "@/lib/agents/explicitness";
 import { executeArtifact, providerCall } from "@/lib/agents/provenance";
@@ -42,6 +43,49 @@ function structureFor(segmentCount: number | undefined): string {
   );
 }
 
+/**
+ * Caps the tail, and says what to do with the segments that frees.
+ *
+ * "The closing beats resolve" reads as a phase to fill, so the model spends
+ * whatever is left on aftermath — reaction shots, empty rooms, people leaving —
+ * while the part of the story that needed the room has already been compressed
+ * to fit. The budget is stated as a hard number because a proportion invites
+ * rounding up.
+ */
+function denouementDirective(segmentCount: number | undefined): string {
+  if (segmentCount === undefined || segmentCount <= 2) return "";
+  const allowed = denouementBudget(segmentCount);
+  return (
+    ` At most ${allowed} of the final beats may be aftermath — reaction, tidying up, departure, ` +
+    "or an empty room. Everything before that has to carry the story forward. If you find " +
+    "yourself with segments left over and nothing left to happen, the earlier action was written " +
+    "too fast: go back and give it the extra segments instead of padding the end."
+  );
+}
+
+/**
+ * Lets one action occupy several consecutive segments.
+ *
+ * Every segment is the same fixed length, and nothing downstream can lengthen
+ * one, so an action that would really take a minute is written as though it
+ * took twenty seconds — it starts and finishes inside a single beat, and the
+ * plan reads as a sequence of things that happen instantly. The only way to
+ * spend more time on something is to give it more segments, and the agent has
+ * no way to know that unless it is told.
+ */
+function sustainedActionDirective(segmentSeconds: number): string {
+  return (
+    ` Not every action fits in ${segmentSeconds} seconds, and you must not compress one that does ` +
+    "not. When something would realistically take longer, give it several consecutive segments " +
+    "instead of squeezing it into one: write a beat for each of those segments describing that " +
+    "stretch of the same continuous action — how it develops, what changes — and list the second " +
+    "and later segment numbers in continuedSegments. A continued beat carries on from the one " +
+    "before it in the same place with the same people; it never restarts the action, recaps it, " +
+    "or jumps ahead of it. Judge the time each action honestly needs before you decide how many " +
+    "segments to spend, and spend them where the story actually is."
+  );
+}
+
 export const storyArchitectSystem = (segmentSeconds: number, segmentCount?: number) =>
   "You are the Story Architect Agent. Create a complete narrative plan sized to the " +
   `requested duration. The video will be generated in ${segmentSeconds}-second segments. ` +
@@ -59,7 +103,9 @@ export const storyArchitectSystem = (segmentSeconds: number, segmentCount?: numb
   "then later make up\" cannot be rendered. Name the subject, what they are doing, and where. " +
   "A beat marks a change rather than a description of a state: each one must leave the situation " +
   "different from how it started, and the difference must be something an audience could see. " +
-  "Give one emotional value per segment and make them move — the same value repeated across " +
+  sustainedActionDirective(segmentSeconds) +
+  denouementDirective(segmentCount) +
+  " Give one emotional value per segment and make them move — the same value repeated across " +
   "every segment means the piece has no arc.";
 
 /** Default-length wording, retained for callers that have no project in hand. */
@@ -130,7 +176,24 @@ export async function storyArchitectAgent(
     ...value,
     projectId: ctx.project.id,
     emotionalProgression: fitProgression(value.emotionalProgression, ctx.project),
+    ...(value.continuedSegments
+      ? { continuedSegments: fitContinuations(value.continuedSegments, ctx.project.segmentCount) }
+      : {}),
   };
+}
+
+/**
+ * Keep only continuations that name a real segment with something before it.
+ *
+ * Segment 1 has nothing to continue, and a number past the end refers to a
+ * segment that will never be written. Both are cheap for a model to produce and
+ * would otherwise reach the storyboard as an instruction to carry on from a
+ * scene that does not exist.
+ */
+function fitContinuations(values: readonly number[], segmentCount: number): number[] {
+  return [...new Set(values)]
+    .filter((n) => n > 1 && n <= segmentCount)
+    .sort((a, b) => a - b);
 }
 
 function fitsSegments(values: readonly string[], segmentCount: number | undefined): boolean {

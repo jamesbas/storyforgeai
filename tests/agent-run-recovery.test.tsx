@@ -57,7 +57,7 @@ describe("recovering an agent run the screen did not start", () => {
   it("leaves the canvas alone when nothing is running", async () => {
     stubFetch(null);
     render(<AgenticCanvas projectId="p1" />);
-    await waitFor(() => expect(screen.getAllByTestId("agent-card")).toHaveLength(8));
+    await waitFor(() => expect(screen.getAllByTestId("agent-card")).toHaveLength(9));
     expect(screen.queryByTestId("canvas-remote-run")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /run core agents/i })).not.toBeDisabled();
   });

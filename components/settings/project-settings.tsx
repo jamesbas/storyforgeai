@@ -411,7 +411,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
                 name="video-tier"
                 className="mt-0.5 accent-accent"
                 disabled={busy || !h3Fl2va}
-                checked={project.videoTier !== "ref2va"}
+                checked={videoFamily !== "minimax_ref2va"}
                 onChange={() => save({ videoTier: "fl2va", videoModel: h3Fl2va?.modelType })}
               />
               <span>
@@ -426,7 +426,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
                 name="video-tier"
                 className="mt-0.5 accent-accent"
                 disabled={busy || !h3Ref2va}
-                checked={project.videoTier === "ref2va"}
+                checked={videoFamily === "minimax_ref2va"}
                 onChange={() => save({ videoTier: "ref2va", videoModel: h3Ref2va?.modelType })}
               />
               <span>

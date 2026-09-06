@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { maybe } from "@/lib/schemas/maybe";
 
 export const namedSpecSchema = z.object({
   name: z.string(),
@@ -150,5 +151,18 @@ export const storyPlanSchema = z.object({
   logline: z.string(),
   emotionalProgression: z.array(z.string()),
   segmentBeats: z.array(z.string()),
+  /**
+   * Segment numbers that carry the previous segment's action forward instead of
+   * starting a new one.
+   *
+   * Every segment is the same length, so an action that genuinely takes longer
+   * than one has no way to ask for more time — it is simply written short, and
+   * the plan reads as a list of things that each happen instantly. Naming the
+   * continuations lets one action span consecutive segments while keeping the
+   * one-beat-per-segment shape every later agent depends on.
+   *
+   * Optional so plans written before it existed still parse.
+   */
+  continuedSegments: maybe(z.array(z.number().int().positive())),
 });
 export type StoryPlan = z.infer<typeof storyPlanSchema>;

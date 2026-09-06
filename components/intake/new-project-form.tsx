@@ -12,6 +12,7 @@ import {
   RESOLUTION_PRESETS,
   SEGMENT_SECONDS,
 } from "@/lib/types";
+import { beatBudget } from "@/lib/agents/beat-budget";
 import {
   AUDIENCE_PRESETS,
   CUSTOM_PRESET_VALUE,
@@ -233,6 +234,14 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
   const field = "rounded-md border border-white/10 bg-canvas px-3 py-2 text-sm outline-none focus:border-accent";
   const label = "block text-xs font-medium uppercase tracking-wide text-slate-400";
   const conceptTooLong = concept.length > MAX_CONCEPT_CHARACTERS;
+  // Every scene is the same fixed length, so a brief describing more actions
+  // than there are scenes is compressed — and the only cheap fix is the one
+  // that is still available here.
+  const budget = beatBudget({
+    concept,
+    requestedDurationSeconds: Number(duration),
+    segmentSeconds: Number(segmentSeconds),
+  });
 
   /**
    * Preset dropdown with a free-text escape hatch.
@@ -439,6 +448,30 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
               : ""}
           </p>
         </div>
+        {budget ? (
+          <div
+            className="rounded-md border border-amber-400/30 bg-amber-400/5 p-2.5 sm:col-span-2"
+            data-testid="beat-budget-warning"
+          >
+            <p className="text-[11px] text-amber-200/90">
+              Your concept describes about {budget.impliedBeats} distinct actions, but{" "}
+              {duration}s only gives {budget.availableScenes} scenes. Every scene is the same
+              length, so the extra action has to be compressed — usually by rushing the middle and
+              filling the end.
+            </p>
+            <button
+              type="button"
+              onClick={() => setDuration(budget.suggestedDurationSeconds)}
+              data-testid="raise-duration"
+              className="mt-2 rounded-md border border-amber-400/40 px-2.5 py-1 text-[11px] text-amber-100 hover:border-amber-300"
+            >
+              Raise to {budget.suggestedDurationSeconds}s
+            </button>
+            <span className="ml-2 text-[10px] text-slate-500">
+              Or shorten the concept. This is an estimate — create it anyway if you disagree.
+            </span>
+          </div>
+        ) : null}
         <div>
           <label htmlFor="aspectRatio" className={label}>
             Aspect ratio

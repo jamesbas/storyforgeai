@@ -181,6 +181,12 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const [videoPicks, setVideoPicks] = useState<string[]>([]);
   const [promptPicks, setPromptPicks] = useState<string[]>([]);
   const [cascadeNotice, setCascadeNotice] = useState<string | null>(null);
+  const [openingFramePending, setOpeningFramePending] = useState(false);
+  const [openingFrameError, setOpeningFrameError] = useState<string | null>(null);
+  const [openingFrameCropped, setOpeningFrameCropped] = useState<{
+    from: { width: number; height: number };
+    to: { width: number; height: number };
+  } | null>(null);
   /**
    * LoRA catalogs, fetched once per model rather than per scene. They are only
    * needed to look up trigger words, which every scene shares.
@@ -699,6 +705,49 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         setError(e instanceof Error ? e.message : "Failed to import the image");
       } finally {
         setSceneBusy(null);
+      }
+    },
+    [projectId, failureMessage, loadMedia],
+  );
+
+  /**
+   * Pin or release the image scene 1 opens on.
+   *
+   * Not part of an attempt, so it is addressed at the project and works before
+   * anything has been generated — which is the only time it can do its job.
+   */
+  const setOpeningFrame = useCallback(
+    async (file: File | null, faceSwap = false) => {
+      setError(null);
+      // Reported beside the control rather than through the page-level error,
+      // which sits at the top of a storyboard that can be twenty scenes long.
+      setOpeningFrameError(null);
+      setOpeningFramePending(true);
+      try {
+        let body: FormData | undefined;
+        if (file) {
+          body = new FormData();
+          body.append("file", file);
+          body.append("faceSwap", String(faceSwap));
+        }
+        const res = await fetch(`/api/projects/${projectId}/opening-frame`, {
+          method: file ? "POST" : "DELETE",
+          body,
+        });
+        if (!res.ok) throw new Error(await failureMessage(res, "Failed to pin the opening frame"));
+        const result = (await res.json()) as {
+          record: ProjectRecord;
+          cropped?: { from: { width: number; height: number }; to: { width: number; height: number } };
+        };
+        setRecord(result.record);
+        setOpeningFrameCropped(result.cropped ?? null);
+        await loadMedia();
+      } catch (e) {
+        setOpeningFrameError(
+          e instanceof Error ? e.message : "Failed to pin the opening frame",
+        );
+      } finally {
+        setOpeningFramePending(false);
       }
     },
     [projectId, failureMessage, loadMedia],
@@ -1517,6 +1566,24 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                       ? (purpose, file) => void importSceneFrame(scene.id, purpose, file)
                       : undefined
                   }
+                  openingFrame={record.project.openingFrame}
+                  openingFrameUrl={
+                    record.project.openingFrame
+                      ? // The asset id is fixed, so a replacement would otherwise show the
+                        // browser's cached copy of the frame it replaced.
+                        `/api/projects/${projectId}/media/opening-frame?v=${encodeURIComponent(record.project.openingFrame.path)}`
+                      : undefined
+                  }
+                  openingFrameCropped={openingFrameCropped}
+                  aspectRatio={record.project.aspectRatio}
+                  openingFramePending={openingFramePending}
+                  openingFrameError={openingFrameError}
+                  onPinOpeningFrame={
+                    stages.keyframes
+                      ? (file, faceSwap) => void setOpeningFrame(file, faceSwap)
+                      : undefined
+                  }
+                  onUnpinOpeningFrame={() => void setOpeningFrame(null)}
                   endFrameCarriedToScene={endFrameCarriedToScene}
                 />
               );

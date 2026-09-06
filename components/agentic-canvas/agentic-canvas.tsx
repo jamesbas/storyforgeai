@@ -49,6 +49,30 @@ function progressLabel(entry: CanvasRunEntry | undefined): string | null {
     : progress.phase;
 }
 
+/** Artifacts written against the arc, and so invalidated by replacing it. */
+const ARC_DEPENDENTS = [
+  { artifact: "directorial_plan", name: "Director" },
+  { artifact: "cinematography_plan", name: "Cinematographer" },
+  { artifact: "art_direction_plan", name: "Art Director" },
+  { artifact: "storyboard", name: "Storyboard Artist" },
+] as const;
+
+/**
+ * Plans that describe an arc the project no longer has.
+ *
+ * Rewriting the arc is the one canvas action that makes finished work wrong
+ * rather than merely older — the Director's intent is keyed to beats that have
+ * been replaced. Timestamps are ISO, so they order lexicographically.
+ */
+function staleAgainstArc(record: ProjectRecord): string[] {
+  const arc = latestExecution(record.executions, "story_plan")?.finishedAt;
+  if (!arc) return [];
+  return ARC_DEPENDENTS.filter(({ artifact }) => {
+    const written = latestExecution(record.executions, artifact)?.finishedAt;
+    return written !== undefined && written < arc;
+  }).map(({ name }) => name);
+}
+
 type CanvasAgent = {
   key: string;
   name: string;
@@ -69,6 +93,18 @@ const AGENTS: CanvasAgent[] = [
     artifactKey: "variants",
     status: (r) => (r.variants && r.variants.length > 0 ? "ready" : "empty"),
     summary: (r) => (r.variants?.length ? `${r.variants.length} directions` : "Not generated"),
+  },
+  {
+    key: "story",
+    name: "Story Architect",
+    role: "Narrative arc",
+    endpoint: "generate-story-plan",
+    artifactKey: "story_plan",
+    status: (r) => (r.storyPlan ? "ready" : "empty"),
+    summary: (r) =>
+      r.storyPlan
+        ? `${r.storyPlan.segmentBeats.length} beats — ${r.storyPlan.logline}`
+        : "Written automatically when the Director first runs",
   },
   {
     key: "world",
@@ -143,6 +179,10 @@ const AGENTS: CanvasAgent[] = [
  *
  * Variant Explorer is not here: choosing a direction is a human decision, and
  * running it would leave an unselected set of variants that changes nothing.
+ * Story Architect is not here for the same kind of reason — a rewritten arc is
+ * a different story, so every plan and scene card already written describes the
+ * one it replaced. It is still produced automatically when a project has none,
+ * inside the Director's run; what is deliberate is *replacing* a good one.
  * Storyboard Artist is not here either — it is what these plans feed, so it is
  * offered as a separate follow-on step.
  */
@@ -354,6 +394,9 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
     record && isContinuousTake(record.project) && record.cinematographyPlan
       ? shotPlanIssues(record.cinematographyPlan.sceneShotPlans)
       : [];
+
+  const staleAfterArc = record ? staleAgainstArc(record) : [];
+  const arcContinuations = new Set(record?.storyPlan?.continuedSegments ?? []);
 
   if (!record) {
     return <p className="text-sm text-slate-400">{error ?? "Loading…"}</p>;
@@ -581,6 +624,43 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
                   disabled={busy}
                   onSaved={setRecord}
                 />
+              ) : null}
+              {agent.key === "story" && record.storyPlan ? (
+                <>
+                  <details className="mt-2" data-testid="arc-beats">
+                    <summary className="cursor-pointer text-xs text-slate-400 hover:text-slate-200">
+                      Read the {record.storyPlan.segmentBeats.length} beats
+                    </summary>
+                    <ol className="mt-1 list-decimal space-y-1 pl-5 text-[11px] text-slate-400">
+                      {record.storyPlan.segmentBeats.map((beat, index) => {
+                        const continues = arcContinuations.has(index + 1);
+                        return (
+                          <li key={index} className={continues ? "text-accent/90" : undefined}>
+                            {beat}
+                            {continues ? (
+                              <span className="text-[10px] text-accent">
+                                {" "}
+                                · carries the previous beat on
+                              </span>
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </details>
+                  {staleAfterArc.length ? (
+                    <div
+                      data-testid="arc-dependents-stale"
+                      className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200/90"
+                    >
+                      {staleAfterArc.join(", ")}{" "}
+                      {staleAfterArc.length === 1 ? "was" : "were"} written against an earlier arc,
+                      so {staleAfterArc.length === 1 ? "it describes" : "they describe"} a story
+                      this project no longer plans. Regenerate{" "}
+                      {staleAfterArc.length === 1 ? "it" : "them"} in order.
+                    </div>
+                  ) : null}
+                </>
               ) : null}
               {agent.key === "cinematographer" && shotIssues.length ? (
                 <div

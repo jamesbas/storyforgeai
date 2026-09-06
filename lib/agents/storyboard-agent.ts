@@ -112,6 +112,27 @@ function batchDirective(from: number, to: number, total: number): string {
 }
 
 /**
+ * Tells the model that some of these cards are the middle of an action, not the
+ * start of one.
+ *
+ * Without it every card is written as a self-contained event — setting
+ * re-established, action begun and finished — so an action the Story Architect
+ * deliberately spread over three segments came back as the same thing happening
+ * three times.
+ */
+function continuationDirective(segments: readonly number[]): string {
+  if (!segments.length) return "";
+  const list = segments.join(", ");
+  return (
+    ` Scene${segments.length > 1 ? "s" : ""} ${list} continue${segments.length > 1 ? "" : "s"} the ` +
+    "action of the scene immediately before, in the same place with the same people. Carry it " +
+    "forward from exactly where that scene ended and let it develop — do not re-establish the " +
+    "setting, do not start the action again, do not summarise what has already happened, and do " +
+    "not skip to the end of it. Write the transition in as continuous rather than a cut."
+  );
+}
+
+/**
  * Tells the model that a wardrobe it is being shown is already the result of an
  * earlier change, so it neither re-declares it nor writes anyone back into the
  * outfit they left behind.
@@ -213,12 +234,16 @@ export async function storyboardAgent(
 
   const fallbackDrafts = built();
   const scenes: SceneDraft[] = [];
+  const continued = new Set(storyPlan.continuedSegments ?? []);
   let builderFilled = 0;
   let batchReason: FailureReason | undefined;
 
   for (let start = 0; start < wanted; start += CARDS_PER_CALL) {
     const end = Math.min(start + CARDS_PER_CALL, wanted);
     const previous = scenes[start - 1];
+    const segmentNumbers = Array.from({ length: end - start }, (_, i) => start + i + 1);
+    // Segment 1 has nothing before it to continue, whatever the plan claims.
+    const continuedHere = segmentNumbers.filter((n) => n > 1 && continued.has(n));
     // The cast is re-sent with every batch, so it has to show what everyone is
     // wearing now rather than what the project started them in.
     const now = castWardrobeAfter(cast, scenes);
@@ -230,9 +255,10 @@ export async function storyboardAgent(
       othersWardrobe: Object.keys(now.others).length ? now.others : undefined,
       plans: planningPayload(ctx.plans),
       // Only this batch's beats, so the model is not tempted to cover the rest.
-      segmentNumbers: Array.from({ length: end - start }, (_, i) => start + i + 1),
+      segmentNumbers,
       segmentBeats: storyPlan.segmentBeats.slice(start, end),
       emotionalProgression: storyPlan.emotionalProgression.slice(start, end),
+      continuedSegments: continuedHere.length ? continuedHere : undefined,
       previousScene: previous
         ? {
             sceneNumber: start,
@@ -245,7 +271,10 @@ export async function storyboardAgent(
     });
 
     const result = await provider.generateJson(
-      system + batchDirective(start + 1, end, wanted) + carriedWardrobeDirective(cast, now),
+      system +
+        batchDirective(start + 1, end, wanted) +
+        continuationDirective(continuedHere) +
+        carriedWardrobeDirective(cast, now),
       user,
       sceneDraftsSchema,
       { systemPromptScope: "storyboard" },

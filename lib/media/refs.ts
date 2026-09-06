@@ -23,6 +23,7 @@ export type PreviewRole = (typeof PREVIEW_ROLES)[number];
 export type MediaRef =
   | { kind: "scene"; sceneId: string; attemptId: string; role: MediaRole }
   | { kind: "preview"; sceneId: string; role: PreviewRole }
+  | { kind: "opening_frame" }
   | { kind: "cue"; cueId: string }
   | { kind: "rough_cut" }
   | { kind: "final_cut" };
@@ -30,12 +31,15 @@ export type MediaRef =
 const SEP = "~";
 const ROUGH_CUT_ID = "rough-cut";
 const FINAL_CUT_ID = "final-cut";
+/** One per project, so it needs no identifier of its own. */
+const OPENING_FRAME_ID = "opening-frame";
 /** Ids are app-generated (UUIDs / slugs); reject anything that could be a path. */
 const SAFE_ID = /^[A-Za-z0-9._-]+$/;
 
 export function encodeMediaRef(ref: MediaRef): string {
   if (ref.kind === "rough_cut") return ROUGH_CUT_ID;
   if (ref.kind === "final_cut") return FINAL_CUT_ID;
+  if (ref.kind === "opening_frame") return OPENING_FRAME_ID;
   if (ref.kind === "cue") return ["cue", ref.cueId].join(SEP);
   if (ref.kind === "preview") return ["preview", ref.sceneId, ref.role].join(SEP);
   return ["scene", ref.sceneId, ref.attemptId, ref.role].join(SEP);
@@ -44,6 +48,7 @@ export function encodeMediaRef(ref: MediaRef): string {
 export function parseMediaRef(assetId: string): MediaRef | null {
   if (assetId === ROUGH_CUT_ID) return { kind: "rough_cut" };
   if (assetId === FINAL_CUT_ID) return { kind: "final_cut" };
+  if (assetId === OPENING_FRAME_ID) return { kind: "opening_frame" };
 
   const parts = assetId.split(SEP);
   if (parts[0] === "cue") {
@@ -83,11 +88,13 @@ export function resolveMediaPath(record: ProjectRecord, ref: MediaRef): string |
       ? attemptPath(record, ref)
       : ref.kind === "preview"
         ? previewPath(record, ref)
-        : ref.kind === "cue"
-          ? record.audioPlan?.cues.find((c) => c.id === ref.cueId)?.generatedPath
-          : ref.kind === "rough_cut"
-            ? record.assembly?.roughCutPath
-            : record.assembly?.finalPath;
+        : ref.kind === "opening_frame"
+          ? record.project.openingFrame?.path
+          : ref.kind === "cue"
+            ? record.audioPlan?.cues.find((c) => c.id === ref.cueId)?.generatedPath
+            : ref.kind === "rough_cut"
+              ? record.assembly?.roughCutPath
+              : record.assembly?.finalPath;
   if (!raw) return null;
   return safeResolveMediaPath(raw);
 }

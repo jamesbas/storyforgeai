@@ -1,4 +1,5 @@
 import { SceneLoraPanel } from "@/components/storyboard/scene-lora-panel";
+import { OpeningFramePanel } from "@/components/storyboard/opening-frame-panel";
 import { ScenePromptsPanel } from "@/components/storyboard/scene-prompts-panel";
 import { SceneCardEditor } from "@/components/storyboard/scene-card-editor";
 import { SceneWardrobePanel } from "@/components/storyboard/scene-wardrobe-panel";
@@ -10,6 +11,7 @@ import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { ArtifactExecution } from "@/lib/schemas/provenance";
 import type { SceneAttempt } from "@/lib/schemas/generation";
 import type { MediaDescriptor } from "@/lib/media/refs";
+import type { AspectRatio } from "@/lib/types";
 
 type SceneCardProps = {
   scene: Scene;
@@ -70,6 +72,22 @@ type SceneCardProps = {
   onRevertFace?: (purpose: "start_frame" | "end_frame") => void;
   /** Put a supplied image in place of one of this attempt's keyframes. */
   onImportFrame?: (purpose: "start_frame" | "end_frame", file: File) => void;
+  /**
+   * The image scene 1 opens on, supplied rather than rendered. Only ever shown
+   * on scene 1, which is the one frame nothing upstream can provide.
+   */
+  openingFrame?: { path: string; faceSwap: boolean };
+  /** Serves the pinned image, so the crop can be judged before generating. */
+  openingFrameUrl?: string;
+  openingFrameCropped?:
+    | { from: { width: number; height: number }; to: { width: number; height: number } }
+    | null;
+  /** The project's shape, so the panel can say what will happen to a mismatch. */
+  aspectRatio?: AspectRatio;
+  openingFramePending?: boolean;
+  openingFrameError?: string | null;
+  onPinOpeningFrame?: (file: File, faceSwap: boolean) => void;
+  onUnpinOpeningFrame?: () => void;
   /**
    * The scene now showing this attempt's end frame as its own start frame.
    * Derived from the record rather than from the continuity setting, so the
@@ -139,11 +157,24 @@ export function SceneCard({
   onSwapFace,
   onRevertFace,
   onImportFrame,
+  openingFrame,
+  openingFrameUrl,
+  openingFrameCropped,
+  aspectRatio,
+  openingFramePending,
+  openingFrameError,
+  onPinOpeningFrame,
+  onUnpinOpeningFrame,
   endFrameCarriedToScene,
 }: SceneCardProps) {
   const playable = media.filter((m) => m.available && m.sceneId === scene.id);
   const hasPreviews = playable.some((m) => m.preview);
-  const hasImportedFrame = Boolean(attempt?.startImageImported || attempt?.endImageImported);
+  // A pinned start frame is exempt: regeneration skips it rather than discarding it,
+  // so the warning below would be describing the opposite of what happens.
+  const pinnedStart = Boolean(openingFrame) && scene.sceneNumber === 1;
+  const hasImportedFrame = Boolean(
+    (attempt?.startImageImported && !pinnedStart) || attempt?.endImageImported,
+  );
 
   return (
     <article
@@ -407,6 +438,20 @@ export function SceneCard({
                 are not part of an attempt and are never assembled.
               </span>
             </div>
+          )}
+
+          {onPinOpeningFrame && scene.sceneNumber === 1 && (
+            <OpeningFramePanel
+              pinned={openingFrame}
+              previewUrl={openingFrameUrl}
+              cropped={openingFrameCropped}
+              aspectRatio={aspectRatio}
+              busy={busy}
+              pending={openingFramePending}
+              error={openingFrameError}
+              onPin={onPinOpeningFrame}
+              onUnpin={onUnpinOpeningFrame}
+            />
           )}
 
           {onImportFrame && attempt && (

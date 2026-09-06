@@ -184,7 +184,111 @@ describe("AgenticCanvas component", () => {
   it("renders one card per creative agent", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(baseRecord)));
     render(<AgenticCanvas projectId="p1" />);
-    await waitFor(() => expect(screen.getAllByTestId("agent-card")).toHaveLength(8));
+    await waitFor(() => expect(screen.getAllByTestId("agent-card")).toHaveLength(9));
+  });
+});
+
+/**
+ * The narrative arc, on the canvas.
+ *
+ * It was previously invisible — written implicitly before the Director runs and
+ * never replaceable once a model had produced one. Showing it is half the fix;
+ * the other half is admitting what replacing it costs, because every plan
+ * already written describes the arc being thrown away.
+ */
+describe("the Story Architect card", () => {
+  beforeEach(() => vi.restoreAllMocks());
+
+  const withArc = (
+    continuedSegments?: number[],
+    executions?: ProjectRecord["executions"],
+  ): ProjectRecord => ({
+    ...baseRecord,
+    storyPlan: {
+      projectId: "p1",
+      title: "Dawn on the towpath",
+      logline: "A lock-keeper finds the gates jammed.",
+      emotionalProgression: ["calm", "unease", "resolve"],
+      segmentBeats: ["He walks the towpath.", "He hauls at the beam.", "The gate gives."],
+      ...(continuedSegments ? { continuedSegments } : {}),
+    },
+    ...(executions ? { executions } : {}),
+  });
+
+  const execution = (artifact: string, finishedAt: string) => ({
+    executionId: `${artifact}-1`,
+    artifact,
+    scope: "project",
+    source: "llm" as const,
+    status: "ok" as const,
+    startedAt: finishedAt,
+    finishedAt,
+    durationMs: 1,
+  });
+
+  it("lists the beats the arc is made of", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(withArc())));
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() => expect(screen.getByTestId("arc-beats")).toBeTruthy());
+    expect(screen.getByTestId("arc-beats").textContent).toContain("He hauls at the beam.");
+  });
+
+  it("marks a beat that carries the previous one on, so sustained action is visible", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(withArc([2]))));
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() => expect(screen.getByTestId("arc-beats")).toBeTruthy());
+    expect(screen.getByTestId("arc-beats").textContent).toContain("carries the previous beat on");
+  });
+
+  it("names the plans left describing a story the project no longer plans", async () => {
+    const record = withArc(undefined, [
+      execution("directorial_plan", "2026-01-01T00:00:00.000Z"),
+      execution("storyboard", "2026-01-01T00:00:00.000Z"),
+      // Written last, so both of the above predate it.
+      execution("story_plan", "2026-02-01T00:00:00.000Z"),
+    ]);
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(record)));
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() => expect(screen.getByTestId("arc-dependents-stale")).toBeTruthy());
+    const warning = screen.getByTestId("arc-dependents-stale").textContent ?? "";
+    expect(warning).toContain("Director");
+    expect(warning).toContain("Storyboard Artist");
+    // Never ran, so it cannot be describing the wrong arc.
+    expect(warning).not.toContain("Cinematographer");
+  });
+
+  it("says nothing when the plans were written after the arc", async () => {
+    const record = withArc(undefined, [
+      execution("story_plan", "2026-01-01T00:00:00.000Z"),
+      execution("directorial_plan", "2026-02-01T00:00:00.000Z"),
+    ]);
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(record)));
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() => expect(screen.getByTestId("arc-beats")).toBeTruthy());
+    expect(screen.queryByTestId("arc-dependents-stale")).toBeNull();
+  });
+
+  it("asks the server to rewrite the arc", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(withArc()));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() => expect(screen.getByTestId("arc-beats")).toBeTruthy());
+    const card = screen.getByTestId("arc-beats").closest("article")!;
+    await userEvent.click(card.querySelector("button")!);
+
+    // The stub declares no parameters, so its recorded calls are untyped.
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit | undefined][];
+    expect(
+      calls.some(
+        ([url, init]) =>
+          url === "/api/projects/p1/generate-story-plan" && init?.method === "POST",
+      ),
+    ).toBe(true);
   });
 });
 
@@ -275,7 +379,7 @@ describe("AgenticCanvas queue reconciliation", () => {
     };
 
     render(<AgenticCanvas projectId="p1" />);
-    await waitFor(() => expect(screen.getAllByTestId("agent-card")).toHaveLength(8));
+    await waitFor(() => expect(screen.getAllByTestId("agent-card")).toHaveLength(9));
     expect(state.projectFetches).toBe(1);
     expect(screen.queryAllByText("ready")).toHaveLength(0);
 
@@ -397,7 +501,7 @@ describe("AgenticCanvas queue reconciliation", () => {
     };
 
     render(<AgenticCanvas projectId="p1" />);
-    await waitFor(() => expect(screen.getAllByTestId("agent-card")).toHaveLength(8));
+    await waitFor(() => expect(screen.getAllByTestId("agent-card")).toHaveLength(9));
     await userEvent.click(screen.getByRole("button", { name: /run core agents/i }));
 
     await waitFor(() =>
@@ -418,7 +522,7 @@ describe("AgenticCanvas queue reconciliation", () => {
     };
 
     render(<AgenticCanvas projectId="p1" />);
-    await waitFor(() => expect(screen.getAllByTestId("agent-card")).toHaveLength(8));
+    await waitFor(() => expect(screen.getAllByTestId("agent-card")).toHaveLength(9));
     await userEvent.click(screen.getByRole("button", { name: /run core agents/i }));
 
     await waitFor(() =>
@@ -436,7 +540,7 @@ describe("AgenticCanvas queue reconciliation", () => {
     };
 
     render(<AgenticCanvas projectId="p1" />);
-    await waitFor(() => expect(screen.getAllByTestId("agent-card")).toHaveLength(8));
+    await waitFor(() => expect(screen.getAllByTestId("agent-card")).toHaveLength(9));
     await userEvent.click(screen.getByRole("button", { name: /run core agents/i }));
     await waitFor(() => expect(screen.getByTestId("canvas-queue-complete")).toBeInTheDocument());
 

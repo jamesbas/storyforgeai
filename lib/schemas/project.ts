@@ -82,6 +82,12 @@ export const projectSchema = z.object({
    * pinned character's photograph and holds identity for the whole clip rather
    * than only at its two ends.
    *
+   * A record of the choice, not the thing that enacts it. What a job actually
+   * does follows the family of the model it resolves to, so nothing downstream
+   * may read this to decide how to compose a job — the two can disagree, and
+   * doing so is what once left reference-mode clips with no character
+   * photographs.
+   *
    * Absent means `fl2va`. Ref2VA costs roughly three times as much per clip and
    * caps at 14 seconds, so it is chosen rather than inferred.
    */
@@ -196,6 +202,28 @@ export const projectSchema = z.object({
    * own action is meant to remove, and no wording defeats the image.
    */
   sceneEndFrameRefs: z.record(z.boolean()).optional(),
+  /**
+   * A supplied image that stands in for scene 1's start frame.
+   *
+   * Held on the project rather than on an attempt because it has to exist
+   * before anything is generated: the whole point is that it anchors the chain,
+   * and a frame imported onto a finished attempt arrives after every scene it
+   * was meant to influence. Surviving storyboard regeneration falls out of the
+   * same choice — "the opening frame" does not depend on scene 1's id.
+   *
+   * Once set, no generation path renders scene 1's start frame, so nothing can
+   * overwrite it. Clearing it is only ever explicit.
+   */
+  openingFrame: z
+    .object({
+      path: z.string(),
+      /**
+       * Whether the face swap may repaint it. Off for an image already showing
+       * the right person; on where a stand-in should take the character's face.
+       */
+      faceSwap: z.boolean(),
+    })
+    .optional(),
   status: projectStatusSchema,
   createdAt: z.string(),
   updatedAt: z.string(),

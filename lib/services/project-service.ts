@@ -1428,10 +1428,16 @@ function storyPlanNeedsWriting(record: ProjectRecord, hasProvider: boolean): boo
   return source !== "llm" && source !== "hybrid";
 }
 
-async function withStoryPlan(record: ProjectRecord): Promise<ProjectRecord> {
+/**
+ * Write a fresh arc and store it, whatever is already there.
+ *
+ * The guard lives in `withStoryPlan`, not here, so there is one path that can
+ * be asked for a rewrite outright. Without it a project whose arc a model had
+ * written could never be given a better one: every automatic caller declines,
+ * and the arc is the artifact every other agent builds on.
+ */
+async function writeStoryPlan(record: ProjectRecord): Promise<ProjectRecord> {
   const provider = getPlanningProvider();
-  if (!storyPlanNeedsWriting(record, Boolean(provider))) return record;
-
   const executions: ArtifactExecution[] = [];
   const correlationId = randomUUID();
   const ctx: AgentContext = {
@@ -1452,6 +1458,24 @@ async function withStoryPlan(record: ProjectRecord): Promise<ProjectRecord> {
   };
   await repository.update(record.project.id, updated);
   return updated;
+}
+
+async function withStoryPlan(record: ProjectRecord): Promise<ProjectRecord> {
+  if (!storyPlanNeedsWriting(record, Boolean(getPlanningProvider()))) return record;
+  return writeStoryPlan(record);
+}
+
+/**
+ * Rewrite the narrative arc on request.
+ *
+ * Deliberately outside the crew run: the plans and scene cards already written
+ * describe the arc being replaced, so this invalidates them rather than
+ * refreshing them. Asking for it is a decision, the way choosing a variant is.
+ */
+export async function generateStoryPlan(id: string): Promise<ProjectRecord> {
+  return trackAgentRun(id, "story", "Story Architect", async () =>
+    writeStoryPlan(await withConceptVisuals(await getProjectRecord(id))),
+  );
 }
 
 /**

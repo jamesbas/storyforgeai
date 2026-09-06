@@ -20,6 +20,8 @@ import {
   type MissingApproval,
 } from "@/lib/media/assembly";
 import { saveImportedFrame } from "@/lib/media/imported-frames";
+import type { ImageSize, SavedFrame } from "@/lib/media/imported-frames";
+import { resolveResolution } from "@/lib/wangp/resolution";
 import { DEFAULT_SCENE_CONTINUITY, generationStages } from "@/lib/types";
 import { resolveProjectCast } from "@/lib/services/character-service";
 import { charactersInFrame, charactersInScene } from "@/lib/agents/scene-cast";
@@ -511,17 +513,27 @@ type Continuity = {
   /** Reused start frame; when set, no start frame is rendered. */
   startImagePath?: string;
   /**
-   * What that reused frame shows — the *previous* scene's end-frame prompt.
+   * What that reused frame shows.
    *
-   * This scene's own start-frame prompt describes a picture that was never
-   * rendered, so anything asking "what is in the opening frame" has to be told
-   * this instead. Reference mode does exactly that, and a clip built from the
-   * wrong answer opens on a shot nobody supplied.
+   * Normally the *previous* scene's end-frame prompt: this scene's own
+   * start-frame prompt describes a picture that was never rendered, so anything
+   * asking "what is in the opening frame" has to be told this instead.
+   * Reference mode does exactly that, and a clip built from the wrong answer
+   * opens on a shot nobody supplied. A pinned opening frame has no previous
+   * scene to borrow from and falls back to scene 1's own start-frame prompt,
+   * which is the closest description of it that exists.
    */
   startImagePrompt?: string;
+  /** A supplied opening frame the face swap has been allowed to repaint. */
+  swapStartImage?: boolean;
   /** Previous clip to continue from; when set, no keyframes are rendered. */
   videoSource?: string;
 };
+
+/** The supplied opening frame, when this is the scene it stands in for. */
+function openingFrameFor(record: ProjectRecord, scene: Scene): string | undefined {
+  return scene.sceneNumber === 1 ? record.project.openingFrame?.path : undefined;
+}
 
 /**
  * Work out what this scene can inherit from the one before it.
@@ -531,6 +543,17 @@ type Continuity = {
  * a quality choice, never a prerequisite.
  */
 function resolveContinuity(record: ProjectRecord, scene: Scene): Continuity {
+  // Ahead of the mode check: a pinned frame is scene 1's own opening image, not
+  // something carried across a seam, so it stands even under `cut`.
+  const pinned = openingFrameFor(record, scene);
+  if (pinned) {
+    return {
+      startImagePath: pinned,
+      startImagePrompt: scene.prompts.startFramePrompt,
+      swapStartImage: record.project.openingFrame?.faceSwap === true,
+    };
+  }
+
   const mode = record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY;
   if (mode === "cut" || scene.sceneNumber <= 1) return {};
 
@@ -958,6 +981,8 @@ export async function generateProjectMediaPhased(
       inherited?: boolean;
       /** What the inherited frame shows: the previous scene's end-frame prompt. */
       inheritedPrompt?: string;
+      /** Start frame is the supplied opening image rather than a render. */
+      imported?: boolean;
       /** Pre-swap renders, set when phase 2 replaces a frame. */
       startSource?: string;
       endSource?: string;
@@ -994,7 +1019,12 @@ export async function generateProjectMediaPhased(
           detail: broken.detail,
         });
       }
-      const inherited = mode === "reuse_end_frame" && !broken ? previousEnd : undefined;
+      // A pinned opening frame anchors the chain in scene 1's place. Treated as
+      // inherited throughout: it is a finished picture the scene did not render,
+      // which is exactly what the carried-frame path already handles.
+      const pinnedOpening = openingFrameFor(record, scene);
+      const inherited =
+        pinnedOpening ?? (mode === "reuse_end_frame" && !broken ? previousEnd : undefined);
       let startPath = inherited;
       let startId: string | undefined;
 
@@ -1026,7 +1056,12 @@ export async function generateProjectMediaPhased(
         startId,
         endId: endRender.id,
         inherited: Boolean(inherited),
-        inheritedPrompt: inherited ? previousScene?.prompts.endFramePrompt : undefined,
+        imported: Boolean(pinnedOpening),
+        inheritedPrompt: pinnedOpening
+          ? scene.prompts.startFramePrompt
+          : inherited
+            ? previousScene?.prompts.endFramePrompt
+            : undefined,
       };
 
       // Banked here rather than after the swap phase. Until the attempt exists
@@ -1095,7 +1130,17 @@ export async function generateProjectMediaPhased(
     // the corner chair is one a close two-shot frames out, and his swap pass
     // would then go looking for him and land on whoever is there.
     const plan = new Map<string, Character[]>();
+    // Pinned as "use verbatim": the one frame the user supplied precisely so it
+    // would not be repainted.
+    const protectedFrame =
+      record.project.openingFrame && !record.project.openingFrame.faceSwap
+        ? record.project.openingFrame.path
+        : undefined;
     for (const [path, using] of usedBy) {
+      if (path === protectedFrame) {
+        logEvent("face_swap.skipped", { reason: "pinned_opening_frame", path });
+        continue;
+      }
       if (using.some((scene) => scene.subjectFaceVisible === false)) {
         logEvent("face_swap.skipped", { reason: "frame_shared_with_faceless_scene", path });
         continue;
@@ -1273,7 +1318,14 @@ export async function generateProjectMediaPhased(
 async function bankKeyframes(
   projectId: string,
   scene: Scene,
-  frames: { start?: string; end?: string; startId?: string; endId?: string; inherited?: boolean },
+  frames: {
+    start?: string;
+    end?: string;
+    startId?: string;
+    endId?: string;
+    inherited?: boolean;
+    imported?: boolean;
+  },
 ): Promise<string> {
   const record = await getProjectRecord(projectId);
   const existing = record.attempts?.[scene.id] ?? [];
@@ -1284,6 +1336,7 @@ async function bankKeyframes(
     startImagePath: frames.start,
     endImagePath: frames.end,
     startImageInherited: frames.inherited || undefined,
+    startImageImported: frames.imported || undefined,
     settingsIds: [frames.startId, frames.endId].filter((id): id is string => id !== undefined),
     approved: false,
     createdAt: new Date().toISOString(),
@@ -1300,6 +1353,8 @@ export type FramePreview = {
   rendered: boolean;
   /** The scene this frame was carried in from, when it was not rendered. */
   inheritedFrom?: number;
+  /** This frame is the supplied opening image, so nothing is submitted for it. */
+  pinned?: boolean;
   /** Why the chain broke here, when a scene that could have inherited did not. */
   seamBreak?: SeamBreak;
   /** Exactly what would go to Wan2GP. Absent for an inherited frame. */
@@ -1347,7 +1402,9 @@ export async function previewSceneRenders(projectId: string): Promise<FramePrevi
       previousScene && previousEnd
         ? seamBreak(previousScene, scene, { clipCarriesArrivals: clipCarriesArrivals(record) })
         : null;
-    const inherited = mode === "reuse_end_frame" && !broken ? previousEnd : undefined;
+    const pinnedOpening = openingFrameFor(record, scene);
+    const inherited =
+      pinnedOpening ?? (mode === "reuse_end_frame" && !broken ? previousEnd : undefined);
 
     if (inherited) {
       out.push({
@@ -1355,7 +1412,9 @@ export async function previewSceneRenders(projectId: string): Promise<FramePrevi
         sceneId: scene.id,
         purpose: "start_frame",
         rendered: false,
-        inheritedFrom: previousScene!.sceneNumber,
+        ...(pinnedOpening
+          ? { pinned: true }
+          : { inheritedFrom: previousScene!.sceneNumber }),
       });
     } else {
       const prompt = scene.prompts.startFramePrompt;
@@ -1720,14 +1779,21 @@ export type SceneMediaOptions = {
 };
 
 /**
- * The cast a clip has to carry, or nothing when the tier does not use one.
+ * The cast a clip has to carry, with each character's photograph.
  *
- * Gated on the tier rather than resolved unconditionally: the keyframe variants
- * inherit identity through `image_start` / `image_end` and are deliberately
- * sent no references, so resolving the cast for them is work with nowhere to go.
+ * Resolved unconditionally and handed to every video job, because only
+ * `buildVideoManifest` knows which model the job actually lands on — the
+ * keyframe variants ignore it and inherit identity from the two frames.
+ *
+ * It used to be gated on `videoTier` here, which is a different signal from the
+ * one that decides the job's shape: the reference pathway keys off the resolved
+ * model's family, and the two drift apart the moment a Ref2VA checkpoint is
+ * chosen from the model list rather than the tier radio, or arrives as the
+ * app-wide default. The result was a reference-mode job composed with no
+ * character photographs at all — it renders, and looks like the model failing
+ * to hold a face rather than a setting disagreeing with itself.
  */
-async function castFor(record: ProjectRecord, scene: Scene): Promise<CastReference[] | undefined> {
-  if (record.project.videoTier !== "ref2va") return undefined;
+async function castFor(record: ProjectRecord, scene: Scene): Promise<CastReference[]> {
   return resolveCastSubjects(record, scene);
 }
 
@@ -1817,15 +1883,18 @@ export async function generateSceneMedia(
     conditionOnStartFrame && referenceFrame ? [referenceFrame] : [],
   );
 
-  // Both frames are rendered, so the edit model loads once for the pair.
-  const startSwap = start?.path
-    ? await swapFrame(record, scene, "start_frame", start.path, scene.prompts.startFramePrompt, swapSubjects)
+  // Both frames are rendered, so the edit model loads once for the pair. A
+  // pinned opening frame joins them only when it was pinned as swappable.
+  const startToSwap =
+    start?.path ?? (continuity.swapStartImage ? continuity.startImagePath : undefined);
+  const startSwap = startToSwap
+    ? await swapFrame(record, scene, "start_frame", startToSwap, scene.prompts.startFramePrompt, swapSubjects)
     : undefined;
   const endSwap = end.path
     ? await swapFrame(record, scene, "end_frame", end.path, endPrompt, swapSubjects)
     : undefined;
 
-  const startImagePath = continuity.startImagePath ?? startSwap?.path;
+  const startImagePath = startSwap?.path ?? continuity.startImagePath;
   const endImagePath = endSwap?.path;
 
   // `keyframes_only` stops here: no video model is loaded and the attempt is
@@ -1879,6 +1948,7 @@ export async function generateSceneMedia(
     startImageSourcePath: startSwap?.source,
     endImageSourcePath: endSwap?.source,
     startImageInherited: continuity.startImagePath ? true : undefined,
+    startImageImported: openingFrameFor(record, scene) ? true : undefined,
     videoPath: videoJob?.generatedFiles[0],
     settingsIds: [start?.id, end?.id, videoManifest?.id].filter(
       (id): id is string => id !== undefined,
@@ -2051,6 +2121,117 @@ export type ImportFrameResult = {
 };
 
 /**
+ * Pin a supplied image as scene 1's start frame, before anything is generated.
+ *
+ * Distinct from `importAttemptFrame`, which replaces a frame on an attempt that
+ * already exists. That is too late to anchor anything: by the time there is an
+ * attempt to import onto, every scene the image was meant to influence has
+ * already been rendered against a different picture. A pinned frame is in place
+ * first, so scene 1's end frame is conditioned on it and the whole chain
+ * descends from it.
+ *
+ * It is stored, never rendered. Both generation paths skip the start-frame job
+ * whenever this is set, so there is no code path that can overwrite it — which
+ * is what makes re-running generation safe.
+ */
+export type PinOpeningFrameResult = {
+  record: ProjectRecord;
+  /** Set when the upload was centre-cropped to the project's shape. */
+  cropped?: { from: ImageSize; to: ImageSize };
+};
+
+export async function pinOpeningFrame(
+  projectId: string,
+  file: File,
+  faceSwap: boolean,
+): Promise<PinOpeningFrameResult> {
+  const record = await getProjectRecord(projectId);
+
+  const expected = {
+    aspectRatio: record.project.aspectRatio,
+    nominalSize: resolveResolution({
+      aspectRatio: record.project.aspectRatio,
+      preset: record.project.resolutionPreset,
+      fallback: config.defaults.resolution,
+    }),
+  };
+
+  // A refusal is otherwise invisible server-side: it is a 400, so none of the
+  // success telemetry fires and the log shows nothing happened at all.
+  let imported: SavedFrame;
+  try {
+    imported = await saveImportedFrame(projectId, file, expected);
+  } catch (err) {
+    logEvent("project.opening_frame_rejected", {
+      projectId,
+      bytes: file.size,
+      type: file.type,
+      expected: `${expected.aspectRatio} (${expected.nominalSize})`,
+      reason: err instanceof Error ? err.message : "unknown",
+    });
+    throw err;
+  }
+
+  const crop = imported.cropped;
+  const updated: ProjectRecord = {
+    ...record,
+    project: {
+      ...record.project,
+      openingFrame: { path: imported.path, faceSwap },
+      updatedAt: new Date().toISOString(),
+    },
+    history: [
+      ...(record.history ?? []),
+      {
+        at: new Date().toISOString(),
+        action: "project.opening_frame_pinned",
+        detail: [
+          "Opening frame pinned",
+          faceSwap ? " (face swap on)" : "",
+          crop ? `, cropped ${size(crop.from)} to ${size(crop.to)}` : "",
+        ].join(""),
+      },
+    ],
+  };
+
+  await repository.update(projectId, updated);
+  logEvent("project.opening_frame_pinned", {
+    projectId,
+    bytes: file.size,
+    faceSwap,
+    ...(crop ? { croppedFrom: size(crop.from), croppedTo: size(crop.to) } : {}),
+  });
+  return { record: updated, ...(crop ? { cropped: crop } : {}) };
+}
+
+const size = (value: ImageSize) => `${value.width}x${value.height}`;
+
+/**
+ * Release the pinned opening frame, so scene 1 renders its own start frame again.
+ *
+ * The file itself is left on disk: an attempt generated while the pin was set
+ * still points at it, and deleting it would blank a frame the storyboard shows.
+ */
+export async function unpinOpeningFrame(projectId: string): Promise<ProjectRecord> {
+  const record = await getProjectRecord(projectId);
+  if (!record.project.openingFrame) return record;
+
+  const { openingFrame: _removed, ...project } = record.project;
+  const updated: ProjectRecord = {
+    ...record,
+    project: { ...project, updatedAt: new Date().toISOString() },
+    history: [
+      ...(record.history ?? []),
+      { at: new Date().toISOString(), action: "project.opening_frame_unpinned", detail: "Opening frame released" },
+    ],
+  };
+
+  await repository.update(projectId, updated);
+  logEvent("project.opening_frame_unpinned", { projectId });
+  return updated;
+}
+
+/**
  * Put a supplied image in place of one of an attempt's rendered keyframes.
  *
  * Sometimes the picture already exists — a photograph, a still from elsewhere,
@@ -2081,7 +2262,7 @@ export async function importAttemptFrame(
     );
   }
 
-  const imported = await saveImportedFrame(projectId, file);
+  const imported = (await saveImportedFrame(projectId, file)).path;
 
   // The swap provenance described the frame that has just gone. Left in place,
   // "undo" would quietly replace the imported image with an old render.
