@@ -539,6 +539,44 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     [projectId, loadMedia, failureMessage],
   );
 
+  /**
+   * Keep a preview as the scene's real keyframe.
+   *
+   * Same server-side effect as importing the picture, so the same cascade
+   * notice applies — the next scene may be carrying the frame this replaces.
+   */
+  const adoptScenePreview = useCallback(
+    async (sceneId: string, purpose: "start_frame" | "end_frame") => {
+      setSceneBusy(sceneId);
+      setError(null);
+      setCascadeNotice(null);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/scenes/${sceneId}/keyframe`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ purpose }),
+        });
+        if (!res.ok) throw new Error(await failureMessage(res, "Failed to keep the preview"));
+        const result = (await res.json()) as {
+          record: ProjectRecord;
+          cascadedTo?: { sceneId: string; sceneNumber: number };
+        };
+        setRecord(result.record);
+        await loadMedia();
+        if (result.cascadedTo) {
+          setCascadeNotice(
+            `This project carries each scene's end frame into the next one's start frame, so scene ${result.cascadedTo.sceneNumber} now shows the kept preview as its start frame too. Its clip was built from the old frame — rebuild it from "Regenerate video for selected scenes" above.`,
+          );
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to keep the preview");
+      } finally {
+        setSceneBusy(null);
+      }
+    },
+    [projectId, loadMedia, failureMessage],
+  );
+
   /** Previews are a scratch pad; this is how they get cleared away. */
   const clearScenePreviews = useCallback(
     async (sceneId: string) => {
@@ -1540,6 +1578,11 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                       : undefined
                   }
                   onClearPreviews={() => void clearScenePreviews(scene.id)}
+                  onAdoptPreview={
+                    stages.keyframes
+                      ? (purpose) => void adoptScenePreview(scene.id, purpose)
+                      : undefined
+                  }
                   seed={record.project.sceneSeeds?.[scene.id]}
                   onNewSeed={() => void newSceneSeed(scene.id)}
                   onFaceVisibleChange={(next) => void setFaceVisible(scene.id, next)}

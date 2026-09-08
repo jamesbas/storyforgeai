@@ -864,6 +864,121 @@ export async function clearSceneKeyframePreview(
 }
 
 /**
+ * Keep a preview: put it on the latest attempt as that scene's real keyframe.
+ *
+ * Tuning a prompt ends with a preview that is the picture wanted, and until now
+ * the only way to make it the scene's frame was to download it and import it
+ * back — the same bytes, through the file system, for no gain. Adopting moves
+ * the pointer instead.
+ *
+ * Deliberately not the same as an import. A preview was rendered here, from the
+ * scene's pinned seed against its current prompt, so the seed and prompt still
+ * describe it; an imported picture came from outside and they do not. The
+ * separate flag is what lets the card say the right one.
+ *
+ * The preview entry is dropped once adopted, so the frame is not listed twice —
+ * once as the attempt's keyframe and again as a preview of itself.
+ */
+export async function adoptScenePreview(
+  projectId: string,
+  sceneId: string,
+  purpose: "start_frame" | "end_frame",
+): Promise<ImportFrameResult> {
+  const record = await getProjectRecord(projectId);
+  const scene = findScene(record, sceneId);
+
+  const preview = record.previews?.[sceneId];
+  const adopted =
+    purpose === "start_frame" ? preview?.startFramePath : preview?.endFramePath;
+  if (!adopted) {
+    throw new ValidationError(
+      `Render a preview of this scene's ${purpose.replace("_", " ")} first — there is ` +
+        "nothing to keep yet.",
+    );
+  }
+
+  const attempts = record.attempts?.[sceneId] ?? [];
+  const target = attempts.at(-1);
+  if (!target) {
+    throw new ValidationError(
+      "Generate this scene's media first — keeping a preview puts it on an attempt's " +
+        "keyframe, so there has to be an attempt to put it on.",
+    );
+  }
+
+  // The swap provenance described the frame that has just gone; left in place,
+  // "undo" would quietly replace the adopted preview with an old render.
+  const replaced: SceneAttempt = {
+    ...target,
+    ...(purpose === "start_frame"
+      ? {
+          startImagePath: adopted,
+          startImageSourcePath: undefined,
+          startImageImported: undefined,
+          startImageFromPreview: true,
+        }
+      : {
+          endImagePath: adopted,
+          endImageSourcePath: undefined,
+          endImageImported: undefined,
+          endImageFromPreview: true,
+        }),
+  };
+
+  const nextAttempts: Record<string, SceneAttempt[]> = {
+    ...(record.attempts ?? {}),
+    [sceneId]: attempts.map((a) => (a.id === target.id ? replaced : a)),
+  };
+
+  const cascadedTo = cascadeReplacedEndFrame(record, scene, purpose, adopted, "preview", nextAttempts);
+
+  const updated: ProjectRecord = {
+    ...record,
+    attempts: nextAttempts,
+    previews: withoutPreviewFrame(record, sceneId, purpose),
+    project: { ...record.project, updatedAt: new Date().toISOString() },
+    history: [
+      ...(record.history ?? []),
+      {
+        at: new Date().toISOString(),
+        action: "scene.preview_adopted",
+        detail: `Scene ${scene.sceneNumber} ${purpose.replace("_", " ")}`,
+      },
+    ],
+  };
+
+  await repository.update(projectId, updated);
+  logEvent("scene.preview_adopted", {
+    projectId,
+    sceneId,
+    purpose,
+    cascadedToSceneNumber: cascadedTo?.sceneNumber,
+  });
+
+  return { record: updated, cascadedTo, clipStale: Boolean(target.videoPath) };
+}
+
+/** Drop one of a scene's preview frames, and the entry itself once both are gone. */
+function withoutPreviewFrame(
+  record: ProjectRecord,
+  sceneId: string,
+  purpose: "start_frame" | "end_frame",
+): ProjectRecord["previews"] {
+  const previews = { ...(record.previews ?? {}) };
+  const preview = previews[sceneId];
+  if (!preview) return record.previews;
+
+  const remaining = {
+    ...preview,
+    ...(purpose === "start_frame" ? { startFramePath: undefined } : { endFramePath: undefined }),
+    updatedAt: new Date().toISOString(),
+  };
+  if (remaining.startFramePath || remaining.endFramePath) previews[sceneId] = remaining;
+  else delete previews[sceneId];
+  return previews;
+}
+
+/**
  * Whether a batch can use the phased path.
  *
  * Three conditions, all necessary:
@@ -2273,11 +2388,13 @@ export async function importAttemptFrame(
           startImagePath: imported,
           startImageSourcePath: undefined,
           startImageImported: true,
+          startImageFromPreview: undefined,
         }
       : {
           endImagePath: imported,
           endImageSourcePath: undefined,
           endImageImported: true,
+          endImageFromPreview: undefined,
         }),
   };
 
@@ -2286,7 +2403,14 @@ export async function importAttemptFrame(
     [sceneId]: attempts.map((a) => (a.id === target.id ? replaced : a)),
   };
 
-  const cascadedTo = cascadeImportedEndFrame(record, scene, purpose, imported, nextAttempts);
+  const cascadedTo = cascadeReplacedEndFrame(
+    record,
+    scene,
+    purpose,
+    imported,
+    "imported",
+    nextAttempts,
+  );
 
   const updated: ProjectRecord = {
     ...record,
@@ -2319,7 +2443,7 @@ export async function importAttemptFrame(
 }
 
 /**
- * Carry an imported end frame into the next scene's start frame.
+ * Carry a replaced end frame into the next scene's start frame.
  *
  * On `reuse_end_frame` the next scene does not render a start frame at all — it
  * shows this one. Leaving its already-generated attempt pointing at the picture
@@ -2332,11 +2456,12 @@ export async function importAttemptFrame(
  *
  * Mutates `attempts` in place; returns the scene it reached, if any.
  */
-function cascadeImportedEndFrame(
+function cascadeReplacedEndFrame(
   record: ProjectRecord,
   scene: Scene,
   purpose: "start_frame" | "end_frame",
-  imported: string,
+  replacement: string,
+  origin: "imported" | "preview",
   attempts: Record<string, SceneAttempt[]>,
 ): { sceneId: string; sceneNumber: number } | undefined {
   if (purpose !== "end_frame") return undefined;
@@ -2356,9 +2481,10 @@ function cascadeImportedEndFrame(
     a.id === nextTarget.id
       ? {
           ...a,
-          startImagePath: imported,
+          startImagePath: replacement,
           startImageSourcePath: undefined,
-          startImageImported: true,
+          startImageImported: origin === "imported" ? true : undefined,
+          startImageFromPreview: origin === "preview" ? true : undefined,
         }
       : a,
   );

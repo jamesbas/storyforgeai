@@ -727,7 +727,8 @@ export default function HelpPage() {
           <p className={p}>
             To decide before spending a full render, use <strong>Start frame only</strong> under
             <em> Preview one frame</em>: one image, no clip, not part of an attempt. Check the
-            framing, set the tick box, then generate properly.
+            framing, set the tick box, then generate properly — or, if the preview is the picture
+            you wanted, <strong>Keep start frame</strong> puts it straight onto the attempt.
           </p>
 
           <h3 className={h3}>Using it in a project</h3>
@@ -1252,6 +1253,22 @@ export default function HelpPage() {
             imported image away — to rebuild the clip and keep the image, use <strong>Regenerate video
             for selected scenes</strong> at the top of the Storyboard screen. Until you do, the clip
             still shows the frame that was replaced.
+          </p>
+
+          <h3 className={h3}>Keeping a preview as the frame</h3>
+          <p className={p}>
+            <em>Preview one frame</em> renders a single still so a prompt, model or LoRA change can
+            be judged without paying for a whole scene. When one comes back right,{" "}
+            <strong>Keep start frame</strong> or <strong>Keep end frame</strong> puts it onto the
+            scene&apos;s latest attempt as the real frame. It is the same result as downloading the
+            preview and importing it back, without the round trip.
+          </p>
+          <p className={p}>
+            Everything downstream follows as it does for an import, including carrying a kept end
+            frame into the next scene&apos;s start frame and leaving an existing clip out of date.
+            The one difference is the seed: a preview was rendered here, from the scene&apos;s pinned
+            seed against its current prompt, so the seed still describes it — which an imported
+            picture&apos;s never did. Once kept, the image is no longer listed as a preview.
           </p>
 
           <h3 className={h3}>Variant Review</h3>

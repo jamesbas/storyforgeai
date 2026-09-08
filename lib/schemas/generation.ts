@@ -39,6 +39,14 @@ export const sceneAttemptSchema = z.object({
    */
   startImageImported: maybe(z.boolean()),
   endImageImported: maybe(z.boolean()),
+  /**
+   * The frame is a keyframe preview the user kept, rather than one this attempt
+   * rendered. Tracked apart from `startImageImported` because the two differ in
+   * the one place it matters: a preview was sampled from the scene's pinned seed
+   * against its current prompt, so the seed still describes it.
+   */
+  startImageFromPreview: maybe(z.boolean()),
+  endImageFromPreview: maybe(z.boolean()),
   videoPath: maybe(z.string()),
   audioPath: maybe(z.string()),
   settingsIds: z.array(z.string()),

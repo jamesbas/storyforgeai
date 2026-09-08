@@ -28,16 +28,16 @@ const scene = {
  * id: importing the ref codec into a client component drags `node:fs` into the
  * browser bundle and fails the production build.
  */
-function previewDescriptor(): MediaDescriptor {
+function previewDescriptor(role = "preview_start_frame"): MediaDescriptor {
   return {
-    assetId: "preview~scene-1~start_frame",
+    assetId: `preview~scene-1~${role.replace("preview_", "")}`,
     sceneId: scene.id,
     kind: "image",
     label: "Scene 1 start frame preview",
     url: "/media/preview",
     downloadUrl: "/media/preview?download=1",
     available: true,
-    role: "start_frame",
+    role,
     preview: true,
   };
 }
@@ -67,6 +67,76 @@ describe("SceneCard preview controls", () => {
       />,
     );
     expect(screen.queryByTestId("clear-previews")).toBeNull();
+  });
+
+  /**
+   * The step this removes: downloading the preview and importing it straight
+   * back. Only offered for a frame that has actually been previewed, and only
+   * once there is an attempt to put it on.
+   */
+  it("offers to keep only the frames that have a preview", () => {
+    render(
+      <SceneCard
+        scene={scene}
+        attempt={attempt()}
+        media={[previewDescriptor("preview_end_frame")]}
+        onGenerate={vi.fn()}
+        onGenerateKeyframe={vi.fn()}
+        onAdoptPreview={vi.fn()}
+      />,
+    );
+    expect(screen.queryByTestId("adopt-preview-start_frame")).toBeNull();
+    expect(screen.getByTestId("adopt-preview-end_frame")).toBeEnabled();
+  });
+
+  it("keeps the previewed frame on the attempt", async () => {
+    const onAdoptPreview = vi.fn();
+    render(
+      <SceneCard
+        scene={scene}
+        attempt={attempt()}
+        media={[previewDescriptor()]}
+        onGenerate={vi.fn()}
+        onGenerateKeyframe={vi.fn()}
+        onAdoptPreview={onAdoptPreview}
+      />,
+    );
+    await userEvent.click(screen.getByTestId("adopt-preview-start_frame"));
+    expect(onAdoptPreview).toHaveBeenCalledWith("start_frame");
+  });
+
+  it("cannot keep a preview before the scene has an attempt", () => {
+    render(
+      <SceneCard
+        scene={scene}
+        media={[previewDescriptor()]}
+        onGenerate={vi.fn()}
+        onGenerateKeyframe={vi.fn()}
+        onAdoptPreview={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("adopt-preview-start_frame")).toBeDisabled();
+  });
+
+  /**
+   * A kept preview is not an imported one: it came from this seed and prompt, so
+   * the seed note that an import earns would be describing the wrong thing.
+   */
+  it("warns that regenerating replaces a kept preview, without the import's seed note", () => {
+    render(
+      <SceneCard
+        scene={scene}
+        attempt={attempt({ startImageFromPreview: true })}
+        onGenerate={vi.fn()}
+        onGenerateKeyframe={vi.fn()}
+        onNewSeed={vi.fn()}
+        seed={42}
+      />,
+    );
+    expect(screen.getByTestId("adopted-preview-notes")).toHaveTextContent(
+      /Regenerate media.*replace it/i,
+    );
+    expect(screen.queryByTestId("imported-seed-note")).toBeNull();
   });
 });
 

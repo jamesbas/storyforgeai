@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import path from "node:path";
 import {
+  adoptScenePreview,
   approveAttempt,
   clearSceneSeed,
   generateSceneKeyframe,
@@ -236,6 +237,95 @@ describe("rendering a single keyframe", () => {
     await expect(
       generateSceneKeyframe(seed.project.id, "no-such-scene", "start_frame"),
     ).rejects.toThrow();
+  });
+});
+
+/**
+ * Keeping a preview.
+ *
+ * A preview that turns out to be the wanted picture used to have to be
+ * downloaded and imported back to become the scene's frame. Adoption moves the
+ * pointer instead, and has to leave the record saying which of the two happened
+ * — an import came from outside the seed, a kept preview did not.
+ */
+describe("keeping a preview as the scene's frame", () => {
+  it("puts the preview on the latest attempt in place of the rendered frame", async () => {
+    const seed = await seeded();
+    const scene = sceneOf(seed);
+    await generateSceneMedia(seed.project.id, scene.id);
+    const previewed = await generateSceneKeyframe(seed.project.id, scene.id, "start_frame");
+    const previewPath = previewed.previews![scene.id]!.startFramePath!;
+    const before = previewed.attempts![scene.id]!.at(-1)!;
+    expect(before.startImagePath).not.toBe(previewPath);
+
+    const result = await adoptScenePreview(seed.project.id, scene.id, "start_frame");
+    const after = result.record.attempts![scene.id]!.at(-1)!;
+
+    expect(after.id).toBe(before.id);
+    expect(after.startImagePath).toBe(previewPath);
+    expect(after.startImageFromPreview).toBe(true);
+    // Not an import: the seed and prompt still describe this picture.
+    expect(after.startImageImported).toBeUndefined();
+    // The other frame, and the attempt count, are untouched.
+    expect(after.endImagePath).toBe(before.endImagePath);
+    expect(result.record.attempts![scene.id]).toHaveLength(1);
+  });
+
+  /** Otherwise the same picture is listed twice — as the frame and as a preview of it. */
+  it("stops calling the adopted frame a preview", async () => {
+    const seed = await seeded();
+    const scene = sceneOf(seed);
+    await generateSceneMedia(seed.project.id, scene.id);
+    await generateSceneKeyframe(seed.project.id, scene.id, "start_frame");
+    await generateSceneKeyframe(seed.project.id, scene.id, "end_frame");
+
+    const result = await adoptScenePreview(seed.project.id, scene.id, "start_frame");
+
+    expect(result.record.previews?.[scene.id]?.startFramePath).toBeUndefined();
+    // The frame that was not adopted is still there to be judged.
+    expect(result.record.previews?.[scene.id]?.endFramePath).toBeTruthy();
+
+    const both = await adoptScenePreview(seed.project.id, scene.id, "end_frame");
+    expect(both.record.previews?.[scene.id]).toBeUndefined();
+  });
+
+  it("reports that the clip it already had no longer matches the frames", async () => {
+    const seed = await seeded();
+    const scene = sceneOf(seed);
+    const generated = await generateSceneMedia(seed.project.id, scene.id);
+    expect(generated.attempts![scene.id]!.at(-1)!.videoPath).toBeTruthy();
+    await generateSceneKeyframe(seed.project.id, scene.id, "end_frame");
+
+    const result = await adoptScenePreview(seed.project.id, scene.id, "end_frame");
+    expect(result.clipStale).toBe(true);
+  });
+
+  it("refuses when nothing has been previewed yet", async () => {
+    const seed = await seeded();
+    const scene = sceneOf(seed);
+    await generateSceneMedia(seed.project.id, scene.id);
+    await expect(adoptScenePreview(seed.project.id, scene.id, "start_frame")).rejects.toThrow(
+      /Render a preview/i,
+    );
+  });
+
+  it("refuses before the scene has an attempt to put the frame on", async () => {
+    const seed = await seeded();
+    const scene = sceneOf(seed);
+    await generateSceneKeyframe(seed.project.id, scene.id, "start_frame");
+    await expect(adoptScenePreview(seed.project.id, scene.id, "start_frame")).rejects.toThrow(
+      /Generate this scene's media first/i,
+    );
+  });
+
+  it("records the adoption in project history", async () => {
+    const seed = await seeded();
+    const scene = sceneOf(seed);
+    await generateSceneMedia(seed.project.id, scene.id);
+    await generateSceneKeyframe(seed.project.id, scene.id, "start_frame");
+
+    const result = await adoptScenePreview(seed.project.id, scene.id, "start_frame");
+    expect(result.record.history?.some((h) => h.action === "scene.preview_adopted")).toBe(true);
   });
 });
 

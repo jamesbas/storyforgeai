@@ -52,6 +52,8 @@ type SceneCardProps = {
   continuousTake?: boolean;
   /** Render a single keyframe without the other frame or the clip. */
   onGenerateKeyframe?: (purpose: "start_frame" | "end_frame") => void;
+  /** Promote a preview to the attempt's keyframe, instead of re-importing it. */
+  onAdoptPreview?: (purpose: "start_frame" | "end_frame") => void;
   /** Discard this scene's previews once they have been looked at. */
   onClearPreviews?: () => void;
   /** The scene's pinned image seed, once one has been minted. */
@@ -148,6 +150,7 @@ export function SceneCard({
   wardrobeChanges = [],
   continuousTake = false,
   onGenerateKeyframe,
+  onAdoptPreview,
   onClearPreviews,
   seed,
   onNewSeed,
@@ -168,12 +171,16 @@ export function SceneCard({
   endFrameCarriedToScene,
 }: SceneCardProps) {
   const playable = media.filter((m) => m.available && m.sceneId === scene.id);
-  const hasPreviews = playable.some((m) => m.preview);
+  const previewRoles = new Set(playable.filter((m) => m.preview).map((m) => m.role));
+  const hasPreviews = previewRoles.size > 0;
   // A pinned start frame is exempt: regeneration skips it rather than discarding it,
   // so the warning below would be describing the opposite of what happens.
   const pinnedStart = Boolean(openingFrame) && scene.sceneNumber === 1;
   const hasImportedFrame = Boolean(
     (attempt?.startImageImported && !pinnedStart) || attempt?.endImageImported,
+  );
+  const hasAdoptedPreview = Boolean(
+    attempt?.startImageFromPreview || attempt?.endImageFromPreview,
   );
 
   return (
@@ -336,6 +343,9 @@ export function SceneCard({
                 {attempt.startImageImported ? (
                   <span className="text-sky-300/80"> · imported</span>
                 ) : null}
+                {attempt.startImageFromPreview ? (
+                  <span className="text-sky-300/80"> · kept preview</span>
+                ) : null}
               </div>
               {attempt.startImageInherited && (
                 <p
@@ -351,6 +361,9 @@ export function SceneCard({
                 end: {attempt.endImagePath ?? "—"}
                 {attempt.endImageImported ? (
                   <span className="text-sky-300/80"> · imported</span>
+                ) : null}
+                {attempt.endImageFromPreview ? (
+                  <span className="text-sky-300/80"> · kept preview</span>
                 ) : null}
               </div>
               <div className="truncate" data-testid="scene-video-path">
@@ -437,6 +450,57 @@ export function SceneCard({
                 One image, no clip — for checking a prompt, model or LoRA change cheaply. Previews
                 are not part of an attempt and are never assembled.
               </span>
+              {onAdoptPreview && hasPreviews && (
+                <div className="flex w-full flex-wrap items-center gap-2" data-testid="adopt-preview">
+                  <span className="text-[11px] text-slate-500">Keep a preview as the frame:</span>
+                  {(
+                    [
+                      ["start_frame", "Start", "preview_start_frame"],
+                      ["end_frame", "End", "preview_end_frame"],
+                    ] as const
+                  ).map(([purpose, label, role]) =>
+                    previewRoles.has(role) ? (
+                      <button
+                        key={purpose}
+                        onClick={() => onAdoptPreview(purpose)}
+                        disabled={busy || !attempt}
+                        title={
+                          attempt
+                            ? undefined
+                            : "Generate this scene's media first — a kept preview goes onto an attempt's keyframe."
+                        }
+                        className="rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-slate-300 hover:border-accent disabled:opacity-50"
+                        data-testid={`adopt-preview-${purpose}`}
+                      >
+                        Keep {label.toLowerCase()} frame
+                      </button>
+                    ) : null,
+                  )}
+                  <span className="text-[10px] text-slate-600">
+                    Puts the preview on this attempt in place of the rendered frame, without
+                    downloading and re-importing it.
+                  </span>
+                </div>
+              )}
+              {hasAdoptedPreview ? (
+                <div
+                  className="w-full space-y-1 text-[10px] text-amber-300/80"
+                  data-testid="adopted-preview-notes"
+                >
+                  <p>
+                    A kept preview is on this attempt. &ldquo;Regenerate media&rdquo; re-renders
+                    both keyframes and will replace it — it will come back the same while the seed
+                    and prompt are unchanged, and not once either has moved.
+                  </p>
+                  {attempt?.videoPath ? (
+                    <p>
+                      This attempt&apos;s clip was built from the frame the preview replaced, so the
+                      video does not show it yet. Use &ldquo;Regenerate video for selected
+                      scenes&rdquo; at the top of this page to rebuild the clip and keep the frame.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           )}
 

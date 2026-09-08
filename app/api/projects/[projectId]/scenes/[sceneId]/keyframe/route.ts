@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import {
+  adoptScenePreview,
   clearSceneKeyframePreview,
   generateSceneKeyframe,
 } from "@/lib/services/media-service";
@@ -28,6 +29,26 @@ export async function POST(
     const { purpose } = bodySchema.parse(await request.json());
     const record = await generateSceneKeyframe(params.projectId, params.sceneId, purpose);
     return NextResponse.json(record, { headers: { "Cache-Control": "no-store" } });
+  } catch (err) {
+    return toErrorResponse(err);
+  }
+}
+
+/**
+ * Keep a preview: promote it to the attempt's real keyframe.
+ *
+ * The alternative was downloading the preview and importing it back, which
+ * moves the same bytes through the file system to reach the same state.
+ */
+export async function PATCH(
+  request: Request,
+  props: { params: Promise<{ projectId: string; sceneId: string }> }
+) {
+  const params = await props.params;
+  try {
+    const { purpose } = bodySchema.parse(await request.json());
+    const result = await adoptScenePreview(params.projectId, params.sceneId, purpose);
+    return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     return toErrorResponse(err);
   }

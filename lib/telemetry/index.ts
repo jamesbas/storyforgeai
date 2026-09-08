@@ -66,6 +66,7 @@ export type TelemetryEvent =
   | "scene.continuity"
   | "scene.keyframe_preview"
   | "scene.keyframe_preview_cleared"
+  | "scene.preview_adopted"
   | "scene.seed_cleared"
   | "scene.frame_imported"
   | "project.opening_frame_pinned"
