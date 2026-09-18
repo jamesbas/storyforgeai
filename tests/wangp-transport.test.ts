@@ -11,17 +11,24 @@ import { WangpMcpTransport } from "@/lib/wangp/mcp/transport";
  */
 
 type Call = { name: string; arguments: Record<string, unknown> };
+type CallOptions = { timeout?: number };
 
 /** Stand-in for the MCP SDK client, with scripted failures. */
 function fakeClient(behaviour: { failCalls: number }) {
   const calls: Call[] = [];
+  const resultSchemas: unknown[] = [];
+  const options: Array<CallOptions | undefined> = [];
   let remaining = behaviour.failCalls;
   return {
     calls,
+    resultSchemas,
+    options,
     closed: 0,
     async connect() {},
-    async callTool(request: Call) {
+    async callTool(request: Call, resultSchema?: unknown, requestOptions?: CallOptions) {
       calls.push(request);
+      resultSchemas.push(resultSchema);
+      options.push(requestOptions);
       if (remaining > 0) {
         remaining -= 1;
         throw new Error("fetch failed");
@@ -64,6 +71,27 @@ function transportWith(clients: ReturnType<typeof fakeClient>[]) {
 }
 
 describe("recovering a dropped connection", () => {
+  it("reconnects when listing tools finds a dead session", async () => {
+    const dead = {
+      ...fakeClient({ failCalls: 0 }),
+      async listTools() {
+        throw new Error("fetch failed");
+      },
+    } as ReturnType<typeof fakeClient>;
+    const fresh = {
+      ...fakeClient({ failCalls: 0 }),
+      async listTools() {
+        return { tools: [{ name: "wangp_models" }] };
+      },
+    } as ReturnType<typeof fakeClient>;
+    const { transport, dialled } = transportWith([dead, fresh]);
+
+    await expect(
+      transport.findTool(["wangp_models", "wangp_list_models"]),
+    ).resolves.toBe("wangp_models");
+    expect(dialled()).toBe(2);
+  });
+
   it("reconnects and retries an idempotent call", async () => {
     const dead = fakeClient({ failCalls: 1 });
     const fresh = fakeClient({ failCalls: 0 });
@@ -74,6 +102,16 @@ describe("recovering a dropped connection", () => {
     expect(result).toEqual({ ok: true });
     expect(dialled()).toBe(2);
     expect(fresh.calls).toHaveLength(1);
+  });
+
+  it("passes a caller-supplied timeout to the MCP SDK", async () => {
+    const client = fakeClient({ failCalls: 0 });
+    const { transport } = transportWith([client]);
+
+    await transport.call("wangp_models", {}, { timeout: 45_000 });
+
+    expect(client.resultSchemas).toEqual([undefined]);
+    expect(client.options).toEqual([{ timeout: 45_000 }]);
   });
 
   /**

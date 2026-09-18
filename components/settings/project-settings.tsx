@@ -22,7 +22,7 @@ import {
 } from "@/lib/wangp/render-estimate";
 import { familyOf, isMinimaxFamily, type ModelFamily } from "@/lib/wangp/family";
 
-type ModelsResponse = { models: WangpModel[]; total: number };
+type ModelsResponse = { models: WangpModel[]; total: number; availabilityKnown: boolean };
 
 /** What a job would actually run on, and whether WanGP is answering. */
 type ModelChoice = {
@@ -46,14 +46,16 @@ type ModelChoice = {
  * Per-project settings.
  *
  * Model pins only affect future generations, so they stay editable for the life
- * of the project. The lists default to installed models only: WanGP accepts a
- * job for a model it does not have and silently downloads the weights first.
+ * of the project. When WanGP reports installation state, the lists default to
+ * installed models only. MCP v2 omits that state, so its full catalog remains
+ * visible rather than presenting an empty picker.
  */
 export function ProjectSettings({ projectId }: { projectId: string }) {
   const [record, setRecord] = useState<ProjectRecord | null>(null);
   const [imageModels, setImageModels] = useState<WangpModel[]>([]);
   const [videoModels, setVideoModels] = useState<WangpModel[]>([]);
   const [counts, setCounts] = useState({ image: 0, video: 0 });
+  const [availabilityKnown, setAvailabilityKnown] = useState(true);
   const [showAll, setShowAll] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -68,10 +70,16 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
 
   const loadModels = useCallback(async (all: boolean, rediscover = false) => {
     const suffix = all ? "" : "&installed=1";
-    const get = (output: "image" | "video", refresh = false) =>
-      fetch(`/api/wangp/models?output=${output}${suffix}${refresh ? "&refresh=1" : ""}`, {
+    const get = async (output: "image" | "video", refresh = false) => {
+      const response = await fetch(`/api/wangp/models?output=${output}${suffix}${refresh ? "&refresh=1" : ""}`, {
         cache: "no-store",
-      }).then((r) => (r.ok ? (r.json() as Promise<ModelsResponse>) : null));
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `Could not load ${output} models from WanGP`);
+      }
+      return response.json() as Promise<ModelsResponse>;
+    };
 
     // One catalogue backs both lists, so only the first request asks for a
     // re-read and the second is sent after it. In parallel they race: the
@@ -79,15 +87,19 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
     // walked and walk it a second time.
     const img = await get("image", rediscover);
     const vid = await get("video");
-    setImageModels(img?.models ?? []);
-    setVideoModels(vid?.models ?? []);
-    setCounts({ image: img?.total ?? 0, video: vid?.total ?? 0 });
+    setImageModels(img.models);
+    setVideoModels(vid.models);
+    setCounts({ image: img.total, video: vid.total });
+    setAvailabilityKnown(img.availabilityKnown || vid.availabilityKnown);
   }, []);
 
   const refreshModels = useCallback(async () => {
     setRefreshing(true);
+    setError(null);
     try {
       await loadModels(showAll, true);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to reach WanGP. Model lists are unavailable.");
     } finally {
       setRefreshing(false);
     }
@@ -197,8 +209,8 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
   const clipAdvice = clipLengthGuidance(videoFamily);
 
   // The tier is offered only where a checkpoint exists to serve it, and only
-  // where WanGP says the weights are actually present: an unavailable model
-  // renders nothing until it has downloaded tens of gigabytes (FR-10).
+  // where WanGP says the weights are actually present. V2 omits availability,
+  // so unknown models remain eligible rather than hiding the whole tier.
   const h3Of = (family: ModelFamily) =>
     videoModels.find(
       (m) =>
@@ -339,14 +351,16 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
         <div className="flex items-baseline justify-between">
           <h2 className="font-semibold">Generation models</h2>
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 text-[11px] text-slate-400">
-              <input
-                type="checkbox"
-                checked={showAll}
-                onChange={(e) => setShowAll(e.target.checked)}
-              />
-              Show models that are not installed
-            </label>
+            {availabilityKnown ? (
+              <label className="flex items-center gap-2 text-[11px] text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={showAll}
+                  onChange={(e) => setShowAll(e.target.checked)}
+                />
+                Show models that are not installed
+              </label>
+            ) : null}
             <button
               type="button"
               onClick={() => void refreshModels()}
@@ -358,9 +372,10 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           </div>
         </div>
         <p className="text-xs text-slate-500">
-          Uninstalled models still work, but WanGP downloads the weights before rendering —
-          often tens of gigabytes, with no progress shown here. The list is read once and kept,
-          so Refresh is what picks up a model installed since this app started.
+          {availabilityKnown
+            ? "Uninstalled models still work, but WanGP downloads the weights before rendering — often tens of gigabytes, with no progress shown here."
+            : "This WanGP MCP contract does not report which model weights are installed, so the full catalog is shown and a selected model may download before rendering."} {""}
+          The list is cached briefly; Refresh reads it again now.
         </p>
 
         {wangpReachable === false ? (

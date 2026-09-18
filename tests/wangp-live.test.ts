@@ -15,6 +15,7 @@ import {
   selectAudioModel,
   selectImageModel,
   selectVideoModel,
+  isInstalled,
   produces,
   toCapability,
   videoModelsWithAudio,
@@ -214,6 +215,16 @@ describe("live-discovered regressions", () => {
     expect(findPinned(models, "ltx2_22B")?.modelType).toBe("ltx2_22B");
     expect(findPinned(models, "not_installed")).toBeNull();
     expect(findPinned(models, undefined)).toBeNull();
+  });
+
+  it("keeps models whose installation state is unavailable in the usable catalog", () => {
+    expect(isInstalled(pureImage)).toBe(true);
+    expect(
+      isInstalled({
+        ...pureImage,
+        metadata: { ...pureImage.metadata, availability: "missing" },
+      }),
+    ).toBe(false);
   });
 
   it("still prefers a dedicated stills model for keyframes", () => {

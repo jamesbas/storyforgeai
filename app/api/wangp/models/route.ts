@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { listWangpModels, resetWangpModelCache } from "@/lib/services/wangp-service";
 import { toErrorResponse } from "@/lib/http";
+import { isInstalled } from "@/lib/wangp/model-router";
 
 export const dynamic = "force-dynamic";
 
@@ -17,15 +18,16 @@ export async function GET(request: Request) {
     const output = params.get("output");
     const filter = output === "image" || output === "video" || output === "audio" ? output : undefined;
     const models = await listWangpModels(filter);
+    const availabilityKnown = models.some((model) => model.metadata.availability !== undefined);
 
-    // WanGP accepts a job for a model it does not have and downloads the
-    // weights first — tens of gigabytes with no progress signal. A picker
-    // should default to what can actually render now.
+    // V1 reports availability; V2 deliberately does not. Exclude only models
+    // proved missing so a V2 server cannot turn a healthy catalogue into an
+    // empty picker.
     if (params.get("installed") === "1") {
-      const installed = models.filter((m) => m.metadata.availability === "available");
-      return NextResponse.json({ models: installed, total: models.length });
+      const installed = models.filter(isInstalled);
+      return NextResponse.json({ models: installed, total: models.length, availabilityKnown });
     }
-    return NextResponse.json({ models, total: models.length });
+    return NextResponse.json({ models, total: models.length, availabilityKnown });
   } catch (err) {
     return toErrorResponse(err);
   }

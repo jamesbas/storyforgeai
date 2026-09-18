@@ -470,32 +470,28 @@ Use `--mcp-host 0.0.0.0` only on a trusted network or behind authentication.
 
 ### 5.2 MCP tools to use
 
-The TypeScript WanGP MCP adapter should wrap these WanGP MCP tools:
+The TypeScript WanGP MCP adapter supports the default v2 toolboxes:
 
-- `wangp_list_models`
-- `wangp_list_model_defs`
-- `wangp_get_model`
-- `wangp_get_model_metadata`
-- `wangp_get_model_availability`
-- `wangp_list_model_availability`
-- `wangp_get_default_settings`
-- `wangp_get_model_schema`
+- `wangp_models`
+- `wangp_model`
 - `wangp_generate`
-- `wangp_get_job`
-- `wangp_cancel_job`
+- `wangp_session`
+
+It also retains the historical granular v1 tools as a compatibility path. The
+advertised `wangp_models` versus `wangp_list_models` name selects the contract.
 
 ### 5.3 WanGP model discovery flow
 
 Before generating media:
 
-1. Call `wangp_list_models(main_output="image")` for image/keyframe options.
-2. Call `wangp_list_models(main_output="video")` for video options.
-3. Filter video models by `metadata.inputs` and `metadata.media_inputs`.
-4. Prefer models that support image start frames for scene continuity.
-5. Fetch schema/default settings with `wangp_get_model_schema(model_type)`.
-6. Start from `default_settings` and change only validated fields.
-7. Submit the generation with `wangp_generate`.
-8. Poll job status with `wangp_get_job`.
+1. Search `wangp_models` with cursor pagination, then filter locally by output.
+2. Normalize flat v2 capability and media-role arrays into the internal model shape.
+3. Prefer models that support image start frames for scene continuity.
+4. Fetch `wangp_model` actions `capabilities`, `definition`, and `defaults`.
+5. Start from the defaults and change only fields declared by the definition.
+6. Inspect the `wangp_generate / generate` contract once.
+7. Submit asynchronously when allowed; otherwise wait for the terminal result.
+8. Poll or cancel asynchronous work through `wangp_session`.
 9. Store result paths and structured errors.
 
 ## 6. Project data model

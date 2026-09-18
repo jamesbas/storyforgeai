@@ -1,6 +1,7 @@
 import { WangpMcpTransport } from "@/lib/wangp/mcp/transport";
 import { asRecord, knownKeys } from "@/lib/wangp/mcp/normalize";
 import { resolveFieldMap } from "@/lib/wangp/mcp/aliases";
+import { LiveWangpClient } from "@/lib/wangp/live-client";
 
 /**
  * Probe reference-image support for IMAGE generation.
@@ -42,41 +43,18 @@ function mediaInputs(source: Record<string, unknown> | undefined) {
   return asRecord(def.media_inputs) ?? {};
 }
 
-function modelTypeOf(entry: unknown): string | undefined {
-  const record = asRecord(entry);
-  const value = record?.model_type ?? record?.modelType;
-  return typeof value === "string" ? value : undefined;
-}
-
-async function surveyCatalog(transport: WangpMcpTransport) {
-  const raw = await transport.call("wangp_list_models", { include_availability: true });
-  const entries = Array.isArray(raw) ? raw : [];
-  console.log(`catalog: ${entries.length} models\n`);
+async function surveyCatalog(client: LiveWangpClient) {
+  const entries = await client.listModels("image");
+  console.log(`catalog: ${entries.length} image models\n`);
 
   const refCapable: string[] = [];
 
   for (const entry of entries) {
-    const record = asRecord(entry);
-    const modelType = modelTypeOf(entry);
-    if (!modelType) continue;
-
-    // Discovery payloads often omit media_inputs; fall back to a metadata call.
-    let image = asRecord(mediaInputs(record).image);
-    if (!image) {
-      const metadata = await transport
-        .call("wangp_get_model_metadata", { model_type: modelType })
-        .then(asRecord)
-        .catch(() => undefined);
-      image = asRecord(mediaInputs(metadata).image);
-    }
-    if (image?.reference !== true) continue;
-
-    const outputs = record?.main_output ?? record?.mainOutput;
-    const availability = record?.availability ?? record?.available;
-    refCapable.push(modelType);
+    if (!entry.metadata.mediaInputs?.image?.reference) continue;
+    refCapable.push(entry.modelType);
     console.log(
-      `  ${modelType.padEnd(34)} out=${preview(outputs, 24).padEnd(24)} ` +
-        `avail=${preview(availability, 12).padEnd(12)} refs=yes`,
+      `  ${entry.modelType.padEnd(34)} out=${preview(entry.metadata.outputs, 24).padEnd(24)} ` +
+        `avail=${preview(entry.metadata.availability ?? "unknown", 12).padEnd(12)} refs=yes`,
     );
   }
 
@@ -87,14 +65,36 @@ async function surveyCatalog(transport: WangpMcpTransport) {
 async function inspectModel(transport: WangpMcpTransport, modelType: string) {
   console.log(`\n${"=".repeat(72)}\n=== ${modelType}\n${"=".repeat(72)}`);
 
-  const [rawSchema, rawDefaults, rawMetadata] = await Promise.all([
-    transport.call("wangp_get_model_schema", { model_type: modelType }).then(asRecord),
-    transport.call("wangp_get_default_settings", { model_type: modelType }).then(asRecord),
-    transport
-      .call("wangp_get_model_metadata", { model_type: modelType })
-      .then(asRecord)
-      .catch(() => undefined),
-  ]);
+  const discoveryTool = await transport.findTool(["wangp_models", "wangp_list_models"]);
+  const [rawSchema, rawDefaults, rawMetadata] = discoveryTool === "wangp_models"
+    ? await Promise.all([
+        transport
+          .call("wangp_model", { model_type: modelType, action: "definition", arguments: {} })
+          .then((value) => {
+            const record = asRecord(value) ?? {};
+            return asRecord(record.definition) ?? record;
+          }),
+        transport
+          .call("wangp_model", { model_type: modelType, action: "defaults", arguments: {} })
+          .then((value) => {
+            const record = asRecord(value) ?? {};
+            return asRecord(record.defaults) ?? asRecord(record.settings) ?? record;
+          }),
+        transport
+          .call("wangp_model", { model_type: modelType, action: "capabilities", arguments: {} })
+          .then((value) => {
+            const record = asRecord(value) ?? {};
+            return asRecord(record.metadata) ?? record;
+          }),
+      ])
+    : await Promise.all([
+        transport.call("wangp_get_model_schema", { model_type: modelType }).then(asRecord),
+        transport.call("wangp_get_default_settings", { model_type: modelType }).then(asRecord),
+        transport
+          .call("wangp_get_model_metadata", { model_type: modelType })
+          .then(asRecord)
+          .catch(() => undefined),
+      ]);
 
   const schema = rawSchema ?? {};
   const defaults = rawDefaults ?? {};
@@ -191,6 +191,7 @@ async function inspectGenerateTool(transport: WangpMcpTransport) {
 
 async function main() {
   const transport = new WangpMcpTransport(url);
+  const client = new LiveWangpClient(url);
   console.log(`probing ${url}\n`);
 
   try {
@@ -205,7 +206,7 @@ async function main() {
       return;
     }
 
-    const refCapable = await surveyCatalog(transport);
+    const refCapable = await surveyCatalog(client);
     // Deep-dive a couple so the shape is visible without a second invocation.
     for (const modelType of refCapable.slice(0, 3)) {
       await inspectModel(transport, modelType);

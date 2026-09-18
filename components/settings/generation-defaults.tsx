@@ -9,7 +9,7 @@ import type { GenerationDefaults } from "@/lib/schemas/generation-defaults";
 import type { LoraSelectionSet } from "@/lib/schemas/lora";
 import type { WangpModel } from "@/lib/schemas/wangp";
 
-type ModelsResponse = { models: WangpModel[]; total: number };
+type ModelsResponse = { models: WangpModel[]; total: number; availabilityKnown: boolean };
 
 const field =
   "w-full rounded-md border border-white/10 bg-panel/60 px-3 py-2 text-sm text-slate-100 outline-none focus:border-accent";
@@ -28,6 +28,7 @@ export function GenerationDefaults() {
   const [loras, setLoras] = useState<LoraSelectionSet>({ image: [], video: [] });
   const [imageModels, setImageModels] = useState<WangpModel[]>([]);
   const [videoModels, setVideoModels] = useState<WangpModel[]>([]);
+  const [availabilityKnown, setAvailabilityKnown] = useState(true);
   const [showAll, setShowAll] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
@@ -35,16 +36,21 @@ export function GenerationDefaults() {
 
   const loadModels = useCallback(async (all: boolean) => {
     const suffix = all ? "" : "&installed=1";
-    const get = (output: "image" | "video") =>
-      fetch(`/api/wangp/models?output=${output}${suffix}`, { cache: "no-store" }).then((r) =>
-        r.ok ? (r.json() as Promise<ModelsResponse>) : null,
-      );
+    const get = async (output: "image" | "video") => {
+      const response = await fetch(`/api/wangp/models?output=${output}${suffix}`, { cache: "no-store" });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(body.error ?? `Could not load ${output} models from WanGP`);
+      }
+      return response.json() as Promise<ModelsResponse>;
+    };
     // One catalogue backs both lists, so the second request is sent after the
     // first rather than racing it into a second walk of the same models.
     const img = await get("image");
     const vid = await get("video");
-    setImageModels(img?.models ?? []);
-    setVideoModels(vid?.models ?? []);
+    setImageModels(img.models);
+    setVideoModels(vid.models);
+    setAvailabilityKnown(img.availabilityKnown || vid.availabilityKnown);
   }, []);
 
   const load = useCallback(
@@ -57,13 +63,13 @@ export function GenerationDefaults() {
           setDefaults(body.defaults);
           setLoras(body.defaults.loras);
         }
+        await loadModels(false);
       } catch (e) {
         if (isCurrent()) {
           setFailed(true);
           setStatus(e instanceof Error ? e.message : "Could not load the defaults");
         }
       }
-      await loadModels(false);
     },
     [loadModels],
   );
@@ -114,17 +120,30 @@ export function GenerationDefaults() {
       description="What a newly created project starts from, so a LoRA stack is built once rather than for every project. Existing projects are never changed by this — they own their own pins, and each can still be set differently under Project → Settings. A LoRA that the project's model does not have is dropped when the project is created, since a catalogue belongs to one model family."
     >
 
-      <label className="flex items-center gap-2 text-xs text-slate-400">
-        <input
-          type="checkbox"
-          checked={showAll}
-          onChange={(e) => {
-            setShowAll(e.target.checked);
-            void loadModels(e.target.checked);
-          }}
-        />
-        Show models that are not installed
-      </label>
+      {availabilityKnown ? (
+        <label className="flex items-center gap-2 text-xs text-slate-400">
+          <input
+            type="checkbox"
+            checked={showAll}
+            onChange={(e) => {
+              const next = e.target.checked;
+              setShowAll(next);
+              setFailed(false);
+              setStatus(null);
+              void loadModels(next).catch((error) => {
+                setFailed(true);
+                setStatus(error instanceof Error ? error.message : "Could not load WanGP models");
+              });
+            }}
+          />
+          Show models that are not installed
+        </label>
+      ) : (
+        <p className="text-xs text-slate-500">
+          This WanGP MCP contract does not report which model weights are installed, so the full
+          catalog is shown and a selected model may download before rendering.
+        </p>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <ModelField

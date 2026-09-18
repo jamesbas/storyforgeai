@@ -813,22 +813,31 @@ support (video), then project `modelStrategy` (`prefer_wan` / `prefer_ltx` /
 reports `["image","video"]` — are matched against the full output list rather than
 the first entry.
 
-**Discovery pages, and the catalogue is not a fact.** `wangp_list_models` caps a
-response at ten records (`max(1, min(limit, 10))` server side) and defaults to
-ten, so `LiveWangpClient.listModelEntries()` walks it with `limit`/`offset` until
-a page is short, over-long, or adds nothing new. It is worth understanding *why*
-the loop needs all three stop conditions: a short page is the end of the
-catalogue, an over-long one is a server ignoring the arguments and sending
-everything, and a page with no new model types is a server honouring `limit` and
-ignoring `offset`. A first call that throws falls back to one unparameterised
-request, which is what a Wan2GP predating the arguments needs.
+**Discovery pages, and the catalogue is not a fact.** The client selects the
+WanGP API contract from its advertised tools. MCP v2 uses `wangp_models` action
+`search`, pages up to 100 records with an opaque cursor, and reports
+`has_more`/`next_cursor`. MCP v1 uses `wangp_list_models`, caps a response at ten,
+and pages with a numeric offset. Both branches de-duplicate by `model_type` and
+stop when a server repeats itself.
 
 Getting this wrong is silent. Before the paging loop existed, one unpaged request
 returned the first ten model types alphabetically — nine music models and one
 video model — so both pickers emptied and every pinned model was reported as
 absent from the catalogue. No layer raised an error, because "not in the
 catalogue" has always been treated as a fact rather than a symptom. Anything that
-reports a pin as missing should be read as *possibly* a discovery fault.
+reports a pin as missing should be read as *possibly* a discovery fault. V2 also
+omits checkpoint availability entirely, so unknown models remain usable and the
+installed-only API excludes only records explicitly marked `missing` by v1.
+
+**Model contracts are assembled, not assumed.** MCP v2's `wangp_model` toolbox
+splits compact `capabilities`, full `definition`, and pristine `defaults` into
+three actions. The live client merges them into the same `WangpModelSchema` used
+by v1. Generation inspects the v2 action contract once: servers launched with
+`--mcp-async` return the job immediately. The default synchronous contract is
+called with a 30-second server wait, below the MCP SDK's one-minute deadline;
+quick work returns terminal, while long work returns a resumable job and enters
+the same poll loop. V2 polling and cancellation use `wangp_session`; cancellation
+is never transport-retried.
 
 **Server file paths are opt-in.** Wan2GP rejects a path in any of
 `image_start`, `image_end`, `image_refs`, `video_source` and nine other settings

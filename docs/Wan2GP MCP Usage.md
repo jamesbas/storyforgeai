@@ -8,6 +8,9 @@ worked example — every technique, failure mode and workaround below came from 
 workload against a live WanGP install on a single consumer GPU. Where something is
 StoryForge-specific it is flagged so you can discard it.
 
+Wan2GP 13.01 serves **MCP API v2 by default**. The examples below describe v2 first and call out
+the v1 equivalent where it differs. StoryForgeAI detects the advertised contract and supports both.
+
 **Audience:** a developer integrating local diffusion-model generation into an application for the
 first time.
 
@@ -36,32 +39,35 @@ Two framing points that shape everything downstream:
 
 1. **WanGP is discovery-driven, not contract-driven.** Two models rarely accept the same field
    names. Your integration is mostly a *negotiation layer*, not a client.
-2. **The MCP surface lags the engine.** Several capabilities the WanGP UI exposes have no MCP tool
-   at all — LoRAs being the significant one (§9).
+2. **The MCP surface is versioned independently of the MCP protocol.** V2 consolidates operations
+  into toolboxes and discovers action contracts progressively; do not infer it from the negotiated
+  MCP protocol or the server's product version.
 
 ---
 
 ## 2. The tool surface
 
-A current server (v1.10.x) advertises **11 tools**. Enumerate them at startup rather than trusting
-this list:
+A default Wan2GP 13.01 server advertises nine v2 toolboxes. Enumerate them at startup rather than
+trusting this list:
 
 | Tool | Purpose |
 |---|---|
-| `wangp_list_models` | Catalogue with capabilities and availability |
-| `wangp_list_model_defs` | Raw model definitions |
-| `wangp_get_model` | One model's entry |
-| `wangp_get_model_metadata` | Capability metadata for one model |
-| `wangp_get_model_availability` | Whether weights are installed |
-| `wangp_list_model_availability` | Availability across the catalogue |
-| `wangp_get_model_schema` | Settings schema for one model |
-| `wangp_get_default_settings` | Default settings payload for one model |
-| `wangp_generate` | Submit a job |
-| `wangp_get_job` | Poll a job |
-| `wangp_cancel_job` | Cancel a job |
+| `wangp_models` | Model search and speciality discovery |
+| `wangp_model` | Capabilities, definition, defaults, saved settings, and LoRAs for one model |
+| `wangp_deepy_templates` | Deepy recipes and merged template settings |
+| `wangp_list_gallery` | Gallery inventory and live selections |
+| `wangp_io` | Authorized filesystem operations |
+| `wangp_toolbox` | Media inspection and transformations |
+| `wangp_generate` | Generation |
+| `wangp_postprocess` | Post-processing treatments |
+| `wangp_session` | Job polling, cancellation, notifications, and Gallery transfers |
 
-**What is *not* there is as important as what is.** There is no tool to list LoRAs, no tool to list
-outputs, and no tool to report queue depth. Plan for §9 accordingly.
+Every toolbox uses progressive discovery: omit `action` and `arguments` to list actions, pass an
+action with `arguments: null` to read its contract, and pass an object (including `{}`) to execute.
+`wangp_model` also requires `model_type`. V2 rejects unknown top-level arguments.
+
+WanGP can still expose the historical granular tools when launched with `--mcp-api-version 1`.
+Detect `wangp_models` versus `wangp_list_models`; do not require operators to pin a server version.
 
 Design your client so an optional tool can be adopted the day it appears:
 
@@ -105,6 +111,7 @@ stops it reaching an arbitrary tool:
 
 ```ts
 export const ALLOWED_TOOLS = new Set([
+  "wangp_models", "wangp_model", "wangp_session",
   "wangp_list_models", "wangp_get_model_metadata", "wangp_get_model_schema",
   "wangp_get_default_settings", "wangp_generate", "wangp_get_job", "wangp_cancel_job",
   /* optional, may not be advertised: */ "wangp_list_loras",
@@ -141,45 +148,37 @@ Also honour `isError`: the failure detail is in the text content items, not the 
 
 ## 4. Discovery: choosing a model
 
-`wangp_list_models` returns entries with far more than a name. A live payload carries:
+`wangp_models(action="search")` returns compact records with:
 
 ```
 model_type, family, family_label, base_model_type, finetune,
 main_output, outputs, inputs, media_inputs, capabilities,
-setting_values, name, availability
+name, accelerated, specialities
 ```
 
-### 4.0 The catalogue is paged, and the page is *ten*
+`capabilities` is a flat string array and each `media_inputs` group is an array of role names. A
+normalizer should also accept v1's boolean maps.
 
-`wangp_list_models` takes `limit` and `offset`, defaults `limit` to 10, and clamps it server-side:
+### 4.0 The catalogue uses opaque cursor pages
 
-```python
-limit = max(1, min(int(limit), 10))
-```
-
-Ask for 500 and you get 10. **One unparameterised call does not return the catalogue** — it returns
-the first ten model types in whatever order the server enumerates them. A live server here holds
-217 models across 22 pages, and the first page was nine `ace_step_*` audio models plus one more.
-Anything selecting a video model from that page finds nothing and reports the pinned model as
-uninstalled.
-
-There is no total count and no "has more" flag, so the loop needs three stop conditions, each for a
-different server behaviour:
+V2 collections accept `limit` up to 100 and an opaque `cursor`. Repeat the same filters with
+`next_cursor` while `has_more` is true:
 
 ```ts
-while (offset < MAX_DISCOVERED_MODELS) {
-  const page = await call({ include_availability: true, limit: PAGE, offset });
-  const added = mergeByModelType(page);          // de-duplicate on model_type
-  if (page.length < PAGE) break;                 // end of catalogue
-  if (page.length > PAGE) break;                 // server ignored limit, sent everything
-  if (added === 0) break;                        // server honoured limit, ignored offset
-  offset += PAGE;
+while (true) {
+  const result = await call("wangp_models", {
+    action: "search",
+    arguments: { limit: 100, ...(cursor ? { cursor } : {}) },
+  });
+  mergeByModelType(result.models);
+  if (!result.has_more || !result.next_cursor) break;
+  cursor = result.next_cursor;
 }
 ```
 
-De-duplicate by `model_type` rather than trusting offsets to be stable, cap the walk so a
-misbehaving server cannot loop forever, and if the *first* paged call throws, retry once with no
-arguments — that is what a Wan2GP predating these parameters needs.
+The cursor expires after ten minutes and is tied to the original filters. De-duplicate by
+`model_type` and retain a hard item cap. V1 instead uses `limit: 10` plus numeric `offset`; its
+walker remains a separate compatibility branch.
 
 Log the shape of the walk (`{ count, pages, listed }`). A catalogue that arrives in one page when
 you expected twenty-two is the only visible symptom of this failing, and by the time it reaches a
@@ -200,13 +199,17 @@ const produces = (model, kind) => outputsOf(model).includes(kind);
 
 ### 4.2 Availability: the expensive silent failure
 
-`availability` is `available`, `partial` or `missing`.
+V2 does **not** report checkpoint availability, and search is not restricted to downloaded models.
+Treat omitted availability as unknown, not missing. Filtering on
+`availability === "available"` empties an otherwise healthy v2 model picker.
+
+V1 reports `availability` as `available`, `partial` or `missing`.
 
 > **WanGP will happily accept a job for a model it does not have, and download the weights first.**
 > That can be tens of gigabytes, and the MCP side reports **no download progress** — the job simply
 > appears to hang for a very long time.
 
-Default your model lists to installed-only, and if you ever select a `missing` model, log it loudly:
+When the state is known, default model lists to installed-only and log a `missing` selection loudly:
 
 ```ts
 ...(availability === "missing"
@@ -223,12 +226,12 @@ and whether it came from a pin — a silent substitution is very hard to debug f
 
 ### 4.4 Capabilities live on metadata, not the schema
 
-`wangp_get_model_schema` returns settings, not capabilities. Capability flags — `media_inputs`,
-`capabilities.lora`, `family`, `base_model_type` — come from `wangp_list_models` /
-`wangp_get_model_metadata`. Merge the two before deciding what a model can do.
+V2 splits one model across `wangp_model` actions. `capabilities` returns compact metadata and input
+guidance but no `setting_values`; `definition` carries the full declarations and `defaults` carries
+the pristine settings. Merge all three before building controls or a generation manifest.
 
-Usefully, `wangp_list_models` already includes `family`, `base_model_type` and `capabilities` per
-entry, so a per-model metadata round-trip is usually avoidable.
+V1 uses `wangp_get_model_schema`, `wangp_get_default_settings`, and optional
+`wangp_get_model_metadata` for the equivalent data.
 
 ---
 
@@ -240,11 +243,12 @@ You pass a complete settings dictionary.**
 The working pattern:
 
 ```
-1. wangp_get_default_settings(model_type)   -> the full default payload
-2. wangp_get_model_schema(model_type)       -> which fields exist, and their bounds
-3. copy the defaults verbatim
-4. override ONLY the fields the schema declares
-5. wangp_generate({ source: settings, wait: false })
+1. wangp_model / defaults                   -> the full default payload
+2. wangp_model / definition                 -> which fields exist, and their bounds
+3. wangp_model / capabilities               -> media roles and compact metadata
+4. copy the defaults verbatim
+5. override ONLY the fields the schema declares
+6. wangp_generate({ action: "generate", arguments: { source: settings, wait } })
 ```
 
 Copying the defaults matters: WanGP expects a complete payload, and fields you omit are not
@@ -410,15 +414,15 @@ application that works by handing WanGP paths does not partially work without th
 every job.
 
 The flag is passed through `wgp.py`, so a launcher wraps it as
-`python wgp.py --mcp-server --mcp-allow-read-file-system …`.
+`python wgp.py --mcp --mcp-allow-read-file-system …`.
 
-**Detect it before you spend a render.** There is no capability field to read, but there is a
-reliable proxy: WanGP registers the `wangp_list_files` tool **only** when filesystem reads are
-enabled. Asking the server for its tool list answers the question for free:
+An advertised historical `wangp_list_files` tool proves reads are enabled, but its absence is
+inconclusive on newer builds. Treat that probe as `true | unknown`; a real refusal still needs the
+actionable error below.
 
 ```ts
-async allowsFilesystemPaths(): Promise<boolean> {
-  return (await this.transport.findTool(["wangp_list_files"])) !== undefined;
+async allowsFilesystemPaths(): Promise<true | undefined> {
+  return (await this.transport.findTool(["wangp_list_files"])) ? true : undefined;
 }
 ```
 
@@ -436,18 +440,30 @@ so nothing is lost.
 ### 8.1 Submit and poll
 
 ```ts
-const raw = await call("wangp_generate", { source: settings, wait: false });
+const contract = await call("wangp_generate", { action: "generate", arguments: null });
+const asyncEnabled = contract.properties.wait.const !== true;
+const raw = await call("wangp_generate", {
+  action: "generate",
+  arguments: asyncEnabled
+    ? { source: settings, wait: false }
+    : { source: settings, wait: true, timeout_s: 30, event_limit: 20 },
+}, {
+  timeout: asyncEnabled ? undefined : 45_000,
+});
 const jobId = raw?.job_id ?? raw?.jobId ?? raw?.id;
 ```
 
-Use `wait: false` and poll. Generation takes **minutes**; a synchronous wait ties up a request
-thread for the duration. StoryForge polls every 3 s with a 600-attempt ceiling — a 30-minute budget
-per job.
+V2 defaults to synchronous generation and rejects `wait: false` unless WanGP was started with
+`--mcp-async`. The MCP TypeScript SDK defaults each request to 60 seconds, while a render takes much
+longer. Inspect the action contract once: when `wait` has `const: true`, call with `wait: true` and
+`timeout_s: 30`. A quick job returns terminal; a longer one returns its job ID without cancellation,
+then poll `wangp_session(action="get_job")`. With async enabled, submit with `wait: false` directly.
+StoryForge polls every 3 s with a 600-attempt ceiling.
 
 ### 8.2 Job status is an event log, not a status field
 
-`wangp_get_job` returns an **event log plus a terminal result**, not a tidy status string. You derive
-status yourself:
+The v2 `wangp_session` `get_job` action, and v1 `wangp_get_job`, return an **event log plus a
+terminal result**, not a tidy status string. You derive status yourself:
 
 ```ts
 if (typeof source.done === "boolean") {
@@ -508,11 +524,12 @@ long generation run. Overlapping them does not fail cleanly; WanGP thrashes and 
 
 ## 9. LoRAs
 
-### 9.1 There is no LoRA tool
+### 9.1 StoryForgeAI uses the filesystem catalog
 
-**The MCP server exposes no LoRA inventory or metadata tool.** Verified against v1.10.1 and
-re-confirmed on a running server: 11 tools, none LoRA-related. The WanGP UI manages LoRAs, but that
-capability is not surfaced over MCP.
+MCP v2 exposes LoRAs through `wangp_model(action="loras")`; older v1 servers may expose
+`wangp_list_loras`, and still older builds expose none. StoryForgeAI deliberately keeps its local
+filesystem catalog because it also reads LoRA Manager sidecars and trigger words that the generation
+pipeline needs.
 
 So discovery must read the filesystem. Structure it so an upstream tool can take over later without
 a rewrite: try the tool names first, fall back to disk.
@@ -664,22 +681,23 @@ the server handed you.
 | # | Gotcha | Consequence |
 |---|---|---|
 | 1 | `main_output` misclassifies multi-output models | LTX-2 looks like an image model; read `outputs` |
-| 2 | Uninstalled models are accepted and downloaded | Job hangs for tens of GB with no progress |
+| 2 | V2 omits installation state | Strict installed-only filters empty the picker; unknown models may download weights |
 | 3 | `setIf` on an undeclared field is a silent no-op | Feature quietly does nothing; output looks fine |
 | 4 | Media inputs absent from default settings | `image_refs` / `video_source` invisible unless derived from `media_inputs` |
 | 5 | Prompt-type letters must be **set**, not appended | Model demands images you never sent |
 | 6 | References activate via `video_prompt_type` | Even on pure image models |
 | 7 | `prompt_enhancer` defaults on for some models | Your prompt is silently rewritten |
 | 8 | One generation session, globally | Concurrent submits fail; the web UI can steal it |
-| 9 | Job status is an event log | No status string to read; derive it |
-| 10 | No LoRA tools exist | Filesystem discovery is mandatory |
-| 11 | `activated_loras` defaults are saved UI state | Non-deterministic renders unless written explicitly |
-| 11a | So are `batch_size` and `num_inference_steps` | Duplicate output files; a 4-step render with no Lightning LoRA |
-| 12 | `.lset` files are presets, not weights | Must be excluded from LoRA listings |
-| 13 | LoRA filenames are often opaque hashes | Sidecar metadata is effectively required |
-| 14 | Outputs are host paths, not bytes | Containment checks required before serving |
-| 15 | `family` and `base_model_type` can disagree | Routes LoRA lookups to the wrong folder |
-| 16 | Frame count and fps are independent | Some models have length but no fps field |
+| 9 | V2 is synchronous unless `--mcp-async` is enabled | An unbounded call exceeds the SDK deadline; use a shorter `timeout_s`, then poll the returned job |
+| 10 | Job status is an event log | No status string to read; derive it |
+| 11 | LoRA APIs vary by contract | V2 has `wangp_model / loras`; local sidecars still require filesystem discovery |
+| 12 | `activated_loras` defaults are saved UI state | Non-deterministic renders unless written explicitly |
+| 13 | So are `batch_size` and `num_inference_steps` | Duplicate output files; a 4-step render with no Lightning LoRA |
+| 14 | `.lset` files are presets, not weights | Must be excluded from LoRA listings |
+| 15 | LoRA filenames are often opaque hashes | Sidecar metadata is effectively required |
+| 16 | Outputs are host paths, not bytes | Containment checks required before serving |
+| 17 | `family` and `base_model_type` can disagree | Routes LoRA lookups to the wrong folder |
+| 18 | Frame count and fps are independent | Some models have length but no fps field |
 
 ---
 
@@ -687,15 +705,17 @@ the server handed you.
 
 - [ ] MCP client with lazy single-flight connect and a hard tool allow-list
 - [ ] Result unwrapping handles `structuredContent`, `{ result: … }` and text-JSON
-- [ ] `findTool()` in place so optional tools can be adopted without a rewrite
+- [ ] Contract detection selects `wangp_models` (v2) or `wangp_list_models` (v1)
+- [ ] V2 collection cursors are followed while `has_more` is true
 - [ ] Catalogue filtered on `outputs`, not `main_output`
-- [ ] Model lists default to installed-only; `missing` selections logged loudly
+- [ ] Unknown v2 availability remains visible; known `missing` selections are filtered and logged
 - [ ] Explicit model pinning supported; chosen model and pin status logged
-- [ ] Capability metadata merged with the settings schema before deciding anything
+- [ ] V2 capabilities, definition, and defaults are merged before deciding anything
 - [ ] Defaults copied verbatim; only declared fields overridden
 - [ ] Capability checked and an error raised for anything the user explicitly requested
 - [ ] Canonical field vocabulary with an alias table; renaming confined to one place
 - [ ] Media-input fields synthesised from `media_inputs` flags
+- [ ] Generation action contract decides between synchronous wait and async submit/poll
 - [ ] Prompt-type letters set explicitly, never appended
 - [ ] `prompt_enhancer` disabled
 - [ ] Numeric values clamped to published bounds; frame counts aligned

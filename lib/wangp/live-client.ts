@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { WangpClient } from "@/lib/wangp/client";
 import type { WangpJob, WangpModel, WangpModelSchema } from "@/lib/schemas/wangp";
 import { WangpMcpTransport } from "@/lib/wangp/mcp/transport";
@@ -17,8 +18,34 @@ const MODEL_CACHE_TTL_MS = 60_000;
  */
 const MODEL_PAGE_SIZE = 10;
 
+/** MCP v2 uses opaque cursors and allows up to one hundred rows per search. */
+const V2_MODEL_PAGE_SIZE = 100;
+
 /** A stop so a server that ignores `offset` cannot page for ever. */
 const MAX_DISCOVERED_MODELS = 2_000;
+
+/** Return a resumable job before the MCP SDK's one-minute default deadline. */
+const V2_INITIAL_WAIT_SECONDS = 30;
+const V2_INITIAL_REQUEST_TIMEOUT_MS = 45_000;
+
+function nestedRecord(value: unknown, keys: string[]): Record<string, unknown> {
+  const record = asRecord(value) ?? {};
+  for (const key of keys) {
+    const nested = asRecord(record[key]);
+    if (nested) return nested;
+  }
+  return record;
+}
+
+function waitIsForced(value: unknown): boolean {
+  const visit = (candidate: unknown): boolean => {
+    const record = asRecord(candidate);
+    if (!record) return false;
+    if (asRecord(record.wait)?.const === true) return true;
+    return Object.entries(record).some(([key, child]) => key !== "examples" && visit(child));
+  };
+  return visit(value);
+}
 
 /**
  * Live WanGP MCP client (spec Section 23).
@@ -48,6 +75,8 @@ export class LiveWangpClient implements WangpClient {
 
   /** The discovery walk in flight, so parallel callers share one. */
   private modelRefresh?: Promise<WangpModel[]>;
+  private contractVersion?: Promise<1 | 2>;
+  private asyncGeneration?: Promise<boolean>;
 
   constructor(endpoint: string) {
     this.transport = new WangpMcpTransport(endpoint);
@@ -135,6 +164,8 @@ export class LiveWangpClient implements WangpClient {
    * 216-model catalogue turned into an empty picker with no error anywhere.
    */
   private async listModelEntries(): Promise<{ entries: unknown[]; pages: number }> {
+    if ((await this.getContractVersion()) === 2) return this.listModelEntriesV2();
+
     const entries: unknown[] = [];
     const seen = new Set<string>();
     let pages = 0;
@@ -189,6 +220,58 @@ export class LiveWangpClient implements WangpClient {
     return { entries, pages };
   }
 
+  private async getContractVersion(): Promise<1 | 2> {
+    if (!this.contractVersion) {
+      const detection = this.transport
+        .findTool(["wangp_models", "wangp_list_models"])
+        .then((tool): 1 | 2 => (tool === "wangp_models" ? 2 : 1))
+        .catch((err) => {
+          if (this.contractVersion === detection) this.contractVersion = undefined;
+          throw err;
+        });
+      this.contractVersion = detection;
+    }
+    return this.contractVersion;
+  }
+
+  private async listModelEntriesV2(): Promise<{ entries: unknown[]; pages: number }> {
+    const entries: unknown[] = [];
+    const seen = new Set<string>();
+    let cursor: string | undefined;
+    let pages = 0;
+
+    do {
+      const raw = await this.transport.call("wangp_models", {
+        action: "search",
+        arguments: {
+          limit: V2_MODEL_PAGE_SIZE,
+          ...(cursor ? { cursor } : {}),
+        },
+      });
+      const result = asRecord(raw);
+      const page = Array.isArray(raw)
+        ? raw
+        : ([result?.models, result?.results, result?.items, result?.entries].find(Array.isArray) ?? []);
+
+      let added = 0;
+      for (const entry of page) {
+        const source = asRecord(entry);
+        const key = source?.model_type ?? source?.modelType;
+        if (typeof key !== "string" || !key || seen.has(key)) continue;
+        seen.add(key);
+        entries.push(entry);
+        added += 1;
+      }
+
+      pages += 1;
+      const next = result?.next_cursor;
+      cursor = result?.has_more === true && typeof next === "string" && next ? next : undefined;
+      if (added === 0) cursor = undefined;
+    } while (cursor && entries.length < MAX_DISCOVERED_MODELS);
+
+    return { entries, pages };
+  }
+
 
   /**
    * Drop the cached catalogue, for an explicit refresh.
@@ -228,9 +311,31 @@ export class LiveWangpClient implements WangpClient {
     const payload = toWangpSettings(canonical, fieldMap);
     payload.model_type = modelType;
 
-    const raw = asRecord(
-      await this.transport.call("wangp_generate", { source: payload, wait: false }),
-    );
+    if ((await this.getContractVersion()) === 2) {
+      const asyncEnabled = await this.allowsAsyncGeneration();
+      const raw = await this.transport.call("wangp_generate", {
+        action: "generate",
+        arguments: asyncEnabled
+          ? { source: payload, wait: false }
+          : {
+              source: payload,
+              wait: true,
+              timeout_s: V2_INITIAL_WAIT_SECONDS,
+              event_limit: 20,
+            },
+      }, asyncEnabled ? undefined : { timeout: V2_INITIAL_REQUEST_TIMEOUT_MS });
+      const source = asRecord(raw);
+      const jobId = source?.job_id ?? source?.jobId ?? source?.id;
+      if (asyncEnabled) {
+        if (typeof jobId !== "string" || !jobId) {
+          throw new Error("WanGP did not return a job id.");
+        }
+        return { id: jobId, status: "submitted", progress: 0, generatedFiles: [], errors: [] };
+      }
+      return normalizeJob(raw, typeof jobId === "string" && jobId ? jobId : `sync-${randomUUID()}`);
+    }
+
+    const raw = asRecord(await this.transport.call("wangp_generate", { source: payload, wait: false }));
     const jobId = raw?.job_id ?? raw?.jobId ?? raw?.id;
     if (typeof jobId !== "string" || !jobId) {
       throw new Error("WanGP did not return a job id.");
@@ -240,10 +345,32 @@ export class LiveWangpClient implements WangpClient {
   }
 
   async getJob(jobId: string): Promise<WangpJob> {
+    if ((await this.getContractVersion()) === 2) {
+      return normalizeJob(
+        await this.transport.call("wangp_session", {
+          action: "get_job",
+          arguments: { job_id: jobId },
+        }),
+        jobId,
+      );
+    }
     return normalizeJob(await this.transport.call("wangp_get_job", { job_id: jobId }), jobId);
   }
 
   async cancelJob(jobId: string): Promise<WangpJob> {
+    if ((await this.getContractVersion()) === 2) {
+      await this.transport.call("wangp_session", {
+        action: "cancel_job",
+        arguments: { job_id: jobId },
+      });
+      return {
+        id: jobId,
+        status: "cancelled",
+        progress: 0,
+        generatedFiles: [],
+        errors: [],
+      };
+    }
     await this.transport.call("wangp_cancel_job", { job_id: jobId });
     return this.getJob(jobId).catch(() => ({
       id: jobId,
@@ -258,6 +385,16 @@ export class LiveWangpClient implements WangpClient {
     const cached = this.metadataCache.get(modelType);
     if (cached) return cached;
     try {
+      if ((await this.getContractVersion()) === 2) {
+        const result = await this.transport.call("wangp_model", {
+          model_type: modelType,
+          action: "capabilities",
+          arguments: {},
+        });
+        const metadata = nestedRecord(result, ["metadata"]);
+        this.metadataCache.set(modelType, metadata);
+        return metadata;
+      }
       const metadata = asRecord(
         await this.transport.call("wangp_get_model_metadata", { model_type: modelType }),
       );
@@ -272,6 +409,37 @@ export class LiveWangpClient implements WangpClient {
   private async resolveSchema(modelType: string) {
     const cached = this.schemaCache.get(modelType);
     if (cached) return cached;
+
+    if ((await this.getContractVersion()) === 2) {
+      const [rawCapabilities, rawDefinition, rawDefaults] = await Promise.all([
+        this.transport.call("wangp_model", {
+          model_type: modelType,
+          action: "capabilities",
+          arguments: {},
+        }),
+        this.transport.call("wangp_model", {
+          model_type: modelType,
+          action: "definition",
+          arguments: {},
+        }),
+        this.transport.call("wangp_model", {
+          model_type: modelType,
+          action: "defaults",
+          arguments: {},
+        }),
+      ]);
+      const metadata = nestedRecord(rawCapabilities, ["metadata"]);
+      const definition = nestedRecord(rawDefinition, ["definition"]);
+      const defaults = nestedRecord(rawDefaults, ["defaults", "settings"]);
+      const schemaRecord = {
+        ...definition,
+        metadata: { ...(asRecord(definition.metadata) ?? {}), ...metadata },
+      };
+      this.metadataCache.set(modelType, metadata);
+      const normalized = normalizeModelSchema(modelType, schemaRecord, defaults);
+      this.schemaCache.set(modelType, normalized);
+      return normalized;
+    }
 
     const [rawSchema, rawDefaults] = await Promise.all([
       this.transport.call("wangp_get_model_schema", { model_type: modelType }),
@@ -288,6 +456,20 @@ export class LiveWangpClient implements WangpClient {
     const normalized = normalizeModelSchema(modelType, schemaRecord, defaults);
     this.schemaCache.set(modelType, normalized);
     return normalized;
+  }
+
+  private async allowsAsyncGeneration(): Promise<boolean> {
+    if (!this.asyncGeneration) {
+      const detection = this.transport
+        .call("wangp_generate", { action: "generate", arguments: null })
+        .then((contract) => !waitIsForced(contract))
+        .catch((err) => {
+          if (this.asyncGeneration === detection) this.asyncGeneration = undefined;
+          throw err;
+        });
+      this.asyncGeneration = detection;
+    }
+    return this.asyncGeneration;
   }
 
   /**

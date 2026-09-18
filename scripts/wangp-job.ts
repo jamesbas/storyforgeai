@@ -8,11 +8,17 @@ async function main() {
   const jobId = process.argv[2];
   if (!jobId) throw new Error("usage: wangp-job.ts <jobId> [--cancel]");
   const t = new WangpMcpTransport(url);
+  const v2 = (await t.findTool(["wangp_models", "wangp_list_models"])) === "wangp_models";
 
   if (process.argv.includes("--cancel")) {
-    console.log(JSON.stringify(await t.call("wangp_cancel_job", { job_id: jobId })));
+    const cancelled = v2
+      ? await t.call("wangp_session", { action: "cancel_job", arguments: { job_id: jobId } })
+      : await t.call("wangp_cancel_job", { job_id: jobId });
+    console.log(JSON.stringify(cancelled));
   }
-  const raw = await t.call("wangp_get_job", { job_id: jobId });
+  const raw = v2
+    ? await t.call("wangp_session", { action: "get_job", arguments: { job_id: jobId } })
+    : await t.call("wangp_get_job", { job_id: jobId });
   console.log("normalized:", JSON.stringify(normalizeJob(raw, jobId)));
   await t.close();
 }

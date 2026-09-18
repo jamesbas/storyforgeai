@@ -67,9 +67,27 @@ async function main() {
 
   // Raw alias mapping, to confirm what the real keys are called.
   const transport = new WangpMcpTransport(url);
-  const rawSchema = asRecord(await transport.call("wangp_get_model_schema", { model_type: target })) ?? {};
-  const rawDefaults = asRecord(await transport.call("wangp_get_default_settings", { model_type: target })) ?? {};
-  const metadata = asRecord(await transport.call("wangp_get_model_metadata", { model_type: target }));
+  const discoveryTool = await transport.findTool(["wangp_models", "wangp_list_models"]);
+  let rawSchema: Record<string, unknown>;
+  let rawDefaults: Record<string, unknown>;
+  let metadata: Record<string, unknown> | undefined;
+  if (discoveryTool === "wangp_models") {
+    const [capabilities, definition, defaults] = await Promise.all([
+      transport.call("wangp_model", { model_type: target, action: "capabilities", arguments: {} }),
+      transport.call("wangp_model", { model_type: target, action: "definition", arguments: {} }),
+      transport.call("wangp_model", { model_type: target, action: "defaults", arguments: {} }),
+    ]);
+    const capabilityRecord = asRecord(capabilities) ?? {};
+    const definitionRecord = asRecord(definition) ?? {};
+    const defaultsRecord = asRecord(defaults) ?? {};
+    metadata = asRecord(capabilityRecord.metadata) ?? capabilityRecord;
+    rawSchema = asRecord(definitionRecord.definition) ?? definitionRecord;
+    rawDefaults = asRecord(defaultsRecord.defaults) ?? asRecord(defaultsRecord.settings) ?? defaultsRecord;
+  } else {
+    rawSchema = asRecord(await transport.call("wangp_get_model_schema", { model_type: target })) ?? {};
+    rawDefaults = asRecord(await transport.call("wangp_get_default_settings", { model_type: target })) ?? {};
+    metadata = asRecord(await transport.call("wangp_get_model_metadata", { model_type: target }));
+  }
   if (metadata && rawSchema.metadata === undefined) rawSchema.metadata = metadata;
   const { fieldMap } = normalizeModelSchema(target, rawSchema, rawDefaults);
   console.log(`\ncanonical -> real WanGP key:`);
@@ -81,4 +99,4 @@ async function main() {
 void main().catch((err) => {
   console.error("PROBE FAILED:", err instanceof Error ? err.message : err);
   process.exitCode = 1;
-});
+}).finally(() => process.exit(process.exitCode ?? 0));

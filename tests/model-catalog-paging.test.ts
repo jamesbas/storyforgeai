@@ -30,6 +30,8 @@ function clientWith(respond: (args: Record<string, unknown>) => unknown) {
   const client = new LiveWangpClient("http://127.0.0.1:1/mcp");
   const calls: Call[] = [];
   const transport = {
+    findTool: async (candidates: string[]) =>
+      candidates.find((candidate) => candidate === "wangp_list_models"),
     call: async (name: string, args: Record<string, unknown> = {}) => {
       calls.push({ name, args });
       return respond(args);

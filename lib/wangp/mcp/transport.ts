@@ -13,6 +13,9 @@ import { asRecord } from "@/lib/wangp/mcp/normalize";
  */
 
 export const ALLOWED_TOOLS = new Set([
+  "wangp_models",
+  "wangp_model",
+  "wangp_session",
   "wangp_list_models",
   "wangp_get_model_metadata",
   "wangp_get_model_availability",
@@ -56,10 +59,19 @@ export function parseTextContent(content: { type: string; text?: string }[]): un
 
 type McpClient = {
   connect(transport: unknown): Promise<void>;
-  callTool(request: { name: string; arguments: Record<string, unknown> }): Promise<unknown>;
+  callTool(
+    request: { name: string; arguments: Record<string, unknown> },
+    resultSchema?: unknown,
+    options?: ToolCallOptions,
+  ): Promise<unknown>;
   listTools(): Promise<{ tools: { name: string }[] }>;
   getServerVersion(): { version?: string } | undefined;
   close(): Promise<void>;
+};
+
+export type ToolCallOptions = {
+  /** MCP SDK request deadline in milliseconds. Its default is 60 seconds. */
+  timeout?: number;
 };
 
 /**
@@ -70,6 +82,8 @@ type McpClient = {
  * a generation, and replaying it would submit a second one.
  */
 const IDEMPOTENT_TOOLS = new Set([
+  "wangp_models",
+  "wangp_model",
   "wangp_list_models",
   "wangp_get_model_metadata",
   "wangp_get_model_availability",
@@ -80,6 +94,11 @@ const IDEMPOTENT_TOOLS = new Set([
   "wangp_list_loras",
   "wangp_get_loras",
 ]);
+
+function isIdempotentCall(toolName: string, args: Record<string, unknown>): boolean {
+  if (IDEMPOTENT_TOOLS.has(toolName)) return true;
+  return toolName === "wangp_session" && args.action === "get_job";
+}
 
 /**
  * A failure of the connection itself rather than of the tool.
@@ -168,6 +187,7 @@ export class WangpMcpTransport {
   async ping(): Promise<{ connected: boolean; version?: string }> {
     try {
       const client = await this.connect();
+      await this.refreshToolNames();
       return { connected: true, version: client.getServerVersion()?.version };
     } catch (err) {
       if (isTransportFailure(err)) this.discard();
@@ -175,23 +195,33 @@ export class WangpMcpTransport {
     }
   }
 
-  async call(toolName: string, args: Record<string, unknown> = {}): Promise<unknown> {
+  async call(
+    toolName: string,
+    args: Record<string, unknown> = {},
+    options?: ToolCallOptions,
+  ): Promise<unknown> {
     if (!ALLOWED_TOOLS.has(toolName)) throw new Error(`WanGP tool ${toolName} is not allowed.`);
     try {
-      return await this.invoke(toolName, args);
+      return await this.invoke(toolName, args, options);
     } catch (err) {
       if (!isTransportFailure(err)) throw err;
       this.discard();
       // Reconnecting costs one round trip and rescues the common case, but only
       // where replaying the request cannot start a second generation.
-      if (!IDEMPOTENT_TOOLS.has(toolName)) throw err;
-      return this.invoke(toolName, args);
+      if (!isIdempotentCall(toolName, args)) throw err;
+      return this.invoke(toolName, args, options);
     }
   }
 
-  private async invoke(toolName: string, args: Record<string, unknown>): Promise<unknown> {
+  private async invoke(
+    toolName: string,
+    args: Record<string, unknown>,
+    options?: ToolCallOptions,
+  ): Promise<unknown> {
     const client = await this.connect();
-    const result = toolResultSchema.parse(await client.callTool({ name: toolName, arguments: args }));
+    const result = toolResultSchema.parse(
+      await client.callTool({ name: toolName, arguments: args }, undefined, options),
+    );
 
     if (result.isError) {
       const details = result.content
@@ -209,11 +239,20 @@ export class WangpMcpTransport {
 
   /** Resolve the first advertised tool name from a candidate list, or undefined. */
   async findTool(candidates: string[]): Promise<string | undefined> {
-    if (!this.toolNames) {
+    if (!this.toolNames) await this.refreshToolNames();
+    return candidates.find((candidate) => this.toolNames?.has(candidate));
+  }
+
+  private async refreshToolNames(): Promise<void> {
+    try {
+      const client = await this.connect();
+      this.toolNames = new Set((await client.listTools()).tools.map((tool) => tool.name));
+    } catch (err) {
+      if (!isTransportFailure(err)) throw err;
+      this.discard();
       const client = await this.connect();
       this.toolNames = new Set((await client.listTools()).tools.map((tool) => tool.name));
     }
-    return candidates.find((candidate) => this.toolNames?.has(candidate));
   }
 
   async close(): Promise<void> {

@@ -32,7 +32,7 @@ export function finite(value: unknown): number | undefined {
 }
 
 function modelDefinition(schema: Record<string, unknown>): Record<string, unknown> {
-  return asRecord(schema.model_def) ?? {};
+  return asRecord(schema.model_def) ?? asRecord(schema.definition) ?? schema;
 }
 
 function settingValueContainers(schema: Record<string, unknown>): Record<string, unknown>[] {
@@ -75,18 +75,18 @@ export function knownKeys(
   // Media inputs are advertised as capability flags rather than settings keys.
   const metadata = asRecord(schema.metadata) ?? {};
   const mediaInputs = asRecord(metadata.media_inputs) ?? asRecord(modelDef.media_inputs) ?? {};
-  const image = asRecord(mediaInputs.image) ?? {};
-  if (image.start === true) keys.add("image_start");
-  if (image.end === true) keys.add("image_end");
-  if (image.reference === true) keys.add("image_refs");
-  if (image.control === true) keys.add("image_guide");
-  if (image.mask === true) keys.add("image_mask");
+  const image = mediaInputs.image;
+  if (hasMediaRole(image, "start")) keys.add("image_start");
+  if (hasMediaRole(image, "end")) keys.add("image_end");
+  if (hasMediaRole(image, "reference")) keys.add("image_refs");
+  if (hasMediaRole(image, "control")) keys.add("image_guide");
+  if (hasMediaRole(image, "mask")) keys.add("image_mask");
 
   // Continuation source. Verified against a live WanGP: setting `video_source`
   // makes it ffprobe the path, so the key is real even though it never appears
   // in the published defaults.
-  const video = asRecord(mediaInputs.video) ?? {};
-  if (video.continue === true) keys.add("video_source");
+  const video = mediaInputs.video;
+  if (hasMediaRole(video, "continue")) keys.add("video_source");
 
   return keys;
 }
@@ -227,12 +227,24 @@ function inputsFromMediaInputs(value: unknown): InputKind[] {
   if (!record) return [];
   const kinds: InputKind[] = [];
   for (const kind of INPUT_KINDS) {
-    const group = asRecord(record[kind]);
-    if (!group) continue;
-    const usable = Object.entries(group).some(([flag, flagValue]) => flag !== "output" && flagValue === true);
+    const rawGroup = record[kind];
+    const group = asRecord(rawGroup);
+    const usable = Array.isArray(rawGroup)
+      ? rawGroup.some((role) => role !== "output")
+      : Boolean(
+          group &&
+            Object.entries(group).some(
+              ([flag, flagValue]) => flag !== "output" && flagValue === true,
+            ),
+        );
     if (usable) kinds.push(kind);
   }
   return kinds;
+}
+
+function hasMediaRole(group: unknown, role: string): boolean {
+  if (Array.isArray(group)) return group.includes(role);
+  return asRecord(group)?.[role] === true;
 }
 
 /**
@@ -269,9 +281,9 @@ export function normalizeModel(
   );
 
   const mediaInputs = asRecord(read("media_inputs", "mediaInputs"));
-  const image = asRecord(mediaInputs?.image);
-  const audio = asRecord(mediaInputs?.audio);
-  const video = asRecord(mediaInputs?.video);
+  const image = mediaInputs?.image;
+  const audio = mediaInputs?.audio;
+  const video = mediaInputs?.video;
 
   const inputs = new Set<InputKind>(normalizeInputs(read("inputs")));
   for (const kind of inputsFromMediaInputs(mediaInputs)) inputs.add(kind);
@@ -282,9 +294,11 @@ export function normalizeModel(
   // WanGP publishes the LoRA flag as `capabilities.lora`. The `supports_lora` /
   // `loras` spellings are kept as fallbacks but are absent from every live
   // payload observed, which meant `supportsLora` was silently always undefined.
-  const capabilities = asRecord(read("capabilities")) ?? {};
-  const loraFlag =
-    capabilities.lora ?? read("supports_lora", "supportsLora", "loras") ?? modelDef.loras;
+  const rawCapabilities = read("capabilities");
+  const capabilities = asRecord(rawCapabilities) ?? {};
+  const loraFlag = Array.isArray(rawCapabilities)
+    ? rawCapabilities.includes("lora")
+    : capabilities.lora ?? read("supports_lora", "supportsLora", "loras") ?? modelDef.loras;
 
   // Family and base model route LoRA lookups to an on-disk directory. Both are
   // published by `wangp_list_models`, so no extra metadata call is needed.
@@ -302,8 +316,8 @@ export function normalizeModel(
 
   const name = read("name");
 
-  const audioOutput = audio?.output === true || outputs.includes("audio");
-  const audioPrompt = audio?.prompt === true;
+  const audioOutput = hasMediaRole(audio, "output") || outputs.includes("audio");
+  const audioPrompt = hasMediaRole(audio, "prompt");
 
   // WanGP reports availability either as a bare string or as { status, reason }.
   const rawAvailability = read("availability");
@@ -327,9 +341,9 @@ export function normalizeModel(
               ...(image
                 ? {
                     image: {
-                      start: image.start === true,
-                      end: image.end === true,
-                      reference: image.reference === true,
+                      start: hasMediaRole(image, "start"),
+                      end: hasMediaRole(image, "end"),
+                      reference: hasMediaRole(image, "reference"),
                     },
                   }
                 : {}),
@@ -337,7 +351,12 @@ export function normalizeModel(
                 ? { audio: { prompt: audioPrompt, output: audioOutput } }
                 : {}),
               ...(video
-                ? { video: { continue: video.continue === true, last: video.last === true } }
+                ? {
+                    video: {
+                      continue: hasMediaRole(video, "continue"),
+                      last: hasMediaRole(video, "last"),
+                    },
+                  }
                 : {}),
             },
           }
@@ -477,7 +496,17 @@ export function normalizeJob(value: unknown, fallbackId?: string): WangpJob {
       status = result?.success === true ? "completed" : "failed";
     }
   } else {
-    status = coerceStatus(source.status) ?? (generatedFiles.length ? "completed" : "running");
+    status =
+      coerceStatus(source.status) ??
+      (source.cancelled === true
+        ? "cancelled"
+        : source.success === true
+          ? "completed"
+          : source.success === false
+            ? "failed"
+            : generatedFiles.length
+              ? "completed"
+              : "running");
   }
 
   const progress =

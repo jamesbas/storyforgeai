@@ -11,12 +11,17 @@ import { LiveWangpClient } from "@/lib/wangp/live-client";
  * `krea2_raw_edit` after a successful render in Wan2GP.
  */
 
-type FakeTransport = { call: (name: string, args?: unknown) => Promise<unknown> };
+type FakeTransport = {
+  findTool: (candidates: string[]) => Promise<string | undefined>;
+  call: (name: string, args?: unknown) => Promise<unknown>;
+};
 
 function clientWith(availability: () => string) {
   const client = new LiveWangpClient("http://127.0.0.1:1/mcp");
   let calls = 0;
   const transport: FakeTransport = {
+    findTool: async (candidates) =>
+      candidates.find((candidate) => candidate === "wangp_list_models"),
     call: async () => {
       calls += 1;
       return [
@@ -52,6 +57,33 @@ afterEach(() => {
 });
 
 describe("how long a model catalogue stays good", () => {
+  it("retries contract detection after a transient failure", async () => {
+    const client = new LiveWangpClient("http://127.0.0.1:1/mcp");
+    let detectionAttempts = 0;
+    const transport: FakeTransport = {
+      findTool: async () => {
+        detectionAttempts += 1;
+        if (detectionAttempts === 1) throw new Error("fetch failed");
+        return "wangp_models";
+      },
+      call: async () => ({
+        models: [
+          {
+            model_type: "krea2_raw_edit",
+            name: "Krea 2 RAW Identity Edit",
+            main_output: "image",
+          },
+        ],
+        has_more: false,
+      }),
+    };
+    (client as unknown as { transport: FakeTransport }).transport = transport;
+
+    await expect(client.listModels()).rejects.toThrow("fetch failed");
+    await expect(client.listModels("image")).resolves.toHaveLength(1);
+    expect(detectionAttempts).toBe(2);
+  });
+
   it("answers from cache inside the window", async () => {
     const { client, calls } = clientWith(() => "available");
 
