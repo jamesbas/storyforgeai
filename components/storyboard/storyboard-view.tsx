@@ -179,6 +179,8 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const [queueBusy, setQueueBusy] = useState(false);
   /** Scenes ticked for a clip-only rerun. Empty means the whole project. */
   const [videoPicks, setVideoPicks] = useState<string[]>([]);
+  /** Scenes ticked for a frames-only rerun. Empty means the whole project. */
+  const [keyframePicks, setKeyframePicks] = useState<string[]>([]);
   const [promptPicks, setPromptPicks] = useState<string[]>([]);
   const [cascadeNotice, setCascadeNotice] = useState<string | null>(null);
   const [openingFramePending, setOpeningFramePending] = useState(false);
@@ -214,6 +216,10 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   /** Scenes this batch is only rendering a clip for, having found usable frames. */
   const clipOnlyCount =
     queue?.entries.filter((e) => e.scope === "video" && e.state !== "cancelled").length ?? 0;
+
+  /** Scenes this batch is rendering frames for and deliberately stopping there. */
+  const framesOnlyCount =
+    queue?.entries.filter((e) => e.scope === "keyframes" && e.state !== "cancelled").length ?? 0;
 
   /**
    * One sentence for the batch, changing only when a phase or a scene does.
@@ -474,6 +480,49 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to queue clips");
+      } finally {
+        setQueueBusy(false);
+      }
+    },
+    [projectId, failureMessage],
+  );
+
+  /**
+   * Re-render keyframes and stop there, leaving the clips alone.
+   *
+   * The mirror of the clip rerun, for when an image prompt, a seed or an image
+   * LoRA changed. The new attempts carry no clip, which is not an oversight:
+   * it is the state "Generate all media" already finishes for the price of the
+   * clip alone, so judging the frames first costs nothing.
+   *
+   * `sceneIds` empty means every scene. The server reports back any scene left
+   * holding a start frame copied from one of these scenes' old end frames.
+   */
+  const regenerateKeyframes = useCallback(
+    async (sceneIds: string[]) => {
+      setQueueBusy(true);
+      setError(null);
+      setCascadeNotice(null);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/queue?keyframes=1`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sceneIds }),
+        });
+        if (!res.ok) throw new Error(await failureMessage(res, "Failed to queue keyframes"));
+        const body = (await res.json()) as QueueSnapshot & { followOn?: number[] };
+        setQueue(body);
+        if (body.followOn?.length) {
+          const list = body.followOn.join(", ");
+          setCascadeNotice(
+            `This project carries each scene's end frame into the next one's start frame. ` +
+              `Scene${body.followOn.length === 1 ? "" : "s"} ${list} still show${body.followOn.length === 1 ? "s" : ""} ` +
+              `the old frame and ${body.followOn.length === 1 ? "was" : "were"} not included — ` +
+              `pick ${body.followOn.length === 1 ? "it" : "them"} too if the seam matters.`,
+          );
+        }
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to queue keyframes");
       } finally {
         setQueueBusy(false);
       }
@@ -1305,6 +1354,15 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                     only the clip is being rendered. Any face swap or hand-edited frame is kept.
                   </p>
                 ) : null}
+                {framesOnlyCount > 0 ? (
+                  <p className="mt-1 text-xs text-slate-400" data-testid="queue-frames-only">
+                    Keyframes only for {framesOnlyCount} scene
+                    {framesOnlyCount === 1 ? "" : "s"}.
+                    {stages.video
+                      ? " The clips are left for a second pass, so the frames can be judged first."
+                      : " The attempts stop there."}
+                  </p>
+                ) : null}
                 <AsyncStatus
                   testId="batch-status"
                   message={batchStatus}
@@ -1336,6 +1394,16 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                     Regenerate all video
                   </button>
                 ) : null}
+                {/* The mirror of the clip button. Offered in keyframes-only
+                    projects too, where it is simply "do it again". */}
+                <button
+                  onClick={() => void regenerateKeyframes([])}
+                  disabled={queueBusy || queue?.active || !stages.keyframes}
+                  title="Re-render every scene's keyframes from its image prompts, and stop there. The clips are left alone."
+                  className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
+                >
+                  Regenerate all keyframes
+                </button>
                 {/* Not only inside the staleness warning: prompts also want
                     rewriting after editing scene cards or changing the cast,
                     and a control that appears only when something is wrong
@@ -1441,6 +1509,43 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                     className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:border-accent disabled:opacity-50"
                   >
                     Regenerate {videoPicks.length} clip{videoPicks.length === 1 ? "" : "s"}
+                  </button>
+                </div>
+              </details>
+            ) : null}
+
+            {stages.keyframes && storyboard.scenes.length > 0 ? (
+              <details className="mt-3 rounded-md border border-white/10 bg-black/20">
+                <summary className="cursor-pointer px-3 py-2 text-xs text-slate-400 hover:text-slate-200">
+                  Regenerate keyframes for selected scenes
+                </summary>
+                <div className="space-y-2 px-3 pb-3">
+                  <p className="text-xs text-slate-500">
+                    Re-renders both frames for the scenes you pick and stops there — for when an
+                    image prompt, a seed or an image LoRA changed. Every other scene is left
+                    untouched, including its frames and its clip.
+                  </p>
+                  {stages.video ? (
+                    <p className="text-xs text-slate-500">
+                      The new attempts deliberately carry no clip, so you can look at the frames
+                      before paying for one. <strong>Generate all media</strong> afterwards renders
+                      the missing clips and nothing else.
+                    </p>
+                  ) : null}
+                  <ScenePicker
+                    scenes={storyboard.scenes}
+                    picked={keyframePicks}
+                    onChange={setKeyframePicks}
+                    testId="keyframe-scene-picker"
+                  />
+                  <button
+                    onClick={() => void regenerateKeyframes(keyframePicks)}
+                    data-testid="regenerate-selected-keyframes"
+                    disabled={queueBusy || queue?.active || keyframePicks.length === 0}
+                    className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:border-accent disabled:opacity-50"
+                  >
+                    Regenerate {keyframePicks.length} scene
+                    {keyframePicks.length === 1 ? "" : "s"}&apos; keyframes
                   </button>
                 </div>
               </details>

@@ -476,6 +476,36 @@ export default function HelpPage() {
             it, and the screen tells you it did. Leaving them alone would have left them continuing
             from a clip that no longer exists.
           </p>
+
+          <h3 className={h3}>Regenerating only the keyframes</h3>
+          <p className={p}>
+            The mirror image. Changing an image prompt, a scene&apos;s seed or an image LoRA moves
+            the frames and nothing else — and the clip is the longest job in the scene to spend
+            rendering from frames nobody has looked at yet.
+          </p>
+          <p className={p}>
+            <strong>Regenerate all keyframes</strong> re-renders every scene&apos;s frames and stops
+            there. The collapsed <em>Regenerate keyframes for selected scenes</em> panel underneath
+            does the same for a subset, which is the usual case: three shots came back wrong and the
+            other seventeen are fine.
+          </p>
+          <p className={p}>
+            The new attempts deliberately carry no clip. Copying the old one forward would claim a
+            video built from frames that no longer exist; leaving it empty is what lets{" "}
+            <strong>Generate all media</strong> finish those scenes for the price of the clip alone,
+            since that is already how it treats a scene with frames banked and no clip. So the
+            working order is: fix the frames, look at them, then let <em>Generate all media</em>{" "}
+            fill in the clips.
+          </p>
+          <p className={p}>
+            <strong>One note on continuity.</strong> Under{" "}
+            <em>continue from previous end frame</em> a scene&apos;s start frame is a copy of the
+            one before it&apos;s end frame, taken when it was rendered — so re-rendering scene 3
+            leaves scene 4 showing a picture of a frame that exists nowhere, while still looking
+            finished. The screen names those scenes rather than adding them to the run: a clip chain
+            breaks outright when a link goes missing, but an inherited frame merely goes stale, and
+            re-rendering seventeen scenes to fix three is not a trade the app should make for you.
+          </p>
           <p className={p}>
             The queue runs on the server, so closing the page does not abandon it. A scene that fails
             is marked and skipped rather than stopping the rest, and{" "}

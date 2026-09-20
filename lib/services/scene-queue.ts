@@ -3,6 +3,7 @@ import {
   canRunPhased,
   chosenAttempt,
   generateProjectMediaPhased,
+  regenerateSceneKeyframes,
   regenerateSceneVideo,
 } from "@/lib/services/media-service";
 import type { PhaseName } from "@/lib/services/media-service";
@@ -39,8 +40,13 @@ export type SceneQueueState = "pending" | "running" | "completed" | "failed" | "
  * `video` reuses the keyframes already on the record. Changing a video prompt
  * or a motion LoRA does not change the frames, and a full pass would re-render
  * both of them to arrive back where it started.
+ *
+ * `keyframes` is the mirror image: it renders the frames and stops. An image
+ * prompt, a seed or an image LoRA moves the frames and nothing else, and the
+ * clip is the longest job in the scene to spend on frames that have only just
+ * been replaced and not yet been looked at.
  */
-export type SceneQueueScope = "full" | "video";
+export type SceneQueueScope = "full" | "video" | "keyframes";
 
 export type SceneQueueEntry = {
   projectId: string;
@@ -167,17 +173,19 @@ export async function enqueueProjectScenes(
   const stages = generationStages(record.project.generationMode);
   for (const scene of record.storyboard.scenes) {
     if (alreadyQueued.has(scene.id)) continue;
-    // A batch that died after banking keyframes leaves attempts with no clip.
-    // Counting those as done would strand the scene one step short of finished.
-    const done = (record.attempts?.[scene.id] ?? []).some(
-      (attempt) => !stages.video || Boolean(attempt.videoPath),
-    );
-    if (done && !options.includeGenerated) continue;
 
     // Read from the chosen attempt rather than any attempt, because that is the
-    // one `regenerateSceneVideo` will build the clip from. No start frame means
-    // nothing to reuse, and a full pass is then the right answer.
+    // one the scene is actually represented by and the one
+    // `regenerateSceneVideo` will build a clip from. An earlier attempt holding
+    // a clip says nothing about the frames on screen now: a keyframes-only
+    // rerun leaves exactly that shape, and counting it as finished would strand
+    // the scene one step short with no way back but a full re-render.
     const reusable = chosenAttempt(record, scene.id);
+    // A batch that died after banking keyframes leaves attempts with no clip.
+    // Counting those as done would strand the scene one step short of finished.
+    const done = Boolean(reusable) && (!stages.video || Boolean(reusable!.videoPath));
+    if (done && !options.includeGenerated) continue;
+
     const clipOnly =
       !options.includeGenerated &&
       stages.video &&
@@ -301,6 +309,108 @@ export async function enqueueVideoRerun(
   await freeGpuForGeneration();
   void drain();
   return { entries: queued, cascaded: scope.cascaded };
+}
+
+/**
+ * Scenes left holding a frame that a keyframe rerun is about to orphan.
+ *
+ * Under `reuse_end_frame` a scene's start frame is a copy of the previous
+ * scene's end frame, taken when it was rendered. Re-rendering scene 3's frames
+ * therefore leaves scene 4 showing a picture of a frame that no longer exists
+ * anywhere — and nothing on screen says so, because scene 4 still looks
+ * finished.
+ *
+ * Reported rather than swept into the selection, unlike the clip rerun's
+ * forward cascade. A clip chain breaks outright when a link goes missing, so
+ * extending the selection there is the only way that mode works at all; an
+ * inherited frame merely goes stale, and re-rendering the other seventeen
+ * scenes of a twenty-scene project to fix three is not a trade anyone asked
+ * for. Whoever is looking at the result can decide.
+ */
+export function keyframeRerunFollowOn(
+  record: ProjectRecord,
+  sceneIds: readonly string[],
+): number[] {
+  if ((record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY) !== "reuse_end_frame") return [];
+
+  const scenes = record.storyboard?.scenes ?? [];
+  const chosen = new Set(sceneIds);
+  return scenes
+    .filter((scene, index) => {
+      const previous = scenes[index - 1];
+      if (!previous || !chosen.has(previous.id) || chosen.has(scene.id)) return false;
+      return Boolean(chosenAttempt(record, scene.id)?.startImageInherited);
+    })
+    .map((scene) => scene.sceneNumber);
+}
+
+/**
+ * Queue a keyframes-only rerun for the given scenes, or all of them when none
+ * are named.
+ *
+ * No phasing: the phased path exists to defer clips to a final stage, and a
+ * batch with no clips in it has nothing to defer.
+ *
+ * Unlike the clip rerun there is no precondition on existing media — the frames
+ * are rendered from the scene's prompts, so a scene that has never been
+ * generated is simply generated.
+ */
+export async function enqueueKeyframeRerun(
+  projectId: string,
+  sceneIds?: readonly string[],
+): Promise<{ entries: SceneQueueEntry[]; followOn: number[] }> {
+  const record = await getProjectRecord(projectId);
+  if (!record.storyboard) throw new ValidationError("Generate a storyboard before media");
+  if (!generationStages(record.project.generationMode).keyframes) {
+    throw new ValidationError(
+      "This project's generation mode is Storyboard only, so no media is rendered. " +
+        "Change it on the Storyboard screen to render keyframes or clips.",
+    );
+  }
+
+  const byId = new Map(record.storyboard.scenes.map((scene) => [scene.id, scene]));
+  const wanted = sceneIds?.length ? sceneIds : record.storyboard.scenes.map((scene) => scene.id);
+  const unknown = wanted.find((sceneId) => !byId.has(sceneId));
+  if (unknown) throw new NotFoundError(`Scene ${unknown} not found`);
+
+  const state = store();
+  const alreadyQueued = new Set(
+    state.entries
+      .filter((e) => e.projectId === projectId && (e.state === "pending" || e.state === "running"))
+      .map((e) => e.sceneId),
+  );
+
+  const queued: SceneQueueEntry[] = [];
+  for (const sceneId of wanted) {
+    if (alreadyQueued.has(sceneId)) continue;
+    const entry: SceneQueueEntry = {
+      projectId,
+      sceneId,
+      sceneNumber: byId.get(sceneId)!.sceneNumber,
+      state: "pending",
+      scope: "keyframes",
+      attempts: 0,
+    };
+    state.entries.push(entry);
+    queued.push(entry);
+  }
+
+  if (queued.length === 0) {
+    throw new ValidationError(
+      "Those scenes are already queued. Wait for the run in progress to finish.",
+    );
+  }
+
+  logEvent("scene_queue.enqueued", { projectId, scenes: queued.length, scope: "keyframes" });
+  await freeGpuForGeneration();
+  void drain();
+  return {
+    entries: queued,
+    followOn: keyframeRerunFollowOn(
+      record,
+      queued.map((entry) => entry.sceneId),
+    ),
+  };
 }
 
 /**
@@ -507,16 +617,17 @@ async function drain(): Promise<void> {
       // Grouping a whole project by model saves a model load per job, and a load
       // costs more than the job. Only worth it for a real batch, so a single
       // pending scene still runs the immediate path below. A clip-only batch is
-      // already one model throughout, so there is nothing for phasing to group.
+      // already one model throughout, so there is nothing for phasing to group;
+      // a frames-only batch has no clip phase to defer, which is what phasing is.
       const pending = state.entries.filter(
         (entry) => entry.projectId === next.projectId && entry.state === "pending",
       );
       if (
-        next.scope !== "video" &&
+        next.scope === "full" &&
         pending.length > 1 &&
         (await drainPhased(
           next.projectId,
-          pending.filter((entry) => entry.scope !== "video"),
+          pending.filter((entry) => entry.scope === "full"),
         ))
       ) {
         firstScene = false;
@@ -542,6 +653,8 @@ async function drain(): Promise<void> {
         next.attempts = attempt;
         try {
           if (next.scope === "video") await regenerateSceneVideo(next.projectId, next.sceneId);
+          else if (next.scope === "keyframes")
+            await regenerateSceneKeyframes(next.projectId, next.sceneId);
           else await generateSceneMedia(next.projectId, next.sceneId);
           next.state = "completed";
           next.error = undefined;

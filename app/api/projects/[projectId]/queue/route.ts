@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import {
   cancelQueue,
   clearFinished,
+  enqueueKeyframeRerun,
   enqueueProjectScenes,
   enqueueVideoRerun,
   getQueue,
@@ -29,6 +30,8 @@ export async function GET(_request: Request, props: Params) {
  *
  * `all=1` redoes scenes that already have media. `video=1` rebuilds only the
  * clips, reusing the keyframes on the record, optionally for a named subset.
+ * `keyframes=1` is the mirror of that: it re-renders the frames and stops,
+ * again optionally for a subset.
  *
  * Returns as soon as the work is queued: a full project is many minutes of GPU
  * time, far longer than a request should be held open.
@@ -44,6 +47,17 @@ export async function POST(request: Request, props: Params) {
       return NextResponse.json({
         queued: entries.length,
         cascaded,
+        ...getQueue(params.projectId),
+      });
+    }
+
+    if (url.searchParams.get("keyframes") === "1") {
+      const body = (await request.json().catch(() => ({}))) as { sceneIds?: string[] };
+      clearFinished(params.projectId);
+      const { entries, followOn } = await enqueueKeyframeRerun(params.projectId, body.sceneIds);
+      return NextResponse.json({
+        queued: entries.length,
+        followOn,
         ...getQueue(params.projectId),
       });
     }

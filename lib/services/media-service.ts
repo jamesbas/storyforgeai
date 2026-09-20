@@ -1891,6 +1891,16 @@ export type SceneMediaOptions = {
    * job rather than resubmit it (SPEC-008 FR-2/FR-4).
    */
   onJobSubmitted?: (jobId: string) => Promise<void> | void;
+  /**
+   * Stop after the keyframes, even in a project that renders clips.
+   *
+   * The mirror image of `regenerateSceneVideo`: a changed image prompt, seed or
+   * image LoRA moves the frames and nothing else, and re-rendering the clip
+   * from frames that are about to be replaced is minutes of GPU time thrown
+   * away. The attempt is left without a clip, which is exactly the state
+   * `enqueueProjectScenes` already picks up as clip-only.
+   */
+  framesOnly?: boolean;
 };
 
 /**
@@ -1921,6 +1931,7 @@ export async function generateSceneMedia(
   if (!loaded.storyboard) throw new ValidationError("Generate a storyboard before media");
   requireKeyframeStage(loaded);
   const stages = stagesOf(loaded);
+  const renderVideo = stages.video && !options.framesOnly;
   const scene = findScene(loaded, sceneId);
   const record = await ensureSceneSeeds(projectId, loaded, [sceneId]);
   const modelStrategy = record.project.modelStrategy;
@@ -2013,8 +2024,8 @@ export async function generateSceneMedia(
   const endImagePath = endSwap?.path;
 
   // `keyframes_only` stops here: no video model is loaded and the attempt is
-  // just the two frames.
-  const videoManifest = stages.video
+  // just the two frames. `framesOnly` asks for the same on this run alone.
+  const videoManifest = renderVideo
     ? await buildVideoManifest({
         sceneId,
         prompt: scene.prompts.videoPromptSegment,
@@ -2072,7 +2083,31 @@ export async function generateSceneMedia(
     createdAt: new Date().toISOString(),
   };
 
-  return persistThenScore(projectId, scene, attempt, existing, record, stages.video);
+  return persistThenScore(projectId, scene, attempt, existing, record, renderVideo);
+}
+
+/**
+ * Re-render one scene's keyframes without paying for its clip.
+ *
+ * The mirror image of `regenerateSceneVideo`. Changing an image prompt, a seed
+ * or an image LoRA moves the frames, and a full regeneration then spends the
+ * longest job of the scene rendering a clip from frames the next pass is about
+ * to replace — or, worse, from frames that have just been replaced and are
+ * being judged.
+ *
+ * The new attempt deliberately carries no clip. Inventing one by copying the
+ * previous attempt's `videoPath` would claim a video built from frames that no
+ * longer exist; leaving it empty is both true and useful, because it is the
+ * state **Generate all media** already recognises as "frames banked, clip
+ * outstanding" and finishes for the price of the clip alone.
+ */
+export async function regenerateSceneKeyframes(
+  projectId: string,
+  sceneId: string,
+  options: Omit<SceneMediaOptions, "framesOnly"> = {},
+): Promise<ProjectRecord> {
+  logEvent("scene.keyframes_only", { projectId, sceneId });
+  return generateSceneMedia(projectId, sceneId, { ...options, framesOnly: true });
 }
 
 /**
