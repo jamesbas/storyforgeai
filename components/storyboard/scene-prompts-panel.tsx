@@ -114,12 +114,40 @@ export function ScenePromptsPanel({
   // card offers to rewrite them, and so does regenerating the storyboard. The
   // draft is seeded once at mount, so without this it keeps showing the old
   // text until the page is reloaded. Unsaved edits are never discarded.
-  if (FIELDS.some((f) => stored[f.key] !== synced[f.key])) {
+  //
+  // Tracked per field rather than for the panel as a whole. One unsaved box
+  // used to freeze all five: `synced` advanced to the server's values while
+  // `draft` kept the old ones, so the panel believed it was in step while
+  // holding stale text, never synced again, and wrote that text back on the
+  // next save. A box the user has not touched now follows the server whatever
+  // is happening in its neighbours.
+  const drifted = FIELDS.filter((f) => stored[f.key] !== synced[f.key]);
+  if (drifted.length) {
     setSynced(stored);
-    if (!dirty) setDraft(stored);
+    setDraft((current) => {
+      let adopted = false;
+      const next = { ...current };
+      for (const f of drifted) {
+        // Only where this box holds no unsaved edit of its own.
+        if (current[f.key] === synced[f.key]) {
+          next[f.key] = stored[f.key];
+          adopted = true;
+        }
+      }
+      return adopted ? next : current;
+    });
   }
 
   const save = async () => {
+    // Only the boxes actually edited. Sending all five wrote this panel's copy
+    // of the other four back over whatever was stored, so a prompt rewritten
+    // anywhere else came back as the text it had replaced. The patch schema is
+    // partial precisely so a caller can correct one line without resending the
+    // rest.
+    const edited = FIELDS.filter((f) => draft[f.key] !== synced[f.key]);
+    if (!edited.length) return;
+    const patch = Object.fromEntries(edited.map((f) => [f.key, draft[f.key]]));
+
     setSaving(true);
     setError(null);
     setSaved(false);
@@ -127,13 +155,16 @@ export function ScenePromptsPanel({
       const res = await fetch(`/api/projects/${projectId}/scenes/${scene.id}/prompts`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(draft),
+        body: JSON.stringify(patch),
       });
       if (!res.ok) {
         const detail = (await res.json().catch(() => null)) as { error?: string } | null;
         throw new Error(detail?.error ?? `Failed to save prompts (HTTP ${res.status})`);
       }
       const record = (await res.json()) as ProjectRecord;
+      // Marked clean from what was sent, not from the prop round-trip: the
+      // panel is then correct even where a parent never feeds the record back.
+      setSynced((current) => ({ ...current, ...patch }));
       onSaved?.(record);
       setSaved(true);
     } catch (e) {

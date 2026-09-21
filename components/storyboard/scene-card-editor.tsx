@@ -71,13 +71,32 @@ export function SceneCardEditor({
   // Regenerating the storyboard replaces this card while the panel may be open.
   // The draft is seeded once at mount, so without this it keeps showing the
   // card that was replaced. Unsaved edits are never discarded.
-  if (FIELDS.some((f) => stored[f.key] !== synced[f.key]) || !sameLines(storedLines, syncedLines)) {
+  //
+  // Per field, for the reason set out in the prompts panel: one unsaved box
+  // must not strand the other six, or the editor goes on believing it is in
+  // step while holding text the storyboard has already replaced — and writes
+  // that text back over the replacement on the next save.
+  const drifted = FIELDS.filter((f) => stored[f.key] !== synced[f.key]);
+  if (drifted.length) {
     setSynced(stored);
+    setDraft((current) => {
+      let adopted = false;
+      const next = { ...current };
+      for (const f of drifted) {
+        // Only where this box holds no unsaved edit of its own.
+        if (current[f.key] === synced[f.key]) {
+          next[f.key] = stored[f.key];
+          adopted = true;
+        }
+      }
+      return adopted ? next : current;
+    });
+  }
+  // The dialogue moves as one: a line only means anything beside its
+  // neighbours, so a half-adopted list would be neither version.
+  if (!sameLines(storedLines, syncedLines)) {
     setSyncedLines(storedLines);
-    if (!dirty) {
-      setDraft(stored);
-      setLines(storedLines);
-    }
+    if (sameLines(lines, syncedLines)) setLines(storedLines);
   }
 
   const spokenWords = lines
@@ -85,6 +104,17 @@ export function SceneCardEditor({
     .filter(Boolean).length;
 
   const save = async (thenRewrite: boolean) => {
+    // Only what was actually edited. Sending the whole card wrote this
+    // editor's copy of every untouched field back over whatever was stored.
+    const edited = FIELDS.filter((f) => draft[f.key] !== synced[f.key]);
+    const linesEdited = !sameLines(lines, syncedLines);
+    if (!edited.length && !linesEdited) return;
+
+    const dialogue = lines.filter((l) => l.character.trim() && l.line.trim());
+    const fields = Object.fromEntries(edited.map((f) => [f.key, draft[f.key]]));
+    const patch: Record<string, unknown> = { ...fields };
+    if (linesEdited) patch.dialogue = dialogue;
+
     setSaving(thenRewrite ? "prompts" : "card");
     setError(null);
     setDone(null);
@@ -92,10 +122,7 @@ export function SceneCardEditor({
       const res = await fetch(`/api/projects/${projectId}/scenes/${scene.id}/card`, {
         method: "PATCH",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          ...draft,
-          dialogue: lines.filter((l) => l.character.trim() && l.line.trim()),
-        }),
+        body: JSON.stringify(patch),
       });
       if (!res.ok) {
         const detail = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -114,6 +141,14 @@ export function SceneCardEditor({
         record = (await rewrite.json()) as ProjectRecord;
       }
 
+      // Marked clean from what was sent, not from the prop round-trip, and the
+      // dialogue settles on the filtered list so a blank row left behind in the
+      // editor does not read as an unsaved change for ever.
+      setSynced((current) => ({ ...current, ...fields }));
+      if (linesEdited) {
+        setLines(dialogue);
+        setSyncedLines(dialogue);
+      }
       setDone(thenRewrite ? "Card saved and prompts rewritten." : "Card saved.");
       onSaved?.(record);
     } catch (e) {
