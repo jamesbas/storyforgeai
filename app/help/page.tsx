@@ -484,6 +484,35 @@ export default function HelpPage() {
             already planned against the current order. Wait for it to finish, or cancel it.
           </p>
 
+          <h3 className={h3}>Adding a scene (Storyboard screen)</h3>
+          <p className={p}>
+            <strong>Insert before</strong> and <strong>Insert after</strong> sit beside the move
+            controls. They add one scene anywhere in the running order — before the first, between
+            any two, or after the last — without regenerating the storyboard, which is what used to
+            be the only way to change the scene count and cost you every rendered frame in the
+            project. <em>Insert after scene 3</em> and <em>Insert before scene 4</em> are two names
+            for the same gap.
+          </p>
+          <p className={p}>
+            A title, a visual and an action are required; everything else is optional. The piece
+            gets <strong>one segment longer</strong> rather than the other scenes getting shorter,
+            and if you add to the end, the final trim moves with it instead of cutting your old
+            last scene in half.
+          </p>
+          <p className={p}>
+            Prompts are written for the new scene immediately by the deterministic builders, so the
+            card is usable straight away at no cost. Tick <strong>Write the prompts with the
+            planning model</strong> to spend a model call on better ones instead — and you can
+            always regenerate them from the card later. The new scene has no media, so the next{" "}
+            <strong>Generate all media</strong> renders it and nothing else.
+          </p>
+          <p className={p}>
+            Under <em>Continue from previous end frame</em>, the scene that now follows the new one
+            was written and rendered to open on a different neighbour. The form says so and offers
+            to rewrite its opening prompt; its frame is never re-rendered or re-pointed behind your
+            back, and the card carries a reminder until you deal with it.
+          </p>
+
           <h3 className={h3}>Regenerating only the clips</h3>
           <p className={p}>
             Changing a video prompt or a motion LoRA does not change the keyframes, but a full

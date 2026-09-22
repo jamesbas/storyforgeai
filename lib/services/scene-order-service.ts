@@ -1,12 +1,21 @@
 import { z } from "zod";
 import { repository } from "@/lib/db/store";
 import { NotFoundError, PrerequisiteError, ValidationError } from "@/lib/errors";
-import type { ProjectRecord, Scene } from "@/lib/schemas/storyboard";
+import type { ProjectRecord, Scene, SceneDraft } from "@/lib/schemas/storyboard";
+import { insertSceneSchema } from "@/lib/schemas/storyboard";
 import { appendHistory, getProjectRecord, regenerateScenesPrompts } from "@/lib/services/project-service";
 import { resolveProjectCast } from "@/lib/services/character-service";
 import { getQueue } from "@/lib/services/scene-queue";
+import { attachScenePrompts } from "@/lib/agents/prompt-agents";
+import { getPlanningProvider } from "@/lib/agents/llm/provider";
+import { mintSceneId, newSceneDraft } from "@/lib/storyboard/insert-scene";
 import { orderImpact, type OrderImpact } from "@/lib/storyboard/order-impact";
-import { moveInOrder, withRunningOrder, type MoveDirection } from "@/lib/storyboard/running-order";
+import {
+  insertInOrder,
+  moveInOrder,
+  withRunningOrder,
+  type MoveDirection,
+} from "@/lib/storyboard/running-order";
 import { logEvent } from "@/lib/telemetry";
 
 /**
@@ -163,4 +172,185 @@ export async function moveScene(
     logEvent("scene.move_rewrite_failed", { id: projectId, sceneId, detail: message });
     return { record: updated, impact, rewrittenScenes: [], rewriteError: message };
   }
+}
+
+/** The id used to stand in for the new scene while its cost is being assessed. */
+const PROSPECTIVE_SCENE = "__inserted__";
+
+export type InsertSceneResult = {
+  record: ProjectRecord;
+  sceneId: string;
+  sceneNumber: number;
+  impact: OrderImpact;
+  /** The scene that now follows the new one, if any. */
+  followerSceneId?: string;
+  /** Its opening frame was carried over from what is no longer its predecessor. */
+  followerFrameStale: boolean;
+};
+
+/** Resolve the anchor and the order the insertion would produce. */
+async function planInsert(
+  projectId: string,
+  anchorSceneId: string,
+  side: "before" | "after",
+  newSceneId: string,
+): Promise<{ record: ProjectRecord; order: string[] }> {
+  const record = await getProjectRecord(projectId);
+  const storyboard = record.storyboard;
+  if (!storyboard) throw new ValidationError("Generate a storyboard before adding scenes");
+
+  const order = insertInOrder(
+    storyboard.scenes.map((s) => s.id),
+    newSceneId,
+    anchorSceneId,
+    side,
+  );
+  if (!order) throw new NotFoundError(`Scene ${anchorSceneId} not found`);
+
+  return { record, order };
+}
+
+/**
+ * What inserting here would cost, without inserting anything.
+ *
+ * The prospective scene is named by a placeholder id. `orderImpact` skips ids
+ * it cannot find in the record, which is exactly right: a scene that does not
+ * exist yet has no rendered frame and no written prompt to invalidate.
+ */
+export async function previewSceneInsert(
+  projectId: string,
+  anchorSceneId: string,
+  side: "before" | "after",
+): Promise<OrderImpact> {
+  const { record, order } = await planInsert(projectId, anchorSceneId, side, PROSPECTIVE_SCENE);
+  return orderImpact(record, order, await resolveProjectCast(record.project));
+}
+
+/**
+ * Add a scene to an existing storyboard.
+ *
+ * The piece gets longer rather than the other scenes getting shorter: every
+ * scene is `segmentSeconds` long and stays that way, so the project's totals
+ * grow by one segment. `finalTrimSeconds` is deliberately untouched — the
+ * creator asked for a longer piece, so the overshoot from the original
+ * rounding is still all the trim represents.
+ */
+export async function insertScene(
+  projectId: string,
+  raw: unknown,
+): Promise<InsertSceneResult> {
+  const input = insertSceneSchema.parse(raw);
+
+  // Minted first so the rest of the transform, and the prompt pass, can key
+  // off it. Independent of position, which is what lets renumbering leave
+  // every id-keyed structure alone.
+  const sceneId = mintSceneId(projectId);
+  const { record, order } = await planInsert(
+    projectId,
+    input.anchorSceneId,
+    input.side,
+    sceneId,
+  );
+
+  if (getQueue(projectId).active) {
+    throw new PrerequisiteError(
+      "Scenes cannot be added while a generation queue is running. " +
+        "Wait for it to finish, or cancel it first.",
+    );
+  }
+
+  const storyboard = record.storyboard!;
+  const cast = await resolveProjectCast(record.project);
+  const impact = orderImpact(record, order, cast);
+
+  const followerSceneId = order[order.indexOf(sceneId) + 1];
+  const followerFrameStale = Boolean(
+    followerSceneId && (record.attempts?.[followerSceneId] ?? []).at(-1)?.startImageInherited,
+  );
+
+  // Drafts in the order they will run, because the prompt pass walks them in
+  // sequence: the follower's opening can only be matched to the new scene's
+  // end frame if the new scene is written first, and that falls out of the
+  // array order rather than being arranged separately.
+  const draft = newSceneDraft(record.project, input.card, sceneId);
+  const byId = new Map<string, SceneDraft>(
+    storyboard.scenes.map(({ prompts: _prompts, ...rest }) => [rest.id, rest] as const),
+  );
+  byId.set(sceneId, draft);
+  const drafts = order.map((id) => byId.get(id)!);
+
+  // Only the new scene, and the follower when the creator asked for it. Every
+  // other scene keeps its stored prompts while still advancing the seam and the
+  // wardrobe walk, which is what makes this one call rather than two.
+  const only = new Set([sceneId]);
+  if (input.rewriteFollower && followerSceneId) only.add(followerSceneId);
+
+  const scenes: Scene[] = await attachScenePrompts(
+    record.project,
+    drafts,
+    // Null writes the deterministic prompts, which cost no model call and no
+    // GPU time. A scene needs a complete `prompts` object to parse at all, so
+    // this is the floor rather than an optimisation.
+    input.writePrompts ? getPlanningProvider() : null,
+    {
+      cast,
+      visualBible: storyboard.visualBible,
+      plans: {
+        worldBible: record.worldBible,
+        directorialPlan: record.directorialPlan,
+        cinematographyPlan: record.cinematographyPlan,
+        artDirectionPlan: record.artDirectionPlan,
+      },
+      only,
+      existing: Object.fromEntries(storyboard.scenes.map((s) => [s.id, s.prompts] as const)),
+    },
+  );
+
+  const normalised = withRunningOrder(record, order, {
+    scenes,
+    // The plans were numbered against the board as it was, so the remap has to
+    // be computed from that and not from the array the new scene is already in.
+    previousOrder: storyboard.scenes.map((s) => s.id),
+  });
+
+  const sceneNumber = order.indexOf(sceneId) + 1;
+  const anchor = storyboard.scenes.find((s) => s.id === input.anchorSceneId)!;
+  const updated: ProjectRecord = {
+    ...normalised,
+    project: {
+      ...normalised.project,
+      segmentCount: normalised.project.segmentCount + 1,
+      generatedDurationSeconds:
+        normalised.project.generatedDurationSeconds + normalised.project.segmentSeconds,
+      requestedDurationSeconds:
+        normalised.project.requestedDurationSeconds + normalised.project.segmentSeconds,
+      updatedAt: new Date().toISOString(),
+    },
+    history: appendHistory(
+      record,
+      "scene.inserted",
+      `Scene ${sceneNumber} — ${input.side} scene ${anchor.sceneNumber}`,
+    ),
+  };
+
+  await repository.update(projectId, updated);
+  logEvent("scene.inserted", {
+    id: projectId,
+    sceneId,
+    sceneNumber,
+    totalScenes: updated.storyboard!.scenes.length,
+    promptsWritten: input.writePrompts ? "model" : "deterministic",
+  });
+  if (followerFrameStale) {
+    logEvent("scene.insert_follower_stale", { id: projectId, sceneId, followerSceneId });
+  }
+
+  return {
+    record: updated,
+    sceneId,
+    sceneNumber,
+    impact,
+    followerSceneId,
+    followerFrameStale,
+  };
 }

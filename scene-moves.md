@@ -596,7 +596,7 @@ need editing, because no existing behaviour is meant to change.
 | **1** | `running-order.ts` + `order-impact.ts` with their unit tests. No UI, no routes. | ~3 days | **Delivered (v2.53)** |
 | **2** | `moveScene` service, route, queue guard, history, opt-in rewrite (FR-21). | ~2–3 days | **Delivered (v2.53)** |
 | **3** | The four-button control row (move pair live, insert pair disabled), impact dialog, card notices, Help. | ~2–3 days | **Delivered (v2.53)** |
-| **4** | *Follow-up release:* `insertScene` on the same core, to the existing spec; the insert pair goes live. | ~1 week | Not started |
+| **4** | *Follow-up release:* `insertScene` on the same core, to the existing spec; the insert pair goes live. | ~1 week | **Delivered (v2.54)** |
 
 Per **D-1**, phases 1–3 are the first release and deliver moving on its own.
 Building the full control row in phase 3 with the insert pair present but

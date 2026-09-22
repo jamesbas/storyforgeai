@@ -75,7 +75,7 @@ export function SceneOrderControls({
           aria-label={`Insert a scene before scene ${sceneNumber}`}
           disabled={locked || !onInsert}
           onClick={() => onInsert?.("before")}
-          title={lockReason ?? (onInsert ? undefined : "Adding a scene by hand is coming soon.")}
+          title={lockReason}
         >
           + Insert before
         </button>
@@ -85,7 +85,7 @@ export function SceneOrderControls({
           aria-label={`Insert a scene after scene ${sceneNumber}`}
           disabled={locked || !onInsert}
           onClick={() => onInsert?.("after")}
-          title={lockReason ?? (onInsert ? undefined : "Adding a scene by hand is coming soon.")}
+          title={lockReason}
         >
           + Insert after
         </button>

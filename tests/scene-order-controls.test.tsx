@@ -89,12 +89,23 @@ describe("the scene order controls", () => {
     expect(screen.getByRole("button", { name: "Move scene 4 up" })).toBeDisabled();
   });
 
-  /** Insertion is not built yet; the pair holds its place rather than moving in later. */
+  /** The card stays renderable without a parent to handle the action. */
   it("disables the insert pair when no handler is supplied", () => {
     render(<SceneOrderControls sceneNumber={4} isFirst={false} isLast={false} onMove={vi.fn()} />);
-    const insert = screen.getByRole("button", { name: "Insert a scene after scene 4" });
-    expect(insert).toBeDisabled();
-    expect(insert.title).toMatch(/coming soon/i);
+    expect(screen.getByRole("button", { name: "Insert a scene after scene 4" })).toBeDisabled();
+  });
+
+  it("reports which side it was asked for", () => {
+    const onInsert = vi.fn();
+    render(
+      <SceneOrderControls sceneNumber={4} isFirst={false} isLast={false} onInsert={onInsert} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Insert a scene before scene 4" }));
+    expect(onInsert).toHaveBeenCalledWith("before");
+
+    fireEvent.click(screen.getByRole("button", { name: "Insert a scene after scene 4" }));
+    expect(onInsert).toHaveBeenCalledWith("after");
   });
 });
 

@@ -195,16 +195,23 @@ export function remapNumberKeys(
  * Pure: it returns the next record and writes nothing. The caller owns loading,
  * the queue guard, history and persistence — this owns only the question of
  * what a reorder means.
+ *
+ * `options` exists for insertion, which changes the cast of scenes as well as
+ * their order: `scenes` supplies the new set, and `previousOrder` the numbering
+ * the plans were written against. Both default to what is on the record, which
+ * is the plain reorder case.
  */
 export function withRunningOrder(
   record: ProjectRecord,
   order: readonly string[],
+  options: { scenes?: readonly Scene[]; previousOrder?: readonly string[] } = {},
 ): ProjectRecord {
   const storyboard = record.storyboard;
   if (!storyboard) throw new Error("A storyboard is required before it can be reordered.");
 
-  const before = storyboard.scenes.map((scene) => scene.id);
-  const scenes = applyRunningOrder(storyboard.scenes, order, {
+  const source = options.scenes ?? storyboard.scenes;
+  const before = options.previousOrder ?? storyboard.scenes.map((scene) => scene.id);
+  const scenes = applyRunningOrder(source, order, {
     segmentSeconds: record.project.segmentSeconds,
     finalTrimSeconds: record.project.finalTrimSeconds,
   });

@@ -10,6 +10,7 @@ import { CreativePlansPanel, planStates } from "@/components/storyboard/creative
 import { NegativePromptRepair } from "@/components/storyboard/negative-prompt-repair";
 import { TaskRecoveryPanel } from "@/components/storyboard/task-recovery-panel";
 import { OrderImpactDialog } from "@/components/storyboard/order-impact-dialog";
+import { InsertSceneDialog } from "@/components/storyboard/insert-scene-dialog";
 import { chipLabel, phaseLabel } from "@/components/storyboard/phase-labels";
 import { AsyncStatus } from "@/components/shared/async-status";
 import { WardrobeCheck } from "@/components/storyboard/wardrobe-check";
@@ -32,12 +33,21 @@ import type { PromptPass } from "@/lib/agents/prompt-agents";
 import { PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import type { MediaDescriptor } from "@/lib/media/refs";
 import type { OrderImpact } from "@/lib/storyboard/order-impact";
+import type { InsertSceneCard } from "@/lib/schemas/storyboard";
 
 /** A reorder the user has started but not yet confirmed. */
 type PendingMove = {
   sceneId: string;
   sceneNumber: number;
   direction: "up" | "down";
+  impact: OrderImpact | null;
+};
+
+/** An insertion the user has started but not yet submitted. */
+type PendingInsert = {
+  anchorSceneId: string;
+  anchorSceneNumber: number;
+  side: "before" | "after";
   impact: OrderImpact | null;
 };
 
@@ -53,6 +63,8 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
   const [moveRewrite, setMoveRewrite] = useState(false);
   const [moving, setMoving] = useState(false);
+  const [pendingInsert, setPendingInsert] = useState<PendingInsert | null>(null);
+  const [inserting, setInserting] = useState(false);
   /** Reorder consequences still outstanding, by scene id. */
   const [orderNotices, setOrderNotices] = useState<Record<string, string>>({});
 
@@ -248,6 +260,80 @@ export function StoryboardView({ projectId }: { projectId: string }) {
       setMoving(false);
     }
   }, [pendingMove, projectId, moveRewrite, failureMessage]);
+
+  /** Ask what inserting here would cost, then open the form. */
+  const startInsert = useCallback(
+    async (anchorSceneId: string, anchorSceneNumber: number, side: "before" | "after") => {
+      setError(null);
+      setPendingInsert({ anchorSceneId, anchorSceneNumber, side, impact: null });
+      try {
+        const res = await fetch(
+          `/api/projects/${projectId}/scenes/insert?anchorSceneId=${anchorSceneId}&side=${side}`,
+          { cache: "no-store" },
+        );
+        if (!res.ok) throw new Error(await failureMessage(res, "Could not check the insertion"));
+        const body = (await res.json()) as { impact: OrderImpact };
+        setPendingInsert((current) =>
+          current && current.anchorSceneId === anchorSceneId
+            ? { ...current, impact: body.impact }
+            : current,
+        );
+      } catch (e) {
+        setPendingInsert(null);
+        setError(e instanceof Error ? e.message : "Could not check the insertion");
+      }
+    },
+    [projectId, failureMessage],
+  );
+
+  const confirmInsert = useCallback(
+    async (card: InsertSceneCard, options: { writePrompts: boolean; rewriteFollower: boolean }) => {
+      if (!pendingInsert) return;
+      setInserting(true);
+      setError(null);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/scenes/insert`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            anchorSceneId: pendingInsert.anchorSceneId,
+            side: pendingInsert.side,
+            card,
+            ...options,
+          }),
+        });
+        if (!res.ok) throw new Error(await failureMessage(res, "Could not add the scene"));
+        const result = (await res.json()) as {
+          record: ProjectRecord;
+          sceneId: string;
+          sceneNumber: number;
+          followerSceneId?: string;
+          followerFrameStale: boolean;
+        };
+
+        setRecord(result.record);
+        setPendingInsert(null);
+
+        if (result.followerFrameStale && result.followerSceneId && !options.rewriteFollower) {
+          setOrderNotices((current) => ({
+            ...current,
+            [result.followerSceneId!]:
+              "This scene's opening frame was carried over from the scene that used to come " +
+              "before it, which is no longer its neighbour. Re-render its keyframes to match.",
+          }));
+        }
+
+        window.setTimeout(() => {
+          document.getElementById(`scene-${result.sceneId}`)?.scrollIntoView({ block: "center" });
+        }, 0);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Could not add the scene");
+      } finally {
+        setInserting(false);
+      }
+    },
+    [pendingInsert, projectId, failureMessage],
+  );
 
 
   const generate = useCallback(async () => {
@@ -1285,6 +1371,16 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         onCancel={() => setPendingMove(null)}
       />
 
+      <InsertSceneDialog
+        open={pendingInsert !== null}
+        anchorSceneNumber={pendingInsert?.anchorSceneNumber ?? 1}
+        side={pendingInsert?.side ?? "after"}
+        impact={pendingInsert?.impact ?? null}
+        busy={inserting}
+        onSubmit={(card, options) => void confirmInsert(card, options)}
+        onCancel={() => setPendingInsert(null)}
+      />
+
       <NegativePromptRepair
         record={record}
         projectId={projectId}
@@ -1803,6 +1899,9 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   queueActive={Boolean(queue?.active)}
                   onMoveScene={(direction) =>
                     void startMove(scene.id, scene.sceneNumber, direction)
+                  }
+                  onInsertScene={(side) =>
+                    void startInsert(scene.id, scene.sceneNumber, side)
                   }
                   orderNotice={orderNotices[scene.id]}
                   cast={cast}

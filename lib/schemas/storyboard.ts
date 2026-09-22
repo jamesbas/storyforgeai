@@ -121,6 +121,53 @@ export const sceneCardPatchSchema = z
   });
 export type SceneCardPatch = z.infer<typeof sceneCardPatchSchema>;
 
+/**
+ * A scene added by hand to a storyboard that already exists.
+ *
+ * Three fields are required because a scene with no visual and no action gives
+ * the prompt builders nothing and renders the project's style over an empty
+ * shot. The caps are the same ones an edited card is held to, so a hand-added
+ * scene cannot carry more than a hand-edited one.
+ */
+export const insertSceneCardSchema = z.object({
+  title: z.string().min(1).max(200),
+  visualDescription: z.string().min(1).max(4000),
+  actionDescription: z.string().min(1).max(4000),
+  sceneObjective: z.string().max(2000).optional(),
+  storyBeat: z.string().max(2000).optional(),
+  cameraMovement: z.string().max(500).optional(),
+  transitionIn: z.string().max(200).optional(),
+  transitionOut: z.string().max(200).optional(),
+  dialogue: z.array(dialogueLineSchema).max(24).optional(),
+});
+export type InsertSceneCard = z.infer<typeof insertSceneCardSchema>;
+
+/**
+ * Where the scene goes, and what to do about its neighbours.
+ *
+ * Positioned by the id of the scene it sits beside rather than by index: an
+ * index from a client holding a stale scene list inserts in the wrong place,
+ * while an id that is no longer there is a 404 instead of a silent
+ * misplacement. `side` is what lets one endpoint serve both card buttons —
+ * after scene 3 and before scene 4 name the same gap.
+ */
+export const insertSceneSchema = z.object({
+  anchorSceneId: z.string(),
+  side: z.enum(["before", "after"]),
+  card: insertSceneCardSchema,
+  /**
+   * Ask the planning model to write the new scene's prompts.
+   *
+   * Off means the deterministic builders write them, which costs no model call
+   * and no GPU time — and is what makes this a genuine choice rather than a
+   * toll on adding a card.
+   */
+  writePrompts: z.boolean().optional(),
+  /** Also rewrite the opening of whichever scene now follows the new one. */
+  rewriteFollower: z.boolean().optional(),
+});
+export type InsertSceneInput = z.infer<typeof insertSceneSchema>;
+
 export const sceneSchema = z.object({
   id: z.string(),
   projectId: z.string(),
