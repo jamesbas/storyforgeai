@@ -1,9 +1,11 @@
 import path from "node:path";
+import fs from "node:fs/promises";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { Assembly } from "@/lib/schemas/assembly";
 import { repository } from "@/lib/db/store";
 import { getProjectRecord } from "@/lib/services/project-service";
 import { buildFinalCutPlan, assemblyPrerequisiteError, assemblyPrerequisites } from "@/lib/media/assembly";
+import { cutFileName } from "@/lib/export/file-name";
 import { getFfmpegRunner, probeMedia } from "@/lib/media/ffmpeg";
 import { resolveCueTimeline } from "@/lib/media/audio-mix";
 import { listProjectMedia, type MediaDescriptor } from "@/lib/media/refs";
@@ -13,6 +15,40 @@ import { config } from "@/lib/config";
 import { logEvent } from "@/lib/telemetry";
 
 export type ExportDescriptor = { name: string; url: string; available: boolean };
+
+/**
+ * Delete the cuts a fresh assembly has replaced.
+ *
+ * Deliberately narrow: only the two paths the previous assembly recorded, only
+ * when they sit directly inside this project's own assembly folder, and only
+ * when the new assembly did not write to the same name. A stored path is the
+ * one thing here that was not derived a moment ago, so it is checked rather
+ * than trusted.
+ */
+async function removeSupersededCuts(
+  assemblyDir: string,
+  previous: Assembly | undefined,
+  keep: readonly (string | undefined)[],
+): Promise<void> {
+  if (!previous) return;
+
+  const kept = new Set(
+    keep.filter((p): p is string => Boolean(p)).map((p) => path.resolve(p)),
+  );
+
+  for (const candidate of [previous.roughCutPath, previous.finalPath]) {
+    if (!candidate) continue;
+    const resolved = path.resolve(candidate);
+    if (kept.has(resolved)) continue;
+    if (path.dirname(resolved) !== path.resolve(assemblyDir)) continue;
+
+    try {
+      await fs.rm(resolved, { force: true });
+    } catch {
+      // A locked or already-removed file is not worth failing an assembly for.
+    }
+  }
+}
 
 /**
  * Assemble a rough cut from approved scene clips using the ffmpeg runner
@@ -50,7 +86,13 @@ export async function assembleRoughCut(projectId: string): Promise<ProjectRecord
 
   const runner = getFfmpegRunner();
   const assemblyDir = path.join(config.dataDir, projectId, "assembly");
-  const outputPath = path.join(assemblyDir, "rough-cut.mp4");
+  // One timestamp for both passes: they are two outputs of a single assembly,
+  // and a minute boundary falling between them would suggest otherwise.
+  const assembledAt = new Date();
+  const outputPath = path.join(
+    assemblyDir,
+    cutFileName(record.project.title, "rough-cut", assembledAt),
+  );
 
   const roughCutPath = await runner.concat(
     plan.clips.map((c) => ({ path: c.path, durationSeconds: c.durationSeconds })),
@@ -66,7 +108,7 @@ export async function assembleRoughCut(projectId: string): Promise<ProjectRecord
     finalPath = await runner.mixAudio(
       roughCutPath,
       cues,
-      path.join(assemblyDir, "final-cut.mp4"),
+      path.join(assemblyDir, cutFileName(record.project.title, "final-cut", assembledAt)),
     );
   }
 
@@ -87,6 +129,12 @@ export async function assembleRoughCut(projectId: string): Promise<ProjectRecord
   };
 
   await repository.update(projectId, updated);
+
+  // The previous cut is superseded, not history: its name now carries the wrong
+  // timestamp and nothing in the record points at it. Best-effort and after the
+  // record is written, so a file that cannot be removed leaves clutter rather
+  // than losing the assembly that just succeeded.
+  await removeSupersededCuts(assemblyDir, record.assembly, [roughCutPath, finalPath]);
 
   const probe = runner.mode === "native" ? await probeMedia(finalPath ?? roughCutPath) : null;
   logEvent("assembly.completed", {

@@ -1,9 +1,11 @@
 /**
- * What an export is called once it reaches a downloads folder.
+ * What a file produced by this app is called once it reaches a person.
  *
  * Every project exported as `storyboard.json`, so two of them in the same
  * folder were indistinguishable and the second silently became
- * `storyboard (1).json`.
+ * `storyboard (1).json`. Assembled cuts had the same problem in a worse place:
+ * they were all `rough-cut.mp4`, and the download header is built from the
+ * file's own basename.
  *
  * The name is also part of a response header, which makes a project title an
  * untrusted input in a place that looks like presentation. A title carrying a
@@ -36,6 +38,39 @@ function titlePart(title: string | undefined): string {
 export function exportFileName(base: string, title: string | undefined, extension: string): string {
   const part = titlePart(title);
   return part ? `${base}-${part}.${extension}` : `${base}.${extension}`;
+}
+
+/** `2026-09-22-1005`, in local time, because it is read by the person who made it. */
+function timestampPart(at: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return [
+    at.getFullYear(),
+    pad(at.getMonth() + 1),
+    pad(at.getDate()),
+    `${pad(at.getHours())}${pad(at.getMinutes())}`,
+  ].join("-");
+}
+
+/**
+ * What an assembled cut is called on disk.
+ *
+ * Every project's cut was `rough-cut.mp4`, so a folder of finished pieces was a
+ * row of identical names — and because the download header is built from the
+ * file's own basename, that is what landed in the browser too.
+ *
+ * The kind is part of the name rather than a suffix on the title because the
+ * scored cut sits in the same folder as the unscored one: without it the second
+ * would overwrite the first. The timestamp makes a re-assembly distinguishable
+ * from the cut it replaces, which matters when one is already downloaded.
+ */
+export function cutFileName(
+  title: string | undefined,
+  kind: "rough-cut" | "final-cut",
+  at: Date,
+): string {
+  const part = titlePart(title);
+  const stamp = timestampPart(at);
+  return part ? `${part}-${stamp}-${kind}.mp4` : `${stamp}-${kind}.mp4`;
 }
 
 /**

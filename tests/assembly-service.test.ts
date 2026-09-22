@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import path from "node:path";
+import fs from "node:fs/promises";
+import { config } from "@/lib/config";
 import { createProject, generateStoryboard, getProjectRecord } from "@/lib/services/project-service";
 import { generateSceneMedia, approveAttempt } from "@/lib/services/media-service";
 import { assembleRoughCut, listExports } from "@/lib/services/assembly-service";
@@ -42,6 +45,72 @@ async function prerequisiteFailure(projectId: string): Promise<PrerequisiteError
   throw new Error("assembly succeeded but should have been blocked");
 }
 
+/**
+ * Replacing a cut rather than accumulating them.
+ *
+ * The name now carries a timestamp, so a re-assembly no longer lands on the
+ * same filename and would otherwise leave every previous cut behind. Only the
+ * latest is kept, which is also what quietly migrates a project still holding
+ * the old `rough-cut.mp4`.
+ */
+describe("re-assembling a project", () => {
+  it("removes the cut it supersedes, including a legacy rough-cut.mp4", async () => {
+    const project = await projectWithAllMedia(40);
+    await assembleRoughCut(project.id);
+
+    // Stand the project back up as one assembled before this naming existed.
+    const assemblyDir = path.join(config.dataDir, project.id, "assembly");
+    const legacy = path.join(assemblyDir, "rough-cut.mp4");
+    await fs.mkdir(assemblyDir, { recursive: true });
+    await fs.writeFile(legacy, "an older cut");
+
+    const before = await getProjectRecord(project.id);
+    await repository.update(project.id, {
+      ...before,
+      assembly: { ...before.assembly!, roughCutPath: legacy },
+    });
+
+    const after = await assembleRoughCut(project.id);
+
+    await expect(fs.access(legacy)).rejects.toThrow();
+    expect(after.assembly!.roughCutPath).not.toBe(legacy);
+    expect(path.basename(after.assembly!.roughCutPath)).toMatch(/-rough-cut\.mp4$/);
+  });
+
+  /** A stored path is the one input here that was not derived a moment ago. */
+  it("never deletes a file outside the project's own assembly folder", async () => {
+    const project = await projectWithAllMedia(40);
+    await assembleRoughCut(project.id);
+
+    const outsider = path.join(config.dataDir, "not-ours.mp4");
+    await fs.writeFile(outsider, "somebody else's file");
+
+    const before = await getProjectRecord(project.id);
+    await repository.update(project.id, {
+      ...before,
+      assembly: { ...before.assembly!, roughCutPath: outsider },
+    });
+
+    await assembleRoughCut(project.id);
+
+    await expect(fs.access(outsider)).resolves.toBeUndefined();
+    await fs.rm(outsider, { force: true });
+  });
+
+  it("leaves the record pointing at a cut that exists", async () => {
+    const project = await projectWithAllMedia(40);
+    const first = await assembleRoughCut(project.id);
+    await fs.mkdir(path.dirname(first.assembly!.roughCutPath), { recursive: true });
+    await fs.writeFile(first.assembly!.roughCutPath, "the first cut");
+
+    const second = await assembleRoughCut(project.id);
+
+    // Same minute, so the same name: the file is replaced in place rather than
+    // deleted out from under the record that names it.
+    await expect(fs.access(second.assembly!.roughCutPath)).resolves.toBeUndefined();
+  });
+});
+
 describe("assembly service", () => {
   it("assembles a rough cut from approved clips", async () => {
     const project = await projectWithAllMedia(40);
@@ -49,7 +118,11 @@ describe("assembly service", () => {
     expect(record.assembly).toBeDefined();
     expect(() => assemblySchema.parse(record.assembly)).not.toThrow();
     expect(record.assembly!.plan.clips).toHaveLength(2);
-    expect(record.assembly!.roughCutPath).toContain("rough-cut.mp4");
+    // Named for the project and the moment rather than `rough-cut.mp4`, which
+    // every project produced and which is what the download header carries.
+    expect(path.basename(record.assembly!.roughCutPath)).toMatch(
+      /^.+-\d{4}-\d{2}-\d{2}-\d{4}-rough-cut\.mp4$/,
+    );
     expect(record.project.status).toBe("assembled");
     for (const clip of record.assembly!.plan.clips) {
       expect(clip.attemptId).toBeTruthy();
@@ -180,7 +253,9 @@ describe("assembly service", () => {
     expect(plan.finalTrimSeconds).toBe(10);
 
     // Audio regression: the cue was mixed over the approved-clip timeline.
-    expect(assembled.assembly!.finalPath).toContain("final-cut.mp4");
+    expect(path.basename(assembled.assembly!.finalPath!)).toMatch(
+      /^.+-\d{4}-\d{2}-\d{2}-\d{4}-final-cut\.mp4$/,
+    );
   });
 
   it("assembles once every scene is approved", async () => {

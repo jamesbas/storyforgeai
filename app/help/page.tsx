@@ -1979,6 +1979,15 @@ export default function HelpPage() {
             Assembly builds a final-cut plan from your approved clips and produces a rough cut. The last
             scene&apos;s trim is applied automatically so the total runtime matches your request.
           </p>
+          <p className={p}>
+            The cut is named for the project and the moment it was assembled —{" "}
+            <code>Swing Deep-2026-09-22-1005-rough-cut.mp4</code> — so a folder of finished pieces is
+            readable, and so is whatever your browser saves when you download one. Where approved
+            audio cues exist, a second pass lays them over the picture and produces a matching{" "}
+            <code>-final-cut.mp4</code> beside it; the rough cut stays as the un-scored reference.
+            Re-assembling replaces the previous cut rather than leaving it behind, so the folder
+            holds only the current one.
+          </p>
           <p className={p}>The export package includes:</p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             <li className={li}><code>storyboard.json</code> and <code>storyboard.md</code> — the full storyboard.</li>
