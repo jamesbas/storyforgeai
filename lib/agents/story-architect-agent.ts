@@ -8,8 +8,8 @@ import { executeArtifact, providerCall } from "@/lib/agents/provenance";
 import {
   asSegmentMap,
   withSegmentGapsFilled,
-  SEGMENTS_PER_FOLLOW_UP,
 } from "@/lib/agents/segment-gaps";
+import { firstWindowDirective, windowPlacementDirective } from "@/lib/agents/segment-windows";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import { SEGMENT_SECONDS } from "@/lib/types";
 import type { AgentContext } from "@/lib/agents/types";
@@ -122,54 +122,31 @@ export const STORY_ARCHITECT_SYSTEM = storyArchitectSystem(SEGMENT_SECONDS);
  *
  * One call for the whole plan has a ceiling, and it is lower than the projects
  * people actually make: a 27-segment piece came back with sixteen beats and
- * sixteen emotional values, the model having simply stopped. Every beat after
- * that was written by a repair call, and it showed — the tail was aftermath and
- * the last two beats were identical.
- *
- * So the first pass is asked for what a model can finish, and told that the
- * rest will be requested, which is the part that matters: a model that thinks
- * this is the whole film writes a complete story into the segments it was given
- * and leaves nothing for the ones that follow. The same reasoning as the
- * storyboard's cards-per-call, applied one artifact earlier.
+ * sixteen emotional values, the model having simply stopped.
  */
 function firstPassDirective(segmentCount: number | undefined): string {
-  if (segmentCount === undefined || segmentCount <= SEGMENTS_PER_FOLLOW_UP) return "";
-  return (
-    ` This piece is ${segmentCount} segments long, which is more than one answer can hold. Write ` +
-    "the title, the logline, and the beats and emotional values for segments 1 to " +
-    `${SEGMENTS_PER_FOLLOW_UP} only. You will then be asked for the rest in order, a few at a ` +
-    "time, with everything you have already written in front of you. Plan the whole arc before " +
-    `you begin, and pace these first beats as the opening of a ${segmentCount}-segment film — ` +
-    "there are " +
-    `${segmentCount - SEGMENTS_PER_FOLLOW_UP} segments still to come after them, so nothing here ` +
-    "may resolve the story."
+  return firstWindowDirective(
+    segmentCount,
+    "the title, the logline, and the beats and emotional values",
   );
 }
 
 /**
- * Where a window sits in the whole piece.
+ * Where a window sits, plus the one rule the arc has that the plans do not.
  *
- * Without this every continuation reads as the last one: the model lands the
- * ending in the first window it is given and then has nothing left for the
- * segments that follow, which is how nine consecutive aftermath beats got
- * written for a film that was allowed two.
+ * The generic placement stops each window landing an ending. The aftermath
+ * budget is what stops the last window padding: nine consecutive reaction beats
+ * got written for a film that was allowed two.
  */
 function windowDirective(window: readonly number[], segmentCount: number | undefined): string {
-  const last = window.at(-1);
-  if (segmentCount === undefined || last === undefined) return "";
-  const remaining = segmentCount - last;
-  if (remaining > 0) {
-    return (
-      ` These are segments ${window[0]} to ${last} of ${segmentCount}. ${remaining} segments ` +
-      "follow them, so the story must still have somewhere to go when this window ends: do not " +
-      "resolve it, wind it down, or write an ending here."
-    );
-  }
+  const placement = windowPlacementDirective(window, segmentCount);
+  if (segmentCount === undefined || (window.at(-1) ?? 0) < segmentCount) return placement;
   return (
-    ` These are the final segments of the piece. At most ${denouementBudget(segmentCount)} beats ` +
-    "in the whole film may be aftermath — reaction, tidying up, departure, or an empty room — so " +
-    "if the story is already over, the earlier beats were written too fast and these must carry " +
-    "the last of the action rather than repeat what has already happened."
+    placement +
+    ` At most ${denouementBudget(segmentCount)} beats in the whole film may be aftermath — ` +
+    "reaction, tidying up, departure, or an empty room — so if the story is already over, the " +
+    "earlier beats were written too fast and these must carry the last of the action rather than " +
+    "repeat what has already happened."
   );
 }
 

@@ -11,7 +11,7 @@ import { latestExecution } from "@/lib/schemas/provenance";
 import { planOn, planSpecFor } from "@/lib/agents/plan-fields";
 import { isContinuousTake } from "@/lib/agents/continuity";
 import { shotPlanIssues } from "@/lib/media/seam";
-import { repeatedBeats } from "@/lib/agents/arc-repetition";
+import { repeatedBeats, echoedEntries } from "@/lib/agents/arc-repetition";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { CanvasRunEntry } from "@/lib/services/canvas-queue";
 
@@ -403,6 +403,12 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
   // even though the arc is otherwise the model's own work.
   const arcRepeats = repeatedBeats(record?.storyPlan?.segmentBeats ?? []);
   const arcRepeated = new Set(arcRepeats);
+  // An intent that is its beat in other words is worse than a missing one: the
+  // prompts built from it spend attention on words the storyboard already had.
+  const restatedIntents = echoedEntries(
+    record?.directorialPlan?.sceneIntent,
+    record?.storyPlan?.segmentBeats,
+  );
 
   if (!record) {
     return <p className="text-sm text-slate-400">{error ?? "Loading…"}</p>;
@@ -687,6 +693,19 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
                     </div>
                   ) : null}
                 </>
+              ) : null}
+              {agent.key === "director" && restatedIntents.length ? (
+                <div
+                  data-testid="director-restated-beats"
+                  className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200/90"
+                >
+                  {restatedIntents.length} scene intent
+                  {restatedIntents.length === 1 ? "" : "s"} (segment{" "}
+                  {restatedIntents.slice(0, 8).join(", ")}
+                  {restatedIntents.length > 8 ? ", …" : ""}) restate the beat rather than direct
+                  it, so they add nothing the storyboard did not already have. Regenerate, or
+                  edit the plan above.
+                </div>
               ) : null}
               {agent.key === "cinematographer" && shotIssues.length ? (
                 <div

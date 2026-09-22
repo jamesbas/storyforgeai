@@ -2,6 +2,7 @@ import { z, type ZodType, type ZodTypeDef } from "zod";
 
 import { planEntryFor, segmentsMissingFrom } from "@/lib/agents/creative-context";
 import { providerCall } from "@/lib/agents/provenance";
+import { SEGMENTS_PER_WINDOW } from "@/lib/agents/segment-windows";
 import { logEvent } from "@/lib/telemetry";
 import type {
   PlanningProvider,
@@ -24,7 +25,7 @@ export type PlanMapField = "sceneIntent" | "sceneShotPlans" | "segmentBeats";
  * in view: the same reasoning, and nearly the same number, as the storyboard's
  * cards-per-call.
  */
-export const SEGMENTS_PER_FOLLOW_UP = 8;
+export const SEGMENTS_PER_FOLLOW_UP = SEGMENTS_PER_WINDOW;
 
 /**
  * A second entry per segment, returned by the same follow-up.
@@ -97,9 +98,12 @@ export function withSegmentGapsFilled<T>(
     /**
      * What the caller needs said about the window being asked for. The arc uses
      * it to place the window inside the whole piece, without which the model
-     * treats every window as the last one and resolves the story early.
+     * treats every window as the last one and resolves the story early; the
+     * Director and Cinematographer use it to name the beats that window covers.
      */
     continuationDirective?: (window: readonly number[], segmentCount: number | undefined) => string;
+    /** Extra payload for this window, merged into the follow-up's JSON. */
+    windowContext?: (window: readonly number[]) => Record<string, unknown>;
   },
 ): () => Promise<ProviderResult<T>> {
   return async () => {
@@ -134,6 +138,7 @@ export function withSegmentGapsFilled<T>(
           ...options.payload,
           alreadyWritten: map,
           ...(companion ? { [`alreadyWritten_${companion.key}`]: companionMap } : {}),
+          ...(options.windowContext?.(window) ?? {}),
           writeOnlyTheseSegments: window,
         }),
         schema,

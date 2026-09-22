@@ -276,8 +276,66 @@ describe("the Story Architect card", () => {
     expect(screen.queryByTestId("arc-repeated-beats")).toBeNull();
   });
 
-  it("names the plans left describing a story the project no longer plans", async () => {    const record = withArc(undefined, [
-      execution("directorial_plan", "2026-01-01T00:00:00.000Z"),
+  /**
+   * A scene intent that is its beat in other words is worse than a missing one:
+   * the prompts built from it spend their attention on words the storyboard
+   * already had.
+   */
+  it("names the scene intents that restate their beat instead of directing it", async () => {
+    const beats = [
+      "He walks the towpath in the early light while the lock stands empty behind him.",
+      "He hauls hard at the beam until the timber groans against the swollen frame.",
+      "The gate gives all at once and the water shoulders through the open lock.",
+    ];
+    const restating = {
+      ...baseRecord,
+      storyPlan: {
+        projectId: "p1",
+        title: "Dawn on the towpath",
+        logline: "A lock-keeper finds the gates jammed.",
+        emotionalProgression: ["calm", "unease", "resolve"],
+        segmentBeats: beats,
+      },
+      directorialPlan: {
+        creativeThesis: "Hold on faces.",
+        // Each intent is its own beat handed back.
+        sceneIntent: Object.fromEntries(beats.map((beat, i) => [String(i + 1), beat])),
+      },
+    } as unknown as ProjectRecord;
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(restating)));
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() => expect(screen.getByTestId("director-restated-beats")).toBeTruthy());
+    expect(screen.getByTestId("director-restated-beats").textContent).toContain("3 scene intents");
+  });
+
+  it("says nothing when the intents add to their beats", async () => {
+    const directing = {
+      ...baseRecord,
+      storyPlan: {
+        projectId: "p1",
+        title: "Dawn on the towpath",
+        logline: "A lock-keeper finds the gates jammed.",
+        emotionalProgression: ["calm", "unease", "resolve"],
+        segmentBeats: ["He walks the towpath.", "He hauls at the beam.", "The gate gives."],
+      },
+      directorialPlan: {
+        creativeThesis: "Hold on faces.",
+        sceneIntent: {
+          "1": "He is a man who believes the morning owes him nothing, and is wrong about that.",
+          "2": "Effort stops being routine and becomes a contest he might lose.",
+          "3": "Release arrives without triumph; the river was never his to argue with.",
+        },
+      },
+    } as unknown as ProjectRecord;
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(directing)));
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() => expect(screen.getByTestId("arc-beats")).toBeTruthy());
+    expect(screen.queryByTestId("director-restated-beats")).toBeNull();
+  });
+
+  it("names the plans left describing a story the project no longer plans", async () => {    const record = withArc(undefined, [      execution("directorial_plan", "2026-01-01T00:00:00.000Z"),
       execution("storyboard", "2026-01-01T00:00:00.000Z"),
       // Written last, so both of the above predate it.
       execution("story_plan", "2026-02-01T00:00:00.000Z"),

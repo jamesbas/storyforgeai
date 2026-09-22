@@ -105,7 +105,7 @@ describe("an arc longer than one answer can hold", () => {
     await storyArchitectAgent(ctx(), provider);
 
     expect(systems[0]).toContain(`segments 1 to ${SEGMENTS_PER_FOLLOW_UP} only`);
-    expect(systems[0]).toContain("nothing here may resolve the story");
+    expect(systems[0]).toContain("nothing written here may resolve or conclude the piece");
   });
 
   it("does not cap a piece that fits in one answer", async () => {

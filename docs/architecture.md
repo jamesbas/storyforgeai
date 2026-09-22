@@ -765,6 +765,28 @@ map. Filled separately, the beats came back from the model while the emotions
 came from the deterministic template, so the second half of a long film was
 directed to "rising tension" over beats where the story had already resolved.
 
+**Don't wait to run out — cap the first call.** `firstWindowDirective()` in
+`segment-windows.ts` tells a long project's first call to write only segments 1
+to 8, *and that the rest will be asked for*. The promise is the working part: a
+model that believes it has one chance writes a complete arc into whatever it was
+given. Live on a 27-segment project, the Director asked for all 27 intents
+returned sixteen — not the first sixteen segments but the whole film compressed,
+ending on an empty dance floor at intent 16 — after which the gap fill restarted
+the action at 17 against a beat that was the climax.
+
+**A window must be told which beats it covers.** The Director and
+Cinematographer receive the whole story plan, which is right for pacing and
+useless for knowing which beat segment 19 is. `windowBeatsDirective()` lists the
+window's beats by number in the prompt and `beatsForWindow()` repeats them in the
+payload, so a continuation directs the arc rather than continuing whatever it
+last wrote. That alone fixed alignment but made restating the beats the easiest
+possible answer — measured, every entry in the first and last windows contained
+no content word that was not already in its beat. `dontRestateDirective()` is
+therefore part of each agent's *base* prompt, not appended after it, so every
+continuation carries it too; `echoedEntries()` reports what still comes back as
+its own beat. Measured on the same project and model, mean echo fell from 0.79
+to 0.20.
+
 ---
 
 ## 4. Media generation & the QC loop

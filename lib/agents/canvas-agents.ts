@@ -28,6 +28,14 @@ import { explicitnessDirective } from "@/lib/agents/explicitness";
 import { cameraContinuityDirective } from "@/lib/agents/continuity";
 import { withSegmentGapsFilled } from "@/lib/agents/segment-gaps";
 import {
+  beatsForWindow,
+  dontRestateDirective,
+  firstWindowDirective,
+  windowBeatsDirective,
+  windowPlacementDirective,
+} from "@/lib/agents/segment-windows";
+import { echoedEntries } from "@/lib/agents/arc-repetition";
+import {
   planEntryFor,
   planningPayload,
   precedenceDirective,
@@ -109,6 +117,10 @@ export const DIRECTOR_SYSTEM =
   "long, then looks away first\" is. " +
   "When a story plan is supplied, write one sceneIntent per segment beat and key it by segment " +
   "number as a plain string — \"1\", \"2\", \"3\" — matching the order of the beats. " +
+  "Segment numbering is absolute and the beats are the authority on what happens: the intent " +
+  "you key \"19\" must be the intent for the nineteenth beat, whatever you have written before " +
+  "it. Never renumber, never re-tell a beat you have already covered, and never carry the story " +
+  "past the beat you are on. " +
   "Return only valid JSON matching the DirectorialPlan schema.";
 
 export const CINEMATOGRAPHER_SYSTEM =
@@ -314,19 +326,37 @@ function segmentGap(
   field: "sceneIntent" | "sceneShotPlans",
   map: Record<string, string> | undefined,
   segmentCount: number | undefined,
-): { source?: "hybrid"; fallbackReason?: "short_collection"; detail?: string } {
+  beats?: readonly string[],
+): { source?: "hybrid"; fallbackReason?: "short_collection" | "invalid_set"; detail?: string } {
   const missing = segmentsMissingFrom(map, segmentCount);
-  if (missing.length === 0) return {};
-  logEvent("agent.fallback", {
-    agent: field,
-    reason: "segments_uncovered",
-    missing: missing.length,
-    of: segmentCount,
-  });
+  const echoed = echoedEntries(map, beats);
+
+  if (missing.length === 0 && echoed.length === 0) return {};
+
+  const issues: string[] = [];
+  if (missing.length) {
+    logEvent("agent.fallback", {
+      agent: field,
+      reason: "segments_uncovered",
+      missing: missing.length,
+      of: segmentCount,
+    });
+    issues.push(`${field} covers ${(segmentCount ?? 0) - missing.length} of ${segmentCount} segments`);
+  }
+  if (echoed.length) {
+    logEvent("agent.fallback", {
+      agent: field,
+      reason: "entries_restate_beat",
+      echoed: echoed.length,
+      of: segmentCount,
+    });
+    issues.push(`${echoed.length} of ${segmentCount} restate their beat (${echoed.join(", ")})`);
+  }
+
   return {
     source: "hybrid",
-    fallbackReason: "short_collection",
-    detail: `${field} covers ${(segmentCount ?? 0) - missing.length} of ${segmentCount} segments`,
+    fallbackReason: missing.length ? "short_collection" : "invalid_set",
+    detail: issues.join("; "),
   };
 }
 
@@ -344,11 +374,22 @@ export async function directorAgent(
     storyPlan: ctx.storyPlan,
     plans: planningPayload(ctx.plans),
   };
-  const system =
+  const beats = ctx.storyPlan?.segmentBeats;
+  const base =
     DIRECTOR_SYSTEM +
     explicitnessDirective(project, "plan") +
     castSystemDirective(ctx.cast ?? []) +
-    precedenceDirective(ctx.cast ?? [], ctx.plans);
+    precedenceDirective(ctx.cast ?? [], ctx.plans) +
+    // In `base`, not appended after, so every continuation carries it too —
+    // the windows are where restating is easiest, since the beat is right there.
+    dontRestateDirective(
+      "what the scene is for, the pressure behind it and what changes by its end",
+    );
+  // Capped for the same reason the arc is, and with the same consequence when
+  // it was not: asked for 27 intents at once the model wrote sixteen — the
+  // whole film compressed, ending on an empty dance floor at 16 — and the gap
+  // fill then restarted the action at 17 against a beat that was the climax.
+  const system = base + firstWindowDirective(project.segmentCount, "the scene intents");
 
   const { value } = await executeArtifact<DirectorialPlan>({
     artifact: "directorial_plan",
@@ -366,19 +407,25 @@ export async function directorAgent(
           {
             field: "sceneIntent",
             provider,
-            system,
+            system: base,
             payload,
             segmentCount: project.segmentCount,
             systemPromptScope: "agentic_canvas",
             read: (plan) => plan.sceneIntent,
             write: (plan, sceneIntent) => ({ ...plan, sceneIntent }),
+            // The whole arc is in the payload, which tells the model how the
+            // piece is paced and nothing about which beat segment 19 is.
+            continuationDirective: (window, segmentCount) =>
+              windowPlacementDirective(window, segmentCount) +
+              windowBeatsDirective(window, beats),
+            windowContext: (window) => ({ beatsForTheseSegments: beatsForWindow(window, beats) }),
           },
         )
       : undefined,
     fallback: () => buildDirectorialPlan(project),
     // Reported rather than rejected: the rest of a plan missing two entries is
     // still worth keeping, and sending it to the template would lose all of it.
-    outcome: (plan) => segmentGap("sceneIntent", plan.sceneIntent, project.segmentCount),
+    outcome: (plan) => segmentGap("sceneIntent", plan.sceneIntent, project.segmentCount, beats),
   });
   return { ...value, projectId: project.id };
 }
@@ -394,10 +441,13 @@ export async function cinematographerAgent(
     storyPlan: ctx.storyPlan,
     plans: planningPayload(ctx.plans),
   };
-  const system =
+  const beats = ctx.storyPlan?.segmentBeats;
+  const base =
     CINEMATOGRAPHER_SYSTEM +
     cameraContinuityDirective(project) +
-    precedenceDirective(ctx.cast ?? [], ctx.plans);
+    precedenceDirective(ctx.cast ?? [], ctx.plans) +
+    dontRestateDirective("the shot that covers it — size, lens, height and movement");
+  const system = base + firstWindowDirective(project.segmentCount, "the scene shot plans");
 
   const { value } = await executeArtifact<CinematographyPlan>({
     artifact: "cinematography_plan",
@@ -415,17 +465,22 @@ export async function cinematographerAgent(
           {
             field: "sceneShotPlans",
             provider,
-            system,
+            system: base,
             payload,
             segmentCount: project.segmentCount,
             systemPromptScope: "agentic_canvas",
             read: (plan) => plan.sceneShotPlans,
             write: (plan, sceneShotPlans) => ({ ...plan, sceneShotPlans }),
+            continuationDirective: (window, segmentCount) =>
+              windowPlacementDirective(window, segmentCount) +
+              windowBeatsDirective(window, beats),
+            windowContext: (window) => ({ beatsForTheseSegments: beatsForWindow(window, beats) }),
           },
         )
       : undefined,
     fallback: () => buildCinematographyPlan(project),
-    outcome: (plan) => segmentGap("sceneShotPlans", plan.sceneShotPlans, project.segmentCount),
+    outcome: (plan) =>
+      segmentGap("sceneShotPlans", plan.sceneShotPlans, project.segmentCount, beats),
   });
   return { ...value, projectId: project.id };
 }

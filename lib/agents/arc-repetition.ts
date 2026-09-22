@@ -12,74 +12,7 @@
  * describes the same moment twice, and the second one has no change in it.
  */
 
-/**
- * Words that carry no story. Almost every beat contains "the camera", so
- * counting those makes any two beats in the same project look alike — the
- * threshold below is meaningless without this list.
- */
-const IGNORED = new Set([
-  "a",
-  "an",
-  "and",
-  "as",
-  "at",
-  "back",
-  "by",
-  "camera",
-  "for",
-  "from",
-  "he",
-  "her",
-  "here",
-  "his",
-  "in",
-  "into",
-  "is",
-  "it",
-  "its",
-  "of",
-  "on",
-  "one",
-  "onto",
-  "out",
-  "over",
-  "she",
-  "shot",
-  "still",
-  "the",
-  "their",
-  "them",
-  "they",
-  "this",
-  "to",
-  "up",
-  "with",
-]);
-
-function contentWords(beat: string): Set<string> {
-  return new Set(
-    beat
-      .toLowerCase()
-      .replace(/[^a-z0-9\s]/g, " ")
-      .split(/\s+/)
-      .filter((word) => word.length > 2 && !IGNORED.has(word)),
-  );
-}
-
-/**
- * How much two beats share, 0 to 1.
- *
- * Jaccard over content words rather than anything cleverer: it needs no model,
- * it cannot be wrong about a beat it has not understood, and the failure it has
- * to catch — a beat rewritten from its neighbour with two words changed —
- * scores near 1 under it.
- */
-function overlap(a: Set<string>, b: Set<string>): number {
-  if (a.size === 0 || b.size === 0) return 0;
-  let shared = 0;
-  for (const word of a) if (b.has(word)) shared += 1;
-  return shared / (a.size + b.size - shared);
-}
+import { containment, contentWords, overlap } from "@/lib/agents/text-overlap";
 
 /**
  * Deliberately high. A false positive tells the user to regenerate an arc that
@@ -109,4 +42,37 @@ export function repeatedBeats(beats: readonly string[]): number[] {
   });
 
   return repeats;
+}
+
+/**
+ * Segments whose plan entry is its beat handed back in different words.
+ *
+ * Giving each window the beats it covers is what stopped the Director drifting
+ * off the arc, and it made restating the easiest thing in the room: measured
+ * live, every entry in the first and last windows contained no content word
+ * that was not already in its beat. An intent that adds nothing is worse than a
+ * missing one, because the prompt agents downstream spend attention on it and
+ * get the beat they already had.
+ *
+ * Asymmetric by design — an entry is judged on how much of *it* is new, not on
+ * how much of the beat it covers.
+ */
+const ECHO_THRESHOLD = 0.95;
+
+export function echoedEntries(
+  map: Record<string, string> | undefined,
+  beats: readonly string[] | undefined,
+): number[] {
+  if (!map || !beats?.length) return [];
+  const echoed: number[] = [];
+  beats.forEach((beat, index) => {
+    const segment = index + 1;
+    const entry = map[String(segment)];
+    if (!entry?.trim()) return;
+    const entryWords = contentWords(entry);
+    // Too short to judge: a four-word entry can be wholly contained by accident.
+    if (entryWords.size < 5) return;
+    if (containment(contentWords(beat), entryWords) >= ECHO_THRESHOLD) echoed.push(segment);
+  });
+  return echoed;
 }
