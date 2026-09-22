@@ -11,6 +11,7 @@ import { NegativePromptRepair } from "@/components/storyboard/negative-prompt-re
 import { TaskRecoveryPanel } from "@/components/storyboard/task-recovery-panel";
 import { OrderImpactDialog } from "@/components/storyboard/order-impact-dialog";
 import { InsertSceneDialog } from "@/components/storyboard/insert-scene-dialog";
+import { DeleteSceneDialog } from "@/components/storyboard/delete-scene-dialog";
 import { chipLabel, phaseLabel } from "@/components/storyboard/phase-labels";
 import { AsyncStatus } from "@/components/shared/async-status";
 import { WardrobeCheck } from "@/components/storyboard/wardrobe-check";
@@ -51,6 +52,16 @@ type PendingInsert = {
   impact: OrderImpact | null;
 };
 
+/** A deletion the user has started but not yet confirmed. */
+type PendingDelete = {
+  sceneId: string;
+  sceneNumber: number;
+  title: string;
+  impact: OrderImpact | null;
+  hadMedia: boolean;
+  cues: number;
+};
+
 type QueueSnapshot = { entries: SceneQueueEntry[]; active: boolean; phase?: PhaseProgress };
 
 export function StoryboardView({ projectId }: { projectId: string }) {
@@ -65,6 +76,8 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const [moving, setMoving] = useState(false);
   const [pendingInsert, setPendingInsert] = useState<PendingInsert | null>(null);
   const [inserting, setInserting] = useState(false);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const [deleting, setDeleting] = useState(false);
   /** Reorder consequences still outstanding, by scene id. */
   const [orderNotices, setOrderNotices] = useState<Record<string, string>>({});
 
@@ -334,6 +347,66 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     },
     [pendingInsert, projectId, failureMessage],
   );
+
+  /** Ask what removing this scene would cost, then hold it for confirmation. */
+  const startDelete = useCallback(
+    async (sceneId: string, sceneNumber: number, title: string) => {
+      setError(null);
+      setPendingDelete({ sceneId, sceneNumber, title, impact: null, hadMedia: false, cues: 0 });
+      try {
+        const res = await fetch(`/api/projects/${projectId}/scenes/${sceneId}/delete`, {
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error(await failureMessage(res, "Could not check the deletion"));
+        const body = (await res.json()) as {
+          impact: OrderImpact;
+          hadMedia: boolean;
+          cues: number;
+        };
+        setPendingDelete((current) =>
+          current && current.sceneId === sceneId ? { ...current, ...body } : current,
+        );
+      } catch (e) {
+        setPendingDelete(null);
+        setError(e instanceof Error ? e.message : "Could not check the deletion");
+      }
+    },
+    [projectId, failureMessage],
+  );
+
+  const confirmDelete = useCallback(async () => {
+    if (!pendingDelete) return;
+    const { sceneId } = pendingDelete;
+    setDeleting(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/scenes/${sceneId}/delete`, {
+        method: "POST",
+      });
+      if (!res.ok) throw new Error(await failureMessage(res, "Could not delete the scene"));
+      const result = (await res.json()) as { record: ProjectRecord; impact: OrderImpact };
+
+      setRecord(result.record);
+      setPendingDelete(null);
+
+      // The scene is gone, so any notice it was carrying goes with it, and the
+      // scenes it disturbed pick one up.
+      setOrderNotices((current) => {
+        const next = { ...current };
+        delete next[sceneId];
+        for (const scene of result.impact.inheritedFrames) {
+          next[scene.id] =
+            "This scene's opening frame was carried over from the scene that has just been " +
+            "deleted. Re-render its keyframes to match its new neighbour.";
+        }
+        return next;
+      });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not delete the scene");
+    } finally {
+      setDeleting(false);
+    }
+  }, [pendingDelete, projectId, failureMessage]);
 
 
   const generate = useCallback(async () => {
@@ -1381,6 +1454,18 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         onCancel={() => setPendingInsert(null)}
       />
 
+      <DeleteSceneDialog
+        open={pendingDelete !== null}
+        sceneNumber={pendingDelete?.sceneNumber ?? 1}
+        title={pendingDelete?.title ?? ""}
+        impact={pendingDelete?.impact ?? null}
+        hadMedia={pendingDelete?.hadMedia ?? false}
+        cues={pendingDelete?.cues ?? 0}
+        busy={deleting}
+        onConfirm={() => void confirmDelete()}
+        onCancel={() => setPendingDelete(null)}
+      />
+
       <NegativePromptRepair
         record={record}
         projectId={projectId}
@@ -1903,6 +1988,10 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   onInsertScene={(side) =>
                     void startInsert(scene.id, scene.sceneNumber, side)
                   }
+                  onDeleteScene={() =>
+                    void startDelete(scene.id, scene.sceneNumber, scene.title)
+                  }
+                  canDelete={storyboard.scenes.length > 1}
                   orderNotice={orderNotices[scene.id]}
                   cast={cast}
                   wardrobeChanges={record.project.wardrobeChanges?.[scene.id]}

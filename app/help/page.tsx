@@ -513,6 +513,24 @@ export default function HelpPage() {
             back, and the card carries a reminder until you deal with it.
           </p>
 
+          <h3 className={h3}>Removing a scene (Storyboard screen)</h3>
+          <p className={p}>
+            <strong>Delete</strong> sits at the right-hand end of the same row, apart from the
+            others because it is the only one that cannot be undone. The scenes after it move up
+            and the piece gets one segment shorter; every other scene keeps everything it has.
+          </p>
+          <p className={p}>
+            The scene&apos;s card, prompts, seed, LoRA choices and any audio cues anchored to it go
+            with it. <strong>Its rendered frames and clips are not erased from disk</strong> — they
+            stay in the project folder, exactly as deleting a whole project leaves its media, on
+            the grounds that renders are expensive to reproduce. What they stop being is reachable
+            from the app, so recovering one means going to the folder yourself.
+          </p>
+          <p className={p}>
+            A storyboard cannot be emptied: the last remaining scene has its Delete control
+            disabled. If you want to start the scene list again, regenerate the storyboard.
+          </p>
+
           <h3 className={h3}>Regenerating only the clips</h3>
           <p className={p}>
             Changing a video prompt or a motion LoRA does not change the keyframes, but a full

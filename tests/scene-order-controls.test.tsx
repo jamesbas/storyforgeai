@@ -107,6 +107,33 @@ describe("the scene order controls", () => {
     fireEvent.click(screen.getByRole("button", { name: "Insert a scene after scene 4" }));
     expect(onInsert).toHaveBeenCalledWith("after");
   });
+
+  it("offers a delete control that names its scene", () => {
+    const onDelete = vi.fn();
+    render(
+      <SceneOrderControls sceneNumber={6} isFirst={false} isLast={false} onDelete={onDelete} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Delete scene 6" }));
+    expect(onDelete).toHaveBeenCalled();
+  });
+
+  /** A storyboard cannot be emptied, so the last scene keeps its card. */
+  it("cannot delete the last remaining scene", () => {
+    render(
+      <SceneOrderControls
+        sceneNumber={1}
+        isFirst
+        isLast
+        canDelete={false}
+        onDelete={vi.fn()}
+      />,
+    );
+
+    const control = screen.getByRole("button", { name: "Delete scene 1" });
+    expect(control).toBeDisabled();
+    expect(control.title).toMatch(/at least one scene/i);
+  });
 });
 
 describe("the confirmation", () => {

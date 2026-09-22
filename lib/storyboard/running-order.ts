@@ -163,10 +163,17 @@ const NUMBER_KEY = /^(\s*(?:scene\s+)?)(\d+)(\s*)$/i;
  * place, because the mapping is a permutation and not a shift — moving scene 4
  * to 5 also moves 5 to 4, and rewriting them one at a time collapses both onto
  * whichever was written second.
+ *
+ * `dropped` names old numbers whose scene has gone. Without it a deletion
+ * leaves the departed scene's entry sitting on a number that now belongs to
+ * somebody else — sometimes overwritten by the shift and sometimes not, which
+ * is worse than either, because it depends on the shape of the keys the model
+ * happened to write.
  */
 export function remapNumberKeys(
   map: Record<string, string>,
   renumbering: ReadonlyMap<number, number>,
+  dropped: ReadonlySet<number> = new Set(),
 ): Record<string, string> {
   let changed = false;
   const next: Record<string, string> = {};
@@ -174,8 +181,13 @@ export function remapNumberKeys(
   for (const [key, value] of Object.entries(map)) {
     const match = NUMBER_KEY.exec(key);
     const was = match ? Number(match[2]) : undefined;
-    const to = was === undefined ? undefined : renumbering.get(was);
 
+    if (was !== undefined && dropped.has(was)) {
+      changed = true;
+      continue;
+    }
+
+    const to = was === undefined ? undefined : renumbering.get(was);
     if (match && to !== undefined && to !== was) {
       next[`${match[1]}${to}${match[3]}`] = value;
       changed = true;
@@ -217,6 +229,14 @@ export function withRunningOrder(
   });
   const renumbering = renumberingFrom(before, order);
 
+  // Numbers whose scene is no longer on the board. Empty for a move or an
+  // insertion; a deletion is the only thing that produces one.
+  const remaining = new Set(order);
+  const dropped = new Set<number>();
+  before.forEach((id, index) => {
+    if (!remaining.has(id)) dropped.add(index + 1);
+  });
+
   return {
     ...record,
     storyboard: { ...storyboard, scenes },
@@ -224,7 +244,11 @@ export function withRunningOrder(
       ? {
           directorialPlan: {
             ...record.directorialPlan,
-            sceneIntent: remapNumberKeys(record.directorialPlan.sceneIntent, renumbering),
+            sceneIntent: remapNumberKeys(
+              record.directorialPlan.sceneIntent,
+              renumbering,
+              dropped,
+            ),
           },
         }
       : {}),
@@ -235,6 +259,7 @@ export function withRunningOrder(
             sceneShotPlans: remapNumberKeys(
               record.cinematographyPlan.sceneShotPlans,
               renumbering,
+              dropped,
             ),
           },
         }

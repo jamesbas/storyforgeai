@@ -41,6 +41,9 @@ type SceneCardProps = {
   queueActive?: boolean;
   onMoveScene?: (direction: "up" | "down") => void;
   onInsertScene?: (side: "before" | "after") => void;
+  onDeleteScene?: () => void;
+  /** False on the last remaining scene. */
+  canDelete?: boolean;
   /** Consequences of a reorder this scene has not had dealt with yet. */
   orderNotice?: string;
   /** Pinned video family, so the prompts panel can say what generation adds. */
@@ -186,6 +189,8 @@ export function SceneCard({
   queueActive = false,
   onMoveScene,
   onInsertScene,
+  onDeleteScene,
+  canDelete = true,
   orderNotice,
 }: SceneCardProps) {
   const playable = media.filter((m) => m.available && m.sceneId === scene.id);
@@ -226,6 +231,8 @@ export function SceneCard({
           queueActive={queueActive}
           onMove={onMoveScene}
           onInsert={onInsertScene}
+          onDelete={onDeleteScene}
+          canDelete={canDelete}
         />
       ) : null}
 

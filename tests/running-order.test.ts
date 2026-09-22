@@ -205,6 +205,39 @@ describe("remapping number-keyed plans", () => {
     const renumbering = renumberingFrom(["s1", "s2"], ["s1", "new", "s2"]);
     expect(remapNumberKeys({ "1": "a", "2": "b" }, renumbering)).toEqual({ "1": "a", "3": "b" });
   });
+
+  /**
+   * A departed scene's entry must go, not linger on a number that now belongs
+   * to someone else. Left in, it either collides with the shift or survives as
+   * a ghost depending on the shape of the keys — which is worse than either.
+   */
+  it("drops the entry of a scene that has gone", () => {
+    const renumbering = renumberingFrom(["a", "b", "c", "d"], ["a", "c", "d"]);
+    const dropped = new Set([2]);
+
+    expect(
+      remapNumberKeys({ "1": "A", "2": "B", "3": "C", "4": "D" }, renumbering, dropped),
+    ).toEqual({ "1": "A", "2": "C", "3": "D" });
+  });
+
+  it("drops it whatever shape the key was written in", () => {
+    const renumbering = renumberingFrom(["a", "b", "c", "d"], ["a", "c", "d"]);
+    const dropped = new Set([2]);
+
+    expect(
+      remapNumberKeys({ "1": "A", "scene 2": "B", "3": "C", "4": "D" }, renumbering, dropped),
+    ).toEqual({ "1": "A", "2": "C", "3": "D" });
+  });
+
+  /** The case that leaves a ghost without an explicit drop: deleting the last. */
+  it("drops the entry of a deleted final scene", () => {
+    const renumbering = renumberingFrom(["a", "b", "c"], ["a", "b"]);
+
+    expect(remapNumberKeys({ "1": "A", "2": "B", "3": "C" }, renumbering, new Set([3]))).toEqual({
+      "1": "A",
+      "2": "B",
+    });
+  });
 });
 
 describe("putting a record into a new order", () => {

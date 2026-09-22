@@ -98,6 +98,7 @@ export type TelemetryEvent =
   | "scene.move_rewrite_failed"
   | "scene.inserted"
   | "scene.insert_follower_stale"
+  | "scene.deleted"
   | "health.check";
 
 export function logEvent(event: TelemetryEvent, data: Record<string, unknown> = {}): void {

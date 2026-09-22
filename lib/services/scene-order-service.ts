@@ -354,3 +354,154 @@ export async function insertScene(
     followerFrameStale,
   };
 }
+
+export type DeleteSceneResult = {
+  record: ProjectRecord;
+  sceneNumber: number;
+  impact: OrderImpact;
+  /** Audio cues that went with the scene, because they anchor to it. */
+  removedCues: number;
+  /** True when the scene had rendered media, whose files are left on disk. */
+  hadMedia: boolean;
+};
+
+/** Strip every entry a record holds under one scene id. */
+function withoutScene<T>(
+  map: Record<string, T> | undefined,
+  sceneId: string,
+): Record<string, T> | undefined {
+  if (!map || !(sceneId in map)) return map;
+  const { [sceneId]: _removed, ...rest } = map;
+  return rest;
+}
+
+/**
+ * Remove a scene from the storyboard.
+ *
+ * The only one of the three operations that destroys anything, and the only one
+ * that has to answer what becomes of rendered media. It answers the same way
+ * `repository.delete` does: **the files are left on disk**, because they are
+ * expensive to reproduce, while the record's references to them go. What is
+ * left behind is unreachable from the app and is meant to be — recovering it is
+ * a matter of going to the project folder, not of the app pretending the scene
+ * is still there.
+ *
+ * Everything the scene owned in the record goes with it. An entry keyed to a
+ * scene that no longer exists can never be read again, and an audio cue is
+ * worse than unreadable: it anchors to the scene for its duration, so a cue
+ * left behind throws `NotFoundError` the next time anyone opens it.
+ */
+export async function deleteScene(
+  projectId: string,
+  sceneId: string,
+): Promise<DeleteSceneResult> {
+  const record = await getProjectRecord(projectId);
+  const storyboard = record.storyboard;
+  if (!storyboard) throw new ValidationError("Generate a storyboard before deleting scenes");
+
+  const scene = storyboard.scenes.find((s) => s.id === sceneId);
+  if (!scene) throw new NotFoundError(`Scene ${sceneId} not found`);
+
+  if (storyboard.scenes.length <= 1) {
+    throw new ValidationError(
+      "A storyboard needs at least one scene. Regenerate the storyboard instead of emptying it.",
+    );
+  }
+
+  if (getQueue(projectId).active) {
+    throw new PrerequisiteError(
+      "Scenes cannot be deleted while a generation queue is running. " +
+        "Wait for it to finish, or cancel it first.",
+    );
+  }
+
+  const order = storyboard.scenes.map((s) => s.id).filter((id) => id !== sceneId);
+  const cast = await resolveProjectCast(record.project);
+  const impact = orderImpact(record, order, cast);
+
+  const hadMedia = Boolean(record.attempts?.[sceneId]?.length || record.previews?.[sceneId]);
+  const cues = record.audioPlan?.cues ?? [];
+  const keptCues = cues.filter((cue) => cue.sceneId !== sceneId);
+
+  const normalised = withRunningOrder(record, order, {
+    scenes: storyboard.scenes.filter((s) => s.id !== sceneId),
+    previousOrder: storyboard.scenes.map((s) => s.id),
+  });
+
+  const { project } = normalised;
+  const updated: ProjectRecord = {
+    ...normalised,
+    attempts: withoutScene(normalised.attempts, sceneId),
+    previews: withoutScene(normalised.previews, sceneId),
+    // Provenance is a log of what was produced, and the artifact keys carry the
+    // scene id, so entries for a departed scene are dropped with it.
+    ...(normalised.executions
+      ? {
+          executions: normalised.executions.filter(
+            (entry) => !entry.artifact.startsWith(`${sceneId}.`),
+          ),
+        }
+      : {}),
+    ...(normalised.audioPlan && keptCues.length !== cues.length
+      ? { audioPlan: { ...normalised.audioPlan, cues: keptCues } }
+      : {}),
+    project: {
+      ...project,
+      segmentCount: project.segmentCount - 1,
+      // The piece gets one segment shorter, mirroring insertion. Floored at one
+      // segment so a project can never claim a negative runtime.
+      generatedDurationSeconds: Math.max(
+        project.segmentSeconds,
+        project.generatedDurationSeconds - project.segmentSeconds,
+      ),
+      requestedDurationSeconds: Math.max(
+        project.segmentSeconds,
+        project.requestedDurationSeconds - project.segmentSeconds,
+      ),
+      sceneSeeds: withoutScene(project.sceneSeeds, sceneId),
+      sceneLoras: withoutScene(project.sceneLoras, sceneId),
+      sceneEndFrameRefs: withoutScene(project.sceneEndFrameRefs, sceneId),
+      wardrobeChanges: withoutScene(project.wardrobeChanges, sceneId),
+      updatedAt: new Date().toISOString(),
+    },
+    history: appendHistory(record, "scene.deleted", `Scene ${scene.sceneNumber} — ${scene.title}`),
+  };
+
+  await repository.update(projectId, updated);
+  logEvent("scene.deleted", {
+    id: projectId,
+    sceneId,
+    sceneNumber: scene.sceneNumber,
+    totalScenes: updated.storyboard!.scenes.length,
+    hadMedia,
+    removedCues: cues.length - keptCues.length,
+  });
+
+  return {
+    record: updated,
+    sceneNumber: scene.sceneNumber,
+    impact,
+    removedCues: cues.length - keptCues.length,
+    hadMedia,
+  };
+}
+
+/** What deleting this scene would cost, without deleting it. */
+export async function previewSceneDelete(
+  projectId: string,
+  sceneId: string,
+): Promise<{ impact: OrderImpact; hadMedia: boolean; cues: number }> {
+  const record = await getProjectRecord(projectId);
+  const storyboard = record.storyboard;
+  if (!storyboard) throw new ValidationError("Generate a storyboard before deleting scenes");
+  if (!storyboard.scenes.some((s) => s.id === sceneId)) {
+    throw new NotFoundError(`Scene ${sceneId} not found`);
+  }
+
+  const order = storyboard.scenes.map((s) => s.id).filter((id) => id !== sceneId);
+  return {
+    impact: orderImpact(record, order, await resolveProjectCast(record.project)),
+    hadMedia: Boolean(record.attempts?.[sceneId]?.length || record.previews?.[sceneId]),
+    cues: (record.audioPlan?.cues ?? []).filter((cue) => cue.sceneId === sceneId).length,
+  };
+}

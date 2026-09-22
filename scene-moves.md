@@ -597,6 +597,14 @@ need editing, because no existing behaviour is meant to change.
 | **2** | `moveScene` service, route, queue guard, history, opt-in rewrite (FR-21). | ~2–3 days | **Delivered (v2.53)** |
 | **3** | The four-button control row (move pair live, insert pair disabled), impact dialog, card notices, Help. | ~2–3 days | **Delivered (v2.53)** |
 | **4** | *Follow-up release:* `insertScene` on the same core, to the existing spec; the insert pair goes live. | ~1 week | **Delivered (v2.54)** |
+| **5** | *Added after the fact:* `deleteScene` on the same core, with the drop rule the plan remap needed. | ~2 days | **Delivered (v2.55)** |
+
+The deletion phase was not in the original plan — see D-4. It is recorded here
+because it found the one gap the core had: `remapNumberKeys` had no rule for a
+number whose scene has gone, so a departed scene's plan entry either collided
+with the shift or survived as a ghost, depending on the shape of the keys the
+model happened to write. Moving and inserting can never produce that case,
+which is why three phases went by without it surfacing.
 
 Per **D-1**, phases 1–3 are the first release and deliver moving on its own.
 Building the full control row in phase 3 with the insert pair present but
@@ -619,7 +627,7 @@ Settled with the operator on 2026-09-21; the requirements above reflect them.
 | D-1 | **Moving ships first**, as a self-contained increment (phases 1–3). Inserting follows on the same core as a second release. |
 | D-2 | **A move warns, and offers an opt-in prompt rewrite** for the scenes it invalidated — unticked by default, image pass only, never automatic (FR-21). |
 | D-3 | **Up/down by one position only.** No "move to position N" and no drag-and-drop for now; the core supports the former whenever it is wanted. |
-| D-4 | **Deleting scenes is out of scope**, and stays a separate spec — it is the only one of the three that has to answer what becomes of the deleted scene's rendered media. |
+| D-4 | **Deleting scenes was out of scope** for the first two releases, and shipped in v2.55 once the core had proved itself. Rendered files are left on disk, matching `repository.delete`. |
 
 ## 14. Remaining open questions
 

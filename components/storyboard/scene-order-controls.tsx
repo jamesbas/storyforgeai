@@ -22,8 +22,10 @@ export function SceneOrderControls({
   isLast,
   busy = false,
   queueActive = false,
+  canDelete = true,
   onMove,
   onInsert,
+  onDelete,
 }: {
   sceneNumber: number;
   isFirst: boolean;
@@ -31,9 +33,11 @@ export function SceneOrderControls({
   busy?: boolean;
   /** Reordering is refused server-side while a batch runs; say so up front. */
   queueActive?: boolean;
+  /** False on the last remaining scene — a storyboard cannot be emptied. */
+  canDelete?: boolean;
   onMove?: (direction: "up" | "down") => void;
-  /** Absent until insertion ships; the pair renders disabled meanwhile. */
   onInsert?: (side: "before" | "after") => void;
+  onDelete?: () => void;
 }) {
   const locked = busy || queueActive;
   const lockReason = queueActive
@@ -90,6 +94,25 @@ export function SceneOrderControls({
           + Insert after
         </button>
       </div>
+
+      {/* Set apart, and the only one in a destructive register: it is the one
+          control here that cannot be undone. */}
+      <button
+        type="button"
+        className={
+          "ml-auto min-h-[1.75rem] rounded-md border border-red-500/30 px-2 py-1 text-[11px] " +
+          "text-red-300/90 hover:border-red-500/60 disabled:cursor-not-allowed disabled:opacity-40"
+        }
+        aria-label={`Delete scene ${sceneNumber}`}
+        disabled={locked || !onDelete || !canDelete}
+        onClick={() => onDelete?.()}
+        title={
+          lockReason ??
+          (canDelete ? undefined : "A storyboard needs at least one scene.")
+        }
+      >
+        Delete
+      </button>
     </div>
   );
 }
