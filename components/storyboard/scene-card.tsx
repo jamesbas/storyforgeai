@@ -1,6 +1,7 @@
 import { SceneLoraPanel } from "@/components/storyboard/scene-lora-panel";
 import { OpeningFramePanel } from "@/components/storyboard/opening-frame-panel";
 import { ScenePromptsPanel } from "@/components/storyboard/scene-prompts-panel";
+import { SceneOrderControls } from "@/components/storyboard/scene-order-controls";
 import { SceneCardEditor } from "@/components/storyboard/scene-card-editor";
 import { SceneWardrobePanel } from "@/components/storyboard/scene-wardrobe-panel";
 import type { SceneLoraOverride } from "@/lib/schemas/lora";
@@ -31,6 +32,17 @@ type SceneCardProps = {
   onLoraSave?: (next: SceneLoraOverride) => void;
   /** Trigger words appended automatically at generation, by prompt kind. */
   triggerWords?: { image: string[]; video: string[] };
+  /**
+   * Running-order controls. Absent leaves them off the card entirely, which is
+   * what keeps the card renderable without a project behind it.
+   */
+  isFirst?: boolean;
+  isLast?: boolean;
+  queueActive?: boolean;
+  onMoveScene?: (direction: "up" | "down") => void;
+  onInsertScene?: (side: "before" | "after") => void;
+  /** Consequences of a reorder this scene has not had dealt with yet. */
+  orderNotice?: string;
   /** Pinned video family, so the prompts panel can say what generation adds. */
   videoFamily?: string;
   /**
@@ -169,6 +181,12 @@ export function SceneCard({
   onPinOpeningFrame,
   onUnpinOpeningFrame,
   endFrameCarriedToScene,
+  isFirst = false,
+  isLast = false,
+  queueActive = false,
+  onMoveScene,
+  onInsertScene,
+  orderNotice,
 }: SceneCardProps) {
   const playable = media.filter((m) => m.available && m.sceneId === scene.id);
   const previewRoles = new Set(playable.filter((m) => m.preview).map((m) => m.role));
@@ -198,6 +216,27 @@ export function SceneCard({
           {scene.trimAtEndSeconds ? ` (trim ${scene.trimAtEndSeconds}s)` : ""} · {scene.status}
         </span>
       </header>
+
+      {projectId ? (
+        <SceneOrderControls
+          sceneNumber={scene.sceneNumber}
+          isFirst={isFirst}
+          isLast={isLast}
+          busy={busy}
+          queueActive={queueActive}
+          onMove={onMoveScene}
+          onInsert={onInsertScene}
+        />
+      ) : null}
+
+      {orderNotice ? (
+        <p
+          className="mt-2 rounded-md border border-amber-400/30 bg-amber-400/5 px-3 py-2 text-[11px] text-amber-200/90"
+          data-testid="scene-order-notice"
+        >
+          {orderNotice}
+        </p>
+      ) : null}
       <dl className="mt-3 space-y-1 text-sm">
         <div>
           <dt className="inline text-slate-400">Objective: </dt>

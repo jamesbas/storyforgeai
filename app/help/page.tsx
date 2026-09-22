@@ -455,6 +455,35 @@ export default function HelpPage() {
             them would quietly degrade them to plain cuts.
           </p>
 
+          <h3 className={h3}>Rearranging the running order (Storyboard screen)</h3>
+          <p className={p}>
+            Each scene card carries <strong>Move up</strong> and <strong>Move down</strong> at the
+            top. They change the order of the piece and nothing else: every rendered frame, pinned
+            seed, LoRA choice, wardrobe change and audio cue belongs to the scene rather than to the
+            position, so it all travels with the scene. <strong>Nothing is ever re-rendered</strong>
+            {" "}as a result of a move.
+          </p>
+          <p className={p}>
+            What a move <em>can</em> invalidate is anything that depended on which scene came
+            before. Under <em>Continue from previous end frame</em> a scene opens on its
+            predecessor&apos;s last frame, so a scene that has been moved — or one whose neighbour
+            has — is now opening on a different picture than the one it was rendered against. The
+            confirmation lists exactly which scenes that affects, and offers to rewrite their
+            opening prompts for you. That offer is off by default, because those prompts may have
+            been written by hand; ticking it replaces them. Re-rendering the frames is left to you.
+          </p>
+          <p className={p}>
+            The consequence most people do not expect is <strong>wardrobe</strong>. Costume changes
+            are a timeline — a scene wears whatever the most recent change before it established —
+            so moving a scene across a change means the characters in it are dressed differently
+            from then on. Nothing is lost, but the piece may not look the way it did. The
+            confirmation calls this out separately when it applies.
+          </p>
+          <p className={p}>
+            Scenes cannot be rearranged while a batch is running: the queue holds work it has
+            already planned against the current order. Wait for it to finish, or cancel it.
+          </p>
+
           <h3 className={h3}>Regenerating only the clips</h3>
           <p className={p}>
             Changing a video prompt or a motion LoRA does not change the keyframes, but a full

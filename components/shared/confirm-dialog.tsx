@@ -20,6 +20,7 @@ export function ConfirmDialog({
   confirmLabel,
   busy = false,
   busyLabel,
+  tone = "danger",
   onConfirm,
   onCancel,
   children,
@@ -29,6 +30,13 @@ export function ConfirmDialog({
   confirmLabel: string;
   busy?: boolean;
   busyLabel?: string;
+  /**
+   * `danger` for anything that destroys work, `neutral` for a change that is
+   * merely consequential. Rearranging a storyboard loses nothing, and dressing
+   * it in the same red as a permanent delete would spend the alarm that colour
+   * is for.
+   */
+  tone?: "danger" | "neutral";
   onConfirm: () => void;
   /** Also called for Escape and backdrop dismissal. */
   onCancel: () => void;
@@ -69,7 +77,9 @@ export function ConfirmDialog({
       onClose={() => {
         if (open && !busy) onCancel();
       }}
-      className="max-w-md rounded-lg border border-red-500/40 p-0 backdrop:bg-slate-950/70"
+      className={`max-w-md rounded-lg border p-0 backdrop:bg-slate-950/70 ${
+        tone === "danger" ? "border-red-500/40" : "border-white/20"
+      }`}
     >
       <div className="space-y-3 p-4">
         <h2 id={titleId} className="text-sm font-semibold">
@@ -92,7 +102,11 @@ export function ConfirmDialog({
             type="button"
             disabled={busy}
             onClick={onConfirm}
-            className="min-h-[2.25rem] rounded-md bg-red-500/80 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-500 disabled:opacity-50"
+            className={`min-h-[2.25rem] rounded-md px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50 ${
+              tone === "danger"
+                ? "bg-red-500/80 hover:bg-red-500"
+                : "bg-accent-solid hover:opacity-90"
+            }`}
           >
             {busy ? (busyLabel ?? "Working…") : confirmLabel}
           </button>

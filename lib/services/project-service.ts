@@ -86,7 +86,11 @@ import { logEvent } from "@/lib/telemetry";
  * stay thin and delegate here (generic-build-spec Section 2.3).
  */
 
-function appendHistory(record: ProjectRecord, action: string, detail?: string): HistoryEntry[] {
+export function appendHistory(
+  record: ProjectRecord,
+  action: string,
+  detail?: string,
+): HistoryEntry[] {
   const entry: HistoryEntry = { at: new Date().toISOString(), action, detail };
   return [...(record.history ?? []), entry];
 }

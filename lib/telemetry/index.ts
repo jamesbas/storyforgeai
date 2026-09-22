@@ -94,6 +94,8 @@ export type TelemetryEvent =
   | "character.updated"
   | "character.deleted"
   | "character.reference_image_set"
+  | "scene.moved"
+  | "scene.move_rewrite_failed"
   | "health.check";
 
 export function logEvent(event: TelemetryEvent, data: Record<string, unknown> = {}): void {

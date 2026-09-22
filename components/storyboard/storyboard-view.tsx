@@ -9,6 +9,7 @@ import { ScenePicker } from "@/components/storyboard/scene-picker";
 import { CreativePlansPanel, planStates } from "@/components/storyboard/creative-plans-panel";
 import { NegativePromptRepair } from "@/components/storyboard/negative-prompt-repair";
 import { TaskRecoveryPanel } from "@/components/storyboard/task-recovery-panel";
+import { OrderImpactDialog } from "@/components/storyboard/order-impact-dialog";
 import { chipLabel, phaseLabel } from "@/components/storyboard/phase-labels";
 import { AsyncStatus } from "@/components/shared/async-status";
 import { WardrobeCheck } from "@/components/storyboard/wardrobe-check";
@@ -30,6 +31,15 @@ import { checkPromptFamily, promptsPredateGuidance } from "@/lib/agents/prompt-f
 import type { PromptPass } from "@/lib/agents/prompt-agents";
 import { PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import type { MediaDescriptor } from "@/lib/media/refs";
+import type { OrderImpact } from "@/lib/storyboard/order-impact";
+
+/** A reorder the user has started but not yet confirmed. */
+type PendingMove = {
+  sceneId: string;
+  sceneNumber: number;
+  direction: "up" | "down";
+  impact: OrderImpact | null;
+};
 
 type QueueSnapshot = { entries: SceneQueueEntry[]; active: boolean; phase?: PhaseProgress };
 
@@ -40,6 +50,11 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rewritingAll, setRewritingAll] = useState(false);
+  const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
+  const [moveRewrite, setMoveRewrite] = useState(false);
+  const [moving, setMoving] = useState(false);
+  /** Reorder consequences still outstanding, by scene id. */
+  const [orderNotices, setOrderNotices] = useState<Record<string, string>>({});
 
   /** Empty means every scene, matching the clip queue. */
   const rewritePrompts = useCallback(
@@ -82,7 +97,6 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     () => rewritePrompts([], ["image"]),
     [rewritePrompts],
   );
-
 
   const loadMedia = useCallback(async () => {
     const res = await fetch(`/api/projects/${projectId}/media`);
@@ -141,6 +155,100 @@ export function StoryboardView({ projectId }: { projectId: string }) {
     },
     [],
   );
+
+  /**
+   * Ask what a move would cost, then hold it for confirmation.
+   *
+   * The dialog opens immediately and fills in when the preview lands, so a slow
+   * answer reads as loading rather than as nothing having happened.
+   */
+  const startMove = useCallback(
+    async (sceneId: string, sceneNumber: number, direction: "up" | "down") => {
+      setError(null);
+      setMoveRewrite(false);
+      setPendingMove({ sceneId, sceneNumber, direction, impact: null });
+      try {
+        const res = await fetch(
+          `/api/projects/${projectId}/scenes/${sceneId}/move?direction=${direction}`,
+          { cache: "no-store" },
+        );
+        if (!res.ok) throw new Error(await failureMessage(res, "Could not check the move"));
+        const body = (await res.json()) as { impact: OrderImpact };
+        setPendingMove((current) =>
+          current && current.sceneId === sceneId ? { ...current, impact: body.impact } : current,
+        );
+      } catch (e) {
+        setPendingMove(null);
+        setError(e instanceof Error ? e.message : "Could not check the move");
+      }
+    },
+    [projectId, failureMessage],
+  );
+
+  const confirmMove = useCallback(async () => {
+    if (!pendingMove) return;
+    const { sceneId, direction } = pendingMove;
+    setMoving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/scenes/${sceneId}/move`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ direction, rewritePrompts: moveRewrite }),
+      });
+      if (!res.ok) throw new Error(await failureMessage(res, "Could not move the scene"));
+      const result = (await res.json()) as {
+        record: ProjectRecord;
+        impact: OrderImpact;
+        rewrittenScenes: string[];
+        rewriteError?: string;
+      };
+
+      setRecord(result.record);
+      setPendingMove(null);
+
+      // The notice outlives the dialog, because the consequence does. A scene
+      // whose prompts were just rewritten has had its seam dealt with and must
+      // not go on being warned about.
+      const repaired = new Set(result.rewrittenScenes);
+      setOrderNotices((current) => {
+        const next = { ...current };
+        for (const scene of result.impact.inheritedFrames) {
+          if (repaired.has(scene.id)) continue;
+          next[scene.id] =
+            "This scene's opening frame was carried over from the scene that used to come " +
+            "before it. Re-render its keyframes to match its new neighbour.";
+        }
+        for (const scene of result.impact.wardrobe) {
+          next[scene.id] =
+            (next[scene.id] ? `${next[scene.id]} ` : "") +
+            "It has also moved to the other side of a costume change, so its wardrobe now " +
+            "resolves differently.";
+        }
+        for (const id of repaired) delete next[id];
+        return next;
+      });
+
+      if (result.rewriteError) {
+        setError(`The scene moved, but rewriting the prompts failed: ${result.rewriteError}`);
+      }
+
+      // Back to the control that was just used, so a second move is one press
+      // away rather than a hunt down a re-rendered list.
+      window.setTimeout(() => {
+        const card = document.getElementById(`scene-${sceneId}`);
+        card?.scrollIntoView({ block: "center" });
+        card
+          ?.querySelector<HTMLButtonElement>(`button[aria-label*="${direction}"]`)
+          ?.focus();
+      }, 0);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not move the scene");
+    } finally {
+      setMoving(false);
+    }
+  }, [pendingMove, projectId, moveRewrite, failureMessage]);
+
 
   const generate = useCallback(async () => {
     setBusy(true);
@@ -1161,6 +1269,22 @@ export function StoryboardView({ projectId }: { projectId: string }) {
 
       <TaskRecoveryPanel projectId={projectId} />
 
+      <OrderImpactDialog
+        open={pendingMove !== null}
+        title={
+          pendingMove
+            ? `Move scene ${pendingMove.sceneNumber} ${pendingMove.direction}?`
+            : "Move scene?"
+        }
+        confirmLabel="Move the scene"
+        impact={pendingMove?.impact ?? null}
+        busy={moving}
+        rewritePrompts={moveRewrite}
+        onRewritePromptsChange={setMoveRewrite}
+        onConfirm={() => void confirmMove()}
+        onCancel={() => setPendingMove(null)}
+      />
+
       <NegativePromptRepair
         record={record}
         projectId={projectId}
@@ -1674,6 +1798,13 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   videoFamily={videoFamily}
                   promptExecution={latestExecution(record.executions, `${scene.id}.image_prompt`)}
                   onPromptsSaved={(next) => setRecord(next)}
+                  isFirst={index === 0}
+                  isLast={index === storyboard.scenes.length - 1}
+                  queueActive={Boolean(queue?.active)}
+                  onMoveScene={(direction) =>
+                    void startMove(scene.id, scene.sceneNumber, direction)
+                  }
+                  orderNotice={orderNotices[scene.id]}
                   cast={cast}
                   wardrobeChanges={record.project.wardrobeChanges?.[scene.id]}
                   continuousTake={continuity !== "cut"}
