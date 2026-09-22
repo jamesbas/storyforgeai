@@ -277,9 +277,16 @@ at least exist. What the agents still lack is scene cards.
 remaining scenes with no direction at all — `sceneIntent` covering 18 of 24 segments was the
 observed case, correctly detected by `segmentGap()` and reported as `short_collection` while nothing
 acted on it. `withSegmentGapsFilled()` now follows up, asking only for the missing segment numbers
-and carrying `alreadyWritten` so the model does not repeat itself. It is bounded at two rounds and
-stops early when a round adds nothing, because a model with nothing to say about scene 19 will keep
-having nothing to say. A surviving gap is still reported honestly rather than padded.
+and carrying `alreadyWritten` so the model does not repeat itself. It asks for at most eight
+segments per call — a single call for the whole shortfall is the same over-ask that failed the first
+time — and stops early when a round adds nothing, because a model with nothing to say about scene 19
+will keep having nothing to say. A surviving gap is still reported honestly rather than padded.
+
+The Story Architect goes one step further and does not wait to run out: a piece longer than eight
+segments has its first call capped to the opening eight, told plainly that the rest will be
+requested. Live, a 27-segment arc came back with sixteen beats and sixteen emotional values and
+stopped; a model that believes it is writing the whole film into the segments it was given resolves
+the story there and leaves nothing for the ones that follow.
 
 Note the follow-up requests `{ entries: Record<string, string> }` rather than the whole plan. A
 second full-plan call would re-roll `cameraLanguage` and the rest of the fields that were already

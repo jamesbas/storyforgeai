@@ -11,6 +11,7 @@ import { latestExecution } from "@/lib/schemas/provenance";
 import { planOn, planSpecFor } from "@/lib/agents/plan-fields";
 import { isContinuousTake } from "@/lib/agents/continuity";
 import { shotPlanIssues } from "@/lib/media/seam";
+import { repeatedBeats } from "@/lib/agents/arc-repetition";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { CanvasRunEntry } from "@/lib/services/canvas-queue";
 
@@ -397,6 +398,11 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
 
   const staleAfterArc = record ? staleAgainstArc(record) : [];
   const arcContinuations = new Set(record?.storyPlan?.continuedSegments ?? []);
+  // A beat that repeats the one before it is a segment of runtime spent
+  // rendering a shot the audience has just watched, so it is worth a regenerate
+  // even though the arc is otherwise the model's own work.
+  const arcRepeats = repeatedBeats(record?.storyPlan?.segmentBeats ?? []);
+  const arcRepeated = new Set(arcRepeats);
 
   if (!record) {
     return <p className="text-sm text-slate-400">{error ?? "Loading…"}</p>;
@@ -634,6 +640,7 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
                     <ol className="mt-1 list-decimal space-y-1 pl-5 text-[11px] text-slate-400">
                       {record.storyPlan.segmentBeats.map((beat, index) => {
                         const continues = arcContinuations.has(index + 1);
+                        const repeats = arcRepeated.has(index + 1);
                         return (
                           <li key={index} className={continues ? "text-accent/90" : undefined}>
                             {beat}
@@ -643,11 +650,30 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
                                 · carries the previous beat on
                               </span>
                             ) : null}
+                            {repeats ? (
+                              <span className="text-[10px] text-amber-200/90">
+                                {" "}
+                                · repeats the beat before it
+                              </span>
+                            ) : null}
                           </li>
                         );
                       })}
                     </ol>
                   </details>
+                  {arcRepeats.length ? (
+                    <div
+                      data-testid="arc-repeated-beats"
+                      className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200/90"
+                    >
+                      Segment{arcRepeats.length === 1 ? "" : "s"} {arcRepeats.join(", ")}{" "}
+                      {arcRepeats.length === 1 ? "repeats" : "repeat"} the beat before{" "}
+                      {arcRepeats.length === 1 ? "it" : "them"}, so{" "}
+                      {arcRepeats.length === 1 ? "that segment" : "those segments"} would render a
+                      shot the audience has already watched. Regenerate the arc, or edit the beats
+                      above.
+                    </div>
+                  ) : null}
                   {staleAfterArc.length ? (
                     <div
                       data-testid="arc-dependents-stale"

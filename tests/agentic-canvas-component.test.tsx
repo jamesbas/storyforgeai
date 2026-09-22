@@ -242,8 +242,41 @@ describe("the Story Architect card", () => {
     expect(screen.getByTestId("arc-beats").textContent).toContain("carries the previous beat on");
   });
 
-  it("names the plans left describing a story the project no longer plans", async () => {
-    const record = withArc(undefined, [
+  /**
+   * A padded tail is a rendering cost, not a typo: each repeated beat is
+   * another twenty seconds of a shot the audience has already watched.
+   */
+  it("names the beats that repeat the beat before them", async () => {
+    const repeated = {
+      ...withArc(),
+      storyPlan: {
+        projectId: "p1",
+        title: "Dawn on the towpath",
+        logline: "A lock-keeper finds the gates jammed.",
+        emotionalProgression: ["calm", "unease", "resolve"],
+        segmentBeats: [
+          "He walks the towpath.",
+          "He hauls at the beam.",
+          "He hauls at the beam.",
+        ],
+      },
+    } as ProjectRecord;
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(repeated)));
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() => expect(screen.getByTestId("arc-repeated-beats")).toBeTruthy());
+    expect(screen.getByTestId("arc-repeated-beats").textContent).toContain("Segment 3");
+  });
+
+  it("says nothing about repeats when every beat is its own", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(withArc())));
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() => expect(screen.getByTestId("arc-beats")).toBeTruthy());
+    expect(screen.queryByTestId("arc-repeated-beats")).toBeNull();
+  });
+
+  it("names the plans left describing a story the project no longer plans", async () => {    const record = withArc(undefined, [
       execution("directorial_plan", "2026-01-01T00:00:00.000Z"),
       execution("storyboard", "2026-01-01T00:00:00.000Z"),
       // Written last, so both of the above predate it.

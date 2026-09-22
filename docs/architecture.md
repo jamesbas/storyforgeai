@@ -736,11 +736,12 @@ on it.
 `withSegmentGapsFilled()` now wraps the primary call:
 
 ```
-plan call → segmentsMissingFrom(map, segmentCount)
-          → follow-up asking only for those numbers
+plan call → segmentsMissingFrom(map, segmentCount)   (and the companion map, if any)
+          → follow-up asking only for the next SEGMENTS_PER_FOLLOW_UP (8) of them
             (payload carries alreadyWritten + writeOnlyTheseSegments)
           → merge, normalising "Scene 19" → "19" via planEntryFor
-          → repeat, max 2 rounds, stop early if a round adds nothing
+          → repeat until covered; bounded at ceil(segmentCount / 8) + 1 rounds,
+            stop early if a round adds nothing
 ```
 
 Bounded on both sides deliberately. The follow-up requests only
@@ -750,6 +751,19 @@ the loop, because a model with nothing to say for a scene will say nothing howev
 many times it is asked. Whatever gap survives is still reported as
 `short_collection` with the real remaining count — the fill does not paper over a
 genuine shortfall.
+
+**Windowed, not one big repair.** Asking for the entire shortfall in one call
+repeats the mistake that caused it: live, an arc missing eleven beats got them
+back with nine of them aftermath and the last two word-for-word identical. Each
+follow-up therefore asks for at most eight segments, and the caller may supply a
+`continuationDirective` saying where that window sits in the piece — without
+which the model lands the ending in the first window it is handed.
+
+**The arc fills two collections at once.** `segmentBeats` and
+`emotionalProgression` are written together through the optional `companion`
+map. Filled separately, the beats came back from the model while the emotions
+came from the deterministic template, so the second half of a long film was
+directed to "rising tension" over beats where the story had already resolved.
 
 ---
 

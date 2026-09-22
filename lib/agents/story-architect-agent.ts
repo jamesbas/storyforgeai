@@ -1,14 +1,20 @@
 import { storyPlanSchema, type StoryPlan } from "@/lib/schemas/agents";
 import { buildStoryPlan } from "@/lib/agents/mock-agents";
 import { denouementBudget } from "@/lib/agents/beat-budget";
+import { repeatedBeats } from "@/lib/agents/arc-repetition";
 import { creativeModeDirective } from "@/lib/agents/look";
 import { explicitnessDirective } from "@/lib/agents/explicitness";
 import { executeArtifact, providerCall } from "@/lib/agents/provenance";
-import { asSegmentMap, withSegmentGapsFilled } from "@/lib/agents/segment-gaps";
+import {
+  asSegmentMap,
+  withSegmentGapsFilled,
+  SEGMENTS_PER_FOLLOW_UP,
+} from "@/lib/agents/segment-gaps";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import { SEGMENT_SECONDS } from "@/lib/types";
 import type { AgentContext } from "@/lib/agents/types";
 import type { Project } from "@/lib/schemas/project";
+import type { ExecuteOptions } from "@/lib/agents/provenance";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 
 /**
@@ -111,13 +117,69 @@ export const storyArchitectSystem = (segmentSeconds: number, segmentCount?: numb
 /** Default-length wording, retained for callers that have no project in hand. */
 export const STORY_ARCHITECT_SYSTEM = storyArchitectSystem(SEGMENT_SECONDS);
 
+/**
+ * Asks a long arc for its opening only, and says the rest is coming.
+ *
+ * One call for the whole plan has a ceiling, and it is lower than the projects
+ * people actually make: a 27-segment piece came back with sixteen beats and
+ * sixteen emotional values, the model having simply stopped. Every beat after
+ * that was written by a repair call, and it showed — the tail was aftermath and
+ * the last two beats were identical.
+ *
+ * So the first pass is asked for what a model can finish, and told that the
+ * rest will be requested, which is the part that matters: a model that thinks
+ * this is the whole film writes a complete story into the segments it was given
+ * and leaves nothing for the ones that follow. The same reasoning as the
+ * storyboard's cards-per-call, applied one artifact earlier.
+ */
+function firstPassDirective(segmentCount: number | undefined): string {
+  if (segmentCount === undefined || segmentCount <= SEGMENTS_PER_FOLLOW_UP) return "";
+  return (
+    ` This piece is ${segmentCount} segments long, which is more than one answer can hold. Write ` +
+    "the title, the logline, and the beats and emotional values for segments 1 to " +
+    `${SEGMENTS_PER_FOLLOW_UP} only. You will then be asked for the rest in order, a few at a ` +
+    "time, with everything you have already written in front of you. Plan the whole arc before " +
+    `you begin, and pace these first beats as the opening of a ${segmentCount}-segment film — ` +
+    "there are " +
+    `${segmentCount - SEGMENTS_PER_FOLLOW_UP} segments still to come after them, so nothing here ` +
+    "may resolve the story."
+  );
+}
+
+/**
+ * Where a window sits in the whole piece.
+ *
+ * Without this every continuation reads as the last one: the model lands the
+ * ending in the first window it is given and then has nothing left for the
+ * segments that follow, which is how nine consecutive aftermath beats got
+ * written for a film that was allowed two.
+ */
+function windowDirective(window: readonly number[], segmentCount: number | undefined): string {
+  const last = window.at(-1);
+  if (segmentCount === undefined || last === undefined) return "";
+  const remaining = segmentCount - last;
+  if (remaining > 0) {
+    return (
+      ` These are segments ${window[0]} to ${last} of ${segmentCount}. ${remaining} segments ` +
+      "follow them, so the story must still have somewhere to go when this window ends: do not " +
+      "resolve it, wind it down, or write an ending here."
+    );
+  }
+  return (
+    ` These are the final segments of the piece. At most ${denouementBudget(segmentCount)} beats ` +
+    "in the whole film may be aftermath — reaction, tidying up, departure, or an empty room — so " +
+    "if the story is already over, the earlier beats were written too fast and these must carry " +
+    "the last of the action rather than repeat what has already happened."
+  );
+}
+
 export async function storyArchitectAgent(
   ctx: AgentContext,
   provider: PlanningProvider | null,
 ): Promise<StoryPlan> {
   const payload = { project: ctx.project, brief: ctx.brief };
   const user = JSON.stringify(payload);
-  const system =
+  const base =
     storyArchitectSystem(ctx.project.segmentSeconds, ctx.project.segmentCount) +
     creativeModeDirective(ctx.project) +
     // The beats written here are what the storyboard elaborates. A beat
@@ -125,6 +187,10 @@ export async function storyArchitectAgent(
     // the piece is coy, and no downstream agent can restore an event
     // that was never in the plan.
     explicitnessDirective(ctx.project, "plan");
+  // The continuations inherit the arc's rules but not its opening instruction:
+  // being told to write segments 1 to 8 while being asked for 17 to 24 is a
+  // contradiction, and the model resolves it by renumbering.
+  const system = base + firstPassDirective(ctx.project.segmentCount);
 
   const { value } = await executeArtifact<StoryPlan>({
     artifact: "story_plan",
@@ -145,17 +211,29 @@ export async function storyArchitectAgent(
             systemPromptScope: "storyboard",
           }),
           {
-          field: "segmentBeats",
-          provider,
-          system,
-          payload,
-          segmentCount: ctx.project.segmentCount,
-          systemPromptScope: "storyboard",
-          read: (plan) => asSegmentMap.read(plan.segmentBeats),
-          write: (plan, map) => ({
-            ...plan,
-            segmentBeats: asSegmentMap.write(map, ctx.project.segmentCount),
-          }),
+            field: "segmentBeats",
+            provider,
+            system: base,
+            payload,
+            segmentCount: ctx.project.segmentCount,
+            systemPromptScope: "storyboard",
+            read: (plan) => asSegmentMap.read(plan.segmentBeats),
+            write: (plan, map) => ({
+              ...plan,
+              segmentBeats: asSegmentMap.write(map, ctx.project.segmentCount),
+            }),
+            // Written with the beat it belongs to. Filled separately from the
+            // deterministic template, it contradicted it.
+            companion: {
+              key: "emotions",
+              asks: "the emotional value each of those segments plays, two or three words",
+              read: (plan) => asSegmentMap.read(plan.emotionalProgression),
+              write: (plan, map) => ({
+                ...plan,
+                emotionalProgression: asSegmentMap.write(map, ctx.project.segmentCount),
+              }),
+            },
+            continuationDirective: windowDirective,
           },
         )
       : undefined,
@@ -163,14 +241,7 @@ export async function storyArchitectAgent(
     validate: (plan) =>
       plan.segmentBeats.length === ctx.project.segmentCount ? undefined : "short_collection",
     fallback: () => buildStoryPlan(ctx.project),
-    outcome: (plan) =>
-      fitsSegments(plan.emotionalProgression, ctx.project.segmentCount)
-        ? {}
-        : {
-            source: "hybrid" as const,
-            fallbackReason: "short_collection" as const,
-            detail: `emotionalProgression ${plan.emotionalProgression.length} of ${ctx.project.segmentCount}`,
-          },
+    outcome: (plan) => arcOutcome(plan, ctx.project.segmentCount),
   });
   return {
     ...value,
@@ -180,6 +251,40 @@ export async function storyArchitectAgent(
       ? { continuedSegments: fitContinuations(value.continuedSegments, ctx.project.segmentCount) }
       : {}),
   };
+}
+
+/**
+ * What the finished arc is worth saying about itself.
+ *
+ * Two things can be wrong with an arc the model did write, and both used to
+ * reach the storyboard unannounced. A short emotional progression is filled
+ * from the template, so the second half of a long film was directed to "rising
+ * tension" over beats that had already resolved. A repeated beat is worse: it
+ * is a segment of runtime spent rendering a shot the audience just watched.
+ *
+ * Reported rather than rejected — the rest of the arc is still the model's best
+ * work, and sending it to the numbered template would lose all of it.
+ */
+function arcOutcome(
+  plan: StoryPlan,
+  segmentCount: number | undefined,
+): ReturnType<NonNullable<ExecuteOptions<StoryPlan>["outcome"]>> {
+  const issues: string[] = [];
+  let reason: "short_collection" | "invalid_set" | undefined;
+
+  if (!fitsSegments(plan.emotionalProgression, segmentCount)) {
+    issues.push(`emotionalProgression ${plan.emotionalProgression.length} of ${segmentCount}`);
+    reason = "short_collection";
+  }
+
+  const repeats = repeatedBeats(plan.segmentBeats);
+  if (repeats.length) {
+    issues.push(`beats ${repeats.join(", ")} repeat the beat before them`);
+    reason ??= "invalid_set";
+  }
+
+  if (!issues.length) return {};
+  return { source: "hybrid", fallbackReason: reason, detail: issues.join("; ") };
 }
 
 /**
