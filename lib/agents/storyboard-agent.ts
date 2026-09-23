@@ -5,7 +5,7 @@ import { castSystemDirective } from "@/lib/agents/cast";
 import { seamDirective } from "@/lib/agents/continuity";
 import { creativeModeDirective } from "@/lib/agents/look";
 import { explicitnessDirective } from "@/lib/agents/explicitness";
-import { planningPayload, precedenceDirective } from "@/lib/agents/creative-context";
+import { planningPayloadForSegments, precedenceDirective } from "@/lib/agents/creative-context";
 import { castWardrobeAfter } from "@/lib/agents/wardrobe";
 import { composeExecution } from "@/lib/agents/provenance";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
@@ -107,7 +107,13 @@ function batchDirective(from: number, to: number, total: number): string {
     ` This request covers scenes ${from} to ${to} of ${total}. Return exactly ` +
     `${to - from + 1} scene cards, in order, one per supplied segment beat, and nothing for the ` +
     "other segments. When a previous scene is supplied, continue from where it left off rather " +
-    "than reintroducing the setting."
+    "than reintroducing the setting." +
+    // A card that swallows the next three beats leaves those scenes with
+    // nothing to do and asks one 20-second shot to carry four beats of story.
+    ` Each card covers its own segment's beat and stops there. Do not bring forward anything ` +
+    `from a later segment, do not merge two beats into one card, and do not finish an action the ` +
+    `beat only begins — the segments after ${to} exist to carry what happens next, and a card ` +
+    "that races ahead leaves them with the story already over."
   );
 }
 
@@ -253,11 +259,19 @@ export async function storyboardAgent(
       visualBible,
       cast: now.cast,
       othersWardrobe: Object.keys(now.others).length ? now.others : undefined,
-      plans: planningPayload(ctx.plans),
+      // Scoped to this batch. Handed over whole, the per-scene maps gave a call
+      // writing four scenes the Director's notes for the whole film, and it
+      // wrote them: one card came back as three later intents merged.
+      plans: planningPayloadForSegments(ctx.plans, segmentNumbers),
       // Only this batch's beats, so the model is not tempted to cover the rest.
       segmentNumbers,
       segmentBeats: storyPlan.segmentBeats.slice(start, end),
       emotionalProgression: storyPlan.emotionalProgression.slice(start, end),
+      // The same beats keyed by segment, so a card cannot be written against
+      // the wrong one by miscounting two parallel arrays.
+      beatsBySegment: Object.fromEntries(
+        segmentNumbers.map((n) => [String(n), storyPlan.segmentBeats[n - 1] ?? ""]),
+      ),
       continuedSegments: continuedHere.length ? continuedHere : undefined,
       previousScene: previous
         ? {

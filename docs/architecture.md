@@ -711,6 +711,19 @@ titled "The Aftermath", with the storyboard itself recorded as `llm (ok)`,
 24 of 24 cards model-written. The cards were not the fault. The arc beneath them
 was template text.
 
+**Slicing the beats is not enough on its own.** The batch payload also carried
+the Agentic Canvas plans, and `sceneIntent` and `sceneShotPlans` are keyed by
+segment across the whole project — so a call writing scenes 5 to 8 received four
+beats and all twenty-seven of the Director's intents. Live, scene 8 came back as
+intents 8, 11 and 12 merged into a single card: four later scenes' worth of
+action compressed into one twenty-second shot, with the scenes that should have
+carried it left with nothing to do. `planningPayloadForSegments()` now cuts those
+two maps down to the batch's own segments while leaving the project-level fields
+— thesis, pacing, camera language, lighting rules — whole, since those are meant
+to apply everywhere. The batch also receives `beatsBySegment`, the same beats
+keyed by number, so a card cannot be written against the wrong one by miscounting
+two parallel arrays.
+
 Two rules follow, and both are enforced in `project-service.ts`:
 
 - **The Story Architect's provenance is always collected.** `withStoryPlan` used

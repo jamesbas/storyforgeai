@@ -212,3 +212,59 @@ export function precedenceDirective(
 export function planningPayload(plans: CreativePlans | undefined): CreativePlans | undefined {
   return hasCreativePlans(plans) ? plans : undefined;
 }
+
+/**
+ * The plans, with the per-scene maps cut down to the scenes one call is writing.
+ *
+ * `sceneIntent` and `sceneShotPlans` are keyed by segment across the whole
+ * project, so handing the plans over whole gives a storyboard call writing
+ * scenes 5 to 8 the Director's notes for all twenty-seven — the rest of the
+ * film, in detail, while the beats it was given cover four segments. The
+ * storyboard agent was careful to slice the beats for exactly that reason and
+ * the plans came in through the other door.
+ *
+ * Live on a 27-segment project: scene 8 came back as intents 8, 11 and 12
+ * merged into a single card, so four later scenes' worth of action was
+ * compressed into one twenty-second shot and the scenes that should have
+ * carried it were left with nothing to do.
+ *
+ * The project-level fields — thesis, pacing, camera language, lighting rules —
+ * are kept whole, because those are supposed to apply to every scene.
+ */
+export function planningPayloadForSegments(
+  plans: CreativePlans | undefined,
+  segments: readonly number[],
+): CreativePlans | undefined {
+  const payload = planningPayload(plans);
+  if (!payload) return payload;
+
+  const scoped = (map: Record<string, string> | undefined) => {
+    const kept: Record<string, string> = {};
+    if (!map) return kept;
+    for (const segment of segments) {
+      const entry = planEntryFor(map, segment);
+      if (entry) kept[String(segment)] = entry;
+    }
+    return kept;
+  };
+
+  return {
+    ...payload,
+    ...(payload.directorialPlan
+      ? {
+          directorialPlan: {
+            ...payload.directorialPlan,
+            sceneIntent: scoped(payload.directorialPlan.sceneIntent),
+          },
+        }
+      : {}),
+    ...(payload.cinematographyPlan
+      ? {
+          cinematographyPlan: {
+            ...payload.cinematographyPlan,
+            sceneShotPlans: scoped(payload.cinematographyPlan.sceneShotPlans),
+          },
+        }
+      : {}),
+  };
+}
