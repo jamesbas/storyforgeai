@@ -161,6 +161,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
       qcEnabled?: boolean;
       characterWardrobe?: Record<string, string>;
       useCharacterReferenceImages?: boolean;
+      videoCharacterReferences?: boolean;
       endFrameReferences?: boolean;
       loras?: LoraSelectionSet;
     }) => {
@@ -464,7 +465,9 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
 
         {usesCharacters ? (
           <div className="space-y-2 rounded-md border border-white/10 bg-canvas/40 p-3">
-            <h4 className="text-sm font-semibold">How a character&apos;s likeness reaches the frame</h4>
+            <h4 className="text-sm font-semibold">
+              How a character&apos;s likeness reaches the keyframes
+            </h4>
             <label className="flex items-start gap-2 text-xs text-slate-300">
               <input
                 type="radio"
@@ -500,6 +503,62 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
                   Nothing bleeds onto other people in the shot, and any image model can be used. The
                   likeness comes from the written description and is corrected afterwards by the face
                   swap, so it needs a character with face swap enabled to hold up.
+                </span>
+              </span>
+            </label>
+            <p className="text-[11px] text-slate-500">
+              This governs the two keyframes. Reference mode sends its own character photographs to
+              the video model, set separately below.
+            </p>
+          </div>
+        ) : null}
+
+        {/*
+          The reason to run reference mode at all. It was folded into the keyframe
+          setting, so choosing description-and-swap there quietly left the clip
+          taking identity from the start frame — the exact dependency this family
+          exists to escape.
+        */}
+        {usesCharacters && videoFamily === "minimax_ref2va" ? (
+          <div className="space-y-2 rounded-md border border-white/10 bg-canvas/40 p-3">
+            <h4 className="text-sm font-semibold">
+              Whether the video model is shown each character
+            </h4>
+            <label className="flex items-start gap-2 text-xs text-slate-300">
+              <input
+                type="radio"
+                name="video-character-references"
+                className="mt-0.5 accent-accent"
+                disabled={busy}
+                checked={project.videoCharacterReferences !== false}
+                onChange={() => save({ videoCharacterReferences: true })}
+              />
+              <span>
+                <strong>Send each character&apos;s photograph</strong> — holds the face for the whole
+                clip.
+                <span className="block text-slate-500">
+                  Each photo is handed over as a named subject and tied to that character in the
+                  prompt, so it fixes one person rather than drifting across the shot the way a
+                  keyframe reference can. This is what reference mode is for. Costs roughly 5 more
+                  minutes per character, and at most 3 characters in a scene.
+                </span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-xs text-slate-300">
+              <input
+                type="radio"
+                name="video-character-references"
+                className="mt-0.5 accent-accent"
+                disabled={busy}
+                checked={project.videoCharacterReferences === false}
+                onChange={() => save({ videoCharacterReferences: false })}
+              />
+              <span>
+                <strong>Keyframes only</strong> — faster, and identity comes from the two frames.
+                <span className="block text-slate-500">
+                  The clip is told to keep the faces the start frame established. Identity can drift
+                  across a twenty-second shot, which is the cost of the time saved — and it makes
+                  reference mode behave much like first-and-last-frame.
                 </span>
               </span>
             </label>

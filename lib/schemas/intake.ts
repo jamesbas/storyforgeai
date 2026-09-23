@@ -127,6 +127,8 @@ export const updateProjectModelsSchema = z.object({
   characterWardrobe: z.record(z.string()).optional(),
   /** Whether a character's reference photograph conditions the keyframes. */
   useCharacterReferenceImages: z.boolean().optional(),
+  /** Whether a character's photograph is sent to a reference-to-video model. */
+  videoCharacterReferences: z.boolean().optional(),
   /** Whether a carried-over frame conditions the end frame rendered against it. */
   endFrameReferences: z.boolean().optional(),
   /**

@@ -134,9 +134,10 @@ async function resolveCastReferenceImages(
   scene?: Scene,
   prompt?: string,
 ): Promise<string[]> {
-  // Off means off everywhere: the constraint that the image model must accept
-  // references only applies while references are being sent, so opting out here
-  // also frees the model choice.
+  // The keyframe switch only. A reference-to-video model reads its own
+  // `videoCharacterReferences`, because the constraint this one lifts — the
+  // image model must accept reference images — has nothing to say about a
+  // video model that names its subjects.
   if (record.project.useCharacterReferenceImages === false) return [];
   const cast = await resolveProjectCast(record.project);
   // A reference photo outranks the prompt text, so one belonging to a character
@@ -222,12 +223,21 @@ function photographedSubject(
  * for that whole cost. The written description travels alongside so the prompt
  * can name who each reference *is*, which is the only thing telling the model
  * that picture 3 is a person rather than another composition to reproduce.
+ *
+ * Gated on `videoCharacterReferences`, not on the keyframe setting. They were
+ * one flag, and choosing description-and-face-swap for the keyframes — a
+ * reasonable call, and the right one for an image model that would smear the
+ * likeness across everyone in the frame — silently removed the only reason to
+ * run a Ref2VA model at all. The clip fell back to "the start frame fixes how
+ * they look", which is precisely the frame dependency this family exists to
+ * escape. A named subject bound into the prose does not carry the bleed risk
+ * that justified the keyframe opt-out, so it gets its own switch.
  */
 async function resolveCastSubjects(
   record: ProjectRecord,
   scene: Scene,
 ): Promise<CastReference[]> {
-  if (record.project.useCharacterReferenceImages === false) return [];
+  if (record.project.videoCharacterReferences === false) return [];
   const cast = await resolveProjectCast(record.project);
   return charactersInScene(scene, cast)
     .map((character): CastReference | null => {

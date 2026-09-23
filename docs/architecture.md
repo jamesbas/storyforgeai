@@ -391,7 +391,7 @@ flowchart TB
     SNAP -->|"prompts + transitions"| AN
     SNAP -->|"scene.prompts"| GEN
     SC -.->|"gates reference photos<br/>and the face swap"| GEN
-    CAST -.->|"image_refs, unless<br/>useCharacterReferenceImages is false"| GEN
+    CAST -.->|"image_refs, unless<br/>useCharacterReferenceImages is false<br/>(video: videoCharacterReferences)"| GEN
     GEN -->|"attempt paths"| QC
     QC -->|"pass → generated<br/>fail → needs_review"| GEN
     GEN -->|"approved clips"| ASM
@@ -1030,6 +1030,19 @@ with several people the likeness lands on more than one. `project.useCharacterRe
 the constraint that the image model must accept references only binds while
 `imageRefs` is non-empty, so opting out frees the pin for free.
 
+**That flag governs the keyframes only.** The reference-to-video families carry
+identity by a different mechanism and read `project.videoCharacterReferences`
+(absent = true) instead. The two were one switch, and the coupling was wrong in
+one direction that mattered: choosing description-and-face-swap for the stills —
+the right call for an image model that would smear a likeness across everyone in
+frame — silently stopped sending character photographs to Ref2VA as well, so the
+clip fell back to "the start frame fixes how they look" and the family was paying
+its cost for nothing. The risk that justifies the keyframe opt-out does not
+transfer, because Ref2VA receives each photograph as a *named* subject bound to
+that character in the prose (§ `bindSubjects`) rather than as a bare `image_refs`
+list. Observed live on a 27-scene project pinned to `minimax_h3_ref2va_pdd` with a
+character selected and no reference reaching a single clip.
+
 **Withholding the written face** (`lib/agents/cast.ts`).
 `castSheet(cast, forRender, wardrobeAt, options)` takes a flag distinguishing render
 prompts from planning payloads, this scene's point on the wardrobe timeline, and
@@ -1290,6 +1303,7 @@ classDiagram
         string imageModel
         string videoModel
         bool useCharacterReferenceImages
+        bool videoCharacterReferences
         map~sceneId,WardrobeChange[]~ wardrobeChanges
         ProjectStatus status
     }

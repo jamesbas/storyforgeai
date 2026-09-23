@@ -125,9 +125,33 @@ export const projectSchema = z.object({
    * leaves identity to the written description and the face swap, and lifts the
    * constraint that the image model must accept reference images.
    *
+   * Governs the keyframes only. The reference-to-video families carry identity
+   * by a different mechanism and are controlled by `videoCharacterReferences`.
+   *
    * Optional so projects created before it existed keep the old behaviour.
    */
   useCharacterReferenceImages: z.boolean().optional(),
+  /**
+   * Whether a pinned character's photograph is sent to a reference-to-video
+   * model alongside the keyframes.
+   *
+   * Separate from `useCharacterReferenceImages` because the two mechanisms have
+   * different risks. An image model receives a bare `image_refs` list and can
+   * apply the likeness to anyone in the frame, which is the reason to turn that
+   * one off. A Ref2VA model is given each photograph as a *named* subject —
+   * `<Picture 3> is TLBr3f` — bound to that name in the prose, so it holds one
+   * person's identity for the whole clip rather than bleeding across the shot.
+   *
+   * They were one setting, and switching the keyframes to description-and-swap
+   * silently removed the only reason to run a Ref2VA model: the clip fell back
+   * to "the start frame fixes how they look", which is the frame dependency the
+   * family exists to escape.
+   *
+   * Only read by the reference-to-video path; the keyframe families inherit
+   * identity from the two frames and are sent none. Optional, defaulting to on,
+   * so a project that pins Ref2VA and a character gets the lock it implies.
+   */
+  videoCharacterReferences: z.boolean().optional(),
   /**
    * Whether a carried-over frame conditions the end frame rendered against it.
    *

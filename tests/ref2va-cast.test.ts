@@ -171,7 +171,16 @@ describe("reference mode and the character photographs", () => {
     expect(refs).toHaveLength(3);
   });
 
-  it("still sends none when reference photographs are turned off", async () => {
+  /**
+   * The keyframe switch used to govern this too, so choosing
+   * description-and-face-swap for the stills silently took the character
+   * photographs off the clip as well — leaving a reference-mode render taking
+   * identity from its start frame, which is the dependency the family exists to
+   * escape. The two mechanisms differ: an image model gets a bare `image_refs`
+   * list and can smear a likeness across everyone in frame, while these are
+   * named subjects bound to one person in the prose.
+   */
+  it("keeps sending them when only the keyframe photographs are turned off", async () => {
     const env = await isolated();
     const record = await ref2vaProject(env, "ref2va");
     await env.projects.updateProjectModels(record.project.id, {
@@ -179,9 +188,33 @@ describe("reference mode and the character photographs", () => {
     });
     const updated = await env.projects.getProjectRecord(record.project.id);
 
+    const { refs, prompt } = await videoRefs(env, updated);
+    expect(refs).toHaveLength(3);
+    expect(refs.at(-1)).toContain("character-images");
+    expect(prompt).toContain("Mara");
+  });
+
+  it("sends none when the video photographs are turned off", async () => {
+    const env = await isolated();
+    const record = await ref2vaProject(env, "ref2va");
+    await env.projects.updateProjectModels(record.project.id, {
+      videoCharacterReferences: false,
+    });
+    const updated = await env.projects.getProjectRecord(record.project.id);
+
     const { refs } = await videoRefs(env, updated);
     // The two anchors survive: they are the composition, not an identity.
     expect(refs).toHaveLength(2);
     expect(refs.some((ref) => ref.includes("character-images"))).toBe(false);
+  });
+
+  /** A project that never chose gets the lock its model choice implies. */
+  it("sends them by default, with neither switch set", async () => {
+    const env = await isolated();
+    const record = await ref2vaProject(env, "ref2va");
+    expect(record.project.videoCharacterReferences).toBeUndefined();
+
+    const { refs } = await videoRefs(env, record);
+    expect(refs).toHaveLength(3);
   });
 });
