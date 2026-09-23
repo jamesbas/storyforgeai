@@ -28,6 +28,14 @@ export function needsWindowing(segmentCount: number | undefined): boolean {
  * chance writes a complete arc into whatever it was given, and no amount of
  * asking afterwards recovers the segments it has already spent.
  */
+/** The segment numbers the first call is responsible for. */
+export function firstWindow(segmentCount: number | undefined): number[] {
+  const upTo = needsWindowing(segmentCount)
+    ? SEGMENTS_PER_WINDOW
+    : Math.max(0, segmentCount ?? 0);
+  return Array.from({ length: upTo }, (_, i) => i + 1);
+}
+
 export function firstWindowDirective(
   segmentCount: number | undefined,
   entries: string,

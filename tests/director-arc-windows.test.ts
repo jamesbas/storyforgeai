@@ -153,6 +153,33 @@ describe("a directorial plan for a piece longer than one answer", () => {
   });
 
   /**
+   * The opening window needs its beats numbered exactly as a continuation does.
+   * Capping the first call without numbering left the model counting down an
+   * unnumbered array: live, intents 1-8 came back one beat late while 9 onward
+   * — the windows that were handed a numbered list — were exact.
+   */
+  it("numbers the beats for the opening window too", async () => {
+    const { provider, systems } = capped("sceneIntent");
+    await directorAgent(project, provider, { storyPlan });
+
+    const first = systems[0]!;
+    expect(first).toContain(`1. ${beatFor(1)}`);
+    expect(first).toContain(`8. ${beatFor(8)}`);
+    // Only its own window, or the cap means nothing.
+    expect(first).not.toContain(`9. ${beatFor(9)}`);
+  });
+
+  it("numbers the beats for a short piece that is never windowed", async () => {
+    const short = { ...project, segmentCount: 6 } as Project;
+    const { provider, systems } = capped("sceneIntent");
+    await directorAgent(short, provider, { storyPlan });
+
+    expect(systems[0]).toContain(`1. ${beatFor(1)}`);
+    expect(systems[0]).toContain(`6. ${beatFor(6)}`);
+    expect(systems[0]).not.toContain(`7. ${beatFor(7)}`);
+  });
+
+  /**
    * Handing over the beats made copying them the easy path: live, every entry
    * in the first and last windows contained no word that was not in its beat.
    */

@@ -30,6 +30,7 @@ import { withSegmentGapsFilled } from "@/lib/agents/segment-gaps";
 import {
   beatsForWindow,
   dontRestateDirective,
+  firstWindow,
   firstWindowDirective,
   windowBeatsDirective,
   windowPlacementDirective,
@@ -386,6 +387,7 @@ export async function directorAgent(
     plans: planningPayload(ctx.plans),
   };
   const beats = ctx.storyPlan?.segmentBeats;
+  const opening = firstWindow(project.segmentCount);
   const base =
     DIRECTOR_SYSTEM +
     explicitnessDirective(project, "plan") +
@@ -400,7 +402,16 @@ export async function directorAgent(
   // it was not: asked for 27 intents at once the model wrote sixteen — the
   // whole film compressed, ending on an empty dance floor at 16 — and the gap
   // fill then restarted the action at 17 against a beat that was the climax.
-  const system = base + firstWindowDirective(project.segmentCount, "the scene intents");
+  //
+  // The opening window is given its beats by number exactly as a continuation
+  // is. Capping the first call without numbering its beats left it counting
+  // down an unnumbered array, and it miscounted: live, intents 1-8 came back
+  // shifted one beat late while 9 onward — the windows that were handed a
+  // numbered list — were exact.
+  const system =
+    base +
+    firstWindowDirective(project.segmentCount, "the scene intents") +
+    windowBeatsDirective(opening, beats);
 
   const { value } = await executeArtifact<DirectorialPlan>({
     artifact: "directorial_plan",
@@ -453,12 +464,16 @@ export async function cinematographerAgent(
     plans: planningPayload(ctx.plans),
   };
   const beats = ctx.storyPlan?.segmentBeats;
+  const opening = firstWindow(project.segmentCount);
   const base =
     CINEMATOGRAPHER_SYSTEM +
     cameraContinuityDirective(project) +
     precedenceDirective(ctx.cast ?? [], ctx.plans) +
     dontRestateDirective("the shot that covers it — size, lens, height and movement");
-  const system = base + firstWindowDirective(project.segmentCount, "the scene shot plans");
+  const system =
+    base +
+    firstWindowDirective(project.segmentCount, "the scene shot plans") +
+    windowBeatsDirective(opening, beats);
 
   const { value } = await executeArtifact<CinematographyPlan>({
     artifact: "cinematography_plan",
