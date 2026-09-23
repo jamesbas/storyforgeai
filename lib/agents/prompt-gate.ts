@@ -7,6 +7,7 @@ import {
   statedHeadcount,
   widenShotSize,
 } from "@/lib/media/seam";
+import { focalSide, sideVisibleIn } from "@/lib/media/viewpoint";
 import type { SceneDraft } from "@/lib/schemas/storyboard";
 
 /**
@@ -49,6 +50,8 @@ export const PROMPT_GATE_CODES = [
   "wardrobe_contradicts_act",
   /** A shot size too tight to hold the people the prompt puts in it. */
   "framing_too_tight",
+  /** The camera is on the wrong side of the body part the frame is about. */
+  "focal_point_hidden",
   /** The two frames of one scene disagree about how many people are in it. */
   "headcount_mismatch",
 ] as const;
@@ -458,6 +461,16 @@ export function gateImagePrompt(
   const size = shotSizeOf(text);
   if (floor && size && isTighterThan(size, floor)) codes.push("framing_too_tight");
 
+  // Size, lens, height and movement are all stated and all describe the same
+  // axis of placement. Nothing names where the camera stands *around* the
+  // subject, which is what decides whether the point of contact the frame is
+  // about is facing the lens or hidden behind the body it is on. The card says
+  // what the frame is about; the prompt says where the camera is. Checked for
+  // every project, not only explicit ones: a hand on a shoulder blade is as
+  // invisible from the front as anything else.
+  const side = focalSide(ctx.scene.actionDescription);
+  if (side && !sideVisibleIn(text, side)) codes.push("focal_point_hidden");
+
   if (!ctx.explicit) return codes;
   if (EUPHEMISMS.some((pattern) => pattern.test(text))) codes.push("euphemism");
 
@@ -566,6 +579,16 @@ export function gateRepairDirective(
       "the shot is too tight to hold the people you put in it, so the ones you named last are " +
         "cropped out of the picture; open on a wider size — two people need a medium close-up " +
         "or wider, three a medium shot, four or more a medium wide shot",
+    );
+  }
+  if (codes.includes("focal_point_hidden")) {
+    reasons.push(
+      "the frame is about a point on the back of a body and the camera you described is in " +
+        "front of it, so the model will draw that contact wherever it can see instead — a hand " +
+        "on a backside becomes a hand on a hip. Say where the camera stands around the subject, " +
+        "not just how high it is: three-quarter, profile, rear, or over-the-shoulder. Then turn " +
+        "the body so the part being touched faces the lens and say which side of the frame it " +
+        "occupies",
     );
   }
   if (codes.includes("headcount_mismatch")) {
@@ -683,6 +706,18 @@ export function repairImagePrompt(
   }
   if (codes.includes("participant_missing") && ctx.participants.length) {
     additions.push(`In frame: ${ctx.participants.join(", ")}.`);
+  }
+  // Repairable from the card alone: the scene says the frame is about the back
+  // of a body, so the camera has to be somewhere it can see one. Three-quarter
+  // rear rather than square-on behind, because it keeps the faces and the point
+  // of contact in the same frame — a flat rear view of a two-hander loses one
+  // of them.
+  if (codes.includes("focal_point_hidden")) {
+    const stated = unsaid(
+      "The camera is positioned three-quarters behind the subject, so the back of the body and " +
+        "the point of contact on it both face the lens.",
+    );
+    if (stated) additions.push(stated);
   }
   if (codes.includes("prompt_blank") && !body) {
     const opening = unsaid(ctx.scene.visualDescription ?? "");

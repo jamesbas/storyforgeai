@@ -120,6 +120,22 @@ export const IMAGE_PROMPT_SYSTEM =
   "— for example 'Extreme close-up, eye level,' — because the opening words carry the most " +
   "weight in the render and framing buried mid-prompt is ignored. Honour the shot plan supplied " +
   "for the scene when there is one." +
+  // Shot size, height, lens and movement all describe one axis of camera
+  // placement. Where the camera stands *around* the subject was never named,
+  // and that is the axis that decides whether the thing being described faces
+  // the lens. Live: a frame whose entire content was a hand gripping a
+  // backside opened "Medium close-up, eye level" with the pair staged facing
+  // each other, so both bodies were side-on with her backside away from the
+  // lens — and the model drew the hand on her hip, the only place it could see.
+  " Before you write a frame, decide what the single most important thing in it is — the point " +
+  "of contact, the part of the body, the object — and put the camera where that thing is " +
+  "visible. Name the angle alongside the height: front, three-quarter, profile, three-quarter " +
+  "rear, rear, or over-the-shoulder. Then turn the bodies to match and say so — 'she is turned " +
+  "three-quarters away so her back is to the right of frame' — and say which side of the frame " +
+  "the focal point occupies. A part on the far side of a body from the lens cannot be drawn, " +
+  "and the model does not refuse: it moves the contact somewhere it can see, so a hand on a " +
+  "backside becomes a hand on a hip and the frame quietly shows the wrong thing. Where two " +
+  "people touch, state which of them is nearer the camera. " +
   // The two frames are rendered as independent jobs, so anything left vague is
   // reinvented on each pass. A prompt reading "casual contemporary attire"
   // produced black trousers in one frame and blue jeans in the next.

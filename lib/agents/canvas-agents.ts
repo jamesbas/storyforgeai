@@ -133,6 +133,17 @@ export const CINEMATOGRAPHER_SYSTEM =
   "Give lens choices in millimetres with the reason: wide lenses (18-35mm) exaggerate depth and " +
   "proximity, long lenses (85mm+) compress and isolate. State camera height per scene — eye " +
   "level, low, high or overhead. " +
+  // Height is the vertical axis and was the only one named, so nothing said
+  // where the camera stood around the subject. On a scene whose content was a
+  // hand on a backside, "eye level" with the pair staged facing each other put
+  // the lens on the wrong side of the body and the render moved the hand to a
+  // hip, which was the only part of her it could see.
+  "State the camera angle per scene as well as the height — front, three-quarter, profile, " +
+  "three-quarter rear, rear, or over-the-shoulder. Height and angle are different axes and a " +
+  "scene needs both. Where a beat turns on one specific point of contact or one part of a body, " +
+  "the angle is not a stylistic choice: pick the one that puts that point in view of the lens, " +
+  "and say which side of the subject the camera is on. A camera that cannot see the thing the " +
+  "beat is about will be given something else to draw. " +
   "Every camera move must be motivated by story, and you must state the motivation. Respect the " +
   "conventional meanings: static lets performance carry and suits dialogue; push-in for rising " +
   "intimacy or a decision forming; pull-out for isolation or revealing context; pan and tilt for " +

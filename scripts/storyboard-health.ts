@@ -5,11 +5,11 @@ import { latestExecution } from "@/lib/schemas/provenance";
  * A storyboard's health in one screen: who wrote the cards, who wrote each
  * prompt pass, and which gate codes the repair could only flag.
  *
- * `anatomy_unnamed`, `wardrobe_contradicts_act` and `framing_too_tight` have
- * deterministic repairs driven off the card. `contact_unstated` and
- * `position_unstated` do not — a template can only restate the action — so
- * those scenes earn a retry and a flag and nothing more. They are the frames
- * worth reading before committing a batch to the GPU.
+ * `anatomy_unnamed`, `wardrobe_contradicts_act`, `framing_too_tight` and
+ * `focal_point_hidden` have deterministic repairs driven off the card.
+ * `contact_unstated` and `position_unstated` do not — a template can only
+ * restate the action — so those scenes earn a retry and a flag and nothing
+ * more. They are the frames worth reading before committing a batch to the GPU.
  */
 const FLAG_ONLY = ["contact_unstated", "position_unstated"];
 
