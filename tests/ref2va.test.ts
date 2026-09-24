@@ -531,7 +531,7 @@ async function ref2vaManifest(
     imageStart: "/frames/start.png",
     imageEnd: "/frames/end.png",
     durationSeconds: 14,
-    cast: [{ name: "Mara", description: "Late thirties.", imagePath: "/refs/mara.png" }],
+    cast: [{ name: "Mara", description: "Late thirties.", imagePaths: ["/refs/mara.png"] }],
     ...overrides,
   });
 }

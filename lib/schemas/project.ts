@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { loraSelectionSetSchema, sceneLoraMapSchema } from "@/lib/schemas/lora";
 import { sceneWardrobeChangesSchema } from "@/lib/schemas/wardrobe";
+import { MAX_REFERENCE_IMAGES } from "@/lib/schemas/character";
 import {
   ASPECT_RATIOS,
   CREATIVE_MODES,
@@ -152,6 +153,25 @@ export const projectSchema = z.object({
    * so a project that pins Ref2VA and a character gets the lock it implies.
    */
   videoCharacterReferences: z.boolean().optional(),
+  /**
+   * How many photographs of each character reach a reference-to-video model.
+   *
+   * One is the default and was the only behaviour: every path took
+   * `referenceImagesOf(character)[0]` and the rest of the library was read only
+   * as a has-a-photo test. That is right for an *edit* model, which treats each
+   * reference as a separate element to place in the frame — four photographs of
+   * one woman rendered her twice in the same shot — but a reference-to-video
+   * model conditions identity across a whole clip and is the one place more
+   * angles of the same face plausibly help.
+   *
+   * Opt-in rather than raised, because the cost is real and measured: roughly
+   * seven minutes of render per added reference, paid on every clip. A user who
+   * has not chosen gets the cheap, proven behaviour.
+   *
+   * Bounded by the character's stored photographs, by what the model advertises
+   * it can hold, and by `REF2VA_MAX_CHARACTERS` scenes' worth of budget.
+   */
+  videoReferencesPerCharacter: z.number().int().min(1).max(MAX_REFERENCE_IMAGES).optional(),
   /**
    * Whether a carried-over frame conditions the end frame rendered against it.
    *

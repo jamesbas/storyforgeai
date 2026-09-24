@@ -13,8 +13,16 @@ import {
 /**
  * Reference images per character.
  *
- * Two is the ceiling of the reference-capable models in use, and matches what
- * testing showed: a second angle improved identity, a third had nowhere to go.
+ * Four, and all four are now reachable: a reference-to-video model can be given
+ * several angles of the same face through `videoReferencesPerCharacter`, and
+ * the face swap takes them one at a time. The comment here used to say two was
+ * the ceiling of the models in use, which stopped being true as the catalogue
+ * grew — every reference-capable model on a current server advertises
+ * `multiple_references`.
+ *
+ * Still a small number on purpose. These are angles on one face, not a gallery:
+ * past a handful the marginal identity gain is smaller than the cost of another
+ * image in the packed sequence.
  */
 export const MAX_REFERENCE_IMAGES = 4;
 

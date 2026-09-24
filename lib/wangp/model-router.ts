@@ -44,12 +44,43 @@ export function toCapability(model: WangpModel): ModelCapability {
 /**
  * How many reference images a model is worth sending.
  *
- * Flux 2 takes up to four and identity improves with each one. Everything else
- * is held at two: more references on a model that only conditions on the first
- * few dilutes the prompt rather than sharpening the likeness.
+ * Read from what the model advertises, with a family table only where a real
+ * published limit is narrower than "several". It used to be
+ * `modelType.startsWith("flux2") ? 4 : 2` — a prefix guess that never consulted
+ * the catalogue, so a model announcing `multiple_references` was still held to
+ * two, and an unknown model that could take none was offered two anyway.
+ *
+ * `reference` without `multiple_references` means exactly one picture: sending a
+ * second is not a richer answer, it is a discarded one.
+ *
+ * The named ceilings are the ones their own descriptions state. Krea 2 Turbo
+ * Identity Edit says "Up to two Reference Images can be provided", and a
+ * ceiling that is published is worth more than one that is inferred.
  */
-export function referenceImageCapacity(model: { modelType: string }): number {
-  return model.modelType.startsWith("flux2") ? 4 : 2;
+const FAMILY_REFERENCE_CEILING: Record<string, number> = {
+  krea2: 2,
+};
+
+/** What a model advertising `multiple_references` gets when it names no bound. */
+const DEFAULT_MULTI_REFERENCE_CAPACITY = 4;
+
+export function referenceImageCapacity(model: {
+  modelType: string;
+  metadata?: { mediaInputs?: { image?: { reference?: boolean; multipleReferences?: boolean } }; family?: string };
+}): number {
+  const image = model.metadata?.mediaInputs?.image;
+
+  // Absent metadata is the pre-discovery case and a test fixture's usual shape.
+  // Two is what the prefix guess gave everything, so it stays the unknown-model
+  // answer rather than becoming a silent widening.
+  if (!image) return model.modelType.startsWith("flux2") ? 4 : 2;
+
+  if (!image.reference) return 0;
+  if (!image.multipleReferences) return 1;
+
+  const family = model.metadata?.family;
+  const published = family ? FAMILY_REFERENCE_CEILING[family] : undefined;
+  return published ?? DEFAULT_MULTI_REFERENCE_CAPACITY;
 }
 
 function strategyBonus(modelType: string, strategy: Project["modelStrategy"]): number {

@@ -268,13 +268,19 @@ function routeH3Format(
 }
 
 /**
- * A character whose face this clip has to hold, and the photograph that fixes it.
+ * A character whose face this clip has to hold, and the photographs that fix it.
  */
 export type CastReference = {
   name: string;
   description?: string;
-  /** Absolute path, readable by the WanGP process. */
-  imagePath: string;
+  /**
+   * Absolute paths, readable by the WanGP process, most representative first.
+   *
+   * A list rather than one path because a reference-to-video model conditions
+   * identity across a whole clip and can hold several angles of the same face.
+   * Usually one: extra references are opt-in and cost render time.
+   */
+  imagePaths: string[];
 };
 
 /**
@@ -328,20 +334,33 @@ function composeRef2vaReferences(
   }
 
   const anchors = [args.imageStart, args.imageEnd].filter((path): path is string => Boolean(path));
-  const imageRefs = [
-    ...(keyframesAsReferences ? anchors : []),
-    ...cast.map((member) => member.imagePath),
-  ];
-  const subjects = cast.map((member, index) => ({
-    name: member.name,
-    description: member.description,
-    pictureIndex: index + anchors.length + 1,
-  }));
+
+  // Picture numbering is positional and the prompt refers to it, so the index
+  // has to be computed from how many pictures actually precede a character —
+  // not from their position in the cast. With one photo each those are the same
+  // number, which is why this was `index + anchors.length + 1` and stayed
+  // correct until a character could contribute two.
+  const imageRefs = [...(keyframesAsReferences ? anchors : [])];
+  const subjects: H3ReferenceSubject[] = [];
+  for (const member of cast) {
+    if (!member.imagePaths.length) continue;
+    subjects.push({
+      name: member.name,
+      description: member.description,
+      // The first of this character's pictures is the one the prose names.
+      pictureIndex: imageRefs.length + 1,
+      ...(member.imagePaths.length > 1
+        ? { additionalPictureIndices: member.imagePaths.slice(1).map((_, i) => imageRefs.length + 2 + i) }
+        : {}),
+    });
+    imageRefs.push(...member.imagePaths);
+  }
 
   logEvent("wangp.ref2va.composed", {
     ...context,
     referenceCount: imageRefs.length,
     characterCount: cast.length,
+    photosPerCharacter: cast.map((member) => member.imagePaths.length),
   });
 
   return { imageRefs, subjects, keyframesAsReferences };

@@ -289,6 +289,8 @@ export async function updateProjectModels(id: string, raw: unknown): Promise<Pro
         patch.useCharacterReferenceImages ?? record.project.useCharacterReferenceImages,
       videoCharacterReferences:
         patch.videoCharacterReferences ?? record.project.videoCharacterReferences,
+      videoReferencesPerCharacter:
+        patch.videoReferencesPerCharacter ?? record.project.videoReferencesPerCharacter,
       endFrameReferences: patch.endFrameReferences ?? record.project.endFrameReferences,
       loras,
       sceneLoras: pruneSceneLoras(

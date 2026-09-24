@@ -215,14 +215,16 @@ function photographedSubject(
 }
 
 /**
- * The cast of one shot, each with the single photograph that fixes their face.
+ * The cast of one shot, each with the photographs that fix their face.
  *
- * One photograph per character, not all of them: on the reference variant every
- * image lengthens the same packed sequence at roughly seven minutes each, and a
- * second photo of the same person was measured as marginally better identity
- * for that whole cost. The written description travels alongside so the prompt
- * can name who each reference *is*, which is the only thing telling the model
- * that picture 3 is a person rather than another composition to reproduce.
+ * One photograph per character by default, not all of them: on the reference
+ * variant every image lengthens the same packed sequence at roughly seven
+ * minutes each, and a second photo of the same person was measured as
+ * marginally better identity for that whole cost. More than one is therefore
+ * opt-in through `videoReferencesPerCharacter`. The written description travels
+ * alongside so the prompt can name who each reference *is*, which is the only
+ * thing telling the model that picture 3 is a person rather than another
+ * composition to reproduce.
  *
  * Gated on `videoCharacterReferences`, not on the keyframe setting. They were
  * one flag, and choosing description-and-face-swap for the keyframes — a
@@ -238,13 +240,18 @@ async function resolveCastSubjects(
   scene: Scene,
 ): Promise<CastReference[]> {
   if (record.project.videoCharacterReferences === false) return [];
+  // One unless asked for more: every extra image lengthens the same packed
+  // sequence at roughly seven minutes of render each.
+  const perCharacter = Math.max(1, record.project.videoReferencesPerCharacter ?? 1);
   const cast = await resolveProjectCast(record.project);
   return charactersInScene(scene, cast)
     .map((character): CastReference | null => {
-      const filename = referenceImagesOf(character)[0];
-      const imagePath = filename ? resolveReferenceImagePath(filename) : null;
-      return imagePath
-        ? { name: character.name, description: character.description, imagePath }
+      const imagePaths = referenceImagesOf(character)
+        .slice(0, perCharacter)
+        .map((filename) => resolveReferenceImagePath(filename))
+        .filter((filePath): filePath is string => filePath !== null);
+      return imagePaths.length
+        ? { name: character.name, description: character.description, imagePaths }
         : null;
     })
     .filter((subject): subject is CastReference => subject !== null);

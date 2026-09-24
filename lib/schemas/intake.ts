@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { loraSelectionSetSchema, sceneLoraMapSchema } from "@/lib/schemas/lora";
+import { MAX_REFERENCE_IMAGES } from "@/lib/schemas/character";
 import {
   ASPECT_RATIOS,
   CREATIVE_MODES,
@@ -129,6 +130,8 @@ export const updateProjectModelsSchema = z.object({
   useCharacterReferenceImages: z.boolean().optional(),
   /** Whether a character's photograph is sent to a reference-to-video model. */
   videoCharacterReferences: z.boolean().optional(),
+  /** How many photographs per character reach a reference-to-video model. */
+  videoReferencesPerCharacter: z.number().int().min(1).max(MAX_REFERENCE_IMAGES).optional(),
   /** Whether a carried-over frame conditions the end frame rendered against it. */
   endFrameReferences: z.boolean().optional(),
   /**

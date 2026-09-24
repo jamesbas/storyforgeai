@@ -344,6 +344,7 @@ export function normalizeModel(
                       start: hasMediaRole(image, "start"),
                       end: hasMediaRole(image, "end"),
                       reference: hasMediaRole(image, "reference"),
+                      multipleReferences: hasMediaRole(image, "multiple_references"),
                     },
                   }
                 : {}),

@@ -162,6 +162,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
       characterWardrobe?: Record<string, string>;
       useCharacterReferenceImages?: boolean;
       videoCharacterReferences?: boolean;
+      videoReferencesPerCharacter?: number;
       endFrameReferences?: boolean;
       loras?: LoraSelectionSet;
     }) => {
@@ -562,6 +563,32 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
                 </span>
               </span>
             </label>
+            {project.videoCharacterReferences !== false ? (
+              <label className="mt-1 flex flex-wrap items-center gap-2 border-t border-white/10 pt-2 text-xs text-slate-300">
+                <span>Photographs sent per character</span>
+                <select
+                  className="rounded border border-white/10 bg-canvas px-2 py-1 text-xs"
+                  disabled={busy}
+                  value={project.videoReferencesPerCharacter ?? 1}
+                  onChange={(event) =>
+                    save({ videoReferencesPerCharacter: Number(event.target.value) })
+                  }
+                >
+                  {[1, 2, 3, 4].map((count) => (
+                    <option key={count} value={count}>
+                      {count}
+                    </option>
+                  ))}
+                </select>
+                <span className="w-full text-slate-500">
+                  More angles of the same face give the model more to hold on to, and this is the
+                  one model family where that is worth doing — it conditions identity across the
+                  whole clip rather than placing a picture in a frame. Each extra photograph adds
+                  roughly 5 minutes per clip, and a character with fewer stored photographs simply
+                  sends what it has.
+                </span>
+              </label>
+            ) : null}
           </div>
         ) : null}
 

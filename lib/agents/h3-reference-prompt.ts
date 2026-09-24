@@ -42,6 +42,15 @@ export type H3ReferenceSubject = {
   /** 1-based position of this character's photograph in the reference list. */
   pictureIndex: number;
   /**
+   * Further pictures of the *same* character, when more than one was sent.
+   *
+   * Named separately rather than merged into one range because the format
+   * addresses pictures individually, and the model has to be told these are
+   * more views of one person — otherwise a second photograph of a character
+   * reads as a second character.
+   */
+  additionalPictureIndices?: number[];
+  /**
    * How much of the reference the model should carry over. The guide's four
    * markers; identity work wants `attribute_transfer`, which takes the face
    * without the photograph's pose, framing or clothing.
@@ -184,12 +193,29 @@ function anchorRefs(hasStart: boolean, hasEnd: boolean) {
   };
 }
 
+/**
+ * How this character's pictures are named in the subject definition.
+ *
+ * Several pictures of one person have to be declared as such. Listed
+ * individually and said to be the same person, because the format addresses
+ * pictures by number and an unexplained second photograph of a character reads
+ * as a second character — the failure that keeps one likeness from landing on
+ * two bodies is always an explicit binding, never proximity.
+ */
+function pictureClause(subject: H3ReferenceSubject): string {
+  const extra = subject.additionalPictureIndices ?? [];
+  if (!extra.length) return `<Picture ${subject.pictureIndex}>,`;
+  const all = [subject.pictureIndex, ...extra].map((index) => `<Picture ${index}>`);
+  const last = all.pop()!;
+  return `${all.join(", ")} and ${last}, which are the same person from different angles,`;
+}
+
 function subjectLine(subject: H3ReferenceSubject, index: number): string {
   const described = tidy(subject.description);
   const detail = described ? ` ${described}` : "";
   return (
     `<Subject ${index + 1}> is ${tidy(subject.name)}, shown in ` +
-    `<Picture ${subject.pictureIndex}>, which defines their facial structure, hair, skin tone ` +
+    `${pictureClause(subject)} which defines their facial structure, hair, skin tone ` +
     `and clothing.${detail}`
   );
 }

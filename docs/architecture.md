@@ -1039,11 +1039,21 @@ and the face swap are all gated on it, because each is an instruction to put tha
 person in the picture.
 
 **Reference images** (`lib/services/media-service.ts` → `resolveCastReferenceImages`)
-resolve up to two files per character **in that scene** into absolute paths, sent as
+resolve **one file per character in that scene** into absolute paths, sent as
 `image_refs` with `video_prompt_type` set to the activating letter.
 `buildSettingsManifest` also sets `remove_background_images_ref` when references are
 present: with the background intact the whole photo acts as the reference and the
 identity signal is diluted.
+
+**How many a model is offered** is read from what it advertises, not guessed.
+`referenceImageCapacity` was `modelType.startsWith("flux2") ? 4 : 2` — a prefix
+test that never consulted the catalogue, so it held a model announcing
+`multiple_references` at two and still offered two to one that takes none. It now
+reads `mediaInputs.image`: no `reference` is zero, `reference` without
+`multiple_references` is exactly one (a second picture there is discarded, not
+richer), and a multi-reference model gets four unless its family publishes a
+narrower ceiling — Krea 2 Turbo Identity Edit states "up to two" in its own
+description, and a published bound beats an inferred one.
 
 A photograph conditions the whole frame rather than one figure in it, so on a shot
 with several people the likeness lands on more than one. `project.useCharacterReferenceImages`
@@ -1063,6 +1073,25 @@ transfer, because Ref2VA receives each photograph as a *named* subject bound to
 that character in the prose (§ `bindSubjects`) rather than as a bare `image_refs`
 list. Observed live on a 27-scene project pinned to `minimax_h3_ref2va_pdd` with a
 character selected and no reference reaching a single clip.
+
+**Several angles of one face, on the video model only.** A character stores up to
+`MAX_REFERENCE_IMAGES` (4) photographs, and every path used to take `[0]` and read
+the rest as a has-a-photo test. `project.videoReferencesPerCharacter` (absent = 1)
+raises that for Ref2VA alone, because the three consumers fail differently:
+
+| Consumer | Sends | Why not more |
+|---|---|---|
+| Keyframes — Krea / Qwen / Flux | 1 per character | An edit model reads each reference as a separate element to *place*; four photographs of one woman rendered her twice in the same shot |
+| Ref2VA video | 1, or `videoReferencesPerCharacter` | Conditions identity across the whole clip, so more angles help — at roughly 7 minutes of render each, which is why it is opt-in |
+| Face swap | 1 | The preset addresses "Picture 1" and "Picture 2" by position; a third arrives unaddressed. A prompt limit, not a model one — `face_swap.reference_ignored` records it |
+
+Picture numbering is positional and the prose refers to it, so `pictureIndex` is
+computed from how many pictures precede a character rather than from their place
+in the cast — with one photograph each those are the same number, which is why the
+old `index + anchors.length + 1` stayed correct until a character could contribute
+two. The extra pictures are declared as *"the same person from different angles"*,
+because an unexplained second photograph of a character reads as a second
+character.
 
 **Withholding the written face** (`lib/agents/cast.ts`).
 `castSheet(cast, forRender, wardrobeAt, options)` takes a flag distinguishing render
@@ -1423,6 +1452,7 @@ classDiagram
         string videoModel
         bool useCharacterReferenceImages
         bool videoCharacterReferences
+        int videoReferencesPerCharacter
         map~sceneId,WardrobeChange[]~ wardrobeChanges
         ProjectStatus status
     }

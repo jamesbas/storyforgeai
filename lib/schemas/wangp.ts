@@ -19,6 +19,14 @@ export const wangpModelSchema = z.object({
             start: z.boolean().optional(),
             end: z.boolean().optional(),
             reference: z.boolean().optional(),
+            /**
+             * Accepts a *list* of references rather than a single one.
+             *
+             * WanGP publishes `multiple_references` beside `reference`, and the
+             * distinction matters: `reference` alone means one picture, so
+             * sending a second is not a richer answer but a discarded one.
+             */
+            multipleReferences: z.boolean().optional(),
           })
           .optional(),
         audio: z

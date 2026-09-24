@@ -218,3 +218,82 @@ describe("reference mode and the character photographs", () => {
     expect(refs).toHaveLength(3);
   });
 });
+
+/**
+ * More than one photograph of the same face.
+ *
+ * Every path took `referenceImagesOf(character)[0]` and read the rest of the
+ * library only as a has-a-photo test, so three of a character's four stored
+ * images were dead weight. That is right for an *edit* model — four photographs
+ * of one woman rendered her twice in the same shot — but a reference-to-video
+ * model conditions identity across a whole clip and is the one place more
+ * angles plausibly help. Opt-in, because the cost is about seven minutes of
+ * render per added image, paid on every clip.
+ */
+describe("more than one photograph per character", () => {
+  async function twoPhotos(env: Env, perCharacter?: number) {
+    const character = await env.characters.createCharacter({
+      name: "Mara",
+      description: "A woman in her fifties.",
+      faceSwap: false,
+    });
+    await env.characters.setReferenceImage(character.id, pngFile());
+    await env.characters.setReferenceImage(character.id, pngFile());
+
+    const project = await env.projects.createProject({
+      concept: "Mara turns from the window as the rain starts.",
+      requestedDurationSeconds: 40,
+      useCharacterLibrary: true,
+      characterIds: [character.id],
+    });
+    await env.projects.updateProjectModels(project.id, {
+      videoModel: "minimax_h3_ref2va",
+      ...(perCharacter === undefined ? {} : { videoReferencesPerCharacter: perCharacter }),
+    });
+    await env.projects.generateStoryboard(project.id);
+    return env.projects.getProjectRecord(project.id);
+  }
+
+  it("still sends one when nothing asked for more", async () => {
+    const env = await isolated();
+    const record = await twoPhotos(env);
+
+    const { refs } = await videoRefs(env, record);
+    // Two anchors, one photograph — the stored second is not volunteered.
+    expect(refs).toHaveLength(3);
+  });
+
+  it("sends both when the project asks for two", async () => {
+    const env = await isolated();
+    const record = await twoPhotos(env, 2);
+
+    const { refs } = await videoRefs(env, record);
+    expect(refs).toHaveLength(4);
+    expect(refs.filter((ref) => ref.includes("character-images"))).toHaveLength(2);
+  });
+
+  /**
+   * The failure this guards: an unexplained second photograph of a character
+   * reads as a second character, and the binding is what keeps one likeness off
+   * two bodies.
+   */
+  it("tells the model the extra picture is the same person", async () => {
+    const env = await isolated();
+    const record = await twoPhotos(env, 2);
+
+    const { prompt } = await videoRefs(env, record);
+    expect(prompt).toContain("<Picture 3>");
+    expect(prompt).toContain("<Picture 4>");
+    expect(prompt).toContain("the same person from different angles");
+  });
+
+  it("sends what the character has when asked for more than exist", async () => {
+    const env = await isolated();
+    const record = await twoPhotos(env, 4);
+
+    const { refs } = await videoRefs(env, record);
+    // Two stored, four requested: two sent, and no empty slot in the list.
+    expect(refs).toHaveLength(4);
+    expect(refs.every((ref) => ref.length > 0)).toBe(true);
+  });
+});
