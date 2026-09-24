@@ -61,8 +61,8 @@ flowchart TB
 
 Dashed edges are **off by default**. Each is replaced by an in-process
 deterministic mock so the whole product is exercisable with zero dependencies.
-Structured project data lives in memory; only rendered media touches disk — see
-[§7.1](#71-where-data-actually-lives).
+Project state is written to the local filesystem as JSON, alongside the rendered
+media — see [§7.1](#71-where-data-actually-lives).
 
 ---
 
@@ -96,7 +96,7 @@ flowchart TD
         wangp["wangp/<br/>client · factory · model-router · settings"]
         media["media/<br/>assembly · audio-mix · ffmpeg · refs · path-policy"]
         deepy["deepy/"]
-        repo["db/ repository<br/>in-memory ↔ Prisma"]
+        repo["db/ repository<br/>file ↔ in-memory"]
         schemas["schemas/ — Zod trust boundaries"]
         tel["telemetry/"]
         cfg["config.ts — feature flags"]
@@ -576,8 +576,8 @@ sequenceDiagram
     OR->>OR: append "Selected direction: X" to brief.constraints
 
     OR->>SA: storyArchitectAgent(ctx, provider)
-    SA->>LLM: generateJson(system(segmentSeconds), {project, brief})
-    Note right of SA: rejected unless<br/>segmentBeats.length === segmentCount
+    SA->>LLM: generateJson(system(segmentSeconds, segmentCount), {project, brief})
+    Note right of SA: long pieces: opening window only,<br/>then continuations until every<br/>segment has a beat and an emotion
     SA-->>OR: ctx.storyPlan
 
     OR->>VB: visualBibleAgent(ctx, provider)
@@ -586,8 +586,10 @@ sequenceDiagram
 
     OR->>SB: storyboardAgent(ctx, provider)
     Note right of SB: throws if brief, storyPlan,<br/>or visualBible are missing
-    SB->>LLM: generateJson(system, {project, brief, storyPlan, visualBible})
-    Note right of SB: rejected unless<br/>scenes.length === segmentCount
+    loop every CARDS_PER_CALL scenes
+        SB->>LLM: generateJson(system + batchDirective, {this batch's beats,<br/>plans scoped to these segments, previous scene})
+        Note right of SB: a card the batch omits is filled<br/>from the builder, not the whole batch
+    end
     SB-->>OR: ctx.sceneDrafts
 
     OR->>OR: foldWardrobeChanges(project, drafts, cast)
@@ -597,6 +599,7 @@ sequenceDiagram
         OR->>PR: attachScenePrompts(project, drafts, provider, {cast, plans, only?, existing?})
         PR->>PR: charactersInScene(draft, cast) · wardrobeTimeline.get(draft.id)
         PR->>LLM: generateJson(composed system, {project, scene, sceneCast, wardrobe, plan slices})
+        PR->>PR: gateImagePrompt → one retry with the reason, then repair
         PR->>LLM: generateJson(composed video system, same payload)
         PR-->>OR: Scene = draft + prompts
     end
@@ -612,15 +615,15 @@ sequenceDiagram
 | Agent | System prompt constant | Provider result accepted when | Deterministic fallback |
 |---|---|---|---|
 | Intake Producer | `INTAKE_SYSTEM` | parses as `creativeBriefSchema` | `buildCreativeBrief` |
-| Story Architect | `storyArchitectSystem(segmentSeconds)` | parses **and** `segmentBeats.length === segmentCount` | `buildStoryPlan` |
+| Story Architect | `storyArchitectSystem(segmentSeconds, segmentCount)` + directives ‡ | parses, **and** `segmentBeats.length === segmentCount` *after* the continuation rounds | `buildStoryPlan` |
 | Visual Bible | `VISUAL_BIBLE_SYSTEM` | parses as `visualBibleSchema` | `buildVisualBible` |
-| Storyboard Artist | `storyboardSystem(segmentSeconds)` | parses **and** `scenes.length === segmentCount` | `buildSceneDrafts` |
-| Image Prompt | `IMAGE_PROMPT_SYSTEM` + directives † | parses the picked subset of `scenePromptsSchema` | `buildImagePrompts` |
+| Storyboard Artist | `storyboardSystem(segmentSeconds)` + directives † | parses, per batch of `CARDS_PER_CALL` | `buildSceneDrafts`, per missing card |
+| Image Prompt | `IMAGE_PROMPT_SYSTEM` + directives † | parses the picked subset of `scenePromptsSchema` **and** clears the acceptance gate ([§4.3](#43-the-prompt-acceptance-gate)) | `buildImagePrompts` |
 | Video Prompt | `videoPromptSystem(segmentSeconds)` + directives † | parses the picked subset | `buildVideoPrompts` |
-| Variant Explorer | `VARIANT_EXPLORER_SYSTEM` | parses **and** `variants.length >= 3` | `buildVariants` |
+| Variant Explorer | `VARIANT_EXPLORER_SYSTEM` | parses **and** returns at least one variant; duplicate axes are repaired rather than rejected | `buildVariants` |
 | World Builder | `WORLD_BUILDER_SYSTEM` | parses as `worldBibleSchema` | `buildWorldBible` |
-| Director | `DIRECTOR_SYSTEM` | parses as `directorialPlanSchema` | `buildDirectorialPlan` |
-| Cinematographer | `CINEMATOGRAPHER_SYSTEM` | parses as `cinematographyPlanSchema` | `buildCinematographyPlan` |
+| Director | `DIRECTOR_SYSTEM` + directives ‡ | parses as `directorialPlanSchema` | `buildDirectorialPlan` |
+| Cinematographer | `CINEMATOGRAPHER_SYSTEM` + directives ‡ | parses as `cinematographyPlanSchema` | `buildCinematographyPlan` |
 | Art Director | `ART_DIRECTOR_SYSTEM` | parses as `artDirectionPlanSchema` | `buildArtDirectionPlan` |
 | Audio Director | `AUDIO_DIRECTOR_SYSTEM` | parses **and** `sceneAudioCues.length === scenes.length` | `buildAudioPlan` |
 | QC | `QC_SYSTEM` | parses as `qcResultSchema` | `evaluateQc` |
@@ -630,6 +633,21 @@ call time from the base prompt plus `explicitnessDirective`, `wardrobeChangeDire
 `imagePromptDirective`/`videoPromptDirective` (which depend on the *pinned model
 family*), `seamDirective`, `castSystemDirective` and `precedenceDirective`. Two
 projects therefore send materially different system prompts to the same agent.
+
+‡ The three windowed agents — Story Architect, Director, Cinematographer — compose
+theirs from a shared base plus `firstWindowDirective` and, on every continuation,
+`windowPlacementDirective` and `windowBeatsDirective`
+([§3.7](#37-long-per-segment-artifacts-are-written-a-window-at-a-time)). The base
+carries `dontRestateDirective` so the continuations inherit it too.
+
+**Counts are reached, not demanded.** Three of these used to reject a whole
+artifact for being short, which on the arc meant discarding the logline, the
+progression and every beat the model *did* write. The count is now a last check
+after the agent has been given the chance to finish: the arc and the two per-scene
+plan maps are written a window at a time, the storyboard is batched with per-card
+fallback, and a variant set with duplicate axes is repaired in place. Whatever
+shortfall survives is still reported as `short_collection` with the real remaining
+count rather than papered over.
 
 Segment length is **interpolated into the prompt** rather than hard-coded, because
 telling a model "20-second segments" for an 8-second project produces beats with
@@ -737,12 +755,15 @@ Two rules follow, and both are enforced in `project-service.ts`:
 Diagnosing it: `storyPlan.segmentBeats` matching `/Advance beat \d+ of the
 narrative/` is the template, whatever the storyboard's own provenance says.
 
-### 3.7 Per-scene plan maps fill their own gaps
+### 3.7 Long per-segment artifacts are written a window at a time
 
-`directorialPlan.sceneIntent` and `cinematographyPlan.sceneShotPlans` are
-`z.record(z.string())` keyed by segment number, and both were written in **one
-call for the whole project**. A model that stops part way down leaves the
-remaining scenes with no direction at all — live, `sceneIntent covers 18 of 24
+Three artifacts carry one entry per segment: the arc's `segmentBeats` (with
+`emotionalProgression` beside it), `directorialPlan.sceneIntent` and
+`cinematographyPlan.sceneShotPlans`. All three were written in **one call for the
+whole project**, and all three failed the same way on a long piece.
+
+`z.record(z.string())` and `z.array(z.string())` both parse when short, so the
+shortfall was structurally invisible — live, `sceneIntent covers 18 of 24
 segments`, detected by `segmentGap()` and reported honestly while nothing acted
 on it.
 
@@ -1132,6 +1153,92 @@ unless the seam is a planned cut, in which case it renders its own start frame
 Face swap corrects keyframes only. The clip between them is model-interpolated, so
 identity can drift mid-motion even when every keyframe is exact.
 
+### 4.3 The prompt acceptance gate
+
+Everything upstream of here is *instruction*. The image agent is told to name the
+anatomy, keep the action, refuse euphemism and choose a framing that can hold the
+people in it — and nothing checked that it did. The response contract asks for
+three strings, and a coy, generic or half-empty prompt satisfies it exactly as
+well as a faithful one, so a scene could be planned correctly, prompted
+correctly, and still render two people standing near each other.
+
+`lib/agents/prompt-gate.ts` is the check between "the agent was instructed" and
+"this prompt depicts the scene". It runs on every image prompt before a render is
+spent on it.
+
+```mermaid
+flowchart TD
+    P["image prompt"] --> G["gateImagePrompt(prompt, frame, ctx)"]
+    G -->|"no codes"| OK["send to WanGP"]
+    G -->|"codes"| R["retry once, system prompt carrying<br/>gateRepairDirective(codes)"]
+    R --> G2{"retry clean?"}
+    G2 -->|yes| OK
+    G2 -->|"no — keep whichever<br/>answer had fewer codes"| D["repairImagePrompt<br/>deterministic, from the card's own words"]
+    D --> OK
+    D -.->|"surviving codes → execution<br/>+ logEvent prompt.gate"| T["telemetry"]
+```
+
+The codes are **sufficiency checks, asked separately**, because a prompt can
+satisfy one and none of the rest. The first version asked only whether the prompt
+contained *any* explicit word, and "performs oral sex on Mara; his mouth is
+pressed against her soft skin between her thighs" passed it clean: the act was
+labelled and nothing an image model can draw was described.
+
+| Code | What it catches | Repairable from the card |
+|---|---|---|
+| `prompt_blank` | Schema-valid but empty or too short to render | Opening from `visualDescription` |
+| `action_dropped` | The scene's physical action is not in the prompt that renders it | No — a third of the card's content words cannot tell a paraphrase from a drop |
+| `participant_missing` | Somebody the scene puts in the shot is unnamed, so their cast sheet is never appended | Yes |
+| `euphemism` | The act replaced by a phrase naming an idea rather than a thing | Restated from the card |
+| `anatomy_unnamed` | Nothing for the model to draw | Restated from the card |
+| `contact_unstated` | Nothing says what is inside, against or around what | No — a template cannot choose |
+| `position_unstated` | The bodies have no arrangement to hold | No — a template cannot choose |
+| `motion_in_still` | Rhythm, camera travel or duration in a single frame | No |
+| `wardrobe_contradicts_act` | Clothing on a body the act undresses | Yes, `withoutInventedGarments` |
+| `framing_too_tight` | A shot size too tight to hold the people named in it | Yes, `widenShotSize` |
+| `focal_point_hidden` | The camera is on the wrong side of the body part the frame is about | Yes, three-quarter rear |
+| `headcount_mismatch` | The closing frame adds somebody the opening frame has not got | No — pair-level |
+
+Four properties worth stating:
+
+1. **Explicit checks are gated on the card, not the project.** `depictsSexAct`
+   reads the euphemisms too, because a card saying "he engages her from behind"
+   is a sex scene whose author was coy and the prompt written from it must not
+   be. Nudity is deliberately *not* an act: asking an undressing frame to name
+   genital anatomy is a demand the scene cannot meet.
+2. **Three checks run for every project, explicit or not.** `motion_in_still`
+   spent its first three releases switched off for non-explicit work, which is
+   exactly wrong — a keyframe is one held instant whatever it contains. So do
+   `framing_too_tight` and `focal_point_hidden`: a hand on a shoulder blade is as
+   invisible from the front as anything else.
+3. **The retry is told the reason, not just rejected.** `gateRepairDirective`
+   turns each code into a sentence naming the fault and the fix, which is the
+   difference between a second attempt and the same attempt again.
+4. **The deterministic repair never restates.** It guarantees the concrete text
+   the card already holds reaches the render rather than being lost. An early
+   version appended the whole action and then appended its explicit sentences
+   individually, so a repaired prompt carried the act three times — twice
+   verbatim — and a sampler weights a repeated sentence twice.
+
+A gate code that survives the retry is recorded on the execution, so a prompt the
+repair could only flag is findable afterwards rather than discovered at the GPU.
+`scripts/storyboard-health.ts` reads exactly that.
+
+**The camera axis nobody was naming.** `framing_too_tight` and
+`focal_point_hidden` are two halves of the same omission. Shot size, lens, camera
+height and movement were all specified per scene and all describe how high the
+camera is or how much of the frame it fills; nothing said where it stood *around*
+the subject, which decides whether a given side of a body faces the lens. Live, a
+frame whose whole content was a hand gripping a backside named the anatomy, the
+contact and the position, opened "Medium close-up, eye level" with the pair
+staged facing each other, and rendered the hand on her **hip** — the only place
+the camera could see one. `lib/media/viewpoint.ts` adds the axis;
+`focalSide()` reads what the frame is about from the card while `sideVisibleIn()`
+reads where the camera is from the prompt. It is rear-only on purpose: one body's
+front against another's back is plainly visible from behind, and a symmetric rule
+fired on six correct frames in one project, including a doggy-style frame shot
+from a rear camera.
+
 ### Scene continuity and the seam
 
 `project.sceneContinuity` decides what a scene inherits from its predecessor:
@@ -1243,12 +1350,12 @@ sequenceDiagram
     API->>AS: assembleRoughCut(projectId)
     AS->>FC: plan from approved attempts
     FC-->>AS: FinalCutPlan — clips, totalDuration, finalTrimSeconds
-    AS->>FF: concat(clips → assembly/rough-cut.mp4)
+    AS->>FF: concat(clips → assembly/{title}-{timestamp}-rough-cut.mp4)
     FF-->>AS: roughCutPath
     AS->>MX: resolveCueTimeline(plan, audioPlan.cues)
     MX-->>AS: absolute-timeline cues
     alt cues present
-        AS->>FF: mixAudio(roughCut, cues → assembly/final-cut.mp4)
+        AS->>FF: mixAudio(roughCut → assembly/{title}-{timestamp}-final-cut.mp4)
         FF-->>AS: finalPath
     end
     AS->>DB: store assembly · status = assembled
@@ -1261,6 +1368,13 @@ never re-encodes picture, and the rough cut survives as the un-scored reference.
 Per-scene trim is applied during the concat — the final scene's duration already
 absorbs `trimAtEndSeconds`, so `finalTrimSeconds` is a record of discarded
 material and must not be subtracted twice.
+
+Cuts are named for their project and the moment they were made
+(`lib/export/file-name.ts`), because the download header is built from the file's
+own basename: when every project produced `rough-cut.mp4`, a folder of finished
+pieces was a row of identical names and the second one downloaded became
+`rough-cut (1).mp4`. The kind stays in the name because both cuts share a folder.
+Re-assembling replaces the previous cut rather than accumulating them.
 
 Export package via `GET /api/projects/{id}/export?format=…`:
 `json` · `md` · `manifest` · `animatic` · `final-cut`.
@@ -1278,6 +1392,9 @@ classDiagram
         Project project
         CreativeVariant[] variants
         string selectedVariantId
+        StoryPlan storyPlan
+        ConceptVisuals conceptVisuals
+        ConceptFidelity conceptFidelity
         WorldBible worldBible
         DirectorialPlan directorialPlan
         CinematographyPlan cinematographyPlan
@@ -1286,7 +1403,9 @@ classDiagram
         AudioPlan audioPlan
         AnimaticPlan animaticPlan
         Map~sceneId, SceneAttempt[]~ attempts
+        Map~sceneId, ScenePreview~ previews
         Assembly assembly
+        ArtifactExecution[] executions
         HistoryEntry[] history
     }
     class Project {
@@ -1385,7 +1504,7 @@ the scene because a change carries forward to every scene after it.
 | --- | --- | --- |
 | `ProjectRecord` — project, variants, all agent plans, storyboard, audio plan, attempts, assembly metadata, history, SPEC-004 executions | **`./projects/{projectId}/project.json`**, written atomically | Survives restart |
 | Durable task state — SPEC-008 queue entries, states, external job ids, lease | **`./projects/{projectId}/tasks.json`**, written atomically | Survives restart; only written when `DURABLE_TASKS=true` |
-| Rendered media — images, video segments, `rough-cut.mp4`, `final-cut.mp4` | **Local filesystem** under `config.dataDir` (`./projects/{projectId}/…`) | Survives restart |
+| Rendered media — images, video segments, the assembled cuts | **Local filesystem** under `config.dataDir` (`./projects/{projectId}/…`) | Survives restart |
 
 ```mermaid
 flowchart LR
@@ -1468,37 +1587,43 @@ flowchart LR
     subgraph proj["/api/projects"]
         p1["POST / · GET /"]
         p2["GET · PATCH · DELETE /:projectId"]
-        p3["PATCH /:projectId/models"]
+        p3["PATCH /:projectId/models · GET /:projectId/model-choice"]
         p4["POST /import · POST /:projectId/duplicate"]
+        p5["GET · POST · DELETE /:projectId/concept-images"]
+        p6["POST /:projectId/read-concept-images · POST /:projectId/concept-fidelity"]
     end
     subgraph agentsapi["Agent triggers — /api/projects/:projectId"]
-        a1["POST generate-variants"]
+        a1["POST generate-variants · GET variants"]
         a2["POST variants/:variantId/select"]
         a3["POST generate-world-bible"]
         a4["POST generate-directorial-plan"]
         a5["POST generate-cinematography-plan"]
         a6["POST generate-art-direction-plan"]
-        a7["POST generate-storyboard"]
-        a8["POST generate-audio-plan"]
-        a9["POST generate-animatic"]
+        a7["POST generate-story-plan"]
+        a8["POST generate-storyboard"]
+        a9["POST generate-audio-plan · POST generate-animatic"]
         a10["PATCH plans/:agentKey"]
+        a11["GET · POST · DELETE canvas-run"]
+        a12["GET agent-run"]
     end
     subgraph scene["Scene authoring — /api/projects/:projectId"]
         s1["PATCH scenes/:sceneId/card"]
-        s2["PATCH · POST scenes/:sceneId/prompts"]
+        s2["PATCH · POST scenes/:sceneId/prompts · GET prompts"]
         s3["PUT scenes/:sceneId/wardrobe"]
-        s4["POST repair-prompts"]
-        s5["POST undressed-scenes"]
+        s4["POST repair-prompts · POST undressed-scenes"]
+        s5["POST scenes/insert · POST scenes/:sceneId/move"]
+        s6["DELETE scenes/:sceneId/delete"]
     end
     subgraph gen["Generation & media"]
         g1["POST scenes/:sceneId/generate"]
-        g2["POST scenes/:sceneId/approve-attempt/:attemptId"]
+        g2["POST scenes/:sceneId/approve-attempt/:attemptId · POST approve-all"]
         g3["POST scenes/:sceneId/deepy"]
         g4["GET media · GET media/:assetId"]
-        g5["PATCH scenes/:sceneId/framing"]
+        g5["PATCH scenes/:sceneId/framing · POST scenes/:sceneId/seed"]
         g6["POST · DELETE scenes/:sceneId/face-swap"]
-        g7["POST · DELETE scenes/:sceneId/keyframe"]
-        g8["GET · POST · DELETE queue"]
+        g7["POST · DELETE scenes/:sceneId/keyframe · POST scenes/:sceneId/import-frame"]
+        g8["GET · POST · DELETE queue · GET tasks"]
+        g9["POST · DELETE opening-frame"]
     end
     subgraph audio["Audio cues"]
         c1["GET · POST audio-cues"]
@@ -1509,13 +1634,28 @@ flowchart LR
         o2["GET exports · GET export?format="]
     end
     subgraph wg["/api/wangp"]
-        w1["GET status · GET models"]
+        w1["GET status · GET models · GET loras"]
         w2["GET models/:modelType/schema"]
         w3["POST jobs · GET jobs/:jobId · POST jobs/:jobId/cancel"]
+    end
+    subgraph lib2["Library & app settings"]
+        ch["GET · POST /api/characters<br/>GET · PATCH · DELETE /api/characters/:id<br/>POST · DELETE /api/characters/:id/image"]
+        st["GET · PUT /api/settings/system-prompts<br/>GET · PUT /api/settings/generation-defaults"]
+        ll["GET /api/llm/status · POST /api/llm/:action"]
     end
     ce["POST /api/concept/enhance"]
     h["GET /api/health"]
 ```
+
+Three things the shape encodes. **The character library is project-independent** —
+it lives at `/api/characters`, and a project references entries by id, which is
+why a wardrobe change is stored per project rather than on the character.
+**Long-running work is polled, not awaited**: `canvas-run`, `queue` and `tasks`
+are each a queue surface, because an agent or a render is minutes of local GPU or
+CPU and an HTTP request that waits for it is one navigation away from being
+abandoned. **Scene authoring is structural as well as textual**: `insert`, `move`
+and `delete` edit the running order in place, which exists so that fixing one
+beat does not cost the project's rendered media.
 
 ---
 
@@ -1535,7 +1675,7 @@ flowchart LR
     flags -->|DEEPY_ASSIST_ENABLED| dp["runDeepy()<br/>labelled simulation when off"]
     flags -->|ANIMATIC_ASSEMBLY_ENABLED| an["animatic preview render"]
     flags -->|PLATFORM_DERIVATIVES_ENABLED| pd["platform derivative exports"]
-    flags -->|STORYFORGE_PERSISTENCE| repo["repository<br/>in-memory ↔ Prisma/Postgres"]
+    flags -->|STORYFORGE_PERSISTENCE| repo["repository<br/>file (default) ↔ in-memory"]
 ```
 
 | Interface | Default (mock) | Live path |
@@ -1543,13 +1683,14 @@ flowchart LR
 | `PlanningProvider` | deterministic builders | OpenAI-compatible chat completions |
 | `WangpClient` | `MockWangpClient` — completes in two polls | `LiveWangpClient` over MCP at `WANGP_MCP_URL` |
 | `FfmpegRunner` | `MockFfmpegRunner` | native `ffmpeg` / `ffprobe` subprocess |
-| `ProjectRepository` | `InMemoryProjectRepository` on a global `Map` | **not implemented** — Prisma/Postgres is scaffolded only, see [§7.1](#71-where-data-actually-lives) |
+| `ProjectRepository` | `FileProjectRepository` — JSON under `config.dataDir` | `InMemoryProjectRepository` for `STORYFORGE_PERSISTENCE=memory`; Prisma/Postgres is scaffolded only, see [§7.1](#71-where-data-actually-lives) |
 | Deepy | simulated, clearly labelled | live Deepy sidecar |
 
 The repository and WanGP client are both pinned to `globalThis` so they survive
-Next.js hot-module reloads and are shared across route handlers. Note that
-`STORYFORGE_PERSISTENCE` is currently parsed but inert — the in-memory store is
-always selected.
+Next.js hot-module reloads and are shared across route handlers.
+`STORYFORGE_PERSISTENCE` is read and acted on: `file` is the default and the only
+durable implementation, `memory` is selected by tests and throwaway runs, and
+`prisma` silently falls back to `file`.
 
 ### 9.1 Only the app loads `.env.local`
 
@@ -1573,12 +1714,16 @@ clone and of CI.
 - **Validation** — Zod at every trust boundary: request bodies, external payloads,
   and *agent output*. The orchestrator re-parses the assembled snapshot before it
   is ever persisted, so a malformed artifact cannot reach the store.
-- **Telemetry** — structured single-line JSON with a closed event taxonomy:
-  `project.created`, `project.updated`, `storyboard.generated`, `agent.run`,
-  `agent.llm.failed`, `wangp.discovery`, `wangp.model.selected`,
-  `wangp.job.submitted`, `wangp.job.polled`, `scene.qc`, `audio_cue.generated`,
-  `assembly.completed`, `health.check`. Fire-and-forget; never throws into a
-  request path.
+- **Telemetry** — structured single-line JSON with a closed event taxonomy in
+  `lib/telemetry/index.ts`. Around a hundred events, grouped by subject:
+  `project.*`, `storyboard.*`, `agent.*` (including `agent.llm.failed`,
+  `agent.fallback`, `agent.segment_gap_filled`), `prompt.*` (`prompt.composed`,
+  `prompt.gate`), `wangp.*` (discovery, model selection, job lifecycle, steps and
+  resolution resolution), `scene.*`, `scene_queue.*`, `canvas_queue.*`, `task.*`,
+  `face_swap.*`, `lora.dropped`, `character.*`, `audio_cue.generated`,
+  `assembly.*` and `health.check`. The union type is the list; adding an event
+  means adding it there, which is what keeps the taxonomy closed.
+  Fire-and-forget; never throws into a request path.
 - **Error taxonomy** — `NotFoundError` / `ValidationError` in `lib/errors.ts` map
   to 404 / 400; handlers return `{ error, details }`.
 - **Media path safety** — `lib/media/path-policy.ts` and `refs.ts` gate which
@@ -1628,8 +1773,8 @@ flowchart TB
 ```
 
 Multi-stage `Dockerfile` (`deps` → `builder` → `runner`) produces a self-contained
-Next.js standalone image running as a non-root user. It runs in in-memory demo
-mode: the bundled Postgres service is provisioned for the future durable store but
-is not yet used, so project state does not survive a container restart. Rendered
-media under `./projects` is the only persistent output and should be
-volume-mounted.
+Next.js standalone image running as a non-root user. Project state is JSON on
+disk, so `./projects` carries both the records and the rendered media and is the
+one path that must be volume-mounted — without it a container restart loses the
+projects as well as their output. The bundled Postgres service is provisioned for
+the future durable store and is not yet used.
