@@ -240,6 +240,27 @@ export default function HelpPage() {
             have pinned, because a seam inside a clip is one StoryForgeAI can neither tune nor see.
           </p>
 
+          <h3 className={h3}>Climax &amp; scenes after the climax</h3>
+          <p className={p}>
+            Optional. <strong>Climax</strong> is the one event your story builds to, in a line — for
+            example <em>Marcus drops Dale with one punch</em>. Left blank, the Story Architect decides
+            for itself which moment that is, and on a concept with several big moments that is a
+            guess. Name something the concept already describes: if the two disagree, the model tends
+            to follow the concept.
+          </p>
+          <p className={p}>
+            <strong>Scenes after the climax</strong> is how many closing scenes follow it, from 0
+            (end on the climax) to 3. Automatic allows one below ten scenes and two from ten up. The
+            form shows which scene that puts the climax in for your runtime; everything before it is
+            setup and build, which is where the time goes. It is stored as a count from the end, so
+            it still means the same thing if you change the runtime later.
+          </p>
+          <p className={p}>
+            Both stay editable under <strong>Story climax</strong> in the project settings. Changing
+            either after the arc is written marks the arc out of date on the Agentic Canvas; it takes
+            effect when you regenerate the Story Architect.
+          </p>
+
           <h3 className={h3}>Aspect ratio</h3>
           <p className={p}>
             The shape of the frame. Together with the resolution preset it decides the exact size

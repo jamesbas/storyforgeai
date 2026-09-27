@@ -162,3 +162,16 @@ export const MAX_SEGMENT_SECONDS = 20;
  * of the payload.
  */
 export const MAX_CONCEPT_CHARACTERS = 20_000;
+
+/**
+ * The user's one-line statement of what the climax is. A line, not a second
+ * concept: it names an event the concept already describes.
+ */
+export const MAX_CLIMAX_CHARACTERS = 300;
+
+/**
+ * The most closing scenes a user may ask for after the climax. The automatic
+ * budget never exceeds two; three is there for a piece that genuinely wants a
+ * longer landing, and more than that is the filler tail this exists to prevent.
+ */
+export const MAX_AFTERMATH_SCENES = 3;

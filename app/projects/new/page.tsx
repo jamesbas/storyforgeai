@@ -17,6 +17,8 @@ const FIELD_LABELS: Record<string, string> = {
   tone: "Tone",
   audience: "Audience",
   characterWardrobe: "Wardrobe",
+  climax: "Climax",
+  aftermathScenes: "Scenes after the climax",
 };
 
 /**

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { LoraSelector } from "@/components/settings/lora-selector";
 import { ConceptImages } from "@/components/settings/concept-images";
+import { ClimaxSettings } from "@/components/settings/climax-settings";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import type { LoraSelectionSet } from "@/lib/schemas/lora";
 import type { WangpModel } from "@/lib/schemas/wangp";
@@ -165,6 +166,8 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
       videoReferencesPerCharacter?: number;
       endFrameReferences?: boolean;
       loras?: LoraSelectionSet;
+      climax?: string | null;
+      aftermathScenes?: number | null;
     }) => {
       setBusy(true);
       setError(null);
@@ -347,6 +350,18 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
         initial={project.conceptImages ?? []}
         initialVisuals={record.conceptVisuals}
         initialFidelity={record.conceptFidelity}
+      />
+
+      <ClimaxSettings
+        key={`${project.climax ?? ""}|${project.aftermathScenes ?? ""}`}
+        climax={project.climax ?? ""}
+        aftermath={project.aftermathScenes}
+        segmentCount={project.segmentCount}
+        hasArc={Boolean(record.storyPlan)}
+        busy={busy}
+        onSave={(climax, aftermathScenes) =>
+          save({ climax: climax.trim() || null, aftermathScenes: aftermathScenes ?? null })
+        }
       />
 
       <section className="space-y-4 rounded-lg border border-white/10 bg-panel/40 p-4">

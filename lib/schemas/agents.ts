@@ -176,5 +176,19 @@ export const storyPlanSchema = z.object({
    * would otherwise fail the whole arc, and the agent discards it anyway.
    */
   climaxSegment: maybe(z.number().int()),
+  /**
+   * The user's climax settings when this arc was written — the event named and
+   * the closing scenes allowed. Compared with the project's current settings so
+   * a changed climax shows the arc as out of date. Never asked of the model.
+   */
+  writtenAgainst: maybe(
+    z.object({
+      climax: maybe(z.string()),
+      aftermathScenes: maybe(z.number().int()),
+    }),
+  ),
 });
 export type StoryPlan = z.infer<typeof storyPlanSchema>;
+
+/** What the model is asked to return: the plan, less what the agent records. */
+export const storyPlanAnswerSchema = storyPlanSchema.omit({ writtenAgainst: true });

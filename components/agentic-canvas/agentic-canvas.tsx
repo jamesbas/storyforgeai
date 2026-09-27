@@ -13,6 +13,7 @@ import { isContinuousTake } from "@/lib/agents/continuity";
 import { shotPlanIssues } from "@/lib/media/seam";
 import { repeatedBeats, echoedEntries } from "@/lib/agents/arc-repetition";
 import { aftermathOverrun, denouementBudget } from "@/lib/agents/beat-budget";
+import { arcPredatesClimax } from "@/lib/agents/climax";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { CanvasRunEntry } from "@/lib/services/canvas-queue";
 
@@ -408,7 +409,10 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
   // whole "rushed middle, filler ending" complaint in one number.
   const arcClimax = record?.storyPlan?.climaxSegment;
   const arcSegments = record?.storyPlan?.segmentBeats.length ?? 0;
-  const arcOverrun = aftermathOverrun(arcClimax, arcSegments || undefined);
+  const chosenAftermath = record?.project.aftermathScenes;
+  const arcOverrun = aftermathOverrun(arcClimax, arcSegments || undefined, chosenAftermath);
+  // The arc was planned towards a climax the user has since named or changed.
+  const arcClimaxStale = record ? arcPredatesClimax(record.project, record.storyPlan) : false;
   // An intent that is its beat in other words is worse than a missing one: the
   // prompts built from it spend attention on words the storyboard already had.
   const restatedIntents = echoedEntries(
@@ -696,10 +700,23 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
                       className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200/90"
                     >
                       The climax lands at segment {arcClimax} of {arcSegments}, leaving{" "}
-                      {arcSegments - arcClimax} segments of aftermath where at most{" "}
-                      {denouementBudget(arcSegments)} are allowed. That time was taken from the
-                      story, which is why the action reads rushed and the ending reads like filler.
-                      Regenerate the arc.
+                      {arcSegments - arcClimax} segments of aftermath where{" "}
+                      {denouementBudget(arcSegments, chosenAftermath) === 0
+                        ? "none are"
+                        : `at most ${denouementBudget(arcSegments, chosenAftermath)} are`}{" "}
+                      allowed. That time was
+                      taken from the story, which is why the action reads rushed and the ending
+                      reads like filler. Regenerate the arc.
+                    </div>
+                  ) : null}
+                  {arcClimaxStale ? (
+                    <div
+                      data-testid="arc-climax-stale"
+                      className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200/90"
+                    >
+                      The climax settings in Project Settings have changed since this arc was
+                      written, so it builds towards a climax you no longer asked for. Regenerate
+                      the arc to plan it towards the new one.
                     </div>
                   ) : null}
                   {staleAfterArc.length ? (

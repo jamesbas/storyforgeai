@@ -276,6 +276,31 @@ describe("the Story Architect card", () => {
     expect(screen.queryByTestId("arc-repeated-beats")).toBeNull();
   });
 
+  it("says when the climax was changed after the arc was written", async () => {
+    const record = {
+      ...withArc(),
+      project: { ...baseRecord.project, climax: "Jenna breaks a bottle" },
+      storyPlan: { ...withArc().storyPlan!, writtenAgainst: { climax: "Marcus drops Dale" } },
+    } as ProjectRecord;
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(record)));
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() => expect(screen.getByTestId("arc-climax-stale")).toBeTruthy());
+  });
+
+  it("says nothing about the climax settings on an arc written to them", async () => {
+    const record = {
+      ...withArc(),
+      project: { ...baseRecord.project, climax: "Marcus drops Dale" },
+      storyPlan: { ...withArc().storyPlan!, writtenAgainst: { climax: "Marcus drops Dale" } },
+    } as ProjectRecord;
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(record)));
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() => expect(screen.getByTestId("arc-beats")).toBeTruthy());
+    expect(screen.queryByTestId("arc-climax-stale")).toBeNull();
+  });
+
   const withClimax = (climaxSegment: number, length = 15): ProjectRecord =>
     ({
       ...baseRecord,
@@ -304,6 +329,19 @@ describe("the Story Architect card", () => {
 
   it("says nothing when the climax leaves the tail within budget", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(withClimax(13))));
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() => expect(screen.getByTestId("arc-beats")).toBeTruthy());
+    expect(screen.queryByTestId("arc-early-climax")).toBeNull();
+  });
+
+  /** A longer landing the user asked for in Project Settings is not filler. */
+  it("judges the tail against the aftermath the user chose", async () => {
+    const record = {
+      ...withClimax(12),
+      project: { ...baseRecord.project, aftermathScenes: 3 },
+    } as ProjectRecord;
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(record)));
     render(<AgenticCanvas projectId="p1" />);
 
     await waitFor(() => expect(screen.getByTestId("arc-beats")).toBeTruthy());

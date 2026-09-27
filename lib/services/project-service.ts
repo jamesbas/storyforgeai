@@ -160,6 +160,8 @@ export async function createProject(raw: unknown): Promise<Project> {
     characterIds: input.useCharacterLibrary ? input.characterIds : [],
     characterWardrobe: input.useCharacterLibrary ? input.characterWardrobe : {},
     sceneContinuity: input.sceneContinuity,
+    ...(input.climax ? { climax: input.climax } : {}),
+    ...(input.aftermathScenes !== undefined ? { aftermathScenes: input.aftermathScenes } : {}),
     status: "draft",
     createdAt: now,
     updatedAt: now,
@@ -292,6 +294,13 @@ export async function updateProjectModels(id: string, raw: unknown): Promise<Pro
       videoReferencesPerCharacter:
         patch.videoReferencesPerCharacter ?? record.project.videoReferencesPerCharacter,
       endFrameReferences: patch.endFrameReferences ?? record.project.endFrameReferences,
+      // Null and blank both clear, so the field can be emptied from a text box.
+      climax:
+        patch.climax === undefined ? record.project.climax : patch.climax?.trim() || undefined,
+      aftermathScenes:
+        patch.aftermathScenes === undefined
+          ? record.project.aftermathScenes
+          : (patch.aftermathScenes ?? undefined),
       loras,
       sceneLoras: pruneSceneLoras(
         patch.sceneLoras ?? record.project.sceneLoras,

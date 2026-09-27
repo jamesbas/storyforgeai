@@ -6,6 +6,8 @@ import {
   ASPECT_RATIOS,
   CREATIVE_MODES,
   GENERATION_MODES,
+  MAX_AFTERMATH_SCENES,
+  MAX_CLIMAX_CHARACTERS,
   MAX_SEGMENT_SECONDS,
   MIN_SEGMENT_SECONDS,
   MODEL_STRATEGIES,
@@ -268,6 +270,21 @@ export const projectSchema = z.object({
       faceSwap: z.boolean(),
     })
     .optional(),
+  /**
+   * What the climax is, in the user's words — one event the concept already
+   * describes.
+   *
+   * Without it the Story Architect decides for itself which moment the story
+   * builds to, and on a concept with several big moments that is a guess. The
+   * arc places this event at the climax position and reports where it wrote it.
+   */
+  climax: z.string().max(MAX_CLIMAX_CHARACTERS).optional(),
+  /**
+   * How many closing scenes follow the climax. Absent means the automatic
+   * budget (`denouementBudget`). Stored as a count from the end rather than a
+   * scene number, so it still means the same thing after the runtime changes.
+   */
+  aftermathScenes: z.number().int().min(0).max(MAX_AFTERMATH_SCENES).optional(),
   status: projectStatusSchema,
   createdAt: z.string(),
   updatedAt: z.string(),

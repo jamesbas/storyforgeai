@@ -9,7 +9,9 @@ export const PROMPT_VERSIONS = {
   intake: "intake-v1",
   // v2: names the segment the climax belongs at, asks where it was written, and
   // every window reports its continued segments and the climax.
-  storyArchitect: "story-architect-v2",
+  // v3: a climax the user named is quoted and declared not the model's to
+  // change, and a chosen aftermath count replaces the automatic budget.
+  storyArchitect: "story-architect-v3",
   visualBible: "visual-bible-v1",
   // v2: each batch is handed the wardrobe as it stands after the changes
   // declared so far, and the undressing case is stated as a requirement.

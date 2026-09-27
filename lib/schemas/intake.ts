@@ -6,6 +6,8 @@ import {
   CREATIVE_MODES,
   DEFAULT_SCENE_CONTINUITY,
   GENERATION_MODES,
+  MAX_AFTERMATH_SCENES,
+  MAX_CLIMAX_CHARACTERS,
   MAX_CONCEPT_CHARACTERS,
   MAX_SEGMENT_SECONDS,
   MIN_SEGMENT_SECONDS,
@@ -23,6 +25,13 @@ const conceptField = z
     MAX_CONCEPT_CHARACTERS,
     `concept is limited to ${MAX_CONCEPT_CHARACTERS.toLocaleString("en-GB")} characters`,
   );
+
+const climaxField = z
+  .string()
+  .trim()
+  .max(MAX_CLIMAX_CHARACTERS, `the climax is limited to ${MAX_CLIMAX_CHARACTERS} characters`);
+
+const aftermathField = z.number().int().min(0).max(MAX_AFTERMATH_SCENES);
 
 /**
  * Intake validation for the New Project form and POST /api/projects.
@@ -61,6 +70,10 @@ export const createProjectSchema = z.object({
   characterWardrobe: z.record(z.string()).default({}),
   /** How each scene joins the previous one. See DEFAULT_SCENE_CONTINUITY. */
   sceneContinuity: z.enum(SCENE_CONTINUITY_MODES).default(DEFAULT_SCENE_CONTINUITY),
+  /** What the climax is. Blank means the Story Architect decides. */
+  climax: climaxField.optional(),
+  /** Closing scenes after the climax. Absent means the automatic budget. */
+  aftermathScenes: aftermathField.optional(),
 });
 
 /**
@@ -141,6 +154,13 @@ export const updateProjectModelsSchema = z.object({
   loras: loraSelectionSetSchema.optional(),
   /** Per-scene LoRA overrides, keyed by scene id. */
   sceneLoras: sceneLoraMapSchema.optional(),
+  /**
+   * What the climax is, and how many scenes follow it. Editable because the
+   * story is, but changing either makes the arc out of date — the canvas says
+   * so. Null or blank clears it back to the Story Architect's own judgement.
+   */
+  climax: climaxField.nullable().optional(),
+  aftermathScenes: aftermathField.nullable().optional(),
 });
 
 export type UpdateProjectModelsInput = z.infer<typeof updateProjectModelsSchema>;

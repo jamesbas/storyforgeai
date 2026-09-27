@@ -1,7 +1,11 @@
-import { storyPlanSchema, type StoryPlan } from "@/lib/schemas/agents";
+import {
+  storyPlanAnswerSchema,
+  type StoryPlan,
+} from "@/lib/schemas/agents";
 import { maybe } from "@/lib/schemas/maybe";
 import { buildStoryPlan } from "@/lib/agents/mock-agents";
 import { aftermathOverrun, denouementBudget, earliestClimax } from "@/lib/agents/beat-budget";
+import { climaxPlanOf, writtenAgainstOf, type ClimaxPlan } from "@/lib/agents/climax";
 import { repeatedBeats } from "@/lib/agents/arc-repetition";
 import { creativeModeDirective } from "@/lib/agents/look";
 import { explicitnessDirective } from "@/lib/agents/explicitness";
@@ -58,6 +62,18 @@ function structureFor(segmentCount: number | undefined): string {
   );
 }
 
+/** "the climax", or the climax named in the user's words. */
+function climaxName(climax: ClimaxPlan): string {
+  return climax.description ? `the climax (${JSON.stringify(climax.description)})` : "the climax";
+}
+
+/** The aftermath cap as a sentence opening, which reads badly as "at most 0". */
+function aftermathAllowance(allowed: number): string {
+  return allowed === 0
+    ? " No beat may be aftermath: the piece ends on its climax. No beat may be"
+    : ` At most ${allowed} of the final beats may be aftermath —`;
+}
+
 /**
  * Caps the tail, and says what to do with the segments that frees.
  *
@@ -67,11 +83,11 @@ function structureFor(segmentCount: number | undefined): string {
  * to fit. The budget is stated as a hard number because a proportion invites
  * rounding up.
  */
-function denouementDirective(segmentCount: number | undefined): string {
+function denouementDirective(segmentCount: number | undefined, climax: ClimaxPlan = {}): string {
   if (segmentCount === undefined || segmentCount <= 2) return "";
-  const allowed = denouementBudget(segmentCount);
+  const allowed = denouementBudget(segmentCount, climax.aftermath);
   return (
-    ` At most ${allowed} of the final beats may be aftermath — reaction, tidying up, departure, ` +
+    `${aftermathAllowance(allowed)} reaction, tidying up, departure, ` +
     "or an empty room. Everything before that has to carry the story forward. If you find " +
     "yourself with segments left over and nothing left to happen, the earlier action was written " +
     "too fast: go back and give it the extra segments instead of padding the end."
@@ -87,16 +103,26 @@ function denouementDirective(segmentCount: number | undefined): string {
  * that followed were a phone call, a beer drunk twice and a receiver hung up
  * twice. Naming the segment gives the opening something to pace itself against,
  * and asking where the climax was written is what lets the code check it.
+ *
+ * When the user has named the climax, the model is told it is not its choice:
+ * on a concept with several big moments, which one the story builds to was
+ * otherwise a guess.
  */
-function climaxDirective(segmentCount: number | undefined): string {
+function climaxDirective(segmentCount: number | undefined, climax: ClimaxPlan = {}): string {
   if (segmentCount === undefined || segmentCount <= 2) return "";
+  const chosen = climax.description
+    ? ` The user has chosen the climax, and it is not yours to change: ${JSON.stringify(climax.description)}. ` +
+      "Build the whole arc towards that event, do not let any other event take its place, and do " +
+      "not spend it earlier."
+    : "";
   return (
+    chosen +
     " The climax — the decisive event the story has been building to, after which only " +
-    `aftermath remains — belongs at segment ${earliestClimax(segmentCount)} or later of ` +
-    `${segmentCount}. Every segment before it is setup and build: let the setup take its time, ` +
-    "and give the central action consecutive continued segments rather than finishing it early. " +
-    "Report the number of the segment you wrote the climax in as climaxSegment, or null if the " +
-    "climax is not among the segments you are writing in this answer."
+    `aftermath remains — belongs at segment ${earliestClimax(segmentCount, climax.aftermath)} or ` +
+    `later of ${segmentCount}. Every segment before it is setup and build: let the setup take its ` +
+    "time, and give the central action consecutive continued segments rather than finishing it " +
+    "early. Report the number of the segment you wrote the climax in as climaxSegment, or null if " +
+    "the climax is not among the segments you are writing in this answer."
   );
 }
 
@@ -123,7 +149,11 @@ function sustainedActionDirective(segmentSeconds: number): string {
   );
 }
 
-export const storyArchitectSystem = (segmentSeconds: number, segmentCount?: number) =>
+export const storyArchitectSystem = (
+  segmentSeconds: number,
+  segmentCount?: number,
+  climax: ClimaxPlan = {},
+) =>
   "You are the Story Architect Agent. Create a complete narrative plan sized to the " +
   `requested duration. The video will be generated in ${segmentSeconds}-second segments. ` +
   "Create a story arc that can be divided cleanly into the required number of segments. " +
@@ -141,8 +171,8 @@ export const storyArchitectSystem = (segmentSeconds: number, segmentCount?: numb
   "A beat marks a change rather than a description of a state: each one must leave the situation " +
   "different from how it started, and the difference must be something an audience could see. " +
   sustainedActionDirective(segmentSeconds) +
-  denouementDirective(segmentCount) +
-  climaxDirective(segmentCount) +
+  denouementDirective(segmentCount, climax) +
+  climaxDirective(segmentCount, climax) +
   " Give one emotional value per segment and make them move — the same value repeated across " +
   "every segment means the piece has no arc.";
 
@@ -156,22 +186,26 @@ export const STORY_ARCHITECT_SYSTEM = storyArchitectSystem(SEGMENT_SECONDS);
  * people actually make: a 27-segment piece came back with sixteen beats and
  * sixteen emotional values, the model having simply stopped.
  */
-function firstPassDirective(segmentCount: number | undefined): string {
+function firstPassDirective(segmentCount: number | undefined, climax: ClimaxPlan = {}): string {
   const opening = firstWindowDirective(
     segmentCount,
     "the title, the logline, and the beats and emotional values",
   );
   if (!needsWindowing(segmentCount)) return opening;
-  const earliest = earliestClimax(segmentCount!);
+  const earliest = earliestClimax(segmentCount!, climax.aftermath);
   if (earliest <= SEGMENTS_PER_WINDOW) return opening;
   // "Nothing here may conclude the piece" was not enough on its own: the climax
   // still landed on the last segment this window was asked for.
   return (
     opening +
-    ` The climax is at segment ${earliest} at the earliest, so it cannot happen in segments 1 to ` +
-    `${SEGMENTS_PER_WINDOW}: they are the setup and the start of the build, and climaxSegment ` +
-    "is null here."
+    ` ${capitalise(climaxName(climax))} is at segment ${earliest} at the earliest, so it cannot ` +
+    `happen in segments 1 to ${SEGMENTS_PER_WINDOW}: they are the setup and the start of the ` +
+    "build, and climaxSegment is null here."
   );
+}
+
+function capitalise(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /**
@@ -182,29 +216,35 @@ function firstPassDirective(segmentCount: number | undefined): string {
  * what stops the last window padding: nine consecutive reaction beats got
  * written for a film that was allowed two.
  */
-function windowDirective(window: readonly number[], segmentCount: number | undefined): string {
-  const placement = windowPlacementDirective(window, segmentCount);
-  const last = window.at(-1) ?? 0;
-  if (segmentCount === undefined) return placement;
-  const earliest = earliestClimax(segmentCount);
-  const climax =
-    segmentCount <= 2
-      ? ""
-      : last < earliest
-        ? ` Unless climaxSegment in the payload says it has already been written, the climax is ` +
-          `at segment ${earliest} at the earliest, after this window, so these segments keep ` +
-          "building towards it."
-        : ` Unless climaxSegment in the payload says it has already been written, the climax ` +
-          `belongs in this window, at segment ${earliest} or later.`;
-  if (last < segmentCount) return placement + climax;
-  return (
-    placement +
-    climax +
-    ` At most ${denouementBudget(segmentCount)} beats in the whole film may be aftermath — ` +
-    "reaction, tidying up, departure, or an empty room — so if the story is already over, the " +
-    "earlier beats were written too fast and these must carry the last of the action rather than " +
-    "repeat what has already happened."
-  );
+function windowDirectiveFor(climax: ClimaxPlan) {
+  return (window: readonly number[], segmentCount: number | undefined): string => {
+    const placement = windowPlacementDirective(window, segmentCount);
+    const last = window.at(-1) ?? 0;
+    if (segmentCount === undefined) return placement;
+    const earliest = earliestClimax(segmentCount, climax.aftermath);
+    const name = climaxName(climax);
+    const position =
+      segmentCount <= 2
+        ? ""
+        : last < earliest
+          ? ` Unless climaxSegment in the payload says it has already been written, ${name} is ` +
+            `at segment ${earliest} at the earliest, after this window, so these segments keep ` +
+            "building towards it."
+          : ` Unless climaxSegment in the payload says it has already been written, ${name} ` +
+            `belongs in this window, at segment ${earliest} or later.`;
+    if (last < segmentCount) return placement + position;
+    const allowed = denouementBudget(segmentCount, climax.aftermath);
+    return (
+      placement +
+      position +
+      (allowed === 0
+        ? " No beat in the whole film may be aftermath: it ends on its climax, "
+        : ` At most ${allowed} beats in the whole film may be aftermath — `) +
+      "reaction, tidying up, departure, or an empty room — so if the story is already over, the " +
+      "earlier beats were written too fast and these must carry the last of the action rather " +
+      "than repeat what has already happened."
+    );
+  };
 }
 
 /**
@@ -264,24 +304,28 @@ function withEarlyClimaxRetry(
   primary: () => Promise<ProviderResult<StoryPlan>>,
   rewrite: (feedback: string) => () => Promise<ProviderResult<StoryPlan>>,
   segmentCount: number | undefined,
+  climax: ClimaxPlan = {},
 ): () => Promise<ProviderResult<StoryPlan>> {
   return async () => {
     const first = await primary();
     if (!first.ok) return first;
     const early = first.value.climaxSegment;
-    if (early === undefined || aftermathOverrun(early, segmentCount) === 0) return first;
+    if (early === undefined || aftermathOverrun(early, segmentCount, climax.aftermath) === 0) {
+      return first;
+    }
 
     const total = segmentCount!;
-    const earliest = earliestClimax(total);
+    const earliest = earliestClimax(total, climax.aftermath);
+    const allowed = denouementBudget(total, climax.aftermath);
     logEvent("agent.arc_climax_early", { climax: early, earliest, segmentCount: total });
     const second = await rewrite(
-      `\n\nREWRITE. A draft of this ${needsWindowing(total) ? "opening" : "arc"} wrote the climax ` +
-        `in segment ${early}, which would leave ${total - early} of the ${total} segments for ` +
-        `aftermath where at most ${denouementBudget(total)} are allowed. That time is taken from ` +
-        "the story, and the end fills with reaction shots and repetition. Write it again from " +
-        `segment 1 with the climax at segment ${earliest} or later: let the setup take its time, ` +
-        "and give the central action several consecutive continued segments instead of finishing " +
-        "it early.",
+      `\n\nREWRITE. A draft of this ${needsWindowing(total) ? "opening" : "arc"} wrote ` +
+        `${climaxName(climax)} in segment ${early}, which would leave ${total - early} of the ` +
+        `${total} segments for aftermath where ${allowed === 0 ? "none" : `at most ${allowed}`} ` +
+        `${allowed === 1 ? "is" : "are"} allowed. That time is taken from the story, and the end ` +
+        "fills with reaction shots and repetition. Write it again from segment 1 with the climax " +
+        `at segment ${earliest} or later: let the setup take its time, and give the central ` +
+        "action several consecutive continued segments instead of finishing it early.",
     )();
     if (!second.ok) return first;
     const later = fitClimax(second.value.climaxSegment, total);
@@ -295,8 +339,9 @@ export async function storyArchitectAgent(
 ): Promise<StoryPlan> {
   const payload = { project: ctx.project, brief: ctx.brief };
   const user = JSON.stringify(payload);
+  const climax = climaxPlanOf(ctx.project);
   const base =
-    storyArchitectSystem(ctx.project.segmentSeconds, ctx.project.segmentCount) +
+    storyArchitectSystem(ctx.project.segmentSeconds, ctx.project.segmentCount, climax) +
     creativeModeDirective(ctx.project) +
     // The beats written here are what the storyboard elaborates. A beat
     // that ends at the moment it becomes explicit has already decided
@@ -306,7 +351,7 @@ export async function storyArchitectAgent(
   // The continuations inherit the arc's rules but not its opening instruction:
   // being told to write segments 1 to 8 while being asked for 17 to 24 is a
   // contradiction, and the model resolves it by renumbering.
-  const system = base + firstPassDirective(ctx.project.segmentCount);
+  const system = base + firstPassDirective(ctx.project.segmentCount, climax);
 
   const { value } = await executeArtifact<StoryPlan>({
     artifact: "story_plan",
@@ -324,14 +369,15 @@ export async function storyArchitectAgent(
     llm: provider
       ? withSegmentGapsFilled(
           withEarlyClimaxRetry(
-            providerCall(provider, system, user, storyPlanSchema, {
+            providerCall(provider, system, user, storyPlanAnswerSchema, {
               systemPromptScope: "storyboard",
             }),
             (feedback) =>
-              providerCall(provider, system + feedback, user, storyPlanSchema, {
+              providerCall(provider, system + feedback, user, storyPlanAnswerSchema, {
                 systemPromptScope: "storyboard",
               }),
             ctx.project.segmentCount,
+            climax,
           ),
           {
             field: "segmentBeats",
@@ -356,7 +402,7 @@ export async function storyArchitectAgent(
                 emotionalProgression: asSegmentMap.write(map, ctx.project.segmentCount),
               }),
             },
-            continuationDirective: windowDirective,
+            continuationDirective: windowDirectiveFor(climax),
             extras: arcExtras,
           },
         )
@@ -365,7 +411,7 @@ export async function storyArchitectAgent(
     validate: (plan) =>
       plan.segmentBeats.length === ctx.project.segmentCount ? undefined : "short_collection",
     fallback: () => buildStoryPlan(ctx.project),
-    outcome: (plan) => arcOutcome(plan, ctx.project.segmentCount),
+    outcome: (plan) => arcOutcome(plan, ctx.project.segmentCount, climax),
   });
   const { climaxSegment: reported, ...written } = value;
   const climaxSegment = fitClimax(reported, ctx.project.segmentCount);
@@ -377,6 +423,7 @@ export async function storyArchitectAgent(
       ? { continuedSegments: fitContinuations(value.continuedSegments, ctx.project.segmentCount) }
       : {}),
     ...(climaxSegment !== undefined ? { climaxSegment } : {}),
+    writtenAgainst: writtenAgainstOf(ctx.project),
   };
 }
 
@@ -395,6 +442,7 @@ export async function storyArchitectAgent(
 function arcOutcome(
   plan: StoryPlan,
   segmentCount: number | undefined,
+  chosen: ClimaxPlan = {},
 ): ReturnType<NonNullable<ExecuteOptions<StoryPlan>["outcome"]>> {
   const issues: string[] = [];
   let reason: "short_collection" | "invalid_set" | undefined;
@@ -410,12 +458,13 @@ function arcOutcome(
     reason ??= "invalid_set";
   }
 
-  const overrun = aftermathOverrun(plan.climaxSegment, segmentCount);
+  const overrun = aftermathOverrun(plan.climaxSegment, segmentCount, chosen.aftermath);
   if (overrun > 0) {
     const climax = plan.climaxSegment!;
     issues.push(
       `climax at segment ${climax} of ${segmentCount} leaves ${segmentCount! - climax} ` +
-        `aftermath beats, ${overrun} over the budget of ${denouementBudget(segmentCount!)}`,
+        `aftermath beats, ${overrun} over the budget of ` +
+        `${denouementBudget(segmentCount!, chosen.aftermath)}`,
     );
     reason ??= "invalid_set";
   }

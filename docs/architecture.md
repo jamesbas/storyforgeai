@@ -824,6 +824,19 @@ the one it repeats is deliberately not detected by word overlap: measured on the
 same arc, the duplicated drink scored 0.21 while two unrelated beats scored 0.30.
 Holding the tail to its budget leaves the padding nowhere to go.
 
+**The user can name the climax instead.** `project.climax` is a one-line
+statement of the event the story builds to, and `project.aftermathScenes`
+(0–3) replaces the automatic `denouementBudget()` — stored as a count from the
+end rather than a scene number, so a runtime change does not move it off the
+story. Both are set on the New Project form or under **Story climax** in project
+settings, and reach the Story Architect through `climaxPlanOf()`: the event is
+quoted and declared not the model's to change, and every position, window and
+rewrite message names it. The arc records the settings it was written to in
+`storyPlan.writtenAgainst` — never asked of the model; it is omitted from
+`storyPlanAnswerSchema` — and `arcPredatesClimax()` compares that with the
+project so a changed climax marks the arc out of date on the canvas. An arc
+written before the settings existed only counts as stale once something is set.
+
 **Don't wait to run out — cap the first call.** `firstWindowDirective()` in
 `segment-windows.ts` tells a long project's first call to write only segments 1
 to 8, *and that the rest will be asked for*. The promise is the working part: a

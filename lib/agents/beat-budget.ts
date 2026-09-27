@@ -92,8 +92,12 @@ export function beatBudget(args: {
  * "resolve" as a phase to fill rather than a landing, and spends scenes on
  * reaction shots and empty rooms while the middle it just compressed needed
  * them. One closing scene is enough below ten; a long piece can afford two.
+ *
+ * `chosen` is the project's own `aftermathScenes`, when the user set one. It is
+ * held below the scene count so the climax always has a segment to land in.
  */
-export function denouementBudget(segmentCount: number): number {
+export function denouementBudget(segmentCount: number, chosen?: number): number {
+  if (chosen !== undefined) return Math.max(0, Math.min(chosen, segmentCount - 1));
   if (segmentCount <= 3) return 1;
   return segmentCount >= 10 ? 2 : 1;
 }
@@ -106,8 +110,8 @@ export function denouementBudget(segmentCount: number): number {
  * did not stop a 15-segment arc landing its climax on segment 8, the last one
  * the first window was asked for.
  */
-export function earliestClimax(segmentCount: number): number {
-  return Math.max(1, segmentCount - denouementBudget(segmentCount));
+export function earliestClimax(segmentCount: number, chosen?: number): number {
+  return Math.max(1, segmentCount - denouementBudget(segmentCount, chosen));
 }
 
 /**
@@ -119,9 +123,10 @@ export function earliestClimax(segmentCount: number): number {
 export function aftermathOverrun(
   climaxSegment: number | undefined,
   segmentCount: number | undefined,
+  chosen?: number,
 ): number {
   if (climaxSegment === undefined || segmentCount === undefined || segmentCount <= 2) return 0;
   // Zero or past the end is a model saying "not yet" badly, not a climax.
   if (climaxSegment < 1 || climaxSegment > segmentCount) return 0;
-  return Math.max(0, earliestClimax(segmentCount) - climaxSegment);
+  return Math.max(0, earliestClimax(segmentCount, chosen) - climaxSegment);
 }

@@ -6,6 +6,7 @@ import {
   ASPECT_RATIOS,
   CREATIVE_MODES,
   GENERATION_MODES,
+  MAX_CLIMAX_CHARACTERS,
   MAX_CONCEPT_CHARACTERS,
   MAX_SEGMENT_SECONDS,
   MIN_SEGMENT_SECONDS,
@@ -13,6 +14,8 @@ import {
   SEGMENT_SECONDS,
 } from "@/lib/types";
 import { beatBudget } from "@/lib/agents/beat-budget";
+import { computeSegmentation } from "@/lib/duration";
+import { ClimaxFields } from "@/components/shared/climax-fields";
 import {
   AUDIENCE_PRESETS,
   CUSTOM_PRESET_VALUE,
@@ -81,6 +84,8 @@ function describeDefaults(defaults: GenerationDefaults): string | null {
 
 export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormProps) {
   const [concept, setConcept] = useState("");
+  const [climax, setClimax] = useState("");
+  const [aftermathScenes, setAftermathScenes] = useState<number | undefined>(undefined);
   const [references, setReferences] = useState<File[]>([]);
   const [duration, setDuration] = useState(60);
   const [segmentSeconds, setSegmentSeconds] = useState<number>(SEGMENT_SECONDS);
@@ -226,6 +231,8 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
                 .filter(([, value]) => value !== ""),
             )
           : {},
+        ...(climax.trim() ? { climax: climax.trim() } : {}),
+        ...(aftermathScenes !== undefined ? { aftermathScenes } : {}),
       },
       references,
     );
@@ -242,6 +249,11 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
     requestedDurationSeconds: Number(duration),
     segmentSeconds: Number(segmentSeconds),
   });
+  const sceneCount =
+    duration > 0 && segmentSeconds >= MIN_SEGMENT_SECONDS && segmentSeconds <= MAX_SEGMENT_SECONDS
+      ? computeSegmentation(Number(duration), Number(segmentSeconds)).segmentCount
+      : 0;
+  const climaxTooLong = climax.length > MAX_CLIMAX_CHARACTERS;
 
   /**
    * Preset dropdown with a free-text escape hatch.
@@ -472,6 +484,17 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
             </span>
           </div>
         ) : null}
+        <div className="sm:col-span-2">
+          <ClimaxFields
+            climax={climax}
+            aftermath={aftermathScenes}
+            segmentCount={sceneCount}
+            onClimaxChange={setClimax}
+            onAftermathChange={setAftermathScenes}
+            field={field}
+            label={label}
+          />
+        </div>
         <div>
           <label htmlFor="aspectRatio" className={label}>
             Aspect ratio
@@ -656,7 +679,7 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
 
       <button
         type="submit"
-        disabled={submitting || conceptTooLong}
+        disabled={submitting || conceptTooLong || climaxTooLong}
         className="rounded-md bg-accent-solid px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
       >
         {submitting ? "Creating…" : "Create Storyboard"}
