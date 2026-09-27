@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { beatBudget, countImpliedBeats, denouementBudget } from "@/lib/agents/beat-budget";
+import {
+  aftermathOverrun,
+  beatBudget,
+  countImpliedBeats,
+  denouementBudget,
+  earliestClimax,
+} from "@/lib/agents/beat-budget";
 import { storyArchitectSystem } from "@/lib/agents/story-architect-agent";
 
 /**
@@ -81,9 +87,39 @@ describe("the aftermath budget", () => {
     expect(denouementBudget(6)).toBe(1);
     expect(denouementBudget(20)).toBe(2);
   });
+
+  it("states the budget as the earliest segment the climax may land in", () => {
+    expect(earliestClimax(15)).toBe(13);
+    expect(earliestClimax(6)).toBe(5);
+    expect(earliestClimax(3)).toBe(2);
+  });
+
+  /** The live bar fight: knockout at 8 of 15, seven segments of phone call and beer. */
+  it("measures how far an early climax runs the tail over", () => {
+    expect(aftermathOverrun(8, 15)).toBe(5);
+    expect(aftermathOverrun(13, 15)).toBe(0);
+    expect(aftermathOverrun(15, 15)).toBe(0);
+  });
+
+  it("has no opinion when the climax is unknown or nonsense", () => {
+    expect(aftermathOverrun(undefined, 15)).toBe(0);
+    expect(aftermathOverrun(0, 15)).toBe(0);
+    expect(aftermathOverrun(40, 15)).toBe(0);
+    expect(aftermathOverrun(1, 2)).toBe(0);
+  });
 });
 
 describe("what the Story Architect is told", () => {
+  it("names the segment the climax belongs at and asks where it was written", () => {
+    const system = storyArchitectSystem(20, 15);
+    expect(system).toContain("belongs at segment 13 or later of 15");
+    expect(system).toContain("climaxSegment");
+  });
+
+  it("does not place a climax in a two-segment piece", () => {
+    expect(storyArchitectSystem(20, 2)).not.toContain("climaxSegment");
+  });
+
   it("tells it to spend extra segments on an action rather than compress it", () => {
     const system = storyArchitectSystem(20, 12);
     expect(system).toContain("continuedSegments");

@@ -164,5 +164,17 @@ export const storyPlanSchema = z.object({
    * Optional so plans written before it existed still parse.
    */
   continuedSegments: maybe(z.array(z.number().int().positive())),
+  /**
+   * The segment the model says it wrote the climax in — the decisive event,
+   * after which only aftermath remains.
+   *
+   * Everything after it is aftermath, so this is what makes the aftermath budget
+   * checkable at all: a model told "at most two closing beats" once landed its
+   * knockout at segment 8 of 15 and spent the other seven on the phone call and
+   * the beer, and nothing could tell. Self-reported, so absent means unknown.
+   * Not constrained to positive here: a model answering 0 for "not written yet"
+   * would otherwise fail the whole arc, and the agent discards it anyway.
+   */
+  climaxSegment: maybe(z.number().int()),
 });
 export type StoryPlan = z.infer<typeof storyPlanSchema>;

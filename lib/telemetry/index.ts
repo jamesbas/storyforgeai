@@ -45,6 +45,7 @@ export type TelemetryEvent =
   | "llm.runtime"
   | "wangp.discovery"
   | "agent.segment_gap_filled"
+  | "agent.arc_climax_early"
   | "wangp.discovery.unpaged"
   | "wangp.discovery.warm_failed"
   | "wangp.model.selected"

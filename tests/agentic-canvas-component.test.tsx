@@ -276,6 +276,40 @@ describe("the Story Architect card", () => {
     expect(screen.queryByTestId("arc-repeated-beats")).toBeNull();
   });
 
+  const withClimax = (climaxSegment: number, length = 15): ProjectRecord =>
+    ({
+      ...baseRecord,
+      storyPlan: {
+        projectId: "p1",
+        title: "Last call",
+        logline: "An ex-boxer steps in.",
+        emotionalProgression: Array.from({ length }, (_, i) => `feeling ${i + 1}`),
+        segmentBeats: Array.from({ length }, (_, i) => `Beat number ${i + 1} of the fight.`),
+        climaxSegment,
+      },
+    }) as ProjectRecord;
+
+  /** The live bar fight: knockout at 8 of 15 and seven segments of beer and phone calls. */
+  it("says when the climax lands early enough to leave a filler tail", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(withClimax(8))));
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() => expect(screen.getByTestId("arc-early-climax")).toBeTruthy());
+    const warning = screen.getByTestId("arc-early-climax").textContent;
+    expect(warning).toContain("segment 8 of 15");
+    expect(warning).toContain("7 segments of aftermath");
+    expect(warning).toContain("at most 2");
+    expect(screen.getByTestId("arc-beats").textContent).toContain("· climax");
+  });
+
+  it("says nothing when the climax leaves the tail within budget", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(withClimax(13))));
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() => expect(screen.getByTestId("arc-beats")).toBeTruthy());
+    expect(screen.queryByTestId("arc-early-climax")).toBeNull();
+  });
+
   /**
    * A scene intent that is its beat in other words is worse than a missing one:
    * the prompts built from it spend their attention on words the storyboard

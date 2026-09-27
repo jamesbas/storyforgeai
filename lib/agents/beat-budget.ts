@@ -97,3 +97,31 @@ export function denouementBudget(segmentCount: number): number {
   if (segmentCount <= 3) return 1;
   return segmentCount >= 10 ? 2 : 1;
 }
+
+/**
+ * The first segment the climax may land in without the tail running over.
+ *
+ * The aftermath budget stated as a position, because a position is what a model
+ * can be held to while it writes the opening. "Do not resolve the piece" alone
+ * did not stop a 15-segment arc landing its climax on segment 8, the last one
+ * the first window was asked for.
+ */
+export function earliestClimax(segmentCount: number): number {
+  return Math.max(1, segmentCount - denouementBudget(segmentCount));
+}
+
+/**
+ * How many aftermath segments an arc with this climax has beyond its budget.
+ *
+ * Zero when the climax is unknown: it is self-reported, and a missing report is
+ * not evidence the tail is long.
+ */
+export function aftermathOverrun(
+  climaxSegment: number | undefined,
+  segmentCount: number | undefined,
+): number {
+  if (climaxSegment === undefined || segmentCount === undefined || segmentCount <= 2) return 0;
+  // Zero or past the end is a model saying "not yet" badly, not a climax.
+  if (climaxSegment < 1 || climaxSegment > segmentCount) return 0;
+  return Math.max(0, earliestClimax(segmentCount) - climaxSegment);
+}

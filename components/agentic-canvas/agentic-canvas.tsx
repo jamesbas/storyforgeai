@@ -12,6 +12,7 @@ import { planOn, planSpecFor } from "@/lib/agents/plan-fields";
 import { isContinuousTake } from "@/lib/agents/continuity";
 import { shotPlanIssues } from "@/lib/media/seam";
 import { repeatedBeats, echoedEntries } from "@/lib/agents/arc-repetition";
+import { aftermathOverrun, denouementBudget } from "@/lib/agents/beat-budget";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { CanvasRunEntry } from "@/lib/services/canvas-queue";
 
@@ -403,6 +404,11 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
   // even though the arc is otherwise the model's own work.
   const arcRepeats = repeatedBeats(record?.storyPlan?.segmentBeats ?? []);
   const arcRepeated = new Set(arcRepeats);
+  // Everything after the climax is aftermath, so a climax landed early is the
+  // whole "rushed middle, filler ending" complaint in one number.
+  const arcClimax = record?.storyPlan?.climaxSegment;
+  const arcSegments = record?.storyPlan?.segmentBeats.length ?? 0;
+  const arcOverrun = aftermathOverrun(arcClimax, arcSegments || undefined);
   // An intent that is its beat in other words is worse than a missing one: the
   // prompts built from it spend attention on words the storyboard already had.
   const restatedIntents = echoedEntries(
@@ -647,6 +653,7 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
                       {record.storyPlan.segmentBeats.map((beat, index) => {
                         const continues = arcContinuations.has(index + 1);
                         const repeats = arcRepeated.has(index + 1);
+                        const isClimax = arcClimax === index + 1;
                         return (
                           <li key={index} className={continues ? "text-accent/90" : undefined}>
                             {beat}
@@ -655,6 +662,9 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
                                 {" "}
                                 · carries the previous beat on
                               </span>
+                            ) : null}
+                            {isClimax ? (
+                              <span className="text-[10px] text-slate-200">{" "}· climax</span>
                             ) : null}
                             {repeats ? (
                               <span className="text-[10px] text-amber-200/90">
@@ -678,6 +688,18 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
                       {arcRepeats.length === 1 ? "that segment" : "those segments"} would render a
                       shot the audience has already watched. Regenerate the arc, or edit the beats
                       above.
+                    </div>
+                  ) : null}
+                  {arcOverrun > 0 && arcClimax !== undefined ? (
+                    <div
+                      data-testid="arc-early-climax"
+                      className="mt-2 rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200/90"
+                    >
+                      The climax lands at segment {arcClimax} of {arcSegments}, leaving{" "}
+                      {arcSegments - arcClimax} segments of aftermath where at most{" "}
+                      {denouementBudget(arcSegments)} are allowed. That time was taken from the
+                      story, which is why the action reads rushed and the ending reads like filler.
+                      Regenerate the arc.
                     </div>
                   ) : null}
                   {staleAfterArc.length ? (

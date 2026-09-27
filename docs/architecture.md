@@ -799,6 +799,31 @@ map. Filled separately, the beats came back from the model while the emotions
 came from the deterministic template, so the second half of a long film was
 directed to "rising tension" over beats where the story had already resolved.
 
+**A follow-up can return more than a line per segment.** The optional `extras`
+hook adds fields to the follow-up schema and folds each answer into the
+artifact. The arc uses it for `continued` and `climax`. Before it existed, the
+follow-up schema had room only for `entries` and the companion, so from segment 9
+onwards no action could be spread across several segments however long it took,
+even though every continuation was still told to list them.
+
+**The arc is told where its climax belongs, and checked against it.** The
+aftermath budget (`denouementBudget()`) is also stated as a position:
+`earliestClimax()` is the first segment the climax may land in without the tail
+running over, and the Story Architect is told it, told the opening window that
+the climax cannot be among its segments, and asked to report `climaxSegment` —
+the segment it *wrote* the climax in, not the one it planned. Live, a 15-segment
+bar fight told only "nothing here may conclude the piece" landed its knockout on
+segment 8, the last segment the opening covered, and the seven segments that
+followed were a phone call, a beer drunk twice and a receiver hung up twice.
+`withEarlyClimaxRetry()` rewrites an opening that reports an early climax once,
+with the reason, before any continuation is paid for; the rewrite is kept unless
+it does no better. A climax a later window spends early is too late to rewrite
+cheaply and is reported instead — as `invalid_set` on the execution and as a
+warning on the Story Architect card. A near-duplicate beat that is *not* next to
+the one it repeats is deliberately not detected by word overlap: measured on the
+same arc, the duplicated drink scored 0.21 while two unrelated beats scored 0.30.
+Holding the tail to its budget leaves the padding nowhere to go.
+
 **Don't wait to run out — cap the first call.** `firstWindowDirective()` in
 `segment-windows.ts` tells a long project's first call to write only segments 1
 to 8, *and that the rest will be asked for*. The promise is the working part: a
@@ -1747,7 +1772,7 @@ clone and of CI.
 - **Telemetry** — structured single-line JSON with a closed event taxonomy in
   `lib/telemetry/index.ts`. Around a hundred events, grouped by subject:
   `project.*`, `storyboard.*`, `agent.*` (including `agent.llm.failed`,
-  `agent.fallback`, `agent.segment_gap_filled`), `prompt.*` (`prompt.composed`,
+  `agent.fallback`, `agent.segment_gap_filled`, `agent.arc_climax_early`), `prompt.*` (`prompt.composed`,
   `prompt.gate`), `wangp.*` (discovery, model selection, job lifecycle, steps and
   resolution resolution), `scene.*`, `scene_queue.*`, `canvas_queue.*`, `task.*`,
   `face_swap.*`, `lora.dropped`, `character.*`, `audio_cue.generated`,

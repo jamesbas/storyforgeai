@@ -46,14 +46,39 @@ export type CompanionMap<T> = {
   write: (value: T, map: Record<string, string>) => T;
 };
 
-type FollowUp = Record<string, Record<string, string> | undefined>;
+type FollowUp = Record<string, unknown> & {
+  entries: Record<string, string>;
+};
+
+/**
+ * Fields a follow-up may return beyond the segment entries, and how each one is
+ * folded into the artifact.
+ *
+ * The arc needs this for two things that are not a line per segment: which
+ * segments carry the previous one on, and where the climax landed. Before it
+ * existed the follow-up schema had nowhere to put either, so from segment 9
+ * onwards no action could span several segments however long it took, even
+ * though every continuation was still told to list them.
+ */
+export type FollowUpExtras<T> = {
+  /** Zod shape merged into the follow-up schema. Use `maybe()` for strict mode. */
+  shape: Record<string, z.ZodTypeAny>;
+  /** Appended to the continuation instruction, e.g. `, and "climax": …`. */
+  asks: string;
+  /** What has already been decided, added to the follow-up payload. */
+  payload?: (value: T) => Record<string, unknown>;
+  merge: (value: T, followUp: Record<string, unknown>, window: readonly number[]) => T;
+};
 
 /**
  * The follow-up asks only for the segment entries, never the whole artifact, so
  * a second call cannot re-roll the fields that were already right.
  */
-function followUpSchema(companionKey: string | undefined): ZodType<FollowUp, ZodTypeDef, unknown> {
-  const shape: Record<string, z.ZodTypeAny> = { entries: z.record(z.string()) };
+function followUpSchema(
+  companionKey: string | undefined,
+  extras: Record<string, z.ZodTypeAny> | undefined,
+): ZodType<FollowUp, ZodTypeDef, unknown> {
+  const shape: Record<string, z.ZodTypeAny> = { entries: z.record(z.string()), ...extras };
   if (companionKey) shape[companionKey] = z.record(z.string()).optional();
   return z.object(shape) as unknown as ZodType<FollowUp, ZodTypeDef, unknown>;
 }
@@ -104,16 +129,18 @@ export function withSegmentGapsFilled<T>(
     continuationDirective?: (window: readonly number[], segmentCount: number | undefined) => string;
     /** Extra payload for this window, merged into the follow-up's JSON. */
     windowContext?: (window: readonly number[]) => Record<string, unknown>;
+    extras?: FollowUpExtras<T>;
   },
 ): () => Promise<ProviderResult<T>> {
   return async () => {
     const first = await primary();
     if (!first.ok) return first;
 
-    const { companion } = options;
+    const { companion, extras } = options;
+    let current = first.value;
     const map = { ...(options.read(first.value) ?? {}) };
     const companionMap = { ...(companion?.read(first.value) ?? {}) };
-    const schema = followUpSchema(companion?.key);
+    const schema = followUpSchema(companion?.key, extras?.shape);
     const rounds = maxRoundsFor(options.segmentCount);
 
     for (let round = 1; round <= rounds; round += 1) {
@@ -131,6 +158,7 @@ export function withSegmentGapsFilled<T>(
           `segments ${window.join(", ")} have not been written yet. Return only "entries": one ` +
           `line for each of those segment numbers, keyed by the number as a string` +
           (companion ? `, and "${companion.key}": ${companion.asks}, keyed the same way` : "") +
+          (extras?.asks ?? "") +
           `. Write nothing for any other segment. Carry on from what has already been written ` +
           `rather than restarting it, summarising it, or repeating what it already says.` +
           (options.continuationDirective?.(window, options.segmentCount) ?? ""),
@@ -138,6 +166,7 @@ export function withSegmentGapsFilled<T>(
           ...options.payload,
           alreadyWritten: map,
           ...(companion ? { [`alreadyWritten_${companion.key}`]: companionMap } : {}),
+          ...(extras?.payload?.(current) ?? {}),
           ...(options.windowContext?.(window) ?? {}),
           writeOnlyTheseSegments: window,
         }),
@@ -145,6 +174,7 @@ export function withSegmentGapsFilled<T>(
         { systemPromptScope: options.systemPromptScope },
       )();
       if (!filled.ok) break;
+      if (extras) current = extras.merge(current, filled.value, window);
 
       // Keyed by the plain number whatever the model answered with, so the next
       // round — and `segmentsMissingFrom` — agree the segment is covered.
@@ -159,7 +189,7 @@ export function withSegmentGapsFilled<T>(
           }
         }
         if (companion && missingCompanion.includes(sceneNumber)) {
-          const entry = planEntryFor(filled.value[companion.key], sceneNumber);
+          const entry = planEntryFor(filled.value[companion.key] as Record<string, string> | undefined, sceneNumber);
           if (entry) {
             companionMap[String(sceneNumber)] = entry;
             addedCompanion += 1;
@@ -177,7 +207,7 @@ export function withSegmentGapsFilled<T>(
       if (added + addedCompanion === 0) break;
     }
 
-    const written = options.write(first.value, map);
+    const written = options.write(current, map);
     return { ...first, value: companion ? companion.write(written, companionMap) : written };
   };
 }

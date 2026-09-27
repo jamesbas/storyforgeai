@@ -256,3 +256,191 @@ describe("beats that repeat the beat before them", () => {
     expect(plan.segmentBeats[0]).toBe(beatText(1));
   });
 });
+
+/**
+ * Where the climax lands, and the continuations after segment 8.
+ *
+ * Live, a 15-segment bar fight: the opening window was told nothing it wrote
+ * could conclude the piece, and it put the knockout on segment 8 — the last one
+ * it was asked for. Segments 9 to 15 were a phone call, a beer drunk twice and
+ * a receiver hung up twice, against a budget of two aftermath beats, and the run
+ * was recorded `llm / ok`. No segment was marked as continuing another either:
+ * the follow-up schema had nowhere to put one.
+ */
+type Reply = Record<string, unknown>;
+
+function scripted(options: {
+  segmentCount: number;
+  /** Opening answers, in order; the last repeats if asked again. */
+  openings: Array<{ upTo: number; climax?: number | null; continued?: number[] }>;
+  /** Per-window extras for continuations. */
+  window?: (asked: number[]) => Reply;
+}) {
+  const systems: string[] = [];
+  const users: Array<Record<string, unknown>> = [];
+  let opened = 0;
+  const provider = {
+    name: "fake",
+    async generateJson(system: string, user: string) {
+      systems.push(system);
+      const body = JSON.parse(user) as Record<string, unknown> & Ask;
+      users.push(body);
+      const asked = body.writeOnlyTheseSegments;
+      if (asked) {
+        return {
+          entries: Object.fromEntries(asked.map((n) => [String(n), beatText(n)])),
+          emotions: Object.fromEntries(asked.map((n) => [String(n), `feeling ${n}`])),
+          ...(options.window?.(asked) ?? {}),
+        };
+      }
+      const o = options.openings[Math.min(opened, options.openings.length - 1)]!;
+      opened += 1;
+      return {
+        projectId: "p",
+        title: "T",
+        logline: "l",
+        segmentBeats: Array.from({ length: o.upTo }, (_, i) => beatText(i + 1)),
+        emotionalProgression: Array.from({ length: o.upTo }, (_, i) => `feeling ${i + 1}`),
+        ...(o.continued ? { continuedSegments: o.continued } : {}),
+        ...(o.climax !== undefined ? { climaxSegment: o.climax } : {}),
+      };
+    },
+  } as unknown as PlanningProvider;
+  const openingCalls = () => opened;
+  return { provider, systems, users, openingCalls };
+}
+
+function sized(segmentCount: number, executions: ArtifactExecution[] = []): AgentContext {
+  return { ...ctx(executions), project: { ...project, segmentCount } as Project } as AgentContext;
+}
+
+describe("where the climax lands", () => {
+  it("tells a long opening the climax is not among its segments", async () => {
+    const { provider, systems } = scripted({ segmentCount: 15, openings: [{ upTo: 8 }] });
+    await storyArchitectAgent(sized(15), provider);
+
+    expect(systems[0]).toContain("climax is at segment 13 at the earliest");
+    expect(systems[0]).toContain("cannot happen in segments 1 to 8");
+  });
+
+  it("tells the window that holds the earliest climax that it belongs there", async () => {
+    const { provider, systems } = scripted({ segmentCount: 15, openings: [{ upTo: 8 }] });
+    await storyArchitectAgent(sized(15), provider);
+
+    expect(systems[1]).toContain("belongs in this window, at segment 13 or later");
+  });
+
+  it("tells a middle window it is still building", async () => {
+    const { provider, systems } = scripted({ segmentCount: 27, openings: [{ upTo: 8 }] });
+    await storyArchitectAgent(sized(27), provider);
+
+    expect(systems[1]).toContain("segments 9 to 16 of 27");
+    expect(systems[1]).toContain("at segment 25 at the earliest, after this window");
+  });
+
+  /** The live case. */
+  it("rewrites an opening that spent the climax, once, with the reason", async () => {
+    const executions: ArtifactExecution[] = [];
+    const { provider, systems, openingCalls } = scripted({
+      segmentCount: 15,
+      openings: [{ upTo: 8, climax: 8 }, { upTo: 8, climax: null }],
+      window: (asked) => (asked.includes(13) ? { climax: 13 } : {}),
+    });
+
+    const plan = await storyArchitectAgent(sized(15, executions), provider);
+
+    expect(openingCalls()).toBe(2);
+    expect(systems[1]).toContain("REWRITE");
+    expect(systems[1]).toContain("wrote the climax in segment 8");
+    expect(systems[1]).toContain("leave 7 of the 15 segments for aftermath");
+    expect(plan.climaxSegment).toBe(13);
+    const run = executions.find((e) => e.artifact === "story_plan");
+    expect(run?.status).toBe("ok");
+  });
+
+  it("keeps the first opening and reports it when the rewrite does no better", async () => {
+    const executions: ArtifactExecution[] = [];
+    const { provider, openingCalls } = scripted({
+      segmentCount: 15,
+      openings: [{ upTo: 8, climax: 8 }, { upTo: 8, climax: 7 }],
+    });
+
+    const plan = await storyArchitectAgent(sized(15, executions), provider);
+
+    expect(openingCalls()).toBe(2);
+    expect(plan.climaxSegment).toBe(8);
+    const run = executions.find((e) => e.artifact === "story_plan");
+    expect(run?.fallbackReason).toBe("invalid_set");
+    expect(run?.detail).toContain("climax at segment 8 of 15 leaves 7 aftermath beats");
+    // Reported, not thrown away.
+    expect(plan.segmentBeats).toHaveLength(15);
+  });
+
+  it("reports a climax a later window spent early", async () => {
+    const executions: ArtifactExecution[] = [];
+    const { provider, openingCalls } = scripted({
+      segmentCount: 27,
+      openings: [{ upTo: 8 }],
+      window: (asked) => (asked.includes(10) ? { climax: 10 } : { climax: asked[0] }),
+    });
+
+    const plan = await storyArchitectAgent(sized(27, executions), provider);
+
+    // Too late to rewrite cheaply: the opening was fine.
+    expect(openingCalls()).toBe(1);
+    // The first window to claim it decides the tail, not a later restatement.
+    expect(plan.climaxSegment).toBe(10);
+    expect(executions.find((e) => e.artifact === "story_plan")?.detail).toContain(
+      "climax at segment 10 of 27",
+    );
+  });
+
+  it("does not retry an opening whose climax report is nonsense", async () => {
+    const { provider, openingCalls } = scripted({
+      segmentCount: 15,
+      openings: [{ upTo: 8, climax: 0 }],
+    });
+
+    const plan = await storyArchitectAgent(sized(15), provider);
+
+    expect(openingCalls()).toBe(1);
+    expect(plan.climaxSegment).toBeUndefined();
+  });
+
+  it("rewrites a short arc that lands its climax early too", async () => {
+    const { provider, systems, openingCalls } = scripted({
+      segmentCount: 6,
+      openings: [{ upTo: 6, climax: 3 }, { upTo: 6, climax: 5 }],
+    });
+
+    const plan = await storyArchitectAgent(sized(6), provider);
+
+    expect(openingCalls()).toBe(2);
+    expect(systems[1]).toContain("A draft of this arc wrote the climax in segment 3");
+    expect(plan.climaxSegment).toBe(5);
+  });
+});
+
+describe("continuations written after the first window", () => {
+  it("asks every window which of its segments carry the previous one on", async () => {
+    const { provider, systems, users } = scripted({ segmentCount: 15, openings: [{ upTo: 8 }] });
+    await storyArchitectAgent(sized(15), provider);
+
+    expect(systems[1]).toContain('"continued"');
+    expect(systems[1]).toContain('"climax"');
+    expect(users[1]).toHaveProperty("continuedSegments");
+  });
+
+  it("keeps the continuations a later window marks, within that window only", async () => {
+    const { provider } = scripted({
+      segmentCount: 15,
+      openings: [{ upTo: 8, continued: [5, 6] }],
+      // 4 is outside the window and 40 outside the film; neither is this window's to mark.
+      window: () => ({ continued: [9, 10, 11, 4, 40] }),
+    });
+
+    const plan = await storyArchitectAgent(sized(15), provider);
+
+    expect(plan.continuedSegments).toEqual([5, 6, 9, 10, 11]);
+  });
+});
