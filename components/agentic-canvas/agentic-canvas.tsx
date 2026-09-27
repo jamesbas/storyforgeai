@@ -65,14 +65,21 @@ const ARC_DEPENDENTS = [
  *
  * Rewriting the arc is the one canvas action that makes finished work wrong
  * rather than merely older — the Director's intent is keyed to beats that have
- * been replaced. Timestamps are ISO, so they order lexicographically.
+ * been replaced. Editing the beats by hand does the same, so the later of the
+ * two counts. Timestamps are ISO, so they order lexicographically.
  */
 function staleAgainstArc(record: ProjectRecord): string[] {
-  const arc = latestExecution(record.executions, "story_plan")?.finishedAt;
+  const written = latestExecution(record.executions, "story_plan")?.finishedAt;
+  const edited = (record.history ?? [])
+    .filter((entry) => entry.action === "story_plan.edited")
+    .map((entry) => entry.at)
+    .sort()
+    .pop();
+  const arc = [written, edited].filter((at): at is string => Boolean(at)).sort().pop();
   if (!arc) return [];
   return ARC_DEPENDENTS.filter(({ artifact }) => {
-    const written = latestExecution(record.executions, artifact)?.finishedAt;
-    return written !== undefined && written < arc;
+    const dependent = latestExecution(record.executions, artifact)?.finishedAt;
+    return dependent !== undefined && dependent < arc;
   }).map(({ name }) => name);
 }
 

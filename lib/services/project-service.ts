@@ -1402,6 +1402,8 @@ export async function updatePlan(
       parsed.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("; "),
     );
   }
+  const problem = spec.check?.(parsed.data as Record<string, unknown>, record);
+  if (problem) throw new ValidationError(problem);
 
   const updated: ProjectRecord = {
     ...record,
@@ -1437,10 +1439,19 @@ export async function updatePlan(
  * Absent provenance counts as suspect: it is regenerated once, after which the
  * record says which it was.
  */
-function storyPlanNeedsWriting(record: ProjectRecord, hasProvider: boolean): boolean {
+export function storyPlanNeedsWriting(record: ProjectRecord, hasProvider: boolean): boolean {
   if (!record.storyPlan) return true;
   // Without a provider the rewrite would only produce the same template again.
   if (!hasProvider) return false;
+  // Edited by hand since it was last written: whatever wrote it, the beats are
+  // now the user's, and replacing them silently would discard their work.
+  const writtenAt = latestExecution(record.executions, "story_plan")?.finishedAt;
+  const editedAt = (record.history ?? [])
+    .filter((entry) => entry.action === "story_plan.edited")
+    .map((entry) => entry.at)
+    .sort()
+    .pop();
+  if (editedAt && (!writtenAt || editedAt > writtenAt)) return false;
   const source = latestExecution(record.executions, "story_plan")?.source;
   return source !== "llm" && source !== "hybrid";
 }

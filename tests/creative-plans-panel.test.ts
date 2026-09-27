@@ -68,7 +68,7 @@ describe("creative plan staleness", () => {
     const record = recordWith([{ at: "2026-07-28T12:02:53Z", action: "storyboard.generated" }]);
     const { states, missingCount } = planStates(record);
 
-    expect(missingCount).toBe(4);
+    expect(missingCount).toBe(5);
     expect(states.every((s) => s.state === "missing")).toBe(true);
   });
 
@@ -114,6 +114,22 @@ describe("creative plan staleness", () => {
     const { states, staleCount, missingCount } = planStates(record);
     expect(states.find((s) => s.label === "World Builder")?.state).toBe("applied");
     expect(staleCount).toBe(2);
-    expect(missingCount).toBe(1);
+    // Art Director and the arc were never generated in this history.
+    expect(missingCount).toBe(2);
+  });
+
+  /** Beats edited after the storyboard change what every card would say. */
+  it("marks the arc not applied once its beats are edited after the storyboard", () => {
+    const record = recordWith(
+      [
+        { at: "2026-07-28T12:02:53Z", action: "storyboard.generated" },
+        { at: "2026-07-28T12:10:00Z", action: "story_plan.edited" },
+      ],
+      { storyPlan: plan },
+    );
+
+    expect(planStates(record).states.find((s) => s.label === "Story Architect")?.state).toBe(
+      "stale",
+    );
   });
 });

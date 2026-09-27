@@ -1449,6 +1449,18 @@ export default function HelpPage() {
             it gives for a plan you regenerated late.
           </p>
           <p className={p}>
+            <strong>The Story Architect&apos;s arc is editable too</strong> — title, logline, the beat
+            for every segment, the emotional progression, which segments continue the one before,
+            and the climax segment. Beats are the account of <em>what happens</em> in each scene, so
+            they are the place to fix a fight finished in one scene or an ending padded with
+            aftermath; the Director&apos;s scene intents shape how a beat is directed, not what it is.
+            Beats are written <code>1: what happens in segment 1</code>, and the number decides the
+            segment, not the line — so the arc must keep one entry for every segment, and a missing
+            or empty one is refused by name rather than shifting the rest. Editing the beats marks
+            the Director, Cinematographer, Art Director and storyboard as written against an older
+            arc, exactly as regenerating it does.
+          </p>
+          <p className={p}>
             <strong>Rewriting the prompts is not a substitute.</strong> A plan shapes two things:
             the scene cards — the beats, the shot list, the wardrobe — and the prompts written from
             them. <em>Rewrite all prompts</em> re-runs only the second half, so the new direction

@@ -1,5 +1,6 @@
 import { worldBibleSchema, directorialPlanSchema, cinematographyPlanSchema, artDirectionPlanSchema } from "@/lib/schemas/canvas";
 import { audioPlanSchema } from "@/lib/schemas/audio";
+import { storyPlanSchema } from "@/lib/schemas/agents";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { ZodTypeAny } from "zod";
 
@@ -10,8 +11,13 @@ import type { ZodTypeAny } from "zod";
  * must never be editable, and `audioPlan.cues` holds generated audio with file
  * paths and approval state — hand-editing those would strand real media on
  * disk. Everything not listed here is shown read-only.
+ *
+ * `numbered` is an ordered list shown as "N: entry", one per segment. The arc's
+ * beats need it: as a plain list, deleting one line would silently move every
+ * later beat onto the segment before it. `numbers` is a list of segment numbers
+ * and `number` a single one, blank for none.
  */
-export type PlanFieldKind = "text" | "list" | "map" | "named";
+export type PlanFieldKind = "text" | "list" | "map" | "named" | "numbered" | "numbers" | "number";
 
 export type PlanField = {
   key: string;
@@ -24,7 +30,13 @@ export type PlanField = {
 
 export type PlanSpec = {
   /** Where the plan lives on the record. */
-  recordKey: "worldBible" | "directorialPlan" | "cinematographyPlan" | "artDirectionPlan" | "audioPlan";
+  recordKey:
+    | "storyPlan"
+    | "worldBible"
+    | "directorialPlan"
+    | "cinematographyPlan"
+    | "artDirectionPlan"
+    | "audioPlan";
   /** Matches the Agentic Canvas card key. */
   agentKey: string;
   label: string;
@@ -32,9 +44,77 @@ export type PlanSpec = {
   /** History action, so the storyboard's "not applied yet" badge still works. */
   historyAction: string;
   fields: PlanField[];
+  /**
+   * Rules the schema cannot express because they depend on the project, such as
+   * how many segments it has. Returns the problem, or undefined.
+   */
+  check?: (plan: Record<string, unknown>, record: ProjectRecord) => string | undefined;
 };
 
+/**
+ * The arc has to stay one entry per segment: every later agent slices it by
+ * segment number, so a short or padded list moves beats onto the wrong scenes.
+ */
+function checkArc(plan: Record<string, unknown>, record: ProjectRecord): string | undefined {
+  const count = record.project.segmentCount;
+  const beats = plan.segmentBeats as string[];
+  const emotions = plan.emotionalProgression as string[];
+  if (beats.length !== count) return `Story beats needs ${count} entries, one per segment; got ${beats.length}`;
+  const blank = beats.findIndex((b) => !b.trim());
+  if (blank !== -1) return `Story beat ${blank + 1} is empty`;
+  if (emotions.length !== count) {
+    return `Emotional progression needs ${count} entries, one per segment; got ${emotions.length}`;
+  }
+  const continued = (plan.continuedSegments as number[] | undefined) ?? [];
+  const outside = continued.find((n) => n < 2 || n > count);
+  if (outside !== undefined) {
+    return `Continued segment ${outside} is not between 2 and ${count} — segment 1 has nothing to continue`;
+  }
+  const climax = plan.climaxSegment as number | undefined;
+  if (climax !== undefined && (climax < 1 || climax > count)) {
+    return `Climax segment ${climax} is not between 1 and ${count}`;
+  }
+  return undefined;
+}
+
 export const PLAN_SPECS: readonly PlanSpec[] = [
+  {
+    recordKey: "storyPlan",
+    agentKey: "story",
+    label: "Story Arc",
+    schema: storyPlanSchema,
+    historyAction: "story_plan.edited",
+    check: checkArc,
+    fields: [
+      { key: "title", label: "Title", kind: "text", rows: 1 },
+      { key: "logline", label: "Logline", kind: "text", rows: 2 },
+      {
+        key: "segmentBeats",
+        label: "Story beats",
+        kind: "numbered",
+        rows: 12,
+        help: "One per segment, keyed by number. Keep every number: this is what each scene is about.",
+      },
+      {
+        key: "emotionalProgression",
+        label: "Emotional progression",
+        kind: "numbered",
+        help: "One value per segment, keyed the same way.",
+      },
+      {
+        key: "continuedSegments",
+        label: "Continued segments",
+        kind: "numbers",
+        help: "Segments that carry the previous one's action on, e.g. 9, 10, 11.",
+      },
+      {
+        key: "climaxSegment",
+        label: "Climax segment",
+        kind: "number",
+        help: "Where the climax lands. Blank for unknown.",
+      },
+    ],
+  },
   {
     recordKey: "worldBible",
     agentKey: "world",

@@ -18,6 +18,13 @@ import type { ProjectRecord } from "@/lib/schemas/storyboard";
 
 const PLANS = [
   {
+    key: "storyPlan",
+    action: "story_plan.generated",
+    editedAction: "story_plan.edited",
+    label: "Story Architect",
+    effect: "The beat each scene card is written from, and which scenes continue the one before",
+  },
+  {
     key: "worldBible",
     action: "world_bible.generated",
     editedAction: "world_bible.edited",
@@ -191,7 +198,7 @@ export function CreativePlansPanel({
 
       {!hasStoryboard && missingCount === 0 ? (
         <p className="mt-3 rounded-md border border-sky-500/25 bg-sky-500/5 p-3 text-xs text-sky-200/80">
-          All four plans are written and waiting. Generating the storyboard now folds every one of
+          All the plans are written and waiting. Generating the storyboard now folds every one of
           them into the scene prompts — which is the order that gets them into your renders.
         </p>
       ) : null}

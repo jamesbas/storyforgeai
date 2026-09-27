@@ -4,6 +4,8 @@ import {
   generateWorldBible,
   generateCinematographyPlan,
   generateStoryboard,
+  generateStoryPlan as generateStoryPlanFor,
+  storyPlanNeedsWriting,
   updatePlan,
 } from "@/lib/services/project-service";
 import { planSpecFor, PLAN_SPECS } from "@/lib/agents/plan-fields";
@@ -131,5 +133,120 @@ describe("editing a plan", () => {
 
     const after = planStates(record).states.find((s) => s.label === "Cinematographer");
     expect(after?.state).toBe("stale");
+  });
+});
+
+/**
+ * The arc was the one artifact that could not be edited, so a beat the model
+ * got wrong — a fight finished in one scene, a climax on the wrong event —
+ * could only be fixed by regenerating the whole arc and hoping.
+ */
+describe("editing the story arc", () => {
+  beforeEach(() => {
+    setWangpClient(new MockWangpClient());
+  });
+
+  async function projectWithArc(): Promise<ProjectRecord> {
+    const project = await createProject({
+      concept: "A courier crosses a flooded city.",
+      requestedDurationSeconds: 60,
+    });
+    return generateStoryPlanFor(project.id);
+  }
+
+  const beatsOf = (record: ProjectRecord) => record.storyPlan!.segmentBeats;
+
+  it("keeps edited beats, continuations and climax", async () => {
+    const record = await projectWithArc();
+    const beats = beatsOf(record).map((b, i) => (i === 1 ? "The courier wades into the square." : b));
+
+    const updated = await updatePlan(record.project.id, "story", {
+      segmentBeats: beats,
+      continuedSegments: [3],
+      climaxSegment: 2,
+    });
+
+    expect(updated.storyPlan!.segmentBeats[1]).toBe("The courier wades into the square.");
+    expect(updated.storyPlan!.continuedSegments).toEqual([3]);
+    expect(updated.storyPlan!.climaxSegment).toBe(2);
+    expect(updated.storyPlan!.logline).toBe(record.storyPlan!.logline);
+  });
+
+  it("clears the climax when it is left blank", async () => {
+    const record = await projectWithArc();
+    await updatePlan(record.project.id, "story", { climaxSegment: 2 });
+
+    const cleared = await updatePlan(record.project.id, "story", { climaxSegment: null });
+
+    expect(cleared.storyPlan!.climaxSegment).toBeUndefined();
+  });
+
+  /** Every later agent slices the arc by segment number. */
+  it("refuses an arc with a beat missing", async () => {
+    const record = await projectWithArc();
+    await expect(
+      updatePlan(record.project.id, "story", { segmentBeats: beatsOf(record).slice(1) }),
+    ).rejects.toThrow(/needs 3 entries/);
+  });
+
+  it("refuses a blank beat by its number", async () => {
+    const record = await projectWithArc();
+    const beats = [...beatsOf(record)];
+    beats[1] = "  ";
+    await expect(updatePlan(record.project.id, "story", { segmentBeats: beats })).rejects.toThrow(
+      /Story beat 2 is empty/,
+    );
+  });
+
+  it("refuses a continuation on segment 1 or past the end", async () => {
+    const record = await projectWithArc();
+    await expect(
+      updatePlan(record.project.id, "story", { continuedSegments: [1] }),
+    ).rejects.toThrow(/segment 1 has nothing to continue/);
+    await expect(updatePlan(record.project.id, "story", { climaxSegment: 9 })).rejects.toThrow(
+      /Climax segment 9/,
+    );
+  });
+
+  /**
+   * A hand-edited arc must survive the storyboard even when the arc it
+   * replaced came from the builder — otherwise the guard that rewrites a
+   * template arc would throw the user's beats away with it.
+   */
+  it("hands the edited beats to the storyboard", async () => {
+    const record = await projectWithArc();
+    const beats = beatsOf(record).map((b, i) => (i === 0 ? "The courier ties the parcel to her back." : b));
+    await new Promise((r) => setTimeout(r, 5));
+    await updatePlan(record.project.id, "story", { segmentBeats: beats });
+
+    const boarded = await generateStoryboard(record.project.id);
+
+    expect(boarded.storyPlan!.segmentBeats[0]).toBe("The courier ties the parcel to her back.");
+  });
+
+  it("is not rewritten over by the guard that replaces template arcs", () => {
+    const templateArc = {
+      project: {},
+      storyPlan: { segmentBeats: ["Advance beat 1 of the narrative."] },
+      executions: [
+        {
+          artifact: "story_plan",
+          source: "deterministic",
+          status: "degraded",
+          startedAt: "2026-09-27T10:00:00.000Z",
+          finishedAt: "2026-09-27T10:00:01.000Z",
+        },
+      ],
+      history: [] as { at: string; action: string }[],
+    } as unknown as ProjectRecord;
+
+    // A template arc nobody touched is still replaced when a model is available.
+    expect(storyPlanNeedsWriting(templateArc, true)).toBe(true);
+
+    const edited = {
+      ...templateArc,
+      history: [{ at: "2026-09-27T10:05:00.000Z", action: "story_plan.edited" }],
+    } as unknown as ProjectRecord;
+    expect(storyPlanNeedsWriting(edited, true)).toBe(false);
   });
 });

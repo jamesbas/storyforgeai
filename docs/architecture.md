@@ -837,6 +837,18 @@ rewrite message names it. The arc records the settings it was written to in
 project so a changed climax marks the arc out of date on the canvas. An arc
 written before the settings existed only counts as stale once something is set.
 
+**The arc is hand-editable.** `PLAN_SPECS` in `plan-fields.ts` declares the story
+plan like the other canvas plans, through `PATCH plans/story`. Beats and emotions
+use the `numbered` field kind — `N: entry` lines placed by their number rather
+than their order, so deleting a line cannot shift every later beat onto the
+segment before it — and a spec-level `check` enforces what the schema cannot: one
+non-empty entry per segment, continuations between 2 and the segment count, a
+climax inside the piece. A hand edit records `story_plan.edited`, which counts
+like a regeneration for both staleness checks (the canvas's dependents warning and
+the Storyboard screen's *not applied yet*), and `storyPlanNeedsWriting()` refuses
+to replace an arc edited since it was last written — otherwise the guard that
+rewrites a template arc would discard the user's beats with it.
+
 **Don't wait to run out — cap the first call.** `firstWindowDirective()` in
 `segment-windows.ts` tells a long project's first call to write only segments 1
 to 8, *and that the rest will be asked for*. The promise is the working part: a

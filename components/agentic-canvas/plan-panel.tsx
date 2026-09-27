@@ -31,7 +31,30 @@ function toText(field: PlanField, value: unknown): string {
       return Array.isArray(value)
         ? (value as NamedSpec[]).map((n) => `${n.name}${SEP}${n.description}`).join(LINE)
         : "";
+    case "numbered":
+      return Array.isArray(value) ? value.map((v, i) => `${i + 1}${SEP}${String(v)}`).join(LINE) : "";
+    case "numbers":
+      return Array.isArray(value) ? value.map(String).join(", ") : "";
+    case "number":
+      return String(value);
   }
+}
+
+/**
+ * "N: entry" lines back into a list, placed by their number rather than their
+ * order. A missing number leaves an empty entry the server refuses by name,
+ * instead of silently moving every later entry up a segment.
+ */
+function fromNumbered(lines: readonly string[]): string[] {
+  const entries: string[] = [];
+  let next = 1;
+  for (const line of lines) {
+    const match = /^(\d+)\s*[:.)-]\s*(.*)$/.exec(line);
+    const at = match ? Number(match[1]) : next;
+    entries[at - 1] = (match ? match[2]! : line).trim();
+    next = at + 1;
+  }
+  return Array.from(entries, (entry) => entry ?? "");
 }
 
 function fromText(field: PlanField, text: string): unknown {
@@ -60,6 +83,19 @@ function fromText(field: PlanField, text: string): unknown {
           ? { name: line, description: "" }
           : { name: line.slice(0, at).trim(), description: line.slice(at + 1).trim() };
       });
+    case "numbered":
+      return fromNumbered(lines);
+    case "numbers":
+      return [
+        ...new Set(
+          text
+            .split(/[\s,]+/)
+            .filter(Boolean)
+            .map(Number),
+        ),
+      ].sort((a, b) => a - b);
+    case "number":
+      return text.trim() ? Number(text.trim()) : null;
   }
 }
 
@@ -68,6 +104,9 @@ const PLACEHOLDER: Record<PlanField["kind"], string> = {
   list: "One per line",
   map: "1: what happens in segment 1",
   named: "Name: description",
+  numbered: "1: what happens in segment 1",
+  numbers: "e.g. 9, 10, 11",
+  number: "e.g. 13",
 };
 
 /**

@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { act, render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { VariantReview } from "@/components/agentic-canvas/variant-review";
 import { AgenticCanvas } from "@/components/agentic-canvas/agentic-canvas";
@@ -433,6 +433,59 @@ describe("the Story Architect card", () => {
 
     await waitFor(() => expect(screen.getByTestId("arc-beats")).toBeTruthy());
     expect(screen.queryByTestId("arc-dependents-stale")).toBeNull();
+  });
+
+  /** Editing the beats changes the story as much as rewriting them. */
+  it("names the plans written before the beats were edited by hand", async () => {
+    const record = {
+      ...withArc(undefined, [
+        execution("story_plan", "2026-01-01T00:00:00.000Z"),
+        execution("directorial_plan", "2026-02-01T00:00:00.000Z"),
+      ]),
+      history: [{ at: "2026-03-01T00:00:00.000Z", action: "story_plan.edited" }],
+    } as unknown as ProjectRecord;
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(record)));
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() => expect(screen.getByTestId("arc-dependents-stale")).toBeTruthy());
+    expect(screen.getByTestId("arc-dependents-stale").textContent).toContain("Director");
+  });
+
+  it("offers the arc for editing, one numbered beat per segment", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => jsonResponse(withArc([2]))));
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() => expect(screen.getByText(/View or edit Story Arc/)).toBeTruthy());
+    const panel = screen.getByText(/View or edit Story Arc/).closest("details")!;
+    expect(panel.textContent).toContain("1: He walks the towpath.");
+    expect(panel.textContent).toContain("3: The gate gives.");
+  });
+
+  it("sends edited beats back in segment order", async () => {
+    const fetchMock = vi.fn(async () => jsonResponse(withArc()));
+    vi.stubGlobal("fetch", fetchMock);
+    const user = userEvent.setup();
+    render(<AgenticCanvas projectId="p1" />);
+
+    await waitFor(() => expect(screen.getByText(/View or edit Story Arc/)).toBeTruthy());
+    const panel = screen.getByText(/View or edit Story Arc/).closest("details")!;
+    await user.click(screen.getByText(/View or edit Story Arc/));
+    await user.click(within(panel).getByRole("button", { name: "Edit" }));
+
+    const beats = within(panel).getAllByRole("textbox")[2]!;
+    await user.clear(beats);
+    // Typed out of order on purpose: the number decides the segment, not the line.
+    await user.type(beats, "3: The gate gives.{enter}1: He runs the towpath.{enter}2: He hauls at the beam.");
+    await user.click(within(panel).getByRole("button", { name: "Save" }));
+
+    const calls = fetchMock.mock.calls as unknown as [string, RequestInit | undefined][];
+    const save = calls.find(([url, init]) => url.endsWith("/plans/story") && init?.method === "PATCH");
+    const body = JSON.parse(String(save![1]!.body)) as { segmentBeats: string[]; continuedSegments: number[] };
+    expect(body.segmentBeats).toEqual([
+      "He runs the towpath.",
+      "He hauls at the beam.",
+      "The gate gives.",
+    ]);
   });
 
   it("asks the server to rewrite the arc", async () => {
