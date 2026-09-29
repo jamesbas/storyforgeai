@@ -4,6 +4,7 @@ import {
   adoptScenePreview,
   approveAttempt,
   clearSceneSeed,
+  clearSceneSeeds,
   generateSceneKeyframe,
   generateSceneMedia,
 } from "@/lib/services/media-service";
@@ -61,6 +62,40 @@ describe("pinned scene seeds", () => {
     const next = await generateSceneKeyframe(project.project.id, scene.id, "start_frame");
     expect(next.project.sceneSeeds?.[scene.id]).toBeTypeOf("number");
     expect(next.project.sceneSeeds?.[scene.id]).not.toBe(pinned);
+  });
+
+  /** Re-rolling a 30-scene project a card at a time was thirty requests. */
+  it("re-rolls several scenes in one go, leaving the rest pinned", async () => {
+    const project = await seeded();
+    const [a, b] = project.storyboard!.scenes;
+    for (const scene of [a!, b!]) {
+      await generateSceneKeyframe(project.project.id, scene.id, "start_frame");
+    }
+
+    const { record, cleared } = await clearSceneSeeds(project.project.id, [a!.id]);
+
+    expect(cleared).toEqual([a!.id]);
+    expect(record.project.sceneSeeds?.[a!.id]).toBeUndefined();
+    expect(record.project.sceneSeeds?.[b!.id]).toBeTypeOf("number");
+
+    const both = await clearSceneSeeds(project.project.id, [a!.id, b!.id]);
+    expect(both.cleared).toEqual([b!.id]);
+    expect(both.record.project.sceneSeeds).toEqual({});
+  });
+
+  it("skips scenes with no seed and unknown ids rather than refusing", async () => {
+    const project = await seeded();
+    const [a, b] = project.storyboard!.scenes;
+    await generateSceneKeyframe(project.project.id, a!.id, "start_frame");
+
+    const { cleared } = await clearSceneSeeds(project.project.id, [
+      a!.id,
+      a!.id,
+      b!.id,
+      "no-such-scene",
+    ]);
+
+    expect(cleared).toEqual([a!.id]);
   });
 
   /**

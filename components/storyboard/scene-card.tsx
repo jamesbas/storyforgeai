@@ -690,8 +690,9 @@ export function SceneCard({
                 New seed
               </button>
               <span className="text-[10px] text-slate-600">
-                Pinned so a preview predicts the keyframe. Regenerating reproduces the same image —
-                take a new seed to get a different one.
+                Pinned so a preview predicts the keyframe. Regenerating with the same model, prompt,
+                steps and LoRAs reproduces the same image — take a new seed to get a different one.
+                Changing any of those already changes the image, so it needs no new seed.
               </span>
               {hasImportedFrame ? (
                 <span className="text-[10px] text-amber-300/80" data-testid="imported-seed-note">

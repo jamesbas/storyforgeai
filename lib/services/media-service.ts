@@ -505,19 +505,35 @@ function conditionEndOnStart(record: ProjectRecord, scene: Scene, inherited: boo
 }
 
 /** Drop a scene's pinned seed so the next render samples afresh. */
-export async function clearSceneSeed(projectId: string, sceneId: string): Promise<ProjectRecord> {  const record = await getProjectRecord(projectId);
-  if (record.project.sceneSeeds?.[sceneId] === undefined) return record;
+export async function clearSceneSeed(projectId: string, sceneId: string): Promise<ProjectRecord> {
+  return (await clearSceneSeeds(projectId, [sceneId])).record;
+}
 
-  const seeds = { ...record.project.sceneSeeds };
-  delete seeds[sceneId];
+/**
+ * Drop the pinned seed of several scenes at once, so each samples afresh.
+ *
+ * One write for the lot rather than a request per scene: a 30-scene project
+ * re-rolled one card at a time was thirty round trips and thirty rewrites of
+ * the whole record. Scenes with no seed, or no longer in the storyboard, are
+ * skipped rather than refused — the outcome asked for is already true of them.
+ */
+export async function clearSceneSeeds(
+  projectId: string,
+  sceneIds: readonly string[],
+): Promise<{ record: ProjectRecord; cleared: string[] }> {
+  const record = await getProjectRecord(projectId);
+  const seeds = { ...(record.project.sceneSeeds ?? {}) };
+  const cleared = [...new Set(sceneIds)].filter((sceneId) => seeds[sceneId] !== undefined);
+  if (!cleared.length) return { record, cleared };
 
+  for (const sceneId of cleared) delete seeds[sceneId];
   const updated: ProjectRecord = {
     ...record,
     project: { ...record.project, sceneSeeds: seeds, updatedAt: new Date().toISOString() },
   };
   await repository.update(projectId, updated);
-  logEvent("scene.seed_cleared", { projectId, sceneId });
-  return updated;
+  for (const sceneId of cleared) logEvent("scene.seed_cleared", { projectId, sceneId });
+  return { record: updated, cleared };
 }
 
 /** The attempt a scene is currently represented by: approved first, else latest. */

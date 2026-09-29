@@ -882,6 +882,15 @@ a new **attempt**, then QC runs.
 An attempt is what a scene card shows: the two keyframes, the clip built between
 them, the seed the frames are pinned to, and the approval state assembly reads.
 
+Seeds live in `project.sceneSeeds`, keyed by scene id and minted on first render
+by `ensureSceneSeeds()`; the end frame samples at the pin plus one
+(`keyframeSeed()`). Re-rolling drops the pin so the next render mints a new one —
+one scene through `DELETE scenes/:sceneId/seed`, or several in one write through
+`DELETE seeds` with `{ sceneIds }` (`clearSceneSeeds()`), which skips scenes that
+have no pin rather than refusing them. A pin reproduces an image only while the
+model, prompt, steps, resolution and LoRAs are unchanged, so nothing re-rolls
+automatically when any of those change.
+
 ![A scene card showing its attempt: start frame, end frame, the generated clip, the pinned seed and the approval state](../public/screenshots/storyboard.png)
 
 ```mermaid
@@ -1699,7 +1708,7 @@ flowchart LR
         g2["POST scenes/:sceneId/approve-attempt/:attemptId · POST approve-all"]
         g3["POST scenes/:sceneId/deepy"]
         g4["GET media · GET media/:assetId"]
-        g5["PATCH scenes/:sceneId/framing · POST scenes/:sceneId/seed"]
+        g5["PATCH scenes/:sceneId/framing · DELETE scenes/:sceneId/seed · DELETE seeds"]
         g6["POST · DELETE scenes/:sceneId/face-swap"]
         g7["POST · DELETE scenes/:sceneId/keyframe · POST scenes/:sceneId/import-frame"]
         g8["GET · POST · DELETE queue · GET tasks"]

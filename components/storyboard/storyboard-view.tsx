@@ -449,6 +449,10 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   /** Scenes ticked for a frames-only rerun. Empty means the whole project. */
   const [keyframePicks, setKeyframePicks] = useState<string[]>([]);
   const [promptPicks, setPromptPicks] = useState<string[]>([]);
+  /** Scenes ticked for a new seed. */
+  const [seedPicks, setSeedPicks] = useState<string[]>([]);
+  const [seedsBusy, setSeedsBusy] = useState(false);
+  const [seedNotice, setSeedNotice] = useState<string | null>(null);
   const [cascadeNotice, setCascadeNotice] = useState<string | null>(null);
   const [openingFramePending, setOpeningFramePending] = useState(false);
   const [openingFrameError, setOpeningFrameError] = useState<string | null>(null);
@@ -929,6 +933,47 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         setError(e instanceof Error ? e.message : "Failed to take a new seed");
       } finally {
         setSceneBusy(null);
+      }
+    },
+    [projectId, failureMessage],
+  );
+
+  /**
+   * The same for several scenes in one request. The re-rolled scenes are then
+   * pre-ticked for a keyframe rerun, because a new seed changes nothing until
+   * the frames are rendered again — and that is the next thing anyone does.
+   */
+  const newSceneSeeds = useCallback(
+    async (sceneIds: string[]) => {
+      setSeedsBusy(true);
+      setError(null);
+      setSeedNotice(null);
+      try {
+        const res = await fetch(`/api/projects/${projectId}/seeds`, {
+          method: "DELETE",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sceneIds }),
+        });
+        if (!res.ok) throw new Error(await failureMessage(res, "Failed to take new seeds"));
+        const { record: next, cleared } = (await res.json()) as {
+          record: ProjectRecord;
+          cleared: string[];
+        };
+        setRecord(next);
+        setSeedPicks([]);
+        if (cleared.length) setKeyframePicks(cleared);
+        const skipped = sceneIds.length - cleared.length;
+        setSeedNotice(
+          cleared.length
+            ? `${cleared.length} scene${cleared.length === 1 ? "" : "s"} will sample a new seed on the next render. ` +
+                "Nothing has been re-rendered yet — they are ticked below under “Regenerate keyframes for selected scenes”." +
+                (skipped ? ` ${skipped} had no seed yet, so they were already going to get a new one.` : "")
+            : "None of those scenes had a seed yet — each gets a new one when it is first rendered.",
+        );
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to take new seeds");
+      } finally {
+        setSeedsBusy(false);
       }
     },
     [projectId, failureMessage],
@@ -1817,6 +1862,53 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   </button>
                 </div>
               </details>
+            ) : null}
+
+            {stages.keyframes && storyboard.scenes.length > 0 ? (
+              <details className="mt-3 rounded-md border border-white/10 bg-black/20">
+                <summary className="cursor-pointer px-3 py-2 text-xs text-slate-400 hover:text-slate-200">
+                  New seeds for selected scenes
+                </summary>
+                <div className="space-y-2 px-3 pb-3">
+                  <p className="text-xs text-slate-500">
+                    Each scene&apos;s seed is pinned, so regenerating it with the same model, prompt,
+                    steps and LoRAs gives back the same image. Take new seeds for a fresh attempt at
+                    those scenes. You do not need to after changing the image model, prompt, steps
+                    or LoRAs — any of those already changes the image.
+                  </p>
+                  <ScenePicker
+                    scenes={storyboard.scenes}
+                    picked={seedPicks}
+                    onChange={setSeedPicks}
+                    testId="seed-scene-picker"
+                  />
+                  <button
+                    onClick={() => void newSceneSeeds(seedPicks)}
+                    data-testid="new-seeds-selected"
+                    disabled={seedsBusy || queue?.active || seedPicks.length === 0}
+                    className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:border-accent disabled:opacity-50"
+                  >
+                    {seedsBusy
+                      ? "Taking new seeds…"
+                      : `New seed${seedPicks.length === 1 ? "" : "s"} for ${seedPicks.length} scene${seedPicks.length === 1 ? "" : "s"}`}
+                  </button>
+                  {queue?.active ? (
+                    <p className="text-[11px] text-slate-500">
+                      Unavailable while a batch is running, since it is rendering from the current
+                      seeds.
+                    </p>
+                  ) : null}
+                </div>
+              </details>
+            ) : null}
+
+            {seedNotice ? (
+              <p
+                data-testid="new-seeds-notice"
+                className="mt-3 rounded-md border border-sky-500/25 bg-sky-500/5 px-3 py-2 text-xs text-sky-200/80"
+              >
+                {seedNotice}
+              </p>
             ) : null}
 
             {stages.keyframes && storyboard.scenes.length > 0 ? (

@@ -581,6 +581,19 @@ export default function HelpPage() {
             rendering from frames nobody has looked at yet.
           </p>
           <p className={p}>
+            <strong>When a new seed is worth taking.</strong> Each scene&apos;s seed is pinned, so a
+            preview predicts the keyframe it stands in for. The same seed only reproduces the same
+            image when everything else matches too: the image model, the prompt, the step count, the
+            resolution and the image LoRAs. Change any of those — switching Krea 2 Raw to Krea 2
+            Turbo, say — and the frame changes on its own, with no new seed needed; keeping the seeds
+            then makes the old and new renders a like-for-like comparison. Take a new seed when
+            nothing else has changed and you want a different attempt at the same shot. The{" "}
+            <em>New seeds for selected scenes</em> panel does it for as many scenes as you tick, or
+            all of them, and then ticks the same scenes under{" "}
+            <em>Regenerate keyframes for selected scenes</em>, because a new seed changes nothing
+            until the frames are rendered again.
+          </p>
+          <p className={p}>
             <strong>Regenerate all keyframes</strong> re-renders every scene&apos;s frames and stops
             there. The collapsed <em>Regenerate keyframes for selected scenes</em> panel underneath
             does the same for a subset, which is the usual case: three shots came back wrong and the
