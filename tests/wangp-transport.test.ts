@@ -92,6 +92,24 @@ describe("recovering a dropped connection", () => {
     expect(dialled()).toBe(2);
   });
 
+  it("exposes the input schema each tool advertises", async () => {
+    const generateSchema = {
+      type: "object",
+      properties: { settings: {}, wait: { type: "boolean", const: true } },
+      required: ["settings"],
+    };
+    const client = {
+      ...fakeClient({ failCalls: 0 }),
+      async listTools() {
+        return { tools: [{ name: "wangp_models" }, { name: "wangp_generate", inputSchema: generateSchema }] };
+      },
+    } as unknown as ReturnType<typeof fakeClient>;
+    const { transport } = transportWith([client]);
+
+    await expect(transport.getToolInputSchema("wangp_generate")).resolves.toEqual(generateSchema);
+    await expect(transport.getToolInputSchema("wangp_models")).resolves.toBeUndefined();
+  });
+
   it("reconnects and retries an idempotent call", async () => {
     const dead = fakeClient({ failCalls: 1 });
     const fresh = fakeClient({ failCalls: 0 });

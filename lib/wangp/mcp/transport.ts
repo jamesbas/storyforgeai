@@ -64,7 +64,7 @@ type McpClient = {
     resultSchema?: unknown,
     options?: ToolCallOptions,
   ): Promise<unknown>;
-  listTools(): Promise<{ tools: { name: string }[] }>;
+  listTools(): Promise<{ tools: { name: string; inputSchema?: unknown }[] }>;
   getServerVersion(): { version?: string } | undefined;
   close(): Promise<void>;
 };
@@ -146,6 +146,7 @@ export class WangpMcpTransport {
   private client?: McpClient;
   private connecting?: Promise<McpClient>;
   private toolNames?: Set<string>;
+  private toolSchemas = new Map<string, Record<string, unknown>>();
 
   constructor(private readonly endpoint: string) {}
 
@@ -243,15 +244,36 @@ export class WangpMcpTransport {
     return candidates.find((candidate) => this.toolNames?.has(candidate));
   }
 
+  /**
+   * The input schema a tool advertises, or undefined when it is not advertised.
+   *
+   * WanGP v2 publishes contract details here — `wangp_generate` lists its
+   * `settings` parameter and pins `wait` to `true` when async is disabled —
+   * so reading it avoids a discovery round trip that the server may not serve.
+   */
+  async getToolInputSchema(name: string): Promise<Record<string, unknown> | undefined> {
+    if (!this.toolNames) await this.refreshToolNames();
+    return this.toolSchemas.get(name);
+  }
+
   private async refreshToolNames(): Promise<void> {
+    let tools: { name: string; inputSchema?: unknown }[];
     try {
       const client = await this.connect();
-      this.toolNames = new Set((await client.listTools()).tools.map((tool) => tool.name));
+      tools = (await client.listTools()).tools;
     } catch (err) {
       if (!isTransportFailure(err)) throw err;
       this.discard();
       const client = await this.connect();
-      this.toolNames = new Set((await client.listTools()).tools.map((tool) => tool.name));
+      tools = (await client.listTools()).tools;
+    }
+    this.toolNames = new Set(tools.map((tool) => tool.name));
+    this.toolSchemas = new Map();
+    for (const tool of tools) {
+      const schema = tool.inputSchema;
+      if (schema && typeof schema === "object" && !Array.isArray(schema)) {
+        this.toolSchemas.set(tool.name, schema as Record<string, unknown>);
+      }
     }
   }
 

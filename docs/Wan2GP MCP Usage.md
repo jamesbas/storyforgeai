@@ -66,6 +66,11 @@ Every toolbox uses progressive discovery: omit `action` and `arguments` to list 
 action with `arguments: null` to read its contract, and pass an object (including `{}`) to execute.
 `wangp_model` also requires `model_type`. V2 rejects unknown top-level arguments.
 
+`wangp_generate` is the exception: it takes no `action` and needs no discovery. Call it as
+`wangp_generate({ settings, wait, timeout_s, event_limit })`, where `settings` is one flat settings
+object (or a list of them for a batch). Its contract is the tool's advertised input schema;
+`action="generate", arguments=null` now fails with "settings is required".
+
 WanGP can still expose the historical granular tools when launched with `--mcp-api-version 1`.
 Detect `wangp_models` versus `wangp_list_models`; do not require operators to pin a server version.
 
@@ -248,7 +253,7 @@ The working pattern:
 3. wangp_model / capabilities               -> media roles and compact metadata
 4. copy the defaults verbatim
 5. override ONLY the fields the schema declares
-6. wangp_generate({ action: "generate", arguments: { source: settings, wait } })
+6. wangp_generate({ settings, wait, timeout_s, event_limit })
 ```
 
 Copying the defaults matters: WanGP expects a complete payload, and fields you omit are not
@@ -440,14 +445,14 @@ so nothing is lost.
 ### 8.1 Submit and poll
 
 ```ts
-const contract = await call("wangp_generate", { action: "generate", arguments: null });
-const asyncEnabled = contract.properties.wait.const !== true;
-const raw = await call("wangp_generate", {
-  action: "generate",
-  arguments: asyncEnabled
-    ? { source: settings, wait: false }
-    : { source: settings, wait: true, timeout_s: 30, event_limit: 20 },
-}, {
+// The contract is the advertised input schema, not a discovery call.
+const { tools } = await client.listTools();
+const schema = tools.find((tool) => tool.name === "wangp_generate")?.inputSchema;
+const asyncEnabled = schema?.properties?.wait?.const !== true;
+const raw = await call("wangp_generate", asyncEnabled
+  ? { settings, wait: false }
+  : { settings, wait: true, timeout_s: 30, event_limit: 20 },
+{
   timeout: asyncEnabled ? undefined : 45_000,
 });
 const jobId = raw?.job_id ?? raw?.jobId ?? raw?.id;
@@ -455,9 +460,11 @@ const jobId = raw?.job_id ?? raw?.jobId ?? raw?.id;
 
 V2 defaults to synchronous generation and rejects `wait: false` unless WanGP was started with
 `--mcp-async`. The MCP TypeScript SDK defaults each request to 60 seconds, while a render takes much
-longer. Inspect the action contract once: when `wait` has `const: true`, call with `wait: true` and
+longer. Read the advertised `wangp_generate` schema: when `wait` has `const: true`, call with `wait: true` and
 `timeout_s: 30`. A quick job returns terminal; a longer one returns its job ID without cancellation,
 then poll `wangp_session(action="get_job")`. With async enabled, submit with `wait: false` directly.
+Earlier v2 builds, whose schema has no `settings`, took `{ action: "generate", arguments: { source, ... } }`
+and answered `arguments: null` with the contract; StoryForge still falls back to that form.
 StoryForge polls every 3 s with a 600-attempt ceiling.
 
 ### 8.2 Job status is an event log, not a status field

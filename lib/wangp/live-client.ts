@@ -312,18 +312,18 @@ export class LiveWangpClient implements WangpClient {
     payload.model_type = modelType;
 
     if ((await this.getContractVersion()) === 2) {
-      const asyncEnabled = await this.allowsAsyncGeneration();
-      const raw = await this.transport.call("wangp_generate", {
-        action: "generate",
-        arguments: asyncEnabled
-          ? { source: payload, wait: false }
-          : {
-              source: payload,
-              wait: true,
-              timeout_s: V2_INITIAL_WAIT_SECONDS,
-              event_limit: 20,
-            },
-      }, asyncEnabled ? undefined : { timeout: V2_INITIAL_REQUEST_TIMEOUT_MS });
+      const contract = await this.generationContract();
+      const asyncEnabled = contract.async;
+      const options = asyncEnabled
+        ? { wait: false }
+        : { wait: true, timeout_s: V2_INITIAL_WAIT_SECONDS, event_limit: 20 };
+      const raw = await this.transport.call(
+        "wangp_generate",
+        contract.form === "settings"
+          ? { settings: payload, ...options }
+          : { action: "generate", arguments: { source: payload, ...options } },
+        asyncEnabled ? undefined : { timeout: V2_INITIAL_REQUEST_TIMEOUT_MS },
+      );
       const source = asRecord(raw);
       const jobId = source?.job_id ?? source?.jobId ?? source?.id;
       if (asyncEnabled) {
@@ -456,6 +456,25 @@ export class LiveWangpClient implements WangpClient {
     const normalized = normalizeModelSchema(modelType, schemaRecord, defaults);
     this.schemaCache.set(modelType, normalized);
     return normalized;
+  }
+
+  /**
+   * How this v2 server wants `wangp_generate` called.
+   *
+   * Current WanGP advertises `settings` (plus `wait`/`timeout_s`/`event_limit`)
+   * in the tool's input schema, pins `wait` to `true` there when `--mcp-async`
+   * is off, and no longer answers the `action`/`arguments: null` discovery
+   * call — it fails with "settings is required". Earlier v2 builds only had the
+   * action form, so they keep the discovery probe.
+   */
+  private async generationContract(): Promise<{ form: "settings" | "action"; async: boolean }> {
+    const schema = await this.transport.getToolInputSchema("wangp_generate");
+    const properties = asRecord(schema?.properties);
+    if (properties?.settings !== undefined) {
+      const wait = asRecord(properties.wait);
+      return { form: "settings", async: Boolean(wait) && wait?.const !== true };
+    }
+    return { form: "action", async: await this.allowsAsyncGeneration() };
   }
 
   private async allowsAsyncGeneration(): Promise<boolean> {

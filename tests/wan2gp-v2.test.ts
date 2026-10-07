@@ -4,6 +4,21 @@ import { LiveWangpClient } from "@/lib/wangp/live-client";
 type Call = { name: string; args: Record<string, unknown> };
 type CallOptions = { timeout?: number };
 
+/** The `wangp_generate` input schema current WanGP v2 advertises. */
+function generateSchema({ asyncEnabled }: { asyncEnabled: boolean }) {
+  return {
+    type: "object",
+    properties: {
+      settings: { anyOf: [{ type: "object" }, { type: "array" }] },
+      wait: { type: "boolean", default: true, ...(asyncEnabled ? {} : { const: true }) },
+      timeout_s: { type: ["number", "null"], minimum: 0, default: null },
+      event_limit: { type: "integer", minimum: 0, maximum: 500, default: 0 },
+    },
+    required: ["settings"],
+    additionalProperties: false,
+  };
+}
+
 function v2Client() {
   const client = new LiveWangpClient("http://127.0.0.1:1/mcp");
   const calls: Call[] = [];
@@ -147,6 +162,57 @@ describe("WanGP MCP v2", () => {
     const transport = {
       findTool: async (candidates: string[]) =>
         candidates.find((candidate) => candidate === "wangp_models"),
+      getToolInputSchema: async (name: string) =>
+        name === "wangp_generate" ? generateSchema({ asyncEnabled: false }) : undefined,
+      call: async (name: string, args: Record<string, unknown> = {}, options?: CallOptions) => {
+        calls.push({ name, args, options });
+        if (name === "wangp_model") {
+          if (args.action === "defaults") return { defaults: { model_type: "demo", prompt: "" } };
+          if (args.action === "capabilities") return { metadata: { model_type: "demo" } };
+          return { definition: { setting_values: { prompt: {} } } };
+        }
+        if (name === "wangp_generate") {
+          return {
+            job_id: "sync-1",
+            done: true,
+            result: { success: true, generated_files: ["C:/out/frame.png"], errors: [] },
+            events: [],
+          };
+        }
+        throw new Error(`Unexpected tool ${name}`);
+      },
+    };
+    (client as unknown as { transport: typeof transport }).transport = transport;
+
+    const job = await client.generate({ model_type: "demo", prompt: "frame" });
+
+    expect(job).toMatchObject({ id: "sync-1", status: "completed", progress: 100 });
+    expect(job.generatedFiles).toEqual(["C:/out/frame.png"]);
+    // The `action`/`arguments: null` discovery call fails on current WanGP with
+    // "settings is required"; the contract comes from the advertised schema.
+    expect(calls.filter(({ name }) => name === "wangp_generate")).toHaveLength(1);
+    expect(calls.at(-1)).toEqual({
+      name: "wangp_generate",
+      args: {
+        settings: { model_type: "demo", prompt: "frame" },
+        wait: true,
+        timeout_s: 30,
+        event_limit: 20,
+      },
+      options: { timeout: 45_000 },
+    });
+  });
+
+  it("uses the action form and its discovery probe on earlier v2 servers", async () => {
+    const client = new LiveWangpClient("http://127.0.0.1:1/mcp");
+    const calls: Array<Call & { options?: CallOptions }> = [];
+    const transport = {
+      findTool: async (candidates: string[]) =>
+        candidates.find((candidate) => candidate === "wangp_models"),
+      getToolInputSchema: async () => ({
+        type: "object",
+        properties: { action: { type: "string" }, arguments: { type: "object" } },
+      }),
       call: async (name: string, args: Record<string, unknown> = {}, options?: CallOptions) => {
         calls.push({ name, args, options });
         if (name === "wangp_model") {
@@ -170,10 +236,8 @@ describe("WanGP MCP v2", () => {
     };
     (client as unknown as { transport: typeof transport }).transport = transport;
 
-    const job = await client.generate({ model_type: "demo", prompt: "frame" });
+    await client.generate({ model_type: "demo", prompt: "frame" });
 
-    expect(job).toMatchObject({ id: "sync-1", status: "completed", progress: 100 });
-    expect(job.generatedFiles).toEqual(["C:/out/frame.png"]);
     expect(calls.at(-1)).toEqual({
       name: "wangp_generate",
       args: {
@@ -193,14 +257,12 @@ describe("WanGP MCP v2", () => {
     const client = new LiveWangpClient("http://127.0.0.1:1/mcp");
     const transport = {
       findTool: async () => "wangp_models",
+      getToolInputSchema: async () => generateSchema({ asyncEnabled: false }),
       call: async (name: string, args: Record<string, unknown> = {}) => {
         if (name === "wangp_model") {
           if (args.action === "defaults") return { defaults: { model_type: "demo", prompt: "" } };
           if (args.action === "capabilities") return { metadata: { model_type: "demo" } };
           return { definition: { setting_values: { prompt: {} } } };
-        }
-        if (name === "wangp_generate" && args.arguments === null) {
-          return { action: { parameters: { properties: { wait: { const: true } } } } };
         }
         return {
           job_id: "sync-running-1",
@@ -228,15 +290,13 @@ describe("WanGP MCP v2", () => {
     const transport = {
       findTool: async (candidates: string[]) =>
         candidates.find((candidate) => candidate === "wangp_models"),
+      getToolInputSchema: async () => generateSchema({ asyncEnabled: true }),
       call: async (name: string, args: Record<string, unknown> = {}) => {
         calls.push({ name, args });
         if (name === "wangp_model") {
           if (args.action === "defaults") return { defaults: { model_type: "demo", prompt: "" } };
           if (args.action === "capabilities") return { metadata: { model_type: "demo" } };
           return { definition: { setting_values: { prompt: {} } } };
-        }
-        if (name === "wangp_generate" && args.arguments === null) {
-          return { properties: { wait: { type: "boolean", default: true } } };
         }
         if (name === "wangp_generate") return { job_id: "async-1" };
         if (name === "wangp_session" && args.action === "get_job") {
@@ -257,7 +317,8 @@ describe("WanGP MCP v2", () => {
 
     expect(calls.some(({ name, args }) =>
       name === "wangp_generate" &&
-      (args.arguments as Record<string, unknown> | null)?.wait === false,
+      args.wait === false &&
+      (args.settings as Record<string, unknown> | undefined)?.prompt === "clip",
     )).toBe(true);
     expect(calls.some(({ name, args }) =>
       name === "wangp_session" && args.action === "get_job",

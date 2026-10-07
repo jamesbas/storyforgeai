@@ -961,8 +961,11 @@ installed-only API excludes only records explicitly marked `missing` by v1.
 **Model contracts are assembled, not assumed.** MCP v2's `wangp_model` toolbox
 splits compact `capabilities`, full `definition`, and pristine `defaults` into
 three actions. The live client merges them into the same `WangpModelSchema` used
-by v1. Generation inspects the v2 action contract once: servers launched with
-`--mcp-async` return the job immediately. The default synchronous contract is
+by v1. Generation reads the advertised `wangp_generate` input schema: current
+servers take one flat `settings` object with `wait`/`timeout_s`/`event_limit`
+beside it, and pin `wait` to `true` unless launched with `--mcp-async`, in which
+case the job returns immediately. Older v2 builds without `settings` keep the
+`generate` action and its one-time contract probe. The default synchronous contract is
 called with a 30-second server wait, below the MCP SDK's one-minute deadline;
 quick work returns terminal, while long work returns a resumable job and enters
 the same poll loop. V2 polling and cancellation use `wangp_session`; cancellation
