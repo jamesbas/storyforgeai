@@ -1,6 +1,6 @@
-# Wan2GP MCP v2 migration
+# Wan2GP MCP v2 / v2.1 compatibility
 
-StoryForgeAI supports both the historical WanGP MCP v1 contract and the consolidated MCP v2 contract served by default in Wan2GP 13.01. The client selects the contract from the advertised tool names; no WanGP compatibility flag is required.
+StoryForgeAI supports the historical WanGP MCP v1 contract, consolidated MCP v2, and the current default MCP v2.1. The client selects the tool family from the advertised names and accepts both full and compact results; no WanGP compatibility flag is required. The MCP SDK version reported at connection time is not the WanGP API version.
 
 ## Impact assessment
 
@@ -14,6 +14,10 @@ StoryForgeAI supports both the historical WanGP MCP v1 contract and the consolid
 | Job lookup and cancellation moved to `wangp_session` | Critical for async jobs and synchronous jobs returned after the bounded initial wait. | Route `get_job` and `cancel_job` through session actions on v2. Cancellation remains non-retryable. |
 | Generation flattened to `wangp_generate(settings={...})`, with `wait`, `timeout_s` and `event_limit` beside `settings` and declared in the tool's advertised input schema (`wait` is pinned to `const: true` when `--mcp-async` is off). The `action="generate", arguments=null` contract-discovery call was removed. | Critical: StoryForgeAI's discovery probe now fails with "settings is required … Nothing was submitted.", so no keyframe, clip or audio cue could be generated. | Read the advertised `wangp_generate` input schema from `tools/list` instead of probing. When it declares `settings`, submit `{ settings, wait, timeout_s, event_limit }`. Servers whose schema predates `settings` keep the action form and its probe. |
 | Compact capabilities no longer contain full setting declarations | Critical: settings could be silently omitted from manifests. | Merge the full `definition` with pristine `defaults`; use compact capabilities only for metadata and input roles. |
+| V2.1 omits `generated_files` when `gallery_items` identify every output | Critical: WanGP finishes the image, but StoryForge receives an empty output list and attaches nothing. The same issue affects clips and audio. | Read final Gallery outputs, use their absolute paths when present, and resolve Gallery IDs or virtual paths through read-only `wangp_io / info`. Do not mistake intermediate sliding-window outputs for final media. A completed job with no final outputs is an explicit error. |
+| V2.1 defaults job event lists to empty and publishes structured `progress` | High: a running render looks queued at zero percent. | Read the snapshot's phase and step counts, retaining event-log support for older servers. The percentage is phase-local, not a job-wide ETA. |
+| Compact terminal statuses include `done`, `error`, and `interrupted`; restart receipts can report `unknown_after_restart` | High: terminal states or an uncertain restart outcome can be treated as still running. | Normalize terminal aliases, keep explicit result success/failure authoritative, and surface unknown restart outcomes for inspection instead of polling until cancellation or treating recovered partial media as success. |
+| Unfiltered model search now returns minimal rows and pages can be shorter than the requested limit | No discovery regression in the current client: each compact row is already enriched through `wangp_model / capabilities`. | Keep cursor-based paging and metadata enrichment; regression tests cover short pages, reference roles, and unsupported mesh models. |
 | LoRA listing moved to `wangp_model / loras` | No product regression: StoryForgeAI already reads the configured local LoRA folders to include sidecar metadata and trigger words. | Keep the filesystem catalog. The v2 tool can be adopted later for remote installations. |
 | Streamable HTTP, `/mcp`, generation settings, and filesystem permission rules remain stable | No migration required. | Existing transport, settings builder, and `--mcp-allow-read-file-system` guidance remain in effect. |
 
@@ -30,6 +34,7 @@ StoryForgeAI supports both the historical WanGP MCP v1 contract and the consolid
 9. Bound synchronous generation below the MCP SDK deadline and continue through session polling. Completed in 2.49.
 10. Pass request options as the installed SDK's third `callTool` argument, after its optional result-schema slot. Completed in 2.50.
 11. Submit generation as flat `settings` and read async support from the advertised tool schema, after WanGP removed the `generate` action's discovery call. Completed in 2.69.
+12. Recover final media from v2.1 compact Gallery results, support snapshot progress and terminal/restart statuses, and prevent output-less successes. Completed in 2.70. Verified against the live server with a 512x512 image, without changing a StoryForge project.
 
 ## Operational behavior
 
@@ -49,4 +54,6 @@ python wgp.py --mcp --mcp-api-version 1
 
 StoryForgeAI does not require either override.
 
-> Applies to: StoryForgeAI's WanGP MCP integration against Wan2GP 13.01 and compatible v1 servers.
+StoryForgeAI still uses a shared-filesystem integration, not automatic HTTP media downloads. WanGP must permit filesystem reads (`--mcp-allow-read-file-system`, / Read Everywhere), and `WANGP_OUTPUT_DIR` must authorize the output folder accessible to StoryForgeAI. A Gallery reference that still resolves to a virtual rather than an absolute path produces an actionable permission/configuration error. The new `wangp_io` access is restricted to `info`; file writes, edits and deletion are not enabled.
+
+> Applies to: StoryForgeAI 2.70 against WanGP MCP v1, v2, and v2.1. Upstream contract: [WanGP API documentation](https://github.com/deepbeepmeep/WanGP/blob/main/docs/API.md).

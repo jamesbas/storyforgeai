@@ -16,6 +16,7 @@ export const ALLOWED_TOOLS = new Set([
   "wangp_models",
   "wangp_model",
   "wangp_session",
+  "wangp_io",
   "wangp_list_models",
   "wangp_get_model_metadata",
   "wangp_get_model_availability",
@@ -97,6 +98,7 @@ const IDEMPOTENT_TOOLS = new Set([
 
 function isIdempotentCall(toolName: string, args: Record<string, unknown>): boolean {
   if (IDEMPOTENT_TOOLS.has(toolName)) return true;
+  if (toolName === "wangp_io") return args.action === "info";
   return toolName === "wangp_session" && args.action === "get_job";
 }
 
@@ -202,6 +204,9 @@ export class WangpMcpTransport {
     options?: ToolCallOptions,
   ): Promise<unknown> {
     if (!ALLOWED_TOOLS.has(toolName)) throw new Error(`WanGP tool ${toolName} is not allowed.`);
+    if (toolName === "wangp_io" && args.action !== "info") {
+      throw new Error("WanGP tool wangp_io only allows the read-only info action.");
+    }
     try {
       return await this.invoke(toolName, args, options);
     } catch (err) {

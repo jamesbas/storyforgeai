@@ -132,6 +132,29 @@ describe("recovering a dropped connection", () => {
     expect(client.options).toEqual([{ timeout: 45_000 }]);
   });
 
+  it("reconnects and safely repeats read-only output resolution", async () => {
+    const dead = fakeClient({ failCalls: 1 });
+    const fresh = fakeClient({ failCalls: 0 });
+    const { transport, dialled } = transportWith([dead, fresh]);
+
+    await expect(transport.call("wangp_io", {
+      action: "info",
+      arguments: { path: "visual:frame" },
+    })).resolves.toEqual({ ok: true });
+    expect(dialled()).toBe(2);
+  });
+
+  it.each(["write_text", "edit", "delete", "download", undefined])(
+    "does not expose the wangp_io %s action",
+    async (action) => {
+      const client = fakeClient({ failCalls: 0 });
+      const { transport } = transportWith([client]);
+
+      await expect(transport.call("wangp_io", { action })).rejects.toThrow(/read-only info/);
+      expect(client.calls).toHaveLength(0);
+    },
+  );
+
   /**
    * A generate whose response was lost has still queued work on the GPU, so
    * replaying it would render the scene twice.

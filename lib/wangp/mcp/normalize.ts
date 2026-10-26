@@ -434,6 +434,9 @@ const EVENT_STATUSES = ["submitted", "running", "completed", "failed", "cancelle
 function coerceStatus(value: unknown): WangpJob["status"] | undefined {
   if (typeof value !== "string") return undefined;
   if (value === "queued" || value === "pending") return "submitted";
+  if (value === "done") return "completed";
+  if (value === "error") return "failed";
+  if (value === "interrupted") return "cancelled";
   return (EVENT_STATUSES as readonly string[]).includes(value)
     ? (value as WangpJob["status"])
     : undefined;
@@ -442,10 +445,9 @@ function coerceStatus(value: unknown): WangpJob["status"] | undefined {
 /**
  * Map a `wangp_get_job` payload onto `WangpJob`.
  *
- * WanGP's current MCP server reports an event log plus a terminal `result`
- * rather than a status string, so status is derived the same way
- * easynediacreator derives it. A flat `{ status, progress }` payload is also
- * accepted for older/alternate server builds.
+ * V2.1 can omit events and generated_files: progress is a snapshot object and
+ * gallery_items identify the outputs. The live client resolves any Gallery IDs
+ * or virtual paths before exposing generatedFiles to the rest of the app.
  */
 export function normalizeJob(value: unknown, fallbackId?: string): WangpJob {
   const source = asRecord(value);
@@ -457,6 +459,12 @@ export function normalizeJob(value: unknown, fallbackId?: string): WangpJob {
     (typeof source.id === "string" && source.id) ||
     fallbackId;
   if (!id) throw new Error("WanGP job payload is missing a job id.");
+  if (source.status === "unknown_after_restart") {
+    throw new Error(
+      `WanGP job ${id} has an unknown outcome after a server restart. ` +
+        "Inspect the WanGP Gallery before retrying; this job was not resubmitted.",
+    );
+  }
 
   const events = Array.isArray(source.events) ? source.events.map(asRecord) : [];
   const result = asRecord(source.result);
@@ -464,7 +472,16 @@ export function normalizeJob(value: unknown, fallbackId?: string): WangpJob {
 
   const generatedFiles = (() => {
     const raw = result?.generated_files ?? source.generated_files ?? source.outputPaths;
-    return Array.isArray(raw) ? raw.filter((f): f is string => typeof f === "string") : [];
+    const files = Array.isArray(raw) ? raw.filter((f): f is string => typeof f === "string" && Boolean(f)) : [];
+    if (files.length) return files;
+    const gallery = result?.gallery_items ?? source.gallery_items;
+    if (!Array.isArray(gallery)) return [];
+    return gallery.flatMap((entry): string[] => {
+      const item = asRecord(entry);
+      if (!item || item.role === "intermediate") return [];
+      const reference = item.path ?? item.media_id;
+      return typeof reference === "string" && reference ? [reference] : [];
+    });
   })();
 
   const errors = (() => {
@@ -478,7 +495,14 @@ export function normalizeJob(value: unknown, fallbackId?: string): WangpJob {
   const latestProgress = [...events]
     .reverse()
     .find((event) => event?.kind === "progress")?.data;
-  const progressFromEvent = finite(asRecord(latestProgress)?.progress);
+  const snapshotProgress = asRecord(source.progress);
+  const progressState = snapshotProgress ?? asRecord(latestProgress);
+  const currentStep = finite(progressState?.current_step);
+  const totalSteps = finite(progressState?.total_steps);
+  const reportedProgress =
+    currentStep !== undefined && totalSteps !== undefined && totalSteps > 0
+      ? (currentStep / totalSteps) * 100
+      : finite(progressState?.progress);
 
   let status: WangpJob["status"];
   if (hasEventShape) {
@@ -487,14 +511,19 @@ export function normalizeJob(value: unknown, fallbackId?: string): WangpJob {
       // means the job is under way — otherwise a job at 68% still reads as
       // "submitted".
       const started =
+        source.status === "running" ||
+        (typeof progressState?.phase === "string" && !["queued", "pending"].includes(progressState.phase)) ||
         events.some((event) => event?.kind === "started") ||
-        (progressFromEvent ?? 0) > 0 ||
+        (reportedProgress ?? 0) > 0 ||
         events.some((event) => event?.kind === "progress" || event?.kind === "stream");
       status = started ? "running" : "submitted";
     } else if (result?.cancelled === true) {
       status = "cancelled";
     } else {
-      status = result?.success === true ? "completed" : "failed";
+      status =
+        typeof result?.success === "boolean"
+          ? result.success ? "completed" : "failed"
+          : coerceStatus(source.status) ?? "failed";
     }
   } else {
     status =
@@ -513,7 +542,7 @@ export function normalizeJob(value: unknown, fallbackId?: string): WangpJob {
   const progress =
     status === "completed"
       ? 100
-      : Math.min(100, Math.max(0, progressFromEvent ?? finite(source.progress) ?? 0));
+      : Math.min(100, Math.max(0, reportedProgress ?? finite(source.progress) ?? 0));
 
   return { id, status, progress, generatedFiles, errors };
 }

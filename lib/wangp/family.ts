@@ -10,13 +10,12 @@ import type { WangpModel } from "@/lib/schemas/wangp";
  * LTX generates audio from the same prompt that drives the picture. Sending one
  * undifferentiated prompt to all of them means writing for none of them.
  *
- * MiniMax H3 is split because its two variants share a lineage and almost
- * nothing else. `minimax` is the keyframe side — FL2VA and its one-ended
- * relatives — which takes `image_start` / `image_end` positionally, supports
- * sliding windows and accepts accelerator LoRAs. `minimax_ref2va` takes
- * `image_refs` instead, supports sliding-window continuation, and accepts the
- * standard LoRA settings even when its schema omits those fields. A single
- * family value would have to be wrong about one of them at every decision point.
+ * MiniMax H3 is split by how StoryForge supplies conditioning. `minimax` is
+ * the keyframe side — FL2VA and its one-ended relatives — which takes
+ * `image_start` / `image_end` positionally. `minimax_ref2va` takes `image_refs`,
+ * using native keyframe inputs as well when its schema declares them. Omni
+ * supports both modes and is routed through this reference-capable family.
+ * Both families support sliding-window continuation and standard LoRA settings.
  */
 export type ModelFamily =
   | "flux"
@@ -70,9 +69,11 @@ export function familyOf(modelType: string | undefined, declared?: string): Mode
   const haystack = `${declared ?? ""} ${modelType ?? ""}`.toLocaleLowerCase();
   for (const [family, tokens] of FAMILY_TOKENS) {
     if (!tokens.some((token) => haystack.includes(token))) continue;
-    // Anchored to the H3 lineage rather than matched on its own, so a `ref2va`
-    // appearing in some unrelated checkpoint name cannot claim the variant.
-    return family === "minimax" && haystack.includes("ref2va") ? "minimax_ref2va" : family;
+    // Anchor reference-mode tokens to H3 so unrelated Omni models stay in
+    // their own families.
+    return family === "minimax" && (haystack.includes("ref2va") || haystack.includes("omni"))
+      ? "minimax_ref2va"
+      : family;
   }
   return "unknown";
 }

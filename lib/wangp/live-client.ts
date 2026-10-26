@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import type { WangpClient } from "@/lib/wangp/client";
 import type { WangpJob, WangpModel, WangpModelSchema } from "@/lib/schemas/wangp";
-import { WangpMcpTransport } from "@/lib/wangp/mcp/transport";
+import { FILESYSTEM_READS_FLAG, WangpMcpTransport } from "@/lib/wangp/mcp/transport";
 import { asRecord, normalizeJob, normalizeModel, normalizeModelSchema } from "@/lib/wangp/mcp/normalize";
 import { toWangpSettings, type FieldMap } from "@/lib/wangp/mcp/aliases";
 import { produces } from "@/lib/wangp/model-router";
@@ -332,7 +333,7 @@ export class LiveWangpClient implements WangpClient {
         }
         return { id: jobId, status: "submitted", progress: 0, generatedFiles: [], errors: [] };
       }
-      return normalizeJob(raw, typeof jobId === "string" && jobId ? jobId : `sync-${randomUUID()}`);
+      return this.resolveJob(raw, typeof jobId === "string" && jobId ? jobId : `sync-${randomUUID()}`);
     }
 
     const raw = asRecord(await this.transport.call("wangp_generate", { source: payload, wait: false }));
@@ -346,7 +347,7 @@ export class LiveWangpClient implements WangpClient {
 
   async getJob(jobId: string): Promise<WangpJob> {
     if ((await this.getContractVersion()) === 2) {
-      return normalizeJob(
+      return this.resolveJob(
         await this.transport.call("wangp_session", {
           action: "get_job",
           arguments: { job_id: jobId },
@@ -354,7 +355,37 @@ export class LiveWangpClient implements WangpClient {
         jobId,
       );
     }
-    return normalizeJob(await this.transport.call("wangp_get_job", { job_id: jobId }), jobId);
+    return this.resolveJob(await this.transport.call("wangp_get_job", { job_id: jobId }), jobId);
+  }
+
+  private async resolveJob(raw: unknown, fallbackId: string): Promise<WangpJob> {
+    const job = normalizeJob(raw, fallbackId);
+    if (job.status !== "completed") return job;
+    if (!job.generatedFiles.length) {
+      throw new Error(`WanGP job ${job.id} completed but returned no final media outputs.`);
+    }
+    const isAbsolute = (value: string) => path.isAbsolute(value) || path.win32.isAbsolute(value);
+    const generatedFiles = await Promise.all(job.generatedFiles.map(async (reference) => {
+      if (isAbsolute(reference)) return reference;
+      const info = asRecord(await this.transport.call("wangp_io", {
+        action: "info",
+        arguments: { path: reference },
+      }));
+      if (info?.status === "error" || info?.error) {
+        throw new Error(
+          `WanGP could not resolve output ${reference} for job ${job.id}: ${String(info.error ?? "file lookup failed")}`,
+        );
+      }
+      if (typeof info?.path !== "string" || !isAbsolute(info.path)) {
+        throw new Error(
+          `WanGP did not return a filesystem path for output ${reference} of job ${job.id}. ` +
+            `Enable filesystem reads with ${FILESYSTEM_READS_FLAG} (Read Everywhere), ` +
+            "and ensure WANGP_OUTPUT_DIR points to the outputs folder accessible to StoryForgeAI.",
+        );
+      }
+      return info.path;
+    }));
+    return { ...job, generatedFiles };
   }
 
   async cancelJob(jobId: string): Promise<WangpJob> {

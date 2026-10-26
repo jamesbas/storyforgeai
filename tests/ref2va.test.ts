@@ -29,6 +29,7 @@ import type { WangpModel, WangpModelSchema } from "@/lib/schemas/wangp";
  */
 
 const MARA = { name: "Mara", description: "Late thirties, dark curls.", pictureIndex: 3 };
+const H3_OMNI_MODEL_TYPES = ["minimax_h3_fasth3_omni", "minimax_h3_fasth3_omni_nvfp4"];
 
 describe("the directive the prompt agents are given", () => {
   const reference = videoPromptDirective("minimax_ref2va", {
@@ -118,9 +119,19 @@ describe("family split", () => {
     expect(familyOf("minimax_h3_fl2va_pruned")).toBe("minimax");
   });
 
+  it.each(H3_OMNI_MODEL_TYPES)("treats %s as reference mode", (modelType) => {
+    expect(familyOf(modelType)).toBe("minimax_ref2va");
+    expect(familyOf(modelType, "minimax_h3")).toBe("minimax_ref2va");
+    expect(familyOf(modelType.toUpperCase())).toBe("minimax_ref2va");
+    expect(usesH3ReferenceFormat(familyOf(modelType))).toBe(true);
+  });
+
   it("anchors the variant token to the H3 lineage", () => {
     expect(familyOf("some_ref2va_thing")).toBe("unknown");
     expect(familyOf("something_else", "minimax_h3_ref2va")).toBe("minimax_ref2va");
+    expect(familyOf("some_omni_thing")).toBe("unknown");
+    expect(familyOf("wan_omni")).toBe("wan");
+    expect(familyOf("something_else", "MiniMax_H3_FastH3_Omni")).toBe("minimax_ref2va");
   });
 
   it("treats both variants' window sizes as stitch points rather than hard caps", () => {
@@ -643,4 +654,52 @@ describe("the Ref2VA manifest", () => {
     const cast = ["a", "b", "c", "d"].map((name) => ({ name, imagePath: `/refs/${name}.png` }));
     await expect(ref2vaManifest({ cast })).rejects.toThrow(/at most 3 characters/);
   });
+});
+
+describe.each(H3_OMNI_MODEL_TYPES)("%s reference manifests", (modelType) => {
+  it.each([false, true])(
+    "sends character photographs with native keyframe inputs = %s",
+    async (nativeKeyframes) => {
+      class OmniClient extends Ref2vaClient {
+        async listModels(): Promise<WangpModel[]> {
+          return (await super.listModels()).map((model) => ({ ...model, modelType }));
+        }
+
+        async getModelSchema(type: string): Promise<WangpModelSchema> {
+          const schema = await super.getModelSchema(type);
+          return {
+            ...schema,
+            fields: [
+              ...schema.fields,
+              ...(nativeKeyframes
+                ? [
+                    { name: "image_start", type: "string" },
+                    { name: "image_end", type: "string" },
+                  ]
+                : []),
+            ],
+          };
+        }
+      }
+
+      const manifest = await ref2vaManifest({ modelType }, new OmniClient());
+
+      expect(manifest.modelType).toBe(modelType);
+      expect(manifest.settings.image_refs).toEqual(
+        nativeKeyframes
+          ? ["/refs/mara.png"]
+          : ["/frames/start.png", "/frames/end.png", "/refs/mara.png"],
+      );
+      expect(manifest.settings.image_start).toBe(
+        nativeKeyframes ? "/frames/start.png" : undefined,
+      );
+      expect(manifest.settings.image_end).toBe(nativeKeyframes ? "/frames/end.png" : undefined);
+      expect(manifest.settings.video_prompt_type).toBe("I");
+      expect(manifest.settings.multi_prompts_gen_type).toBe("FG");
+      expect(String(manifest.settings.prompt)).toContain("subject_definitions:");
+      expect(String(manifest.settings.prompt)).toContain(
+        `<Subject 1> is Mara, shown in <Picture ${nativeKeyframes ? 1 : 3}>`,
+      );
+    },
+  );
 });

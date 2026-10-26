@@ -8,8 +8,9 @@ worked example — every technique, failure mode and workaround below came from 
 workload against a live WanGP install on a single consumer GPU. Where something is
 StoryForge-specific it is flagged so you can discard it.
 
-Wan2GP 13.01 serves **MCP API v2 by default**. The examples below describe v2 first and call out
-the v1 equivalent where it differs. StoryForgeAI detects the advertised contract and supports both.
+Current Wan2GP serves **MCP API v2.1 by default**. It retains v2's toolbox conventions but compacts
+model listings and job results further. The examples below call out those differences and the v1
+equivalent where it differs. StoryForgeAI supports v1, v2 and v2.1.
 
 **Audience:** a developer integrating local diffusion-model generation into an application for the
 first time.
@@ -32,8 +33,9 @@ tools, reachable over Streamable HTTP. For an integrator that means:
 
 **Why target it:** free local generation, no per-image cost, no data leaving the machine, and a
 catalogue you can extend by dropping in weights. **Why it might not suit you:** it is a
-single-session desktop-oriented application (§8.3), it has no authentication, and job throughput is
-one at a time. It is not a multi-tenant service and should not be exposed to untrusted callers.
+desktop-oriented application (§8.3), generation throughput is one job at a time, and MCP
+authentication must be configured separately from browser authentication. It should not be exposed
+to untrusted callers without the appropriate authentication and network controls.
 
 Two framing points that shape everything downstream:
 
@@ -47,20 +49,23 @@ Two framing points that shape everything downstream:
 
 ## 2. The tool surface
 
-A default Wan2GP 13.01 server advertises nine v2 toolboxes. Enumerate them at startup rather than
-trusting this list:
+Current servers advertise the following tools, with availability depending on API version and
+configuration. Enumerate them at startup rather than trusting a fixed count:
 
 | Tool | Purpose |
 |---|---|
 | `wangp_models` | Model search and speciality discovery |
 | `wangp_model` | Capabilities, definition, defaults, saved settings, and LoRAs for one model |
-| `wangp_deepy_templates` | Deepy recipes and merged template settings |
+| `wangp_templates` | Ready-made generation recipes (`wangp_deepy_templates` on older v2 builds) |
 | `wangp_list_gallery` | Gallery inventory and live selections |
 | `wangp_io` | Authorized filesystem operations |
 | `wangp_toolbox` | Media inspection and transformations |
 | `wangp_generate` | Generation |
 | `wangp_postprocess` | Post-processing treatments |
 | `wangp_session` | Job polling, cancellation, notifications, and Gallery transfers |
+| `wangp_validate` | V2.1 CPU-only preflight without submission or inference |
+| `wangp_workspace` | V2.1 workspace context and folder information |
+| `mcp_resource` | Documentation and skill discovery |
 
 Every toolbox uses progressive discovery: omit `action` and `arguments` to list actions, pass an
 action with `arguments: null` to read its contract, and pass an object (including `{}`) to execute.
@@ -153,7 +158,7 @@ Also honour `isError`: the failure detail is in the text content items, not the 
 
 ## 4. Discovery: choosing a model
 
-`wangp_models(action="search")` returns compact records with:
+Earlier v2 `wangp_models(action="search")` responses include:
 
 ```
 model_type, family, family_label, base_model_type, finetune,
@@ -164,10 +169,17 @@ name, accelerated, specialities
 `capabilities` is a flat string array and each `media_inputs` group is an array of role names. A
 normalizer should also accept v1's boolean maps.
 
+V2.1 searches without a query or specialities can return much smaller rows containing only
+`model_type`, `name`, acceleration/speciality information and sizing hints. Do not discard a row
+because it lacks `main_output` or `media_inputs`: enrich it through
+`wangp_model(model_type=..., action="capabilities", arguments={})`. That response's `metadata`
+provides output kinds, media roles, family and LoRA capabilities. StoryForgeAI already does this.
+
 ### 4.0 The catalogue uses opaque cursor pages
 
 V2 collections accept `limit` up to 100 and an opaque `cursor`. Repeat the same filters with
-`next_cursor` while `has_more` is true:
+`next_cursor` while `has_more` is true. Volume limits can shorten a page even when more rows
+remain; page length alone is not an end-of-catalogue signal:
 
 ```ts
 while (true) {
@@ -467,7 +479,7 @@ Earlier v2 builds, whose schema has no `settings`, took `{ action: "generate", a
 and answered `arguments: null` with the contract; StoryForge still falls back to that form.
 StoryForge polls every 3 s with a 600-attempt ceiling.
 
-### 8.2 Job status is an event log, not a status field
+### 8.2 Job status and output delivery depend on the API version
 
 The v2 `wangp_session` `get_job` action, and v1 `wangp_get_job`, return an **event log plus a
 terminal result**, not a tidy status string. You derive status yourself:
@@ -490,13 +502,35 @@ if (typeof source.done === "boolean") {
 }
 ```
 
-Accept both shapes. Output paths arrive as `result.generated_files`, with `generated_files` and
-`outputPaths` seen as alternates.
+Accept both shapes. V1/v2 output paths arrive as `result.generated_files`, with `generated_files`
+and `outputPaths` seen as alternates.
 
-### 8.3 WanGP runs exactly one job at a time
+**V2.1 additionally publishes compact snapshots.** `get_job` defaults to `event_limit=0`, so
+events may be absent even while work is running. Its top-level `progress` object contains the
+phase, `current_step`, `total_steps` and a legacy percentage. Prefer the step counts when known;
+this is progress within the current phase, not a batch-wide percentage or ETA. Completed snapshots
+add `status="done"`, `"error"` or `"interrupted"` and omit the last progress. Keep explicit
+`result.success` / `result.cancelled` authoritative when reading recovered receipts.
 
-Submitting while a job is running fails with *"session already has a generation in progress"*.
-Serialise every submission through a single chain:
+Most importantly, **a successful result may omit `generated_files` entirely** when
+`result.gallery_items` identifies every output. Those records carry `media_id` and, when available,
+`path`, plus media type and output role. Read final items, not `role="intermediate"` sliding-window
+checkpoints. Use an absolute `path` directly; resolve an ID or virtual path through
+`wangp_io(action="info", arguments={"path": reference})`. StoryForgeAI restricts that toolbox to
+the read-only `info` action and then preserves its existing shared-filesystem media pipeline.
+Filesystem reads / Read Everywhere must be enabled to obtain physical paths, and the output
+folder must remain readable and authorized by `WANGP_OUTPUT_DIR`. This is not an automatic HTTP
+download integration. Never report a completed render as successful if no final output can be
+recovered: surface the missing media or permission error.
+
+After a restart, `unknown_after_restart` means WanGP cannot establish completion. Surface that
+uncertainty for Gallery/queue inspection; do not resubmit automatically, claim that recovered
+partial outputs prove success, or keep polling until a timeout triggers cancellation.
+
+### 8.3 Serialize submissions for compatibility with standalone sessions
+
+Standalone sessions can reject a submission while a job is running with
+*"session already has a generation in progress"*. Serialise submissions through a single chain:
 
 ```ts
 function enqueue<T>(task: () => Promise<T>): Promise<T> {
@@ -508,9 +542,10 @@ function enqueue<T>(task: () => Promise<T>): Promise<T> {
 }
 ```
 
-**This only protects one process.** A second instance of your app — or a human using the WanGP web
-UI — can still take the session out from under you. Detect the condition explicitly and surface a
-comprehensible message rather than a raw error:
+**This only protects one process.** A second instance of your app can still take a standalone
+session. Current WebUI MCP (`--mcp-webui`) instead joins the browser's main queue and shares its
+loaded models; it supports async calls without the standalone `--mcp-async` flag. Detect a busy
+standalone session explicitly and surface a comprehensible message rather than a raw error:
 
 ```ts
 export function isSessionBusyError(err: unknown): boolean {
