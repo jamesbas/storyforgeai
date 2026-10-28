@@ -186,15 +186,10 @@ describe("MiniMax prompt guidance", () => {
     expect(directive).toMatch(/no negative prompt/i);
   });
 
-  /**
-   * MiniMax ask for 350-500 words and their own worked examples run that long.
-   * The instruction has to say the length is descriptive density, or an agent
-   * hits the count by inventing events the motion budget cannot pay for.
-   */
-  it("asks for the length MiniMax's guide asks for, without inviting more action", () => {
+  it("does not pad H3 prompts to a minimum length", () => {
     const directive = videoPromptDirective("minimax", { segmentSeconds: 15, nativeAudio: false });
-    expect(directive).toMatch(/350 to 500 words/);
-    expect(directive).toMatch(/never by adding more events/i);
+    expect(directive).not.toMatch(/350 to 500 words/);
+    expect(directive).toMatch(/no minimum length/i);
   });
 });
 

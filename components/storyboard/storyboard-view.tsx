@@ -6,6 +6,7 @@ import { useLoadEffect } from "@/components/shared/use-load-effect";
 import Link from "next/link";
 import { SceneCard } from "@/components/storyboard/scene-card";
 import { ScenePicker } from "@/components/storyboard/scene-picker";
+import { BulkPromptTools } from "@/components/storyboard/bulk-prompt-tools";
 import { CreativePlansPanel, planStates } from "@/components/storyboard/creative-plans-panel";
 import { NegativePromptRepair } from "@/components/storyboard/negative-prompt-repair";
 import { TaskRecoveryPanel } from "@/components/storyboard/task-recovery-panel";
@@ -71,6 +72,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [rewritingAll, setRewritingAll] = useState(false);
+  const [promptToolsBusy, setPromptToolsBusy] = useState(false);
   const [pendingMove, setPendingMove] = useState<PendingMove | null>(null);
   const [moveRewrite, setMoveRewrite] = useState(false);
   const [moving, setMoving] = useState(false);
@@ -1244,7 +1246,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
           </Link>
           <button
             onClick={requestGenerate}
-            disabled={generating}
+            disabled={generating || promptToolsBusy}
             className="rounded-md bg-accent-solid px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
           >
             {generating ? "Generating…" : storyboard ? "Regenerate storyboard" : "Generate storyboard"}
@@ -1722,14 +1724,14 @@ export function StoryboardView({ projectId }: { projectId: string }) {
               <div className="flex gap-2">
                 <button
                   onClick={() => void generateAll(false)}
-                  disabled={queueBusy || queue?.active || !stages.keyframes}
+                  disabled={queueBusy || queue?.active || promptToolsBusy || !stages.keyframes}
                   className="rounded-md bg-accent-solid px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
                 >
                   {queue?.active ? "Generating…" : "Generate all media"}
                 </button>
                 <button
                   onClick={() => void generateAll(true)}
-                  disabled={queueBusy || queue?.active || !stages.keyframes}
+                  disabled={queueBusy || queue?.active || promptToolsBusy || !stages.keyframes}
                   className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
                 >
                   Regenerate all
@@ -1737,7 +1739,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                 {stages.video ? (
                   <button
                     onClick={() => void regenerateVideo([])}
-                    disabled={queueBusy || queue?.active}
+                    disabled={queueBusy || queue?.active || promptToolsBusy}
                     title="Rebuild every clip from the keyframes already rendered. The frames are not touched."
                     className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
                   >
@@ -1748,7 +1750,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                     projects too, where it is simply "do it again". */}
                 <button
                   onClick={() => void regenerateKeyframes([])}
-                  disabled={queueBusy || queue?.active || !stages.keyframes}
+                  disabled={queueBusy || queue?.active || promptToolsBusy || !stages.keyframes}
                   title="Re-render every scene's keyframes from its image prompts, and stop there. The clips are left alone."
                   className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
                 >
@@ -1760,7 +1762,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                     cannot be found when nothing is. */}
                 <button
                   onClick={() => void rewriteAllPrompts()}
-                  disabled={busy || rewritingAll || queue?.active}
+                  disabled={busy || rewritingAll || promptToolsBusy || queue?.active}
                   title="Re-run the two prompt agents over every scene card, against the models pinned now. Scene cards, the story and the shot list are untouched; prompt wording you typed by hand is replaced."
                   className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
                 >
@@ -1770,7 +1772,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                     it is half the model calls. */}
                 <button
                   onClick={() => void rewriteVideoPrompts()}
-                  disabled={busy || rewritingAll || queue?.active}
+                  disabled={busy || rewritingAll || promptToolsBusy || queue?.active}
                   title="Re-run only the video prompt agent over every scene card, against the video model pinned now. The start and end frame prompts are left as they are."
                   className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
                 >
@@ -1780,7 +1782,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                 <button
                   onClick={() => void rewriteImagePrompts()}
                   data-testid="rewrite-image-prompts"
-                  disabled={busy || rewritingAll || queue?.active}
+                  disabled={busy || rewritingAll || promptToolsBusy || queue?.active}
                   title="Re-run only the image prompt agent over every scene card, against the image model pinned now. The clip prompts are left as they are."
                   className="rounded-md border border-white/10 px-4 py-2 text-sm hover:border-accent disabled:opacity-50"
                 >
@@ -1808,6 +1810,16 @@ export function StoryboardView({ projectId }: { projectId: string }) {
             ) : null}
 
             {storyboard.scenes.length > 0 ? (
+              <BulkPromptTools
+                projectId={projectId}
+                scenes={storyboard.scenes}
+                disabled={generating || rewritingAll || Boolean(remoteAgent) || Boolean(queue?.active) || queueBusy || Boolean(sceneBusy)}
+                onSaved={setRecord}
+                onBusyChange={setPromptToolsBusy}
+              />
+            ) : null}
+
+            {storyboard.scenes.length > 0 ? (
               <details className="mt-3 rounded-md border border-white/10 bg-black/20">
                 <summary className="cursor-pointer px-3 py-2 text-xs text-slate-400 hover:text-slate-200">
                   Rewrite prompts for selected scenes
@@ -1826,7 +1838,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   />
                   <button
                     onClick={() => void rewritePrompts(promptPicks)}
-                    disabled={rewritingAll || busy || promptPicks.length === 0}
+                    disabled={rewritingAll || busy || promptToolsBusy || queue?.active || promptPicks.length === 0}
                     className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:border-accent disabled:opacity-50"
                   >
                     {rewritingAll
@@ -1855,7 +1867,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   />
                   <button
                     onClick={() => void regenerateVideo(videoPicks)}
-                    disabled={queueBusy || queue?.active || videoPicks.length === 0}
+                    disabled={queueBusy || queue?.active || promptToolsBusy || videoPicks.length === 0}
                     className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:border-accent disabled:opacity-50"
                   >
                     Regenerate {videoPicks.length} clip{videoPicks.length === 1 ? "" : "s"}
@@ -1938,7 +1950,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   <button
                     onClick={() => void regenerateKeyframes(keyframePicks)}
                     data-testid="regenerate-selected-keyframes"
-                    disabled={queueBusy || queue?.active || keyframePicks.length === 0}
+                    disabled={queueBusy || queue?.active || promptToolsBusy || keyframePicks.length === 0}
                     className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:border-accent disabled:opacity-50"
                   >
                     Regenerate {keyframePicks.length} scene
@@ -2058,7 +2070,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   attempt={latest}
                   supersededBy={superseded}
                   media={media}
-                  busy={sceneBusy === scene.id}
+                  busy={sceneBusy === scene.id || promptToolsBusy}
                   onGenerate={stages.keyframes ? () => generateSceneMedia(scene.id) : undefined}
                   onApprove={latest ? () => approveScene(scene.id, latest.id) : undefined}
                   projectId={projectId}

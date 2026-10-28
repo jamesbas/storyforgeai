@@ -39,11 +39,11 @@ recent updates are kept below — every release ever made is in
 
 | Version | Date | What changed |
 | --- | --- | --- |
+| **2.75** | 2026-10-28 | **Fibo image prompts now use reviewable VGL JSON.** New or rewritten Fibo prompts are converted after cast and continuity checks using your configured planner, without adding a BRIA/Gemini service. Dev uses 30-50 automatic steps and guidance 5; Edit Turbo uses four steps and requires a source image. Both render near one megapixel, preserve reviewed JSON and seeds, and keep bulk prompt edits JSON-safe. Existing saved prompts and other image models are unchanged. |
+| **2.74** | 2026-10-28 | **Switch the AI planning model from Settings.** Choose one of six model presets for future planning calls across every project, or return to the OPENAI_MODEL environment default. The choice survives restarts and also controls LM Studio's Load for planning button, without editing .env.local. Existing artifacts, in-flight requests and the separate vision model are unchanged. |
+| **2.73** | 2026-10-28 | **Edit many saved prompts without rewriting the storyboard.** New batch tools append or prepend your text to selected image prompts, with start-frame, end-frame or both targeting, and simplify image/video prompts for all or selected scenes. Simplification uses concise, positive language while preserving the scene, shows before/after previews, and saves only checked results. Newer scene edits are protected from stale previews; existing media and negative prompts are untouched. |
+| **2.72** | 2026-10-27 | **Shorter prompts put people, positions and actions first.** Image and video writers now use concise, positive instructions, check for incompatible poses and swapped roles, and get one rewrite attempt when their prompts exceed shorter model-specific budgets. Video writers receive the accepted keyframe prompts so they connect established positions instead of inventing a different opening. H3 no longer asks for 350–500 words, fallback clips no longer repeat appearance and cinematic plan blocks, and critical frame relationships are kept ahead of optional lighting and style. Existing saved prompts and running renders are unchanged; rewrite prompts to apply the new guidance. |
 | **2.71** | 2026-10-25 | **MiniMax H3 Omni models now use reference mode.** Both FastH3 Omni 8-Step 20B and FastH3 Omni NVFP4 QAD 8-Step 20B were treated as first-and-last-frame-only models, hiding the character reference controls and leaving photographs out of video generation. They now use the H3 reference-image workflow, including character photographs and reference prompts, while retaining native first/last-frame inputs when the model exposes them. |
-| **2.70** | 2026-10-22 | **Images rendered by the updated Wan2GP now return to StoryForgeAI again.** The new default MCP API v2.1 can report a successful render through Gallery records instead of the file list StoryForgeAI expected, so an image could finish in Wan2GP without appearing on its scene. StoryForgeAI now recovers the final image, clip or audio path from those records, resolves Gallery IDs when needed, and reports a clear error if an output cannot be recovered. It also reads the new progress snapshots and completion states, and stops for inspection when a server restart leaves a job's outcome unknown. Older MCP v1 and v2 servers remain supported. |
-| **2.69** | 2026-10-06 | **Keyframes, clips and audio render again on the latest Wan2GP.** Wan2GP changed how its MCP server takes generation requests: `wangp_generate` now expects a single flat `settings` object and publishes its options in its own tool description, and it dropped the "describe yourself" call StoryForgeAI made before every render. That call now fails, so every keyframe was refused with "settings is required … Nothing was submitted" before anything reached the GPU. StoryForgeAI now reads the options Wan2GP advertises and sends renders in the new form, waiting and then polling exactly as before. Older Wan2GP builds that still use the previous form keep working. No settings or launch flags need changing. |
-| **2.68** | 2026-09-28 | **New seeds can now be taken for many scenes at once, and the seed note says when you actually need one.** Each scene's seed is pinned so a preview predicts its keyframe, and the only way to re-roll was the **New seed** button on each card, one scene and one request at a time. The Storyboard screen now has a **New seeds for selected scenes** panel beside the other bulk tools: tick the scenes you want, or **Select all**, and they are re-rolled in one go. Nothing is re-rendered by it, because a new seed changes nothing until the frames are drawn again, so the same scenes are then ticked for you under **Regenerate keyframes for selected scenes**. The wording also answers a question it used to raise. The old note said regenerating "reproduces the same image", which suggested switching image model, say from Krea 2 Raw to Krea 2 Turbo, would need new seeds to look any different. It doesn't: a pinned seed reproduces an image only when the model, prompt, steps, resolution and LoRAs are all unchanged, and changing any of them changes the frame on its own. The card and the help page now say so. Keeping your seeds across a model switch is useful, since it makes each scene a fair comparison between the two. |
-| **2.67** | 2026-09-27 | **The Story Architect's arc can now be edited by hand, like every other plan on the Agentic Canvas.** The arc decides what happens in every scene, and it was the only plan you could read but not change. A beat the model got wrong, such as a fight finished in one scene or an ending padded with reaction shots, could only be fixed by regenerating the whole arc and hoping, or by editing the project file. The Story Architect card now has the same **View or edit** panel as the others, covering the title, logline, the beat for each segment, the emotional progression, which segments continue the one before, and the climax segment. Beats are written as `1: what happens in segment 1`, and the number decides the segment, not the line order, so deleting a line cannot shift every later beat onto the wrong scene. The arc must keep one beat for every segment, and a missing or empty one is refused by number. An edit counts the same as a regeneration: the canvas says which of the Director, Cinematographer, Art Director and storyboard were written against the older arc, and the Storyboard screen now lists the arc among its plans and marks it **not applied yet** until you regenerate. An arc you have edited is also never replaced automatically when the storyboard runs, even if the model's first attempt at it had failed. |
 
 ---
 
@@ -485,6 +485,38 @@ audio reaches the clip; nothing is synthesized separately.
 Deterministic builders always produce a complete prompt. When `AI_PLANNING_ENABLED`
 is set, an LLM refines each artifact and falls back to the builder on any failure.
 
+### Composition before embellishment
+
+Image prompts put brief framing first, then who is where, the visible pose and
+the essential contact or object relationship. Video prompts start with what
+changes from the accepted opening frame; their writer receives both keyframe
+prompts, including the preceding end frame when the opening is inherited.
+Each important constraint is stated once in plain, positive language. The writers
+are told to check roles, hand/object ownership, compatible poses and physical
+layout before answering; this is guidance, not a guarantee of model adherence.
+
+The generated-image ceilings are **120 words**, or **140 for Qwen**. Video visual
+prose scales with duration up to **90 words for Wan**, **160 for LTX**, and
+**140 for other families including H3**. These are ceilings, not length targets.
+Attributed dialogue is additional and stays verbatim. Length acceptance includes
+automatic appearance/continuity suffixes. An oversized model answer gets one
+rewrite attempt; an answer that still fails uses the deterministic builder and
+records a degraded execution rather than silently cutting constraints or speech.
+The builder preserves essential scene text even when it cannot fit the ceiling;
+it cannot semantically repair a contradictory scene card.
+
+Fallback clips omit repeated appearance, look and raw planning blocks. Plans
+still inform the scene cards, framing and lighting; complete plans remain inputs
+to the AI writers rather than text pasted onto every render. Stills keep their
+identity and wardrobe information, omitting duplicate inline descriptions where
+recognised. The optional `MEDIA_PROMPT_COMPOSER_V2` path also puts physical frame
+state before secondary detail and reserves critical sentences before trimming
+optional clauses.
+
+Saved prompts, hand edits and running generation jobs are not migrated. Rewrite
+the desired image/video passes to apply this policy, then regenerate the affected
+keyframes and clips when ready. No Wan2GP setting or server change is required.
+
 ### Written for the model that renders it
 
 The image and video families disagree about what a good prompt is, so the prompt
@@ -494,12 +526,16 @@ because a prompt written for one model and rendered by another is worse than a
 neutral one.
 
 - **FLUX** has no negative prompt. Exclusions are written into the prompt as the
-  thing to render instead, and lighting is stated in full.
-- **Qwen** is literal about structure: lettering is quoted exactly, materials are
-  described at two scales.
+  thing to render instead, with one short lighting clause.
+- **Qwen** is literal about structure: lettering is quoted exactly, and material
+  detail is used only when it matters to the scene.
 - **Wan** asks for motion and camera and little else, so its clip prompts are short.
 - **LTX** wants one flowing present-tense paragraph, and writes its own soundtrack
   from that prompt, so ambience and dialogue belong in it.
+- **H3** keeps its native reference/anchor and audio formatting, but no longer
+  requires a minimum word count. Reference photos define facial identity;
+  anchored frames or continued video define pose and clothing, so library
+  descriptions cannot overwrite those established states.
 
 ### Four rules that decide whether a shot comes out right
 
@@ -603,6 +639,25 @@ OPENAI_MODEL=<model id from the server>
 OPENAI_API_KEY=lm-studio
 ```
 
+**Settings → AI planning model** lets you switch between six model presets without
+editing `.env.local` or restarting StoryForgeAI. **Use environment default** follows
+`OPENAI_MODEL` (or `gpt-4o-mini` if unset). An explicit selection overrides that
+default until you choose the environment option again. The selection is saved in
+`<STORYFORGE_DATA_DIR>/library/planning-model-settings.json` and applies to future
+text planning calls in every project, including subsequent calls in a running
+batch. Wait for planning to finish before switching if a batch should use only one
+model. Existing artifacts and in-flight requests are not changed.
+
+The dropdown includes Gemma 4 26B balanced MTP, Qwen 3.5 9B aggressive, Qwen 3.8 9B
+NVFP4 in Q4_K_M and Q8_0, Huihui Qwen 3.8 27B abliterated, and Qwen 3.8 27B
+Heretic Ara 16 GB MTP, using their full server model IDs. These are presets, not
+automatic discovery: the chosen model must be available on the server configured
+by `OPENAI_BASE_URL`. Selecting one does not install or load its weights.
+The storyboard's **Load for planning** button uses the saved choice.
+`AI_PLANNING_ENABLED` still controls live planning, and `OPENAI_VISION_MODEL`
+remains separate. Environment defaults are read at startup, so changing the
+environment itself still requires a restart.
+
 Use an instruction-tuned model with enough context for the project and support for
 structured output. StoryForgeAI defaults to a 12,000-token completion budget and a
 240-second timeout; smaller/slower models may need the corresponding
@@ -614,7 +669,9 @@ then `json_object`, then plain text — and a rung is abandoned only when the
 server actually rejects it. Whether a given schema can be expressed as JSON
 Schema is decided per call, so one unconvertible schema no longer demotes every
 later agent. LM Studio accepts `json_schema` or `text` and refuses
-`json_object`, which the ladder discovers once and then skips.
+`json_object`, which the ladder discovers once per model and then skips.
+Negotiated format failures are kept per model, so switching to another model
+does not inherit the previous model's limitations.
 
 Every failure is logged as `agent.llm.failed` with a reason — `format_unsupported`,
 `schema_mismatch`, `unparseable_json`, `request_failed`. **Watch for these.**
@@ -622,6 +679,13 @@ A silent fallback to the deterministic builder looks like success but means the
 LLM contributed nothing — and because a built storyboard is schema-valid and
 complete, the Storyboard screen shows an amber banner naming the reason rather
 than leaving it to the log.
+
+**Fibo 2.0:** new or rewritten image prompts are saved as reviewable VGL JSON.
+Dev supports generation and editing; Edit Turbo requires a source image and uses
+four steps. Both use native sizes near one megapixel rather than treating the
+High preset as a reason to render far above the trained size. See the
+[Fibo prompting guide](docs/fibo-prompting.md) for conversion, reference ordering,
+negative conditioning, reproducibility limits and verified sources.
 
 WanGP's own `prompt_enhancer` is explicitly disabled on every request. Several
 models ship with it on (LTX-2 22B defaults to `"T"`), and it would rewrite the
@@ -914,8 +978,8 @@ a reference photograph, the sheet is cut to their name and wardrobe for those sh
 Where there is none it stays whole, because then text is the only thing holding the
 face together.
 
-**Clips get names, stills get the sheet.** A start frame has nothing but its prompt
-to establish a face, so the full description is appended to every image prompt. A
+**Clips get names, stills get identity detail.** Stills describe each person inline;
+a compact sheet is appended only where the inline description is insufficient. A
 clip is rendered *from* that frame, which already fixes the face, wardrobe and
 lighting — so the clip prompt gets the character's name and one instruction to hold
 them steady. Repeating the description there spends the prompt on appearance the
@@ -1166,6 +1230,35 @@ scenes** above the scene list takes a tick-box selection with **Select all** and
 **Clear all**, the same shape as the clip queue beside it. Fixing five scenes by
 reaching for the all-scenes button is how the hand edits on the other thirteen get
 thrown away.
+
+Two additional tools sit beside those batch controls:
+
+- **Add text to image prompts** appends or prepends your literal text on a new
+  line, without consulting an AI model. Choose all or selected scenes, and start
+  frames, end frames or both. An empty selection never means all scenes.
+- **Simplify image and video prompts** shortens the *saved wording*, rather than
+  regenerating from scene cards. Choose all or selected scenes, image/video/both,
+  and which image frames to include. Your configured planning model leads with
+  people, positions and actions, states critical constraints once and positively,
+  removes repeated continuity, wardrobe, lighting, mood and lens detail, and
+  preserves video direction, start/end states and dialogue. It does not invent
+  characters, actions or camera moves. This is especially useful for Krea 2,
+  which has no negative prompt input.
+
+Simplification requires AI planning to be enabled and a configured LLM connection.
+It shows each original beside its proposed replacement and word counts; nothing is
+saved yet. Only results shorter in both words and characters are offered, with one
+retry if needed. Failed prompts show an error instead of a pretend simplification.
+Uncheck any results you do not want, then **Apply selected prompts**, or **Discard
+preview** to keep everything. A scene changed since preview must be previewed again;
+the application refuses the whole save rather than overwriting newer edits. Keep
+the page open while a preview runs; navigating away discards the unsaved review.
+
+Both tools preserve scene cards, negative prompts, soundscape/score fields,
+seeds, and generated media. They count as prompt edits in the storyboard's
+regeneration warning. Regenerate keyframes or clips separately when you are ready
+to render the new wording. Bulk prompt tools are unavailable during an active
+generation or planning run.
 
 Regenerating the whole storyboard rewrites every prompt. You are told how many
 scenes carry hand edits before it runs, and can back out or export first.

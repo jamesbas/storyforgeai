@@ -1,5 +1,6 @@
 import type { AspectRatio, ResolutionPreset } from "@/lib/types";
 import type { ModelFamily } from "@/lib/wangp/family";
+import { isFiboFamily } from "@/lib/wangp/family";
 
 /**
  * The frame size a job should render at.
@@ -46,9 +47,21 @@ export function resolveResolution(args: {
   /** Used verbatim for the `custom` aspect ratio, which we cannot infer. */
   fallback: string;
   allowed?: readonly string[];
+  family?: ModelFamily;
 }): string {
-  const target =
+  let target =
     args.aspectRatio === "custom" ? args.fallback : SIZES[args.aspectRatio][args.preset];
+  if (args.family && isFiboFamily(args.family)) {
+    const sizes = { "16:9": "1424x800", "9:16": "800x1424", "1:1": "1024x1024" };
+    if (args.aspectRatio !== "custom") target = sizes[args.aspectRatio];
+    else {
+      const size = parse(args.fallback);
+      if (size && size.width > 0 && size.height > 0) {
+        const scale = Math.sqrt(1024 * 1024 / (size.width * size.height));
+        target = `${Math.max(16, Math.round(size.width * scale / 16) * 16)}x${Math.max(16, Math.round(size.height * scale / 16) * 16)}`;
+      }
+    }
+  }
 
   if (!args.allowed?.length) return target;
   if (args.allowed.includes(target)) return target;

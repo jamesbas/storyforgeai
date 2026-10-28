@@ -236,6 +236,29 @@ describe("dialogue rendering", () => {
 });
 
 describe("budget trimming", () => {
+  it("reserves space for every sentence of a critical spatial constraint", () => {
+    const relationship = "Ben stands directly behind Ana. Ana's left hand stays free.";
+    const text = `Medium shot, eye level. Unnecessary lighting and elaborate lens detail. ${relationship}`;
+    const rendered = trimToBudget(text, 16, 1, [relationship]);
+    expect(rendered).toContain(relationship);
+    expect(rendered).not.toContain("elaborate lens detail");
+    expect(countWords(rendered)).toBeLessThanOrEqual(16);
+  });
+
+  it("keeps all participants and frame constraints ahead of optional image detail", () => {
+    const rendered = renderImagePrompt(spec({
+      subject: "Ana sits at a table. Ben stands directly behind Ana.",
+      startState: "Ben holds Ana's right wrist. Ana's left hand rests free on the table.",
+      setting: "ornate ".repeat(140),
+      lighting: "cinematic ".repeat(140),
+    }), { family: "flux", frame: "start" });
+    expect(rendered.indexOf("Ben holds")).toBeLessThan(rendered.indexOf("The setting") < 0
+      ? rendered.length : rendered.indexOf("The setting"));
+    expect(rendered).toContain("Ana's left hand rests free");
+    expect(rendered).toContain("Ben stands directly behind Ana");
+    expect(countWords(rendered)).toBeLessThanOrEqual(120);
+  });
+
   it("protects the opening sentence", () => {
     const text = "Medium shot, eye level. " + Array.from({ length: 60 }, () => "extra").join(" ") + ".";
     expect(trimToBudget(text, 10)).toContain("Medium shot, eye level.");

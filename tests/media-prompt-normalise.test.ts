@@ -55,6 +55,14 @@ describe("normalising a model-authored image prompt", () => {
     expect(result.text).toBe(good);
   });
 
+  it("adds missing camera height without adding an incompatible shot size", () => {
+    const result = normaliseImagePrompt("Wide shot of Ana beside Ben.", spec, "flux");
+    expect(result.text).toContain("Wide shot, low angle.");
+    expect(result.text).not.toContain("Close-up");
+    expect(result.text).toContain("Ana beside Ben");
+    expect(result.text.match(/wide shot/gi)).toHaveLength(1);
+  });
+
   it("keeps the model's own words rather than rewriting them", () => {
     const result = normaliseImagePrompt("A brass gear catches the last of the light.", spec, "flux");
     expect(result.text).toContain("catches the last of the light");

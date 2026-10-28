@@ -18,14 +18,24 @@ import { WORDS_PER_SECOND } from "@/lib/agents/media-prompt-spec";
 
 export function imagePromptDirective(family: ModelFamily): string {
   switch (family) {
+    case "fibo":
+    case "fibo_turbo":
+      return (
+        " This frame renders on Fibo 2.0. Describe visible subjects, count, placement, materials, " +
+        "background, lighting direction, camera angle and one coherent style. Avoid vague quality " +
+        "tags such as masterpiece, ultra-detailed and 8K. State intended lettering exactly in " +
+        "quotes with its placement and typography; do not invent lettering or placeholder text. " +
+        "For a source-frame edit, describe the desired local result, not a long inventory of " +
+        "everything that must remain unchanged. Write prose here: StoryForge converts the accepted " +
+        "frame into validated VGL JSON after cast and continuity checks."
+      );
     case "flux":
       return (
         " This scene renders on FLUX, which has no negative prompt: anything you want kept out " +
         "of the frame must be written into the prompt as the thing to render instead. Write " +
         '"crisp subject detail" rather than "no blur", "a sparse, uncluttered setting" rather ' +
-        'than "no clutter". State lighting explicitly and in full — source, direction, quality, ' +
-        "contrast and colour temperature — because it moves the render further than any other " +
-        "instruction. Where a colour must be exact, give the name and its hex value."
+        'than "no clutter". Give lighting one short clause naming its source and quality. ' +
+        "Where a colour must be exact, give the name and its hex value."
       );
     case "qwen":
       return (
@@ -33,8 +43,7 @@ export function imagePromptDirective(family: ModelFamily): string {
         "Order the prompt as format, then subject, then layout, then lighting and finish. Any " +
         "lettering that must appear in frame goes in quotation marks exactly as it should read, " +
         "with its position and relative size stated; if no lettering belongs in the shot, say so. " +
-        "Describe materials at two scales — the macro structure and the micro texture — since " +
-        "that is where this model repays detail."
+        "Describe a material only when it distinguishes a subject or matters to the action."
       );
     case "krea":
       return (
@@ -56,15 +65,10 @@ export type VideoDirectiveOptions = {
 };
 
 /**
- * How many action beats an LTX clip of this length can hold.
- *
- * The guide asks for the action as a sequence flowing beginning to end and
- * gives no number. Three seconds a beat is the conservative end of the range
- * LTX published for 2.3, taken rather than the midpoint because an overloaded
- * prompt drops its middle actions rather than its last.
+ * Allow a short progression of the same action, not a growing list of events.
  */
 function actionBeats(segmentSeconds: number): string {
-  const beats = Math.max(1, Math.floor(segmentSeconds / 3));
+  const beats = Math.min(3, Math.max(1, Math.floor(segmentSeconds / 4)));
   return beats === 1 ? "one beat" : `${beats} beats`;
 }
 
@@ -85,8 +89,8 @@ export function videoPromptDirective(
       );
     case "ltx":
       return (
-        " This clip renders on LTX. Write one flowing paragraph in the present tense, four to " +
-        "eight sentences for a shot with real movement and fewer for a held one. Convey feeling " +
+        " This clip renders on LTX. Write one flowing paragraph in the present tense, with " +
+        "six short sentences at most, and fewer for a held shot. Convey feeling " +
         "through what the body does — a jaw tightening, a gaze dropping — never through an " +
         "emotional label, which the model cannot render. State the camera move relative to the " +
         "subject and say what the framing settles on at the end, so the movement has somewhere " +
@@ -96,8 +100,7 @@ export function videoPromptDirective(
         // density: there is still one thing the clip is about, stated first.
         `Write the action as a chronological sequence rather than one isolated movement — at ` +
         `most ${actionBeats(segmentSeconds)}, the first being what the clip is about and any ` +
-        "that follow leading on from it. This supersedes the general limit of one action and " +
-        "one smaller movement, which is written for a family that asks for less. " +
+        "that follow leading on from the same primary action, not independent new actions. " +
         // Newer LTX checkpoints can cut inside a single generation. Every clip
         // here opens on a keyframe that is already rendered and joins the next
         // segment at a seam decided elsewhere, so a cut is never wanted.
@@ -140,12 +143,12 @@ export function videoPromptDirective(
           : " This clip renders on MiniMax H3 in first-and-last-frame mode: the two keyframes " +
             "are pinned to the opening and closing moments and the model generates the path " +
             "between them. Describe that path, not the endpoints — the frames already fix how " +
-            "the shot opens and closes, so write the opening state, then the visible changes in " +
+            "the shot opens and closes, so write only the visible changes in " +
             "the order they happen, then how the differences narrow until the closing frame is " +
             "reached. ") +
         "Keep " +
-        "it to one continuous shot with no cuts. Open by naming the visual style and the " +
-        "framing, then give one thing that happens and at most one smaller movement alongside " +
+        "it to one continuous shot with no cuts. Begin with the first change from the opening " +
+        "frame, then give one thing that happens and at most one smaller movement alongside " +
         "it, each qualified with its pace. " +
         // MiniMax publishes a controlled camera vocabulary and asks for the move
         // to be written as an action inside the shot rather than appended as
@@ -160,15 +163,9 @@ export function videoPromptDirective(
         // negative_prompt field, so an exclusion sent as one never arrives.
         "This model has no negative prompt, so anything that must stay out of the clip has to " +
         "be written as the thing to show in its place. " +
-        // MiniMax ask for 350-500 words and their own worked examples are that
-        // long. The length is descriptive density, not extra events: padding it
-        // with more actions is the one thing the motion budget cannot afford.
-        "Write it long and specific — MiniMax ask for roughly 350 to 500 words, and H3 is built " +
-        "to consume that much. Fill it by describing more closely, never by adding more events: " +
-        "the opening composition and framing, how the subject looks and where it sits in the " +
-        "frame, the setting and its light, each stage the one action passes through and what " +
-        "changes as it does, the camera, and the sound of whatever is visibly happening. " +
-        "Describe what is seen rather than summarising what occurs." +
+        "Keep the visual prose short and concrete. There is no minimum length: never pad the " +
+        "prompt with repeated composition, wardrobe, anatomy or cinematic language. Preserve " +
+        "the frame's roles and positions while describing the action's visible changes." +
         (nativeAudio
           ? " H3 writes the soundtrack from this same prompt, and it keeps three layers apart. " +
             "Ambience and physical sound — weather, traffic, footsteps, fabric, impacts, " +

@@ -3,6 +3,7 @@ import { promisify } from "node:util";
 import { config } from "@/lib/config";
 import { ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
+import { getPlanningModel } from "@/lib/services/planning-model-settings-service";
 
 /**
  * Control of the local LM Studio runtime.
@@ -53,7 +54,7 @@ export async function getLlmRuntimeStatus(): Promise<LlmRuntimeStatus> {
   const status: LlmRuntimeStatus = {
     enabled: config.llmRuntime.enabled && base !== null,
     reachable: false,
-    configuredModel: config.openai.model,
+    configuredModel: await getPlanningModel(),
     loadedModels: [],
     configuredModelLoaded: false,
   };
@@ -93,7 +94,7 @@ async function lms(args: string[]): Promise<string> {
   try {
     // execFile, not exec: arguments are passed as an array with no shell, so
     // nothing here can be turned into shell injection. The model id comes from
-    // configuration and is never taken from the request.
+    // validated settings or environment configuration, not this request.
     const { stdout, stderr } = await run(config.llmRuntime.cliPath, args, {
       timeout: config.llmRuntime.timeoutMs,
       windowsHide: true,
@@ -120,11 +121,11 @@ export async function unloadPlanningModel(): Promise<LlmRuntimeStatus> {
 /**
  * Load the configured planning model.
  *
- * The model key is read from configuration rather than the request so a caller
- * cannot use this endpoint to load arbitrary models.
+ * The model key is resolved from saved settings or the environment default,
+ * rather than accepting an arbitrary model in the load request.
  */
 export async function loadPlanningModel(): Promise<LlmRuntimeStatus> {
-  const model = config.openai.model;
+  const model = await getPlanningModel();
   if (!model) throw new ValidationError("No planning model is configured (OPENAI_MODEL).");
   const output = await lms(["load", model, "-y"]);
   logEvent("llm.runtime", { action: "load", model, output: output.slice(0, 200) });

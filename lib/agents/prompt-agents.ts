@@ -37,7 +37,13 @@ import {
   inheritedOpeningDirective,
   videoPromptDirective,
 } from "@/lib/agents/model-directives";
-import { familyOf, type ModelFamily } from "@/lib/wangp/family";
+import { familyOf, isFiboFamily, type ModelFamily } from "@/lib/wangp/family";
+import { writeFiboPrompts } from "@/lib/agents/fibo-prompt";
+import {
+  concisePromptDirective,
+  exceedsPromptBudget,
+  SHORTEN_PROMPT_DIRECTIVE,
+} from "@/lib/agents/prompt-concision";
 import { charactersInFrame, charactersInScene } from "@/lib/agents/scene-cast";
 import { explicitnessDirective, isExplicitProject, isExplicitScene } from "@/lib/agents/explicitness";
 import {
@@ -176,14 +182,13 @@ export const IMAGE_PROMPT_SYSTEM =
   "out at the neck. If the action genuinely requires it, say so and choose a wide or full " +
   "shot that can hold them all head to foot. " +
   "For any character who is not in the supplied cast, state the wardrobe as specific named " +
-  "garments with colours and materials — never a vague placeholder such as 'casual attire', " +
+  "garments with colours — never a vague placeholder such as 'casual attire', " +
   "'contemporary clothing' or 'appropriate outfit' — and repeat that same wardrobe wording " +
   "verbatim in both prompts. Only framing, pose and action may differ between them. " +
   // Non-cast people had no persistent wardrobe at all, so an outfit established
   // in one scene was reinvented in the next.
   "When `otherWardrobe` names a subject and their outfit, that outfit is already established: " +
-  "use it, do not invent a different one, and do not restate it in your prompt — it is appended " +
-  "automatically, and a second copy makes the model render the person twice. " +
+  "use it, do not invent a different one, and keep it bound to the person it belongs to. " +
   // Same reasoning as the cast sheet: the look is appended verbatim, so a
   // second mention only doubles the term's weight in the render.
   "Do not restate the project's style or tone; both are appended to every prompt automatically.";
@@ -377,7 +382,7 @@ export async function attachScenePrompts(
     }
 
     if (provider) {
-      const user = JSON.stringify({
+      const userContext = {
         project,
         scene: draft,
         previousEndFramePrompt,
@@ -426,7 +431,8 @@ export async function attachScenePrompts(
             }
           : undefined,
         forbiddenContradictions: plans?.worldBible?.forbiddenContradictions,
-      });
+      };
+      const user = JSON.stringify(userContext);
       const gate: ImageGateContext = {
         scene: draft,
         participants: sceneCast.map((c) => c.name),
@@ -468,10 +474,20 @@ export async function attachScenePrompts(
                 imagePromptDirective(imageFamily) +
                 seamDirective(project) +
                 castSystemDirective(sceneCast, true) +
-                precedenceDirective(sceneCast, plans),
+                precedenceDirective(sceneCast, plans) +
+                concisePromptDirective(imageFamily, "image", 0),
               user,
               gate,
               gated,
+              (part) => {
+                const final = withCastEnforced(
+                  normaliseImageResult(part, project, draft, plans, wardrobe, imageFamily),
+                  sceneCast, plans, project, wardrobe, draft,
+                );
+                return [final.startFramePrompt, final.endFramePrompt].some((text) =>
+                  exceedsPromptBudget(text, imageFamily, "image", 0),
+                );
+              },
             ),
             // A prompt the model wrote and the gate had to patch is neither its
             // work nor the builder's, and a run that needed patching is a run
@@ -520,7 +536,7 @@ export async function attachScenePrompts(
             builderVersion: BUILDER_VERSION,
             provider,
             onExecution: context.onExecution,
-            llm: providerCall(
+            llm: gatedVideoCall(
               provider,
               videoPromptSystem(project.segmentSeconds) +
                 explicitnessDirective(project, "video", draft) +
@@ -529,11 +545,27 @@ export async function attachScenePrompts(
                   nativeAudio: hasNativeAudio(videoFamily),
                 }) +
                 (inheritsOpening ? inheritedOpeningDirective(previousEndFramePrompt) : "") +
-                castSystemDirective(sceneCast, true) +
-                precedenceDirective(sceneCast, plans),
-              user,
-              videoPartSchema,
-              { systemPromptScope: "render_prompts" },
+                videoCastDirective(sceneCast, videoFamily) +
+                precedenceDirective(sceneCast, plans) +
+                concisePromptDirective(videoFamily, "video", project.segmentSeconds),
+              JSON.stringify({
+                ...userContext,
+                keyframes: {
+                  start: inheritsOpening ? previousEndFramePrompt : imagePart.startFramePrompt,
+                  end: imagePart.endFramePrompt,
+                  instruction:
+                    "These are the established endpoints for this clip. Preserve their people, " +
+                    "roles and spatial relationships. Describe only the changes connecting them; " +
+                    "do not invent a different opening pose or silently swap participants.",
+                },
+              }),
+              draft,
+              (part) => exceedsPromptBudget(
+                withCastEnforcedVideo(part, sceneCast, plans, wardrobe).videoPromptSegment,
+                videoFamily,
+                "video",
+                draft.trimAtEndSeconds ?? draft.targetDurationSeconds,
+              ),
             ),
             fallback: () => videoPart,
           });
@@ -542,10 +574,22 @@ export async function attachScenePrompts(
           normaliseVideoResult(videoResult.value, draft, videoFamily),
           sceneCast,
           plans,
-          project,
           wardrobe,
         );
       }
+    }
+
+    if (!skipImage && isFiboFamily(imageFamily)) {
+      const vgl = await writeFiboPrompts({
+        start: imagePart.startFramePrompt,
+        end: imagePart.endFramePrompt,
+        sceneId: draft.id,
+        provider,
+        onExecution: context.onExecution,
+        correlationId: context.correlationId,
+        participants: sceneCast.map((character) => character.name),
+      });
+      imagePart = { ...imagePart, startFramePrompt: vgl.start, endFramePrompt: vgl.end };
     }
 
     scenes.push({
@@ -662,6 +706,7 @@ function gatedImageCall(
   user: string,
   gate: ImageGateContext,
   gated: { codes: PromptGateCode[] },
+  overBudget: (part: ImagePart) => boolean,
 ): () => Promise<ProviderResult<ImagePart>> {
   return async () => {
     const first = await providerCall(provider, system, user, imagePartSchema, {
@@ -669,24 +714,77 @@ function gatedImageCall(
     })();
     if (!first.ok) return first;
     const codes = gateFindings(first.value, gate);
-    if (!codes.length) return first;
+    if (!codes.length && !overBudget(first.value)) return first;
 
     let best = first;
     const retry = await providerCall(
       provider,
-      system + gateRepairDirective(codes, gate),
-      user,
+      system + gateRepairDirective(codes, gate) + SHORTEN_PROMPT_DIRECTIVE,
+      `${user}\nPrevious answer to rewrite:\n${JSON.stringify(first.value)}`,
       imagePartSchema,
       { systemPromptScope: "render_prompts" },
     )();
     if (retry.ok) {
       const retryCodes = gateFindings(retry.value, gate);
-      if (!retryCodes.length) return retry;
-      if (retryCodes.length < codes.length) best = retry;
+      if (!retryCodes.length && !overBudget(retry.value)) return retry;
+      if (retryCodes.length <= codes.length) best = retry;
     }
 
     gated.codes = gateFindings(best.value, gate);
-    return { ...best, value: repairPart(best.value, gate) };
+    const repaired = repairPart(best.value, gate);
+    if (overBudget(repaired)) {
+      return {
+        ok: false,
+        provider: best.provider,
+        model: best.model,
+        reason: "invalid_set",
+        detail: "Image prompts remain over_budget after one rewrite.",
+      };
+    }
+    return { ...best, value: repaired };
+  };
+}
+
+function videoCastDirective(cast: readonly Character[], family: ModelFamily): string {
+  const names = cast.map((c) => c.name).join(", ");
+  return (
+    (names ? ` The established cast is ${names}. Keep these names and roles unchanged.` : "") +
+    (family === "minimax_ref2va"
+      ? " Bind each referenced character by name and one short identifying phrase from the supplied cast."
+      : " The start frame already establishes appearance: do not repeat full physical or wardrobe descriptions.") +
+    " Describe a newly arriving person only as needed to distinguish them from people already in frame."
+  );
+}
+
+function gatedVideoCall(
+  provider: PlanningProvider,
+  system: string,
+  user: string,
+  draft: SceneDraft,
+  overBudget: (part: VideoPart) => boolean,
+): () => Promise<ProviderResult<VideoPart>> {
+  return async () => {
+    const valid = (part: VideoPart) =>
+      !overBudget(part) && !missingDialogue(part.videoPromptSegment, draft.dialogue ?? []).length;
+    const first = await providerCall(provider, system, user, videoPartSchema, {
+      systemPromptScope: "render_prompts",
+    })();
+    if (!first.ok || valid(first.value)) return first;
+    const retry = await providerCall(
+      provider,
+      system + SHORTEN_PROMPT_DIRECTIVE,
+      `${user}\nPrevious answer to rewrite:\n${JSON.stringify(first.value)}`,
+      videoPartSchema,
+      { systemPromptScope: "render_prompts" },
+    )();
+    if (retry.ok && valid(retry.value)) return retry;
+    return {
+      ok: false,
+      provider: first.provider,
+      model: first.model,
+      reason: "invalid_set",
+      detail: "Video prompt remains over_budget or dialogue_dropped after one rewrite.",
+    };
   };
 }
 
@@ -784,8 +882,8 @@ function withCastEnforced(
   });
   const frameCast = (prompt: string) => charactersInFrame(prompt, cast);
   return {
-    startFramePrompt: `${part.startFramePrompt}${lookPromptSuffix(project, part.startFramePrompt)}${castPromptSuffix(frameCast(part.startFramePrompt), wardrobe?.start, sheetFor(part.startFramePrompt), part.startFramePrompt)}${othersWardrobeSuffix(othersInFrame(part.startFramePrompt, wardrobe?.othersStart ?? {}))}`,
-    endFramePrompt: `${part.endFramePrompt}${lookPromptSuffix(project, part.endFramePrompt)}${castPromptSuffix(frameCast(part.endFramePrompt), wardrobe?.end, sheetFor(part.endFramePrompt), part.endFramePrompt)}${othersWardrobeSuffix(othersInFrame(part.endFramePrompt, wardrobe?.othersEnd ?? {}))}`,
+    startFramePrompt: `${part.startFramePrompt}${lookPromptSuffix(project, part.startFramePrompt)}${castPromptSuffix(frameCast(part.startFramePrompt), wardrobe?.start, sheetFor(part.startFramePrompt), part.startFramePrompt)}${othersWardrobeSuffix(othersInFrame(part.startFramePrompt, wardrobe?.othersStart ?? {}), part.startFramePrompt)}`,
+    endFramePrompt: `${part.endFramePrompt}${lookPromptSuffix(project, part.endFramePrompt)}${castPromptSuffix(frameCast(part.endFramePrompt), wardrobe?.end, sheetFor(part.endFramePrompt), part.endFramePrompt)}${othersWardrobeSuffix(othersInFrame(part.endFramePrompt, wardrobe?.othersEnd ?? {}), part.endFramePrompt)}`,
     imageNegativePrompt: normaliseNegative(`${part.imageNegativePrompt}${negative}`),
   };
 }
@@ -794,7 +892,6 @@ function withCastEnforcedVideo(
   part: VideoPart,
   cast: readonly Character[],
   plans: CreativePlans | undefined,
-  project: Project,
   wardrobe: SceneWardrobe | undefined,
 ): VideoPart {
   const negative = `${castNegativeSuffix(cast, part.videoNegativePrompt)}${continuityNegativeSuffix(plans)}`;
@@ -806,10 +903,8 @@ function withCastEnforcedVideo(
   );
   return {
     ...part,
-    // The look is still appended — a cut drifts in grade over twenty segments
-    // otherwise — but the cast arrives as names, since the start frame already
-    // carries the appearance the sheet would spell out.
-    videoPromptSegment: `${part.videoPromptSegment}${lookPromptSuffix(project, part.videoPromptSegment)}${castContinuityClause(cast, change)}`,
+    // The keyframe already carries the look; repeat only identity preservation.
+    videoPromptSegment: `${part.videoPromptSegment}${castContinuityClause(cast, change) || change}`,
     videoNegativePrompt: normaliseNegative(`${part.videoNegativePrompt}${negative}`),
   };
 }

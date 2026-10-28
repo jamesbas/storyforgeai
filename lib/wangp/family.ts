@@ -23,6 +23,8 @@ export type ModelFamily =
   | "wan"
   | "ltx"
   | "krea"
+  | "fibo"
+  | "fibo_turbo"
   | "minimax"
   | "minimax_ref2va"
   | "unknown";
@@ -38,6 +40,8 @@ const FAMILY_LABELS: Record<ModelFamily, string> = {
   wan: "Wan",
   ltx: "LTX",
   krea: "Krea",
+  fibo: "Fibo 2.0 Dev",
+  fibo_turbo: "Fibo 2.0 Edit Turbo",
   minimax: "MiniMax H3, first and last frame",
   minimax_ref2va: "MiniMax H3, reference mode",
   unknown: "an unrecognised model",
@@ -67,6 +71,7 @@ const FAMILY_TOKENS: ReadonlyArray<readonly [ModelFamily, readonly string[]]> = 
  */
 export function familyOf(modelType: string | undefined, declared?: string): ModelFamily {
   const haystack = `${declared ?? ""} ${modelType ?? ""}`.toLocaleLowerCase();
+  if (haystack.includes("fibo")) return haystack.includes("turbo") ? "fibo_turbo" : "fibo";
   for (const [family, tokens] of FAMILY_TOKENS) {
     if (!tokens.some((token) => haystack.includes(token))) continue;
     // Anchor reference-mode tokens to H3 so unrelated Omni models stay in
@@ -79,7 +84,15 @@ export function familyOf(modelType: string | undefined, declared?: string): Mode
 }
 
 export function familyOfModel(model: Pick<WangpModel, "modelType" | "metadata">): ModelFamily {
-  return familyOf(model.modelType, model.metadata.family);
+  const base = model.metadata.baseModelType;
+  const declared = base?.toLowerCase().includes("fibo")
+    ? `${model.metadata.family ?? ""} ${base}`
+    : model.metadata.family;
+  return familyOf(model.modelType, declared);
+}
+
+export function isFiboFamily(family: ModelFamily): boolean {
+  return family === "fibo" || family === "fibo_turbo";
 }
 
 /**
@@ -105,7 +118,7 @@ export function familyOfModel(model: Pick<WangpModel, "modelType" | "metadata">)
  * harmlessly, whereas dropping it from one that does would lose the constraint.
  */
 export function supportsNegativePrompt(family: ModelFamily): boolean {
-  return family !== "flux" && family !== "krea" && !isMinimaxFamily(family);
+  return family !== "flux" && family !== "krea" && family !== "fibo_turbo" && !isMinimaxFamily(family);
 }
 
 /**

@@ -69,9 +69,8 @@ export function dialogueClause(spec: MediaPromptSpec): string {
  * global style goes first.
  *
  * `alsoProtect` names sentences that are load-bearing wherever they land. The
- * frame state sits after subject, composition, setting and lighting, so on a
- * long prompt it was among the first things dropped — and the frame state is
- * what the frame is of.
+ * Reserve their space before considering optional detail, even when a protected
+ * field contains several sentences.
  */
 export function trimToBudget(
   text: string,
@@ -80,18 +79,21 @@ export function trimToBudget(
   alsoProtect: readonly string[] = [],
 ): string {
   if (countWords(text) <= budget) return text;
-  const keep = new Set(alsoProtect.map(normaliseForCompare).filter(Boolean));
+  const keep = new Set(alsoProtect.flatMap(splitSentences).map(normaliseForCompare).filter(Boolean));
   const sentences = splitSentences(text);
+  const protectedSentences = sentences.map((sentence, i) =>
+    i < protectedPrefixSentences || /["“]/.test(sentence) || keep.has(normaliseForCompare(sentence)),
+  );
+  let remaining = budget - sentences.reduce(
+    (words, sentence, i) => words + (protectedSentences[i] ? countWords(sentence) : 0), 0,
+  );
   const kept: string[] = [];
-  let words = 0;
   for (let i = 0; i < sentences.length; i += 1) {
     const sentence = sentences[i];
     const cost = countWords(sentence);
-    const isProtected =
-      i < protectedPrefixSentences || /["“]/.test(sentence) || keep.has(normaliseForCompare(sentence));
-    if (!isProtected && words + cost > budget) continue;
+    if (!protectedSentences[i] && cost > remaining) continue;
     kept.push(sentence);
-    words += cost;
+    if (!protectedSentences[i]) remaining -= cost;
   }
   return kept.join(" ");
 }
@@ -121,8 +123,7 @@ export type ImageRenderOptions = {
 /**
  * Render one still.
  *
- * Order is the same for every family — framing, subject, composition, setting,
- * lighting, frame action — because that ordering is what FR-2 and FR-3 require.
+ * Put the frame's physical state before secondary setting and lighting detail.
  * Qwen gets an explicit no-lettering note, since it is the one family that
  * renders text it was never asked for.
  */
@@ -132,10 +133,10 @@ export function renderImagePrompt(spec: MediaPromptSpec, options: ImageRenderOpt
   const parts = [
     framingOpening(spec),
     clause(spec.subject),
+    stateClause,
     clause(spec.composition),
     spec.setting.trim() ? clause(`The setting is ${inline(spec.setting)}`) : "",
     spec.lighting.trim() ? clause(`Lighting: ${inline(spec.lighting)}`) : "",
-    stateClause,
     ...spec.continuity.map(clause),
   ];
 
@@ -144,6 +145,8 @@ export function renderImagePrompt(spec: MediaPromptSpec, options: ImageRenderOpt
   }
 
   return finish(parts.filter(Boolean).join(" "), wordBudget(options.family, "image", 0), 1, [
+    clause(spec.subject),
+    clause(spec.composition),
     stateClause,
   ]);
 }
@@ -208,7 +211,11 @@ export function renderVideoPrompt(spec: MediaPromptSpec, options: VideoRenderOpt
       endClause(spec, "It ends on"),
       dialogueClause(spec),
     ];
-    return finish(parts.filter(Boolean).join(" "), budget);
+    return finish(parts.filter(Boolean).join(" "), budget, 1, [
+      clause(spec.secondaryMotion),
+      parts[2],
+      endClause(spec, "It ends on"),
+    ]);
   }
 
   if (family === "ltx") {
@@ -223,7 +230,11 @@ export function renderVideoPrompt(spec: MediaPromptSpec, options: VideoRenderOpt
       spec.narration?.trim() ? clause(`Voice-over: "${spec.narration.trim().replace(/"/g, "'")}"`) : "",
       ...spec.continuity.map(clause),
     ];
-    return finish(parts.filter(Boolean).join(" "), budget);
+    return finish(parts.filter(Boolean).join(" "), budget, 1, [
+      clause(spec.secondaryMotion),
+      parts[2],
+      endClause(spec, "The shot settles on"),
+    ]);
   }
 
   const parts = [
@@ -235,7 +246,11 @@ export function renderVideoPrompt(spec: MediaPromptSpec, options: VideoRenderOpt
     spec.narration?.trim() ? clause(`Voice-over: "${spec.narration.trim().replace(/"/g, "'")}"`) : "",
     ...spec.continuity.map(clause),
   ];
-  return finish(parts.filter(Boolean).join(" "), budget);
+  return finish(parts.filter(Boolean).join(" "), budget, 1, [
+    clause(spec.secondaryMotion),
+    parts[2],
+    endClause(spec, "It ends on"),
+  ]);
 }
 
 /**

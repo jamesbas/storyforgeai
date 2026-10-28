@@ -13,9 +13,7 @@ import { lookPromptSuffix } from "@/lib/agents/look";
 import { normaliseNegative } from "@/lib/agents/negative-prompt";
 import {
   continuityNegativeSuffix,
-  globalStyleSuffix,
   sceneCreativeSlice,
-  sceneDirectionSuffix,
   type CreativePlans,
 } from "@/lib/agents/creative-context";
 import { config } from "@/lib/config";
@@ -309,13 +307,12 @@ export function buildImagePrompts(
   family: ModelFamily = "unknown",
 ): Pick<ScenePrompts, "startFramePrompt" | "endFramePrompt" | "imageNegativePrompt"> {
   const isLast = scene.sceneNumber === project.segmentCount;
-  const direction = sceneDirectionSuffix(sceneCreativeSlice(plans, scene));
-  const art = globalStyleSuffix(plans);
+  const spec = buildMediaPromptSpec(project, scene, plans, wardrobe);
 
   // v2 opens with shot size and camera height and states each fact once; v1
   // opened with "Cinematic still" and repeated the scene description.
   const v2 = config.flags.mediaPromptComposerV2
-    ? buildMediaPromptSpec(project, scene, plans, wardrobe)
+    ? spec
     : undefined;
 
   // A template cannot convert an indirect description into a concrete one —
@@ -332,7 +329,6 @@ export function buildImagePrompts(
     ? renderImagePrompt(v2, { family, frame: "start" })
     : opening +
       sentence(scene.visualDescription) +
-      sentence(scene.storyBeat) +
       // The start frame used to get the story beat and no action at all, so a
       // scene whose physical state lived in `actionDescription` opened generic
       // and only closed on the thing it was about.
@@ -344,7 +340,7 @@ export function buildImagePrompts(
       // No camera move here: this is a still, and it used to end "<camera>
       // begins from here", which is a direction the image model renders as
       // nothing and spends attention reading.
-      `Consistent characters, wardrobe, and location per the visual bible.`;
+      sentence(spec.lighting);
   const endBody = v2
     ? renderImagePrompt(v2, { family, frame: "end" })
     : opening +
@@ -360,23 +356,20 @@ export function buildImagePrompts(
       // meant to differ in wardrobe.
       (wardrobe?.within.length
         ? `Same characters and location as the start frame, in the changed outfit.`
-        : `Same characters, wardrobe, and location as the start frame.`);
+        : `Same characters, wardrobe, and location as the start frame.`) +
+      sentence(spec.lighting);
 
   return {
     startFramePrompt:
       startBody +
       lookPromptSuffix(project, startBody) +
-      direction +
-      art +
-      castPromptSuffix(cast, wardrobe?.start, sheetOptions(scene, startBody)) +
-      othersWardrobeSuffix(wardrobe?.othersStart ?? {}),
+      castPromptSuffix(cast, wardrobe?.start, sheetOptions(scene, startBody), startBody) +
+      othersWardrobeSuffix(wardrobe?.othersStart ?? {}, startBody),
     endFramePrompt:
       endBody +
       lookPromptSuffix(project, endBody) +
-      direction +
-      art +
-      castPromptSuffix(cast, wardrobe?.end, sheetOptions(scene, endBody)) +
-      othersWardrobeSuffix(wardrobe?.othersEnd ?? {}),
+      castPromptSuffix(cast, wardrobe?.end, sheetOptions(scene, endBody), endBody) +
+      othersWardrobeSuffix(wardrobe?.othersEnd ?? {}, endBody),
     imageNegativePrompt: normaliseNegative(
       "watermark, distorted anatomy, text artifacts, low quality" +
         castNegativeSuffix(cast) +
@@ -404,36 +397,30 @@ export function buildVideoPrompts(
   );
 
   const seconds = scene.trimAtEndSeconds ?? scene.targetDurationSeconds;
+  const spec = buildMediaPromptSpec(project, scene, plans, wardrobe);
+  const continuity = castContinuityClause(cast, change) ||
+    (change
+      ? ` Preserve subject identity, location, and lighting throughout.${change}`
+      : " Preserve subject identity, wardrobe, location, and lighting throughout.");
 
   // v2 leads with the dominant action; v1 restated the static scene three times
   // and reached the camera in the fourth sentence.
   const body = config.flags.mediaPromptComposerV2
-    ? renderVideoPrompt(buildMediaPromptSpec(project, scene, plans, wardrobe), {
+    ? renderVideoPrompt({ ...spec, continuity: [] }, {
         family,
         segmentSeconds: seconds,
         nativeAudio: hasNativeAudio(family),
-      }) +
-      (change
-        ? ` Preserve subject identity, location, and lighting throughout.`
-        : ` Preserve subject identity, wardrobe, location, and lighting throughout.`)
-    : sentence(scene.visualDescription) +
-      sentence(scene.actionDescription) +
-      sentence(scene.storyBeat) +
+      })
+    : sentence(scene.actionDescription) +
       `Camera: ${scene.cameraMovement.toLowerCase()}, evolving from the start frame to the end frame ` +
       `over ${seconds} seconds.` +
       spoken +
-      narration +
-      (change
-        ? ` Preserve subject identity, location, and lighting throughout.`
-        : ` Preserve subject identity, wardrobe, location, and lighting throughout.`);
+      narration;
 
   return {
     videoPromptSegment:
       body +
-      lookPromptSuffix(project, body) +
-      sceneDirectionSuffix(slice) +
-      globalStyleSuffix(plans) +
-      castContinuityClause(cast, change),
+      continuity,
     videoNegativePrompt: normaliseNegative(
       // Image-to-video has failure modes a still cannot have: the subject drifts
       // from the frame it started in, and the background reorganises itself

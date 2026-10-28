@@ -70,6 +70,7 @@ export type ManifestOverrides = {
   seed?: number;
   /** Denoising steps. Left unset, the model's own default stands. */
   steps?: number;
+  guidanceScale?: number;
   /** Audio models: clip length in seconds. Video: segment length for frame maths. */
   durationSeconds?: number;
   /** The model can render past one window, so a published window size is not a clip ceiling. */
@@ -222,6 +223,10 @@ export function singlePromptGenType(
   setIf("resolution", overrides.resolution);
   setIf("seed", overrides.seed);
   setIf("num_inference_steps", overrides.steps);
+  if (overrides.guidanceScale !== undefined &&
+      (fieldNames.has("guidance_scale") || "guidance_scale" in settings)) {
+    settings.guidance_scale = overrides.guidanceScale;
+  }
 
   // WanGP can rewrite the prompt with its own local LLM before generating.
   // Several models ship with it enabled (LTX-2 22B defaults to "T"), which

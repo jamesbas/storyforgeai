@@ -9,7 +9,8 @@ import {
 } from "@/lib/wangp/model-router";
 import { resolveModel } from "@/lib/wangp/resolve-model";
 import { buildSettingsManifest } from "@/lib/wangp/settings";
-import { familyOfModel, isMinimaxFamily, negativePromptReaches } from "@/lib/wangp/family";
+import { familyOfModel, isFiboFamily, isMinimaxFamily, negativePromptReaches, type ModelFamily } from "@/lib/wangp/family";
+import { fiboPromptText, fiboRenderPrompt, mapFiboDescription } from "@/lib/agents/fibo-prompt";
 import {
   normaliseNegative,
   positiveConstraintClause,
@@ -25,8 +26,6 @@ import {
   usesH3PromptFormat,
 } from "@/lib/agents/h3-prompt";
 import {
-  H3_REFERENCE_MIN_WORDS,
-  countWords,
   renderH3ReferencePrompt,
   stripH3ReferencePrompt,
   usesH3ReferenceFormat,
@@ -50,6 +49,7 @@ import type {
 import { config } from "@/lib/config";
 import { ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
+import { APP_VERSION } from "@/lib/version";
 
 export type WangpStatus = {
   enabled: boolean;
@@ -180,6 +180,17 @@ function routeNegative(
   declaresNegative?: boolean,
 ): { prompt: string; negativePrompt: string | undefined } {
   const family = familyOfModel(model);
+  if (family === "fibo" && declaresNegative !== false && negative?.trimStart().startsWith("{")) {
+    try {
+      const parsed: unknown = JSON.parse(negative);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new Error("Expected a JSON object.");
+      }
+    } catch (error) {
+      throw new ValidationError(`Invalid Fibo negative-caption JSON: ${error instanceof Error ? error.message : ""}`);
+    }
+    return { prompt, negativePrompt: negative };
+  }
   const terms = negative?.trim() ? normaliseNegative(negative) : "";
   if (!terms) return { prompt, negativePrompt: negative };
 
@@ -187,7 +198,9 @@ function routeNegative(
     return { prompt, negativePrompt: terms };
   }
 
-  const clause = positiveConstraintClause(terms, statedHeadcount(prompt));
+  const clause = positiveConstraintClause(terms, statedHeadcount(
+    isFiboFamily(family) ? fiboPromptText(prompt) : prompt,
+  ));
   const dropped = unfoldableTerms(terms);
   logEvent("wangp.negative.folded", {
     ...context,
@@ -200,7 +213,10 @@ function routeNegative(
     dropped: dropped.length,
     droppedTerms: dropped,
   });
-  return { prompt: `${prompt}${clause}`, negativePrompt: undefined };
+  return {
+    prompt: isFiboFamily(family) ? mapFiboDescription(prompt, (text) => `${text}${clause}`) : `${prompt}${clause}`,
+    negativePrompt: undefined,
+  };
 }
 
 /** Whether this checkpoint will receive a negative prompt at all. */
@@ -578,16 +594,6 @@ export async function buildVideoManifest(args: {
       })
     : routeH3Format(model, routed.prompt, args, context);
 
-  if (reference && countWords(routed.prompt) < H3_REFERENCE_MIN_WORDS) {
-    // Not padded to reach the floor: length has to come from describing more
-    // closely, and the only thing a renderer could add is filler.
-    logEvent("wangp.ref2va.short_prompt", {
-      ...context,
-      words: countWords(routed.prompt),
-      floor: H3_REFERENCE_MIN_WORDS,
-    });
-  }
-
   // A heavy model can make its own quality preset impractical, so the request
   // is held at the model's ceiling. Only ever downward — see `clampPreset`.
   const requested = args.frame?.resolutionPreset ?? "standard";
@@ -659,6 +665,7 @@ function resolutionFor(
   schema: WangpModelSchema,
   frame: FrameOptions | undefined,
   context: { sceneId: string; purpose: WangpPurpose; modelType: string },
+  family?: ModelFamily,
 ): string {
   const allowed = schema.fields.find((field) => field.name === "resolution")?.allowed;
   const resolution = resolveResolution({
@@ -666,6 +673,7 @@ function resolutionFor(
     preset: frame?.resolutionPreset ?? "standard",
     fallback: config.defaults.resolution,
     allowed: allowed?.map(String),
+    family,
   });
 
   logEvent("wangp.resolution.resolved", {
@@ -691,10 +699,11 @@ function stepsFor(
   override: number | undefined,
   floor: number,
   context: { sceneId: string; purpose: WangpPurpose },
+  baseModelType?: string,
 ): number | undefined {
   const raw = schema.defaultSettings.num_inference_steps;
   const resolution = resolveSteps({
-    modelType,
+    modelType: `${modelType} ${baseModelType ?? ""}`,
     modelDefault: typeof raw === "number" ? raw : undefined,
     loras,
     override,
@@ -887,6 +896,13 @@ export async function buildImageManifest(args: {
 
   const schema = await client.getModelSchema(model.modelType);
   const loras = await lorasFor(model, args.loras, args.sceneId, "image");
+  const family = familyOfModel(model);
+  const fibo = isFiboFamily(family);
+  if (family === "fibo_turbo" && !needsRefs) {
+    throw new ValidationError(
+      "Fibo 2.0 Edit Turbo requires a source/reference image. Use Fibo 2.0 Dev for text-only keyframes, or provide a scene/character reference.",
+    );
+  }
 
   // Trimmed against the resolved model, not the pin, because the model may have
   // been substituted above. A leading scene frame outranks the cast portraits.
@@ -901,19 +917,21 @@ export async function buildImageManifest(args: {
     });
   }
 
-  return buildSettingsManifest(schema, {
+  const prompt = fibo
+    ? mapFiboDescription(args.prompt, (text) => withTriggerWords(text, loras))
+    : withTriggerWords(fiboPromptText(args.prompt), loras);
+  const routed = routeNegative(
+    model, prompt, args.negativePrompt,
+    { sceneId: args.sceneId, purpose: args.purpose },
+    declaresNegativePrompt(schema),
+  );
+  const manifest = buildSettingsManifest(schema, {
     sceneId: args.sceneId,
     purpose: args.purpose,
-    ...routeNegative(
-      model,
-      withTriggerWords(args.prompt, loras),
-      args.negativePrompt,
-      {
-        sceneId: args.sceneId,
-        purpose: args.purpose,
-      },
-      declaresNegativePrompt(schema),
-    ),
+    ...routed,
+    prompt: fibo
+      ? fiboRenderPrompt(routed.prompt, imageRefs?.length ?? 0, args.imageRefsLeadWithScene === true)
+      : routed.prompt,
     imageRefs,
     imageRefsLeadWithScene: args.imageRefsLeadWithScene,
     loras,
@@ -922,8 +940,9 @@ export async function buildImageManifest(args: {
       sceneId: args.sceneId,
       purpose: args.purpose,
       modelType: model.modelType,
-    }),
+    }, family),
     seed: args.seed,
+    guidanceScale: fibo ? (family === "fibo_turbo" ? 1 : 5) : undefined,
     steps: stepsFor(
       model.modelType,
       schema,
@@ -931,8 +950,24 @@ export async function buildImageManifest(args: {
       args.steps,
       stepFloorFor(args.frame?.resolutionPreset ?? "standard", config.wangp.minImageSteps),
       { sceneId: args.sceneId, purpose: args.purpose },
+      fibo ? model.metadata.baseModelType : undefined,
     ),
   });
+  if (fibo) {
+    manifest.reproducibility = {
+      storyforgeVersion: APP_VERSION,
+      modelName: model.name,
+      baseModelType: model.metadata.baseModelType,
+    };
+    // Keep selected near-1MP dimensions; KI would instead copy a source photo's size.
+    manifest.settings.video_prompt_type = imageRefs?.length ? "I" : "";
+    manifest.settings.image_refs = imageRefs ?? [];
+    manifest.settings.prompt_enhancer = "";
+    manifest.settings.multi_prompts_gen_type = "FG";
+    if ("spatial_upsampling" in manifest.settings) manifest.settings.spatial_upsampling = "";
+    if ("remove_background_images_ref" in manifest.settings) manifest.settings.remove_background_images_ref = 0;
+  }
+  return manifest;
 }
 
 /**

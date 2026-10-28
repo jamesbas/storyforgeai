@@ -17,6 +17,7 @@ import {
 } from "@/lib/services/lora-service";
 import type { ConceptImage, Project } from "@/lib/schemas/project";
 import { sceneFramingPatchSchema, scenePromptsPatchSchema, sceneCardPatchSchema } from "@/lib/schemas/storyboard";
+import { hasFiboVgl, parseFiboPrompt } from "@/lib/agents/fibo-prompt";
 import { normaliseNegative } from "@/lib/agents/negative-prompt";
 import { sceneWardrobeChangesSchema, type WardrobeChange } from "@/lib/schemas/wardrobe";
 import {
@@ -848,6 +849,9 @@ export async function updateScenePrompts(
   raw: unknown,
 ): Promise<ProjectRecord> {
   const patch = scenePromptsPatchSchema.parse(raw);
+  for (const field of ["startFramePrompt", "endFramePrompt"] as const) {
+    if (patch[field] !== undefined && hasFiboVgl(patch[field])) parseFiboPrompt(patch[field]);
+  }
   const record = await getProjectRecord(id);
   if (!record.storyboard) throw new ValidationError("Generate a storyboard before editing prompts");
 

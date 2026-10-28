@@ -1,5 +1,12 @@
 # LTX 2.3 prompt alignment — findings and build spec
 
+> **Prompt-length policy superseded, 2026-10-27 (v2.72).** The implementation
+> descriptions and numeric targets below are historical. Current writers use
+> shorter visual-prose ceilings, at most six short LTX sentences and three
+> connected beats, and accepted keyframe prompts as endpoint context. Fallback
+> clips no longer append full look and planning blocks. See
+> [Prompt crafting](../README.md#prompt-crafting) for the current contract.
+
 > **Partly superseded, 2026-08-14.** LTX has since folded its prompting guidance
 > into one document covering 2.5
 > ([docs.ltx.io](https://docs.ltx.io/open-source-model/usage-guides/prompting-guide)),

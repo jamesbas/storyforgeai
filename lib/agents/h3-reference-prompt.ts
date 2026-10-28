@@ -109,15 +109,6 @@ export function summariseFrame(text: string | undefined, maxWords = 45): string 
   return trimmed.replace(/[.,;:]+$/, "");
 }
 
-/**
- * The length MiniMax ask `detailed_description` to reach.
- *
- * A floor to report against, never to pad to: the motion budget is what breaks
- * when a prompt is lengthened by adding events, and padding is the one way of
- * hitting a word count that makes the clip worse.
- */
-export const H3_REFERENCE_MIN_WORDS = 350;
-
 const SECTIONS = [
   "subject_definitions",
   "summary",
@@ -210,13 +201,14 @@ function pictureClause(subject: H3ReferenceSubject): string {
   return `${all.join(", ")} and ${last}, which are the same person from different angles,`;
 }
 
-function subjectLine(subject: H3ReferenceSubject, index: number): string {
+function subjectLine(subject: H3ReferenceSubject, index: number, hasEstablishedFrame: boolean): string {
   const described = tidy(subject.description);
-  const detail = described ? ` ${described}` : "";
+  const detail = hasEstablishedFrame
+    ? " Pose and clothing follow the frame anchors or continued video."
+    : described ? ` ${described}` : "";
   return (
     `<Subject ${index + 1}> is ${tidy(subject.name)}, shown in ` +
-    `${pictureClause(subject)} which defines their facial structure, hair, skin tone ` +
-    `and clothing.${detail}`
+    `${pictureClause(subject)} which defines their facial identity.${detail}`
   );
 }
 
@@ -351,7 +343,7 @@ export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
         ]
       : []),
     ...anchorLines(parts),
-    ...subjects.map(subjectLine),
+    ...subjects.map((subject, index) => subjectLine(subject, index, hasAnchors || hasVideoSource)),
   ];
 
   // Where the anchoring actually has to be said.

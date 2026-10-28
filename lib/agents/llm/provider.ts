@@ -4,6 +4,7 @@ import { logEvent } from "@/lib/telemetry";
 import { withSchemaHint } from "@/lib/agents/llm/schema-hint";
 import { resolveSystemPrompt, type SystemPromptScope } from "@/lib/agents/llm/system-prompt";
 import type { FailureReason } from "@/lib/schemas/provenance";
+import { getPlanningModel } from "@/lib/services/planning-model-settings-service";
 
 /**
  * The outcome of one generation, with the metadata provenance needs.
@@ -173,7 +174,7 @@ const FORMAT_LADDER = ["json_schema", "json_object", "text"] as const;
 type FormatKind = (typeof FORMAT_LADDER)[number];
 
 /**
- * Formats this server has proven it cannot use.
+ * Formats each model has proven it cannot use.
  *
  * Only server rejections land here. A schema that cannot be expressed as JSON
  * Schema is a fact about that one schema, and used to be recorded here too —
@@ -183,20 +184,22 @@ type FormatKind = (typeof FORMAT_LADDER)[number];
  * almost nothing ran under structured output, which is exactly the condition
  * that makes a small local model return plausible JSON with the wrong keys.
  */
-const unsupported = new Set<FormatKind>();
+const unsupportedByModel = new Map<string, Set<FormatKind>>();
 
-function seedUnsupported(): void {
-  unsupported.clear();
+function unsupportedFormats(model: string): Set<FormatKind> {
+  const cached = unsupportedByModel.get(model);
+  if (cached) return cached;
+  const unsupported = new Set<FormatKind>();
+  unsupportedByModel.set(model, unsupported);
   const pinned = config.openai.responseFormat;
-  if (!(FORMAT_LADDER as readonly string[]).includes(pinned)) return;
+  if (!(FORMAT_LADDER as readonly string[]).includes(pinned)) return unsupported;
   // A pinned format means "start here", so rule out everything above it.
   for (const kind of FORMAT_LADDER) {
     if (kind === pinned) break;
     unsupported.add(kind);
   }
+  return unsupported;
 }
-
-seedUnsupported();
 
 /** Build a `json_schema` response format from a Zod schema, or null if unsupported. */
 async function jsonSchemaFormat<T>(schema: ZodType<T>, name: string): Promise<ResponseFormat | null> {
@@ -251,8 +254,9 @@ function createOpenAiProvider(): PlanningProvider {
         // A vision model is a separate deployment, so images decide the model.
         const images = options.images ?? [];
         const useVision = images.length > 0 && Boolean(config.openai.visionModel);
-        const activeModel = useVision ? config.openai.visionModel! : config.openai.model;
+        const activeModel = useVision ? config.openai.visionModel! : await getPlanningModel();
         model = activeModel;
+        const unsupported = unsupportedFormats(activeModel);
         // Silently answering from the text alone is the worst outcome here: the
         // caller's prompt usually says "the attached images show", and a model
         // asked about attachments it never received describes them anyway.
@@ -320,8 +324,7 @@ function createOpenAiProvider(): PlanningProvider {
             if (!isResponseFormatRejection(message)) {
               return fail("request_failed", message, { message, format: kind });
             }
-            // The server does not support this format at all — a fact about the
-            // server, so it holds for every later call.
+            // Reuse the rejection for this model without demoting other models.
             unsupported.add(kind);
             logEvent("agent.llm.failed", {
               provider: label,
@@ -429,7 +432,7 @@ function createOpenAiProvider(): PlanningProvider {
 
 /** Reset negotiated JSON mode (tests, or after changing servers). */
 export function resetResponseFormat(): void {
-  seedUnsupported();
+  unsupportedByModel.clear();
 }
 
 /**

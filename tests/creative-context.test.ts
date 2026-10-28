@@ -78,7 +78,7 @@ describe("agentic canvas plans reach the render prompts", () => {
     expect(suffix).not.toContain("Nothing is new");
   });
 
-  it("carries directorial intent and art direction into every scene prompt", async () => {
+  it("uses approved scene direction without appending competing raw plan blocks", async () => {
     const project = await createProject({
       concept: "A lighthouse keeper waits out a storm.",
       requestedDurationSeconds: 40,
@@ -94,10 +94,11 @@ describe("agentic canvas plans reach the render prompts", () => {
     expect(scenes.length).toBeGreaterThan(0);
 
     for (const scene of scenes) {
-      expect(scene.prompts.videoPromptSegment).toContain("Scene intent:");
-      expect(scene.prompts.videoPromptSegment).toContain("Shot plan:");
-      expect(scene.prompts.startFramePrompt).toContain("Art direction:");
-      expect(scene.prompts.endFramePrompt).toContain("Art direction:");
+      expect(scene.prompts.videoPromptSegment).not.toContain("Scene intent:");
+      expect(scene.prompts.videoPromptSegment).not.toContain("Shot plan:");
+      expect(scene.prompts.startFramePrompt).not.toContain("Art direction:");
+      expect(scene.prompts.endFramePrompt).not.toContain("Art direction:");
+      expect(scene.prompts.videoPromptSegment).toContain(scene.cameraMovement.toLowerCase());
       expect(scene.prompts.promptQualityChecklist).toContain("directorial intent applied");
       expect(scene.prompts.promptQualityChecklist).toContain("cinematography shot plan applied");
     }

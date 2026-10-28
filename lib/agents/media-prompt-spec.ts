@@ -17,7 +17,7 @@ import type { ModelFamily } from "@/lib/wangp/family";
  */
 
 /** Bumped when the rendered output changes materially. Recorded per execution. */
-export const COMPOSER_VERSION = "media-composer-v2";
+export const COMPOSER_VERSION = "media-composer-v3";
 
 export type ShotFraming = {
   /** "Medium shot", "Extreme close-up" — the first thing an image prompt says. */
@@ -97,33 +97,41 @@ export function countWords(text: string): number {
   return trimmed ? trimmed.split(/\s+/).length : 0;
 }
 
+/** Exclude attributed speech, but not quoted visual instructions or signage. */
+export function visualWordCount(text: string): number {
+  const withoutSpeech = text.replace(
+    /\b(?:says?|said|asks?|replies|whispers?|shouts?|voice[- ]?over)\b[^"“”.!?\n]{0,80}["“][^"”]*["”]/gi,
+    (speech) => speech.replace(/["“][^"”]*["”]/g, ""),
+  );
+  return countWords(withoutSpeech);
+}
+
 /**
  * Word ceiling per family and segment length.
  *
  * Wan's published image-to-video formula is motion plus camera and nothing
- * more, so it gets the tightest budget; LTX writes its own soundtrack from the
- * same text and needs room for speech. Image families are not paced by
- * duration at all.
+ * more, so it gets the tightest budget. Video budgets cover visual prose;
+ * verbatim speech is additional and has its own duration check.
  */
 export function wordBudget(family: ModelFamily, kind: "image" | "video", seconds: number): number {
   if (kind === "image") {
     switch (family) {
       case "qwen":
-        return 220;
+        return 140;
       case "flux":
       case "krea":
-        return 200;
+        return 120;
       default:
-        return 180;
+        return 120;
     }
   }
   switch (family) {
     case "wan":
-      return Math.min(120, 55 + Math.round(seconds * 3));
+      return Math.min(90, 45 + Math.round(seconds * 2));
     case "ltx":
-      return Math.min(320, 90 + Math.round(seconds * 9));
+      return Math.min(160, 70 + Math.round(seconds * 4));
     default:
-      return Math.min(200, 70 + Math.round(seconds * 5));
+      return Math.min(140, 60 + Math.round(seconds * 4));
   }
 }
 
@@ -365,7 +373,7 @@ export function lintRendered(
     });
   }
   const budget = wordBudget(family, kind, seconds);
-  const words = countWords(text);
+  const words = kind === "video" ? visualWordCount(text) : countWords(text);
   if (words > budget) {
     findings.push({
       code: "over_budget",

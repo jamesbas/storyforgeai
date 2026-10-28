@@ -4,10 +4,12 @@ import {
   cleanPunctuation,
   dedupeSentences,
   lintRendered,
+  splitSentences,
   type LintFinding,
   type MediaPromptSpec,
 } from "@/lib/agents/media-prompt-spec";
 import { framingOpening } from "@/lib/agents/media-prompt-renderers";
+import { SHOT_LABELS, stripFraming } from "@/lib/agents/media-prompt-builder";
 
 /**
  * Hold model-authored prompts to the same semantic contract as the
@@ -43,9 +45,8 @@ export type NormalisedPrompt = {
 /**
  * Normalise one model-authored image prompt.
  *
- * Framing is prepended rather than rewritten: the model's own words are kept
- * intact, and the derived opening only supplies what was missing. Rewriting
- * would discard the creative choice this path exists to preserve.
+ * Supply missing framing without introducing a second, incompatible shot size.
+ * Partial framing already stated by the model wins over the card's defaults.
  */
 export function normaliseImagePrompt(
   text: string,
@@ -54,7 +55,19 @@ export function normaliseImagePrompt(
 ): NormalisedPrompt {
   const cleaned = cleanPunctuation(dedupeSentences(cleanPunctuation(text)));
   const framingRepaired = !opensWithFraming(cleaned);
-  const repaired = framingRepaired ? `${framingOpening(spec)} ${cleaned}` : cleaned;
+  const [first = "", ...rest] = splitSentences(cleaned);
+  const shot = shotSizeOf(first);
+  const height = first.match(HEIGHT_PATTERN)?.[0];
+  const repaired = framingRepaired
+    ? `${framingOpening({
+        ...spec,
+        framing: {
+          ...spec.framing,
+          ...(shot ? { shotSize: SHOT_LABELS[shot] } : {}),
+          ...(height ? { cameraHeight: height } : {}),
+        },
+      })} ${stripFraming(first)} ${rest.join(" ")}`
+    : cleaned;
   const final = cleanPunctuation(repaired);
   return {
     text: final,

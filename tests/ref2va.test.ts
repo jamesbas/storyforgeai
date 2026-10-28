@@ -7,7 +7,6 @@ import { ref2vaAcceleratedMinutes, ref2vaEstimateMinutes } from "@/lib/wangp/ren
 import { inheritedOpeningDirective, videoPromptDirective } from "@/lib/agents/model-directives";
 import { echoesInstructions } from "@/lib/agents/media-prompt-normalise";
 import {
-  H3_REFERENCE_MIN_WORDS,
   countWords,
   h3ReferenceTaskType,
   isH3ReferencePrompt,
@@ -63,7 +62,7 @@ describe("the directive the prompt agents are given", () => {
     for (const directive of [reference, keyframe]) {
       expect(directive).toContain("one continuous shot with no cuts");
       expect(directive).toContain("no negative prompt");
-      expect(directive).toContain("350 to 500 words");
+      expect(directive).toContain("no minimum length");
       expect(directive).toContain("videoSoundscape");
     }
   });
@@ -250,6 +249,22 @@ describe("the six-section prompt", () => {
     expect(rendered).not.toMatch(/<Picture 3> is the (first|last) frame/);
   });
 
+  it("uses photographs for identity, not to overwrite anchored wardrobe or pose", () => {
+    const prompt = renderH3ReferencePrompt({
+      body: "Mara lifts a cup.",
+      subjects: [{ ...MARA, description: "Mara wears a red evening gown and stands upright." }],
+      hasStart: true,
+      hasEnd: true,
+      startFrameDescription: "Mara sits beside a table in grey coveralls.",
+      endFrameDescription: "Mara sits beside a table in grey coveralls, holding a cup.",
+    });
+    expect(prompt).not.toContain("red evening gown");
+    expect(prompt).not.toContain("stands upright");
+    expect(prompt).toContain("defines their facial identity");
+    expect(prompt).toContain("Pose and clothing follow the frame anchors");
+    expect(prompt).toContain("grey coveralls");
+  });
+
   it("states retention per label", () => {
     expect(rendered).toContain("fully_preserved");
     expect(rendered).toContain("attribute_transfer");
@@ -352,10 +367,9 @@ describe("the six-section prompt", () => {
     expect(plain).toContain("Rain on glass");
   });
 
-  it("counts words against the floor without padding to reach it", () => {
+  it("counts words without imposing a minimum length", () => {
     expect(countWords("one two three")).toBe(3);
     expect(countWords("   ")).toBe(0);
-    expect(H3_REFERENCE_MIN_WORDS).toBe(350);
   });
 });
 

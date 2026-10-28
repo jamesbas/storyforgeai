@@ -1,4 +1,5 @@
 import type { LoraSelection } from "@/lib/schemas/lora";
+import { familyOf } from "@/lib/wangp/family";
 
 /**
  * How many denoising steps a job should run.
@@ -49,7 +50,7 @@ const isAccelerator = (name: string): boolean => {
 export type StepResolution = {
   steps: number;
   /** Why, for logging — a silent change to step count is impossible to debug. */
-  reason: "project_override" | "lora_step_hint" | "accelerated" | "floor" | "model_default";
+  reason: "project_override" | "lora_step_hint" | "accelerated" | "floor" | "model_default" | "model_guidance";
 };
 
 /**
@@ -74,6 +75,9 @@ export function resolveSteps(args: {
   floor: number;
 }): StepResolution | undefined {
   if (args.override !== undefined) return { steps: args.override, reason: "project_override" };
+  if (familyOf(args.modelType) === "fibo_turbo") {
+    return { steps: 4, reason: "model_guidance" };
+  }
 
   const acceleratorLoras = args.loras.filter((lora) => isAccelerator(lora.name));
 
@@ -88,6 +92,13 @@ export function resolveSteps(args: {
     return args.modelDefault === undefined
       ? undefined
       : { steps: args.modelDefault, reason: "accelerated" };
+  }
+
+  if (familyOf(args.modelType) === "fibo") {
+    return {
+      steps: Math.min(50, Math.max(30, args.floor, args.modelDefault ?? 50)),
+      reason: "model_guidance",
+    };
   }
 
   if (args.modelDefault === undefined) return { steps: args.floor, reason: "floor" };

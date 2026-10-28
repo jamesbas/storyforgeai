@@ -114,8 +114,15 @@ export function positiveGarments(wardrobe: string): string {
  * reason the cast sheet was: a bare `subject: outfit` pair is an attribute the
  * model attaches to whichever body suits it.
  */
-export function othersWardrobeSuffix(others: Record<string, string>): string {
-  const entries = Object.entries(others).filter(([, outfit]) => outfit.trim());
+export function othersWardrobeSuffix(others: Record<string, string>, body = ""): string {
+  const entries = Object.entries(others).filter(([subject, outfit]) => {
+    if (!outfit.trim()) return false;
+    const garments = positiveGarments(outfit.trim()).toLocaleLowerCase();
+    return !body.split(/[.!?]/).some((sentence) =>
+      Object.keys(othersInFrame(sentence, { [subject]: outfit })).length > 0 &&
+      sentence.toLocaleLowerCase().includes(garments),
+    );
+  });
   if (entries.length === 0) return "";
   const sheet = entries
     .map(([subject, outfit]) => {

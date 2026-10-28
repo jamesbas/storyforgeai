@@ -81,7 +81,7 @@ function withCastSheet(
     tightShot: isTightShot(body),
   };
   const frameCast = charactersInFrame(body, sceneCast);
-  return `${body}${castPromptSuffix(frameCast, wardrobeAt, options, body)}${othersWardrobeSuffix(othersInFrame(body, others ?? {}))}`;
+  return `${body}${castPromptSuffix(frameCast, wardrobeAt, options, body)}${othersWardrobeSuffix(othersInFrame(body, others ?? {}), body)}`;
 }
 
 function stripOthers(prompt: string): string {

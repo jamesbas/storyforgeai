@@ -528,10 +528,10 @@ describe("what LTX is told, against its own prompting guide", () => {
    * movement, which is Wan's formula. LTX asks for a sequence, so the cap has
    * to be lifted explicitly or the two instructions contradict each other.
    */
-  it("lifts the general one-action limit and scales beats with length", () => {
+  it("scales a short progression of the same action with length", () => {
     expect(directive(5)).toMatch(/at most one beat/);
-    expect(directive(20)).toMatch(/at most 6 beats/);
-    expect(directive(8)).toMatch(/supersedes the general limit/i);
+    expect(directive(20)).toMatch(/at most 3 beats/);
+    expect(directive(8)).toMatch(/not independent new actions/i);
   });
 
   it("asks for a chronological sequence rather than one isolated movement", () => {
@@ -556,7 +556,7 @@ describe("what LTX is told, against its own prompting guide", () => {
   it("keeps the guide's other fundamentals", () => {
     const text = directive(8);
     expect(text).toMatch(/present tense/i);
-    expect(text).toMatch(/four to eight sentences/i);
+    expect(text).toMatch(/six short sentences at most/i);
     expect(text).toMatch(/never through an emotional label/i);
   });
 });

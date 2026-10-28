@@ -1,5 +1,6 @@
 import type { ModelCapability, WangpModel } from "@/lib/schemas/wangp";
 import type { Project } from "@/lib/schemas/project";
+import { familyOfModel } from "@/lib/wangp/family";
 
 /** Minimal preferences the router needs (avoids requiring a full Project). */
 export type ModelPreference = { modelStrategy: Project["modelStrategy"] };
@@ -59,6 +60,7 @@ export function toCapability(model: WangpModel): ModelCapability {
  */
 const FAMILY_REFERENCE_CEILING: Record<string, number> = {
   krea2: 2,
+  fibo2: 4,
 };
 
 /** What a model advertising `multiple_references` gets when it names no bound. */
@@ -178,6 +180,7 @@ export function selectImageModel(
 ): WangpModel | null {
   const candidates = models
     .filter((m) => produces(m, "image"))
+    .filter((m) => options.requireReferenceImages || familyOfModel(m) !== "fibo_turbo")
     .filter((m) => !options.requireReferenceImages || toCapability(m).supportsReferenceImages);
 
   const images = candidates.sort(

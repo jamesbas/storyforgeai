@@ -17,7 +17,7 @@ import type { MediaPromptSpec } from "@/lib/agents/media-prompt-spec";
  */
 
 /** Human-readable shot sizes, keyed by the coarse sizes the seam detector knows. */
-const SHOT_LABELS: Record<ShotSize, string> = {
+export const SHOT_LABELS: Record<ShotSize, string> = {
   extreme_wide: "Extreme wide shot",
   wide: "Wide shot",
   full: "Full shot",
@@ -208,14 +208,13 @@ export function buildMediaPromptSpec(
       ? "Same characters and location as the start frame, in the changed outfit"
       : "Same characters, wardrobe, and location as the start frame",
   );
-  if (slice.intent) continuity.push(`Scene intent: ${slice.intent}`);
 
   return {
     framing: deriveFraming(scene, slice.shotPlan),
     subject: stripFraming(stripTrailing(scene.visualDescription)),
     setting: deriveSetting(scene, plans),
     lighting: deriveLighting(plans),
-    composition: slice.shotPlan ? stripTrailing(slice.shotPlan) : undefined,
+    composition: slice.shotPlan ? stripFraming(slice.shotPlan) : undefined,
     // The start frame used to be the story beat alone, which left the opening
     // keyframe generic whenever the scene's physical state was recorded in the
     // action rather than the beat — the same asymmetry the deterministic
