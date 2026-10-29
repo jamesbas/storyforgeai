@@ -88,10 +88,14 @@ describe("a frame the next scene inherits", () => {
     const record = await project("reuse_end_frame");
     await generateProjectMediaPhased(record.project.id, sceneIdsOf(record));
 
+    const endFrames = record.storyboard!.scenes.map((s) => s.prompts.endFramePrompt);
     for (const prompt of carrying()) {
       // Nothing stands between the shot size and the first thing in the picture.
       expect(prompt).not.toContain(`. ${CARRY_MARKER}`.slice(0, 30));
-      expect(prompt.indexOf(CARRY_MARKER)).toBeGreaterThan(prompt.length / 2);
+      // The instruction follows the scene's own prompt instead of preceding it.
+      const own = endFrames.find((end) => prompt.startsWith(end));
+      expect(own).toBeDefined();
+      expect(prompt.indexOf(CARRY_MARKER)).toBeGreaterThanOrEqual(own!.length);
     }
   });
 

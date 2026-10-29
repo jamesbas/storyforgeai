@@ -4,6 +4,7 @@ import type { SceneWardrobe } from "@/lib/schemas/wardrobe";
 import { shotSizeOf, type ShotSize } from "@/lib/media/seam";
 import { sceneCreativeSlice, type CreativePlans } from "@/lib/agents/creative-context";
 import type { MediaPromptSpec } from "@/lib/agents/media-prompt-spec";
+import { stillStates } from "@/lib/agents/still-frame";
 
 /**
  * Build a `MediaPromptSpec` from a scene card (SPEC-003 slice 2).
@@ -198,7 +199,7 @@ export function buildMediaPromptSpec(
 ): MediaPromptSpec {
   const slice = sceneCreativeSlice(plans, scene);
   const motion = splitMotion(scene.actionDescription);
-  const isLast = scene.sceneNumber === project.segmentCount;
+  const still = stillStates(scene.actionDescription);
 
   const continuity: string[] = [];
   // A scene depicting a costume change is the one place the two frames are
@@ -215,20 +216,12 @@ export function buildMediaPromptSpec(
     setting: deriveSetting(scene, plans),
     lighting: deriveLighting(plans),
     composition: slice.shotPlan ? stripFraming(slice.shotPlan) : undefined,
-    // The start frame used to be the story beat alone, which left the opening
-    // keyframe generic whenever the scene's physical state was recorded in the
-    // action rather than the beat — the same asymmetry the deterministic
-    // builder had, one layer down.
-    startState: stripTrailing(
-      motion.dominant
-        ? `${stripTrailing(scene.storyBeat).replace(/[.!?]+$/, "")}, at the first instant of ${motion.dominant}`
-        : scene.storyBeat,
-    ),
-    endState: stripTrailing(
-      motion.dominant
-        ? `${motion.dominant}${isLast ? ", on a resolving beat" : ""}`
-        : scene.storyBeat,
-    ),
+    // The card records the physical state in the action, as a movement. A still
+    // is given the instant that movement opens on and the one it settles on —
+    // not the story beat, which narrates, and not the whole action, which
+    // would put the same sequence in both frames.
+    startState: stripTrailing(still.start || scene.storyBeat),
+    endState: stripTrailing(still.end || scene.storyBeat),
     dominantMotion: motion.dominant,
     secondaryMotion: motion.secondary,
     cameraMotion: deriveCameraMotion(scene),

@@ -29,6 +29,8 @@ const REASON_TEXT: Record<string, string> = {
   short_collection: "the model returned too few items",
   // Covers a variant set with duplicate axes and a single prompt that failed
   // the acceptance gate, so it cannot say "set".
+  // Covers a variant set with duplicate axes and a single prompt that failed
+  // the acceptance gate, so it cannot say "set".
   invalid_set: "the model's answer failed a check",
   unknown: "the model returned nothing usable",
 };
@@ -63,7 +65,13 @@ export function ExecutionBadge({
 }) {
   const tone = TONE[execution?.source ?? "unknown"] ?? TONE.unknown;
   const degraded = execution?.status === "degraded";
-  const reason = degraded ? REASON_TEXT[execution.fallbackReason ?? "unknown"] : undefined;
+  // Hybrid means the model's work was kept and something was repaired or
+  // flagged beside it, which "failed a check" read as a rejection.
+  const reason = degraded
+    ? execution.source === "hybrid" && execution.fallbackReason === "invalid_set"
+      ? "kept, with a check flagged"
+      : REASON_TEXT[execution.fallbackReason ?? "unknown"]
+    : undefined;
 
   return (
     <span

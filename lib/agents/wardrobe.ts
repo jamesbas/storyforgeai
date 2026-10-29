@@ -1,8 +1,10 @@
 import type { Project } from "@/lib/schemas/project";
 import type { Character } from "@/lib/schemas/character";
+import type { SceneDraft } from "@/lib/schemas/storyboard";
 import type { SceneWardrobe, WardrobeChange } from "@/lib/schemas/wardrobe";
 import { wardrobeKeyOf } from "@/lib/schemas/wardrobe";
 import { isContinuousTake } from "@/lib/agents/continuity";
+import { charactersInScene } from "@/lib/agents/scene-cast";
 
 /**
  * Resolve what each character wears at each end of every scene.
@@ -234,6 +236,78 @@ type SceneLike = {
   storyBeat: string;
 };
 
+/**
+ * Words that state someone is already unclothed.
+ *
+ * Narrower than `UNDRESSED_ACT`, which also reads sex-act vocabulary: that list
+ * exists to raise a warning for a person to rule on, while this one decides
+ * something on its own. "Climax" or "thrust" in a scene proves nothing about
+ * what anyone is wearing; "nude" does.
+ */
+const NUDITY_STATE =
+  /\b(?:nude|naked|undressed|topless|fully\s+exposed|bare[-\s](?:breasts?|chest|body|ass|buttocks)|pubic\s+hair)\b/i;
+
+/**
+ * Record the undressing the Storyboard Artist left out.
+ *
+ * A model asked for wardrobe changes tends to restate the opening outfit and
+ * miss the one that matters, so the timeline said "lingerie" through the whole
+ * piece while the cards read "nude" from the middle on, and every prompt after
+ * that carried the cast sheet's "dressed in black lace" beside "fully naked".
+ *
+ * Conservative on purpose, because a wrong inference carries forward into every
+ * later scene. Only the first scene that states nudity is marked, only where
+ * exactly one pinned character is present (with two or more, the card cannot say
+ * who is bare, and the contradiction check on the storyboard screen is the place
+ * for that call), only where that character is currently dressed, and never over
+ * a scene
+ * that already has a change of any origin. Marked `story` like the changes it
+ * stands beside, so a regeneration rebuilds it from the new cards instead of
+ * letting it outlive them.
+ */
+export function inferUndressChanges(
+  project: Project,
+  scenes: readonly Pick<
+    SceneDraft,
+    | "id"
+    | "title"
+    | "sceneObjective"
+    | "visualDescription"
+    | "actionDescription"
+    | "storyBeat"
+    | "dialogue"
+    | "continuityNotes"
+    | "charactersPresent"
+  >[],
+  cast: readonly Character[],
+): Project {
+  if (cast.length === 0) return project;
+  let working = project;
+
+  for (const scene of scenes) {
+    if (working.wardrobeChanges?.[scene.id]?.length) continue;
+    const text = `${scene.visualDescription} ${scene.actionDescription} ${scene.storyBeat}`;
+    if (!NUDITY_STATE.test(text)) continue;
+
+    const present = charactersInScene(scene, cast);
+    if (present.length !== 1) continue;
+    const character = present[0]!;
+    const outfit = wardrobeTimeline(working, scenes, cast).get(scene.id)?.start[character.id];
+    if (!outfit || isUndressed(outfit)) continue;
+
+    working = {
+      ...working,
+      wardrobeChanges: {
+        ...(working.wardrobeChanges ?? {}),
+        [scene.id]: [
+          { characterId: character.id, wardrobe: "nude", mode: "between", origin: "story" },
+        ],
+      },
+    };
+  }
+  return working;
+}
+
 /** Matches the wardrobe states the cast sheet renders as nudity. */
 export function isUndressed(wardrobe: string): boolean {
   return /^(?:fully\s+|completely\s+|entirely\s+)?(?:nude|naked|undressed|bare|nothing|none|no\s+clothes|no\s+clothing)\.?$/i.test(
@@ -276,10 +350,21 @@ export function foldWardrobeChanges(
   const merged: Record<string, WardrobeChange[]> = { ...(project.wardrobeChanges ?? {}) };
   let changed = false;
 
+  // What each subject is already wearing at this point in the walk, so a
+  // "change" that only restates it can be recognised and left out. The model
+  // proposed the opening outfit again on four consecutive scenes, which put a
+  // change badge on each and exempted all four from the contradiction check.
+  const wearing = new Map<string, string>();
+  for (const character of cast) {
+    const outfit = wardrobeOf(project, character);
+    if (outfit) wearing.set(character.id, sameOutfitKey(outfit));
+  }
+
   for (const draft of drafts) {
     const existing = merged[draft.id] ?? [];
     const byHand = existing.filter((change) => change.origin !== "story");
     const spokenFor = new Set(byHand.map(wardrobeKeyOf));
+    for (const change of byHand) wearing.set(wardrobeKeyOf(change), sameOutfitKey(change.wardrobe));
     const fromStory = (draft.wardrobeChanges ?? []).flatMap<WardrobeChange>((proposed) => {
       const subject = proposed.character.trim();
       const wardrobe = proposed.newWardrobe.trim();
@@ -289,7 +374,10 @@ export function foldWardrobeChanges(
       const change: WardrobeChange = character
         ? { characterId: character.id, wardrobe, mode, origin: "story" }
         : { subject, wardrobe, mode, origin: "story" };
-      return spokenFor.has(wardrobeKeyOf(change)) ? [] : [change];
+      if (spokenFor.has(wardrobeKeyOf(change))) return [];
+      if (wearing.get(wardrobeKeyOf(change)) === sameOutfitKey(wardrobe)) return [];
+      wearing.set(wardrobeKeyOf(change), sameOutfitKey(wardrobe));
+      return [change];
     });
 
     const next = [...byHand, ...fromStory];
@@ -301,6 +389,10 @@ export function foldWardrobeChanges(
 
   if (!changed) return project;
   return { ...project, wardrobeChanges: merged };
+}
+
+function sameOutfitKey(outfit: string): string {
+  return outfit.toLocaleLowerCase().replace(/\s+/g, " ").replace(/[.\s]+$/, "").trim();
 }
 
 function sameChanges(a: readonly WardrobeChange[], b: readonly WardrobeChange[]): boolean {

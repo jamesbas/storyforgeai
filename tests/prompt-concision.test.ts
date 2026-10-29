@@ -143,7 +143,7 @@ describe("concise prompt generation", () => {
     expect(scene!.prompts.videoPromptSegment).toContain('"Ready."');
   });
 
-  it("records a degraded fallback when shortening fails rather than silently truncating", async () => {
+  it("keeps a too-long clip prompt, trimmed, rather than replacing it with the card", async () => {
     const { project, drafts } = await fixture();
     const { fake, calls } = provider(undefined, [
       { ...videoAnswer, videoPromptSegment: `${motion} ${padding}` },
@@ -153,10 +153,85 @@ describe("concise prompt generation", () => {
       onExecution: (execution) => executions.push(execution),
     });
     expect(calls.filter((c) => c.kind === "video")).toHaveLength(2);
+    expect(calls.filter((c) => c.kind === "video")[1]!.system).toMatch(/at most \d+ words/);
     expect(executions.find((e) => e.artifact.endsWith(".video_prompt"))).toMatchObject({
-      source: "deterministic", status: "degraded", fallbackReason: "invalid_set",
+      source: "hybrid", status: "ok", detail: "found=over_budget; salvaged=trimmed",
     });
-    expect(scene!.prompts.videoPromptSegment).toContain("Ana's left hand rests free");
+    expect(scene!.prompts.videoPromptSegment).toContain("Ben gently holds Ana's right wrist");
+    expect(scene!.prompts.videoPromptSegment).not.toContain("detail179");
+    expect(
+      exceedsPromptBudget(scene!.prompts.videoPromptSegment, "wan", "video", 20),
+    ).toBe(false);
+  });
+
+  it("puts back a spoken line the model dropped, word for word, instead of falling back", async () => {
+    const { project, drafts } = await fixture();
+    const draft = { ...drafts[0]!, dialogue: [{ character: "Ana", line: "Ready. Now, go." }] };
+    const { fake, calls } = provider(undefined, [videoAnswer]);
+    const executions: ArtifactExecution[] = [];
+    const [scene] = await attachScenePrompts(project, [draft], fake, {
+      onExecution: (execution) => executions.push(execution),
+    });
+    expect(calls.filter((c) => c.kind === "video")[1]!.system).toContain('Ana: "Ready. Now, go."');
+    expect(scene!.prompts.videoPromptSegment).toContain('Ana says, "Ready. Now, go."');
+    expect(executions.find((e) => e.artifact.endsWith(".video_prompt"))).toMatchObject({
+      source: "hybrid", detail: "found=dialogue_dropped; salvaged=dialogue_restored",
+    });
+  });
+
+  it("accepts a line whose punctuation or case the model changed", async () => {
+    const { project, drafts } = await fixture();
+    const draft = { ...drafts[0]!, dialogue: [{ character: "Ana", line: "Look at my hips. You want to see them move." }] };
+    const { fake, calls } = provider(undefined, [
+      { ...videoAnswer, videoPromptSegment: `${motion} Ana says, "look at my hips, you want to see them move"` },
+    ]);
+    await attachScenePrompts(project, [draft], fake);
+    expect(calls.filter((c) => c.kind === "video")).toHaveLength(1);
+  });
+
+  it("does not write a clip prompt for a project that never renders video", async () => {
+    const { project, drafts } = await fixture();
+    const { fake, calls } = provider();
+    const executions: ArtifactExecution[] = [];
+    const [scene] = await attachScenePrompts(
+      { ...project, generationMode: "keyframes_only" }, [drafts[0]!], fake,
+      { onExecution: (execution) => executions.push(execution) },
+    );
+    expect(calls.filter((c) => c.kind === "video")).toHaveLength(0);
+    expect(calls.filter((c) => c.kind === "image").length).toBeGreaterThan(0);
+    expect(scene!.prompts.videoPromptFamily).toBe("deferred");
+    expect(executions.find((e) => e.artifact.endsWith(".video_prompt"))).toMatchObject({
+      source: "deterministic", status: "ok", detail: "deferred: this project does not render video",
+    });
+  });
+
+  it("still writes the clip prompt when the video pass is asked for by name", async () => {
+    const { project, drafts } = await fixture();
+    const { fake, calls } = provider();
+    const [scene] = await attachScenePrompts(
+      { ...project, generationMode: "keyframes_only" }, [drafts[0]!], fake,
+      { passes: ["video"] },
+    );
+    expect(calls.filter((c) => c.kind === "video")).toHaveLength(1);
+    expect(scene!.prompts.videoPromptFamily).not.toBe("deferred");
+  });
+
+  it("keeps carried clip prompts when a keyframes-only project is rewritten", async () => {
+    const { project, drafts } = await fixture();
+    const { fake } = provider();
+    const carried = {
+      ...buildImagePrompts(project, drafts[0]!),
+      videoPromptSegment: "A hand-edited clip prompt.",
+      videoNegativePrompt: "flicker",
+      promptQualityChecklist: [],
+      videoPromptFamily: "wan",
+    };
+    const [scene] = await attachScenePrompts(
+      { ...project, generationMode: "keyframes_only" }, [drafts[0]!], fake,
+      { existing: { [drafts[0]!.id]: carried } },
+    );
+    expect(scene!.prompts.videoPromptSegment).toBe("A hand-edited clip prompt.");
+    expect(scene!.prompts.videoPromptFamily).toBe("wan");
   });
 
   it("counts automatic suffixes in the image ceiling", async () => {
@@ -164,13 +239,39 @@ describe("concise prompt generation", () => {
     project.style = padding;
     const { fake, calls } = provider();
     const executions: ArtifactExecution[] = [];
-    await attachScenePrompts(project, [drafts[0]!], fake, {
+    const [scene] = await attachScenePrompts(project, [drafts[0]!], fake, {
+      onExecution: (e) => executions.push(e),
+    });
+    expect(calls.filter((c) => c.kind === "image")).toHaveLength(2);
+    // The retry is told how much room the appended text leaves it.
+    expect(calls.filter((c) => c.kind === "image")[1]!.system).toMatch(/at most \d+ words/);
+    // Over the ceiling is a reason to shorten the model's prompt, not to
+    // replace it with the template, and says nothing against the model.
+    expect(executions.find((e) => e.artifact.endsWith(".image_prompt"))).toMatchObject({
+      source: "hybrid", status: "ok", detail: "trimmed=over_budget",
+    });
+    expect(scene!.prompts.startFramePrompt).toContain("Ben stands directly behind Ana");
+  });
+
+  it("trims an over-long model prompt from the end instead of discarding it", async () => {
+    const { project, drafts } = await fixture();
+    project.style = "";
+    project.tone = "";
+    const long = `${start} ${Array.from({ length: 60 }, (_, i) => `Extra${i} detail${i} here.`).join(" ")}`;
+    const { fake, calls } = provider([{ ...imageAnswer, startFramePrompt: long, endFramePrompt: long }]);
+    const executions: ArtifactExecution[] = [];
+    const [scene] = await attachScenePrompts(project, [drafts[0]!], fake, {
       onExecution: (e) => executions.push(e),
     });
     expect(calls.filter((c) => c.kind === "image")).toHaveLength(2);
     expect(executions.find((e) => e.artifact.endsWith(".image_prompt"))).toMatchObject({
-      source: "deterministic", fallbackReason: "invalid_set",
+      source: "hybrid", detail: "trimmed=over_budget",
     });
+    for (const prompt of [scene!.prompts.startFramePrompt, scene!.prompts.endFramePrompt]) {
+      expect(countWords(prompt)).toBeLessThanOrEqual(wordBudget("flux", "image", 0));
+      expect(prompt).toContain("Ben stands directly behind Ana and holds Ana's right wrist");
+      expect(prompt).not.toContain("Extra59");
+    }
   });
 
   it("counts framing repairs in the final image ceiling when the composer is enabled", async () => {

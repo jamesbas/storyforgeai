@@ -19,6 +19,8 @@ import {
 import { config } from "@/lib/config";
 import type { ModelFamily } from "@/lib/wangp/family";
 import { buildMediaPromptSpec } from "@/lib/agents/media-prompt-builder";
+import type { BudgetContext } from "@/lib/agents/media-prompt-spec";
+import { stillStates } from "@/lib/agents/still-frame";
 import { renderImagePrompt, renderVideoPrompt } from "@/lib/agents/media-prompt-renderers";
 import { hasNativeAudio } from "@/lib/agents/model-directives";
 
@@ -305,10 +307,10 @@ export function buildImagePrompts(
   plans?: CreativePlans,
   wardrobe?: SceneWardrobe,
   family: ModelFamily = "unknown",
+  budget: BudgetContext = {},
 ): Pick<ScenePrompts, "startFramePrompt" | "endFramePrompt" | "imageNegativePrompt"> {
-  const isLast = scene.sceneNumber === project.segmentCount;
   const spec = buildMediaPromptSpec(project, scene, plans, wardrobe);
-
+  const frameBudget = { people: cast.length, ...budget };
   // v2 opens with shot size and camera height and states each fact once; v1
   // opened with "Cinematic still" and repeated the scene description.
   const v2 = config.flags.mediaPromptComposerV2
@@ -325,33 +327,23 @@ export function buildImagePrompts(
     ? `Explicit cinematic still, the act itself in frame and fully visible. `
     : `Cinematic still. `;
 
+  const still = stillStates(scene.actionDescription);
   const startBody = v2
-    ? renderImagePrompt(v2, { family, frame: "start" })
+    ? renderImagePrompt(v2, { family, frame: "start", budget: frameBudget })
     : opening +
       sentence(scene.visualDescription) +
-      // The start frame used to get the story beat and no action at all, so a
-      // scene whose physical state lived in `actionDescription` opened generic
-      // and only closed on the thing it was about.
-      sentence(
-        scene.actionDescription
-          ? `At the first instant of the action: ${scene.actionDescription.trim().replace(/\.$/, "")}`
-          : undefined,
-      ) +
+      // The card's action narrates a movement for the clip. A frame gets the
+      // instant it opens on, not the whole sequence.
+      sentence(still.start) +
       // No camera move here: this is a still, and it used to end "<camera>
       // begins from here", which is a direction the image model renders as
       // nothing and spends attention reading.
       sentence(spec.lighting);
   const endBody = v2
-    ? renderImagePrompt(v2, { family, frame: "end" })
+    ? renderImagePrompt(v2, { family, frame: "end", budget: frameBudget })
     : opening +
       sentence(scene.visualDescription) +
-      sentence(
-        scene.actionDescription
-          ? `At the last instant of the action: ${scene.actionDescription.trim().replace(/\.$/, "")}`
-          : undefined,
-      ) +
-      `Closing framing, showing the result of the action` +
-      `${isLast ? " on a resolving beat" : `, setting up scene ${scene.sceneNumber + 1}`}. ` +
+      sentence(still.end) +
       // A scene that depicts a costume change is the one place the two frames are
       // meant to differ in wardrobe.
       (wardrobe?.within.length
@@ -385,6 +377,7 @@ export function buildVideoPrompts(
   plans?: CreativePlans,
   wardrobe?: SceneWardrobe,
   family: ModelFamily = "unknown",
+  budget: BudgetContext = {},
 ): Pick<ScenePrompts, "videoPromptSegment" | "videoNegativePrompt" | "promptQualityChecklist"> {
   const spoken = dialogueProse(scene);
   const narration = scene.narrationText ? ` Voice-over: "${scene.narrationText}"` : "";
@@ -410,6 +403,7 @@ export function buildVideoPrompts(
         family,
         segmentSeconds: seconds,
         nativeAudio: hasNativeAudio(family),
+        budget,
       })
     : sentence(scene.actionDescription) +
       `Camera: ${scene.cameraMovement.toLowerCase()}, evolving from the start frame to the end frame ` +

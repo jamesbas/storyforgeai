@@ -310,8 +310,46 @@ export function castPromptSuffix(
   body?: string,
 ): string {
   const missing = body ? cast.filter((c) => !describedInline(body, c, cast.length)) : cast;
-  const sheet = castSheet(missing, true, wardrobeAt, options);
+  const wardrobe = body ? bareWhereBodySaysSo(body, missing, cast.length, wardrobeAt) : wardrobeAt;
+  const sheet = castSheet(missing, true, wardrobe, options);
   return sheet ? ` Character continuity — ${sheet}` : "";
+}
+
+const BODY_SAYS_BARE = /\b(?:nude|naked|topless)\b/i;
+
+/**
+ * The wardrobe the sheet should state, once the prompt's own words are heard.
+ *
+ * The sheet is appended last and is the strongest instruction in the prompt, so
+ * where the timeline still says "dressed in black lace" and the prompt body says
+ * "fully naked", the render follows the sheet. The timeline is the source of
+ * truth and is fixed upstream; this is the backstop for when it is wrong,
+ * making the one sentence that would contradict the body agree with it.
+ *
+ * With several people in frame the nudity has to be said in a sentence that
+ * names the person, or it could belong to anyone.
+ */
+function bareWhereBodySaysSo(
+  body: string,
+  cast: readonly Character[],
+  frameSize: number,
+  wardrobeAt: Record<string, string> | undefined,
+): Record<string, string> | undefined {
+  const overrides: Record<string, string> = {};
+  for (const c of cast) {
+    const wardrobe = (wardrobeAt?.[c.id] ?? c.wardrobe)?.trim();
+    if (!wardrobe || NUDE.test(wardrobe)) continue;
+    const name = c.name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const relevant =
+      frameSize === 1
+        ? body
+        : body
+            .split(/(?<=[.!?])\s+/)
+            .filter((sentence) => name && new RegExp(`\\b${name}\\b`, "i").test(sentence))
+            .join(" ");
+    if (BODY_SAYS_BARE.test(relevant)) overrides[c.id] = "nude";
+  }
+  return Object.keys(overrides).length ? { ...wardrobeAt, ...overrides } : wardrobeAt;
 }
 
 /**

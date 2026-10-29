@@ -254,7 +254,9 @@ function createOpenAiProvider(): PlanningProvider {
         // A vision model is a separate deployment, so images decide the model.
         const images = options.images ?? [];
         const useVision = images.length > 0 && Boolean(config.openai.visionModel);
-        const activeModel = useVision ? config.openai.visionModel! : await getPlanningModel();
+        const activeModel = useVision
+          ? config.openai.visionModel!
+          : await getPlanningModel(options.systemPromptScope);
         model = activeModel;
         const unsupported = unsupportedFormats(activeModel);
         // Silently answering from the text alone is the worst outcome here: the

@@ -5,6 +5,7 @@ import {
   dedupeSentences,
   lintRendered,
   splitSentences,
+  type BudgetContext,
   type LintFinding,
   type MediaPromptSpec,
 } from "@/lib/agents/media-prompt-spec";
@@ -52,6 +53,7 @@ export function normaliseImagePrompt(
   text: string,
   spec: MediaPromptSpec,
   family: ModelFamily,
+  budget: BudgetContext = {},
 ): NormalisedPrompt {
   const cleaned = cleanPunctuation(dedupeSentences(cleanPunctuation(text)));
   const framingRepaired = !opensWithFraming(cleaned);
@@ -71,7 +73,7 @@ export function normaliseImagePrompt(
   const final = cleanPunctuation(repaired);
   return {
     text: final,
-    findings: lintRendered(final, family, "image", 0),
+    findings: lintRendered(final, family, "image", 0, budget),
     framingRepaired,
   };
 }
@@ -87,11 +89,12 @@ export function normaliseVideoPrompt(
   text: string,
   family: ModelFamily,
   segmentSeconds: number,
+  budget: BudgetContext = {},
 ): NormalisedPrompt {
   const final = cleanPunctuation(dedupeSentences(cleanPunctuation(text)));
   return {
     text: final,
-    findings: lintRendered(final, family, "video", segmentSeconds),
+    findings: lintRendered(final, family, "video", segmentSeconds, budget),
     framingRepaired: false,
   };
 }
@@ -107,10 +110,15 @@ export function missingDialogue(
   text: string,
   dialogue: readonly { line: string }[],
 ): string[] {
-  const haystack = text.replace(/['"“”‘’]/g, "").toLowerCase();
+  // Wording is held to word for word, punctuation and case are not: a model
+  // that writes "hips, you want" for "hips. You want" has kept the line, and
+  // treating that as dropped sent whole runs to the fallback.
+  const plain = (value: string) =>
+    value.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, " ").replace(/\s+/g, " ").trim();
+  const haystack = plain(text);
   return dialogue
     .map((d) => d.line.trim())
-    .filter((line) => line && !haystack.includes(line.replace(/['"“”‘’]/g, "").toLowerCase()));
+    .filter((line) => line && !haystack.includes(plain(line)));
 }
 
 /**

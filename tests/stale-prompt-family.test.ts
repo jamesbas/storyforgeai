@@ -27,7 +27,24 @@ describe("a stamped storyboard", () => {
       certainty: "stamped",
       staleScenes: 1,
       totalScenes: 1,
+      deferred: false,
     });
+  });
+
+  it("reports clip prompts that were deliberately never written, with or without a pin", () => {
+    const scenes = [
+      scene({ videoPromptFamily: "deferred" }),
+      scene({ videoPromptFamily: "wan" }),
+    ];
+    for (const videoModel of ["minimax_h3_fl2va", undefined]) {
+      expect(checkPromptFamily({ videoModel, scenes })).toEqual({
+        writtenFor: "deferred",
+        certainty: "stamped",
+        staleScenes: 1,
+        totalScenes: 2,
+        deferred: true,
+      });
+    }
   });
 
   it("says nothing when the family still matches", () => {

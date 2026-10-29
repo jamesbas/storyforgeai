@@ -23,7 +23,19 @@ export type PromptFamilyCheck = {
   /** How many scenes disagree with the pinned model, out of how many. */
   staleScenes: number;
   totalScenes: number;
+  /** The clip prompts were never written, because the project did not render video. */
+  deferred: boolean;
 };
+
+/**
+ * The stamp on a clip prompt the storyboard run chose not to write.
+ *
+ * A project that only renders keyframes has no use for the clip prompt, so the
+ * run skips the model call and leaves the builder's template in its place. The
+ * stamp is what keeps that template from being mistaken for a written prompt
+ * once the project moves to a mode that renders clips.
+ */
+export const DEFERRED_VIDEO_PROMPT = "deferred";
 
 /**
  * Whether the guidance that wrote these prompts is the guidance in force now.
@@ -70,6 +82,21 @@ export function checkPromptFamily(args: {
   videoModel: string | undefined;
   scenes: readonly { prompts: PromptLike }[];
 }): PromptFamilyCheck | null {
+  // A prompt that was never written is stale whatever the pin says, and needs
+  // no pin to be reported: the template would otherwise render without a word.
+  const deferred = args.scenes.filter(
+    (scene) => scene.prompts.videoPromptFamily === DEFERRED_VIDEO_PROMPT,
+  );
+  if (deferred.length) {
+    return {
+      writtenFor: DEFERRED_VIDEO_PROMPT,
+      certainty: "stamped",
+      staleScenes: deferred.length,
+      totalScenes: args.scenes.length,
+      deferred: true,
+    };
+  }
+
   // No pin, no claim: an unpinned project resolves at render time, so there is
   // no family for the prompts to disagree with.
   if (!args.videoModel || !args.scenes.length) return null;
@@ -89,5 +116,6 @@ export function checkPromptFamily(args: {
     certainty: stamped ? "stamped" : "inferred",
     staleScenes: stale.length,
     totalScenes: args.scenes.length,
+    deferred: false,
   };
 }

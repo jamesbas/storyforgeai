@@ -85,6 +85,31 @@ export async function getLlmRuntimeStatus(): Promise<LlmRuntimeStatus> {
   return status;
 }
 
+/**
+ * Every text model the server can load, for the model pickers.
+ *
+ * Best effort: LM Studio being shut is a normal state, and an empty answer
+ * leaves the pickers as free-text boxes. Embedding models are left out, since
+ * they cannot plan.
+ */
+export async function listServerModels(): Promise<string[]> {
+  const base = restBase();
+  if (!base) return [];
+  try {
+    const res = await fetch(`${base}/api/v0/models`, {
+      cache: "no-store",
+      signal: AbortSignal.timeout(3000),
+    });
+    if (!res.ok) return [];
+    const body = (await res.json()) as { data?: (LmStudioModel & { type?: unknown })[] };
+    return (body.data ?? [])
+      .filter((m) => typeof m.id === "string" && m.id && m.type !== "embeddings")
+      .map((m) => m.id as string);
+  } catch {
+    return [];
+  }
+}
+
 async function lms(args: string[]): Promise<string> {
   if (!config.llmRuntime.enabled) {
     throw new ValidationError(

@@ -1,4 +1,17 @@
 import type { ModelFamily } from "@/lib/wangp/family";
+import {
+  DEFAULT_PROMPT_BUDGET_SETTINGS,
+  type PromptBudgetSettings,
+} from "@/lib/schemas/prompt-budget-settings";
+
+/**
+ * What a word ceiling depends on beyond the model: the user's saved limits and,
+ * for stills, how many people the frame has to hold.
+ */
+export type BudgetContext = {
+  settings?: PromptBudgetSettings;
+  people?: number;
+};
 
 /**
  * The semantic contract every media prompt must satisfy, whichever path wrote
@@ -113,18 +126,19 @@ export function visualWordCount(text: string): number {
  * more, so it gets the tightest budget. Video budgets cover visual prose;
  * verbatim speech is additional and has its own duration check.
  */
-export function wordBudget(family: ModelFamily, kind: "image" | "video", seconds: number): number {
+export function wordBudget(
+  family: ModelFamily,
+  kind: "image" | "video",
+  seconds: number,
+  budget: BudgetContext = {},
+): number {
+  const settings = budget.settings ?? DEFAULT_PROMPT_BUDGET_SETTINGS;
   if (kind === "image") {
-    switch (family) {
-      case "qwen":
-        return 140;
-      case "flux":
-      case "krea":
-        return 120;
-      default:
-        return 120;
-    }
+    const base = settings.imageWords ?? (family === "qwen" ? 140 : 120);
+    const extra = Math.max(0, Math.floor(budget.people ?? 1) - 1) * settings.wordsPerExtraPerson;
+    return Math.min(Math.max(settings.imageMaxWords, base), base + extra);
   }
+  if (settings.videoWords !== null) return settings.videoWords;
   switch (family) {
     case "wan":
       return Math.min(90, 45 + Math.round(seconds * 2));
@@ -356,6 +370,7 @@ export function lintRendered(
   family: ModelFamily,
   kind: "image" | "video",
   seconds: number,
+  budgetContext: BudgetContext = {},
 ): LintFinding[] {
   const findings: LintFinding[] = [];
   if (duplicateSentence(text)) {
@@ -372,7 +387,7 @@ export function lintRendered(
       message: "Punctuation artifact from concatenation.",
     });
   }
-  const budget = wordBudget(family, kind, seconds);
+  const budget = wordBudget(family, kind, seconds, budgetContext);
   const words = kind === "video" ? visualWordCount(text) : countWords(text);
   if (words > budget) {
     findings.push({

@@ -1185,20 +1185,26 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   // Only a pinned model can make a prompt stale — an unpinned project falls
   // through to the router, so there is no family to disagree with.
   const videoFamily = project.videoModel ? familyOf(project.videoModel) : undefined;
-  const promptFamily = checkPromptFamily({
-    videoModel: project.videoModel,
-    scenes: storyboard?.scenes ?? [],
-  });
+  // A project that renders no clips has no clip prompts to be stale: the storyboard
+  // run skips writing them, and the banner returns when the mode changes.
+  const promptFamily = stages.video
+    ? checkPromptFamily({
+        videoModel: project.videoModel,
+        scenes: storyboard?.scenes ?? [],
+      })
+    : null;
   // The wording the agents are given changes between releases, and a prompt
   // written under the old wording is stale even when nothing about the project
   // has moved. Only the video prompt is checked: it is the one whose guidance
   // is model-specific and has actually changed.
-  const outdatedGuidance = promptsPredateGuidance(
-    (storyboard?.scenes ?? []).map(
-      (scene) => latestExecution(record.executions, `${scene.id}.video_prompt`)?.promptVersion,
-    ),
-    PROMPT_VERSIONS.videoPrompt,
-  );
+  const outdatedGuidance =
+    stages.video &&
+    promptsPredateGuidance(
+      (storyboard?.scenes ?? []).map(
+        (scene) => latestExecution(record.executions, `${scene.id}.video_prompt`)?.promptVersion,
+      ),
+      PROMPT_VERSIONS.videoPrompt,
+    );
   // Regenerating the storyboard rewrites prompts as part of the job, so where
   // plans are also out of step the prompt rewrite is the wrong button.
   const plansStale = planStates(record).staleCount > 0;
@@ -1279,7 +1285,11 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         >
           <h2 className="text-sm font-semibold text-amber-100">
             {promptFamily
-              ? promptFamily.staleScenes === promptFamily.totalScenes
+              ? promptFamily.deferred
+                ? promptFamily.staleScenes === promptFamily.totalScenes
+                  ? "Clip prompts have not been written yet"
+                  : `${promptFamily.staleScenes} of ${promptFamily.totalScenes} scenes have no clip prompt yet`
+                : promptFamily.staleScenes === promptFamily.totalScenes
                 ? promptFamily.certainty === "stamped"
                   ? "These prompts were written for a different video model"
                   : "These prompts may have been written for a different video model"
@@ -1292,6 +1302,11 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                 The wording the prompt agents are given has changed since these were written, so
                 they do not follow the current guidance for{" "}
                 <strong>{familyLabel(videoFamily)}</strong>.
+              </>
+            ) : promptFamily.deferred ? (
+              <>
+                This storyboard was written while the project only rendered keyframes, so the
+                clip prompt agent was skipped to save time and a plain template stands in for it.
               </>
             ) : promptFamily.certainty === "stamped" ? (
               <>
@@ -1306,7 +1321,9 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                 <strong>{familyLabel(videoFamily)}</strong>.
               </>
             )}{" "}
-            {promptFamily ? (
+            {promptFamily?.deferred ? (
+              <>Rewrite them before rendering clips; without it the clips use the template.</>
+            ) : promptFamily ? (
               <>
                 They will still render, but each family wants a different kind of writing — length,
                 camera vocabulary, and whether the soundtrack is described in fields of its own — so

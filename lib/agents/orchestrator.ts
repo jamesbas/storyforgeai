@@ -8,7 +8,7 @@ import { attachScenePrompts } from "@/lib/agents/prompt-agents";
 import { getPlanningProvider } from "@/lib/agents/llm/provider";
 import { hasCreativePlans } from "@/lib/agents/creative-context";
 import { applyVariantToBrief } from "@/lib/agents/variant-set";
-import { foldWardrobeChanges } from "@/lib/agents/wardrobe";
+import { foldWardrobeChanges, inferUndressChanges } from "@/lib/agents/wardrobe";
 import type { AgentContext, OrchestratorDeps } from "@/lib/agents/types";
 import { logEvent } from "@/lib/telemetry";
 import { config } from "@/lib/config";
@@ -55,8 +55,11 @@ export async function runStoryboardOrchestrator(
   ctx.sceneDrafts = await storyboardAgent(ctx, provider);
   // A costume change the story called for has to reach the project before the
   // prompts are written, or the proposal would only take effect on the next
-  // regeneration. Manual entries win: they are the ones a person chose.
-  const withWardrobe = foldWardrobeChanges(project, ctx.sceneDrafts, ctx.cast ?? []);
+  // regeneration. Manual entries win: they are the ones a person chose. After
+  // them, an undressing the cards state but the Storyboard Artist never recorded
+  // is added, or the cast sheet would keep dressing someone the scene says is bare.
+  const folded = foldWardrobeChanges(project, ctx.sceneDrafts, ctx.cast ?? []);
+  const withWardrobe = inferUndressChanges(folded, ctx.sceneDrafts, ctx.cast ?? []);
   if (withWardrobe !== project) deps.onWardrobeChanges?.(withWardrobe.wardrobeChanges ?? {});
   const scenes = await attachScenePrompts(withWardrobe, ctx.sceneDrafts, provider, {
     cast: ctx.cast,

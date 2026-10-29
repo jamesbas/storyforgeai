@@ -5,6 +5,7 @@ import {
   dedupeSentences,
   splitSentences,
   wordBudget,
+  type BudgetContext,
   type MediaPromptSpec,
 } from "@/lib/agents/media-prompt-spec";
 
@@ -118,6 +119,7 @@ export type ImageRenderOptions = {
   family: ModelFamily;
   /** Which end of the segment this frame sits at. */
   frame: "start" | "end";
+  budget?: BudgetContext;
 };
 
 /**
@@ -144,7 +146,7 @@ export function renderImagePrompt(spec: MediaPromptSpec, options: ImageRenderOpt
     parts.push("No lettering or signage in frame.");
   }
 
-  return finish(parts.filter(Boolean).join(" "), wordBudget(options.family, "image", 0), 1, [
+  return finish(parts.filter(Boolean).join(" "), wordBudget(options.family, "image", 0, options.budget), 1, [
     clause(spec.subject),
     clause(spec.composition),
     stateClause,
@@ -156,6 +158,7 @@ export type VideoRenderOptions = {
   segmentSeconds: number;
   /** LTX writes its own soundtrack from this text. */
   nativeAudio: boolean;
+  budget?: BudgetContext;
 };
 
 function normaliseForCompare(text: string | undefined): string {
@@ -199,7 +202,7 @@ function endClause(spec: MediaPromptSpec, lead: string): string {
  */
 export function renderVideoPrompt(spec: MediaPromptSpec, options: VideoRenderOptions): string {
   const { family, segmentSeconds } = options;
-  const budget = wordBudget(family, "video", segmentSeconds);
+  const budget = wordBudget(family, "video", segmentSeconds, options.budget);
 
   if (family === "wan") {
     // Motion plus camera and nothing more, per Wan's published formula. The

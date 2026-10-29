@@ -3,6 +3,8 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { NewProjectForm } from "@/components/intake/new-project-form";
 import { ClimaxSettings } from "@/components/settings/climax-settings";
+import { ClimaxFields } from "@/components/shared/climax-fields";
+import { MAX_AFTERMATH_SCENES } from "@/lib/types";
 import { denouementBudget, earliestClimax, aftermathOverrun } from "@/lib/agents/beat-budget";
 import { arcPredatesClimax, climaxPlanOf, writtenAgainstOf } from "@/lib/agents/climax";
 import { storyArchitectAgent, storyArchitectSystem } from "@/lib/agents/story-architect-agent";
@@ -243,9 +245,68 @@ describe("storing the climax on a project", () => {
       createProject({
         concept: "An ex-boxer steps in at a roadside bar.",
         requestedDurationSeconds: 300,
-        aftermathScenes: 9,
+        aftermathScenes: MAX_AFTERMATH_SCENES + 1,
       }),
     ).rejects.toThrow();
+  });
+
+  /**
+   * A 17-scene piece whose named climax is followed by an exchange, a farewell
+   * and a fade-out needs four. With the cap at three there was no way to say so,
+   * and the arc was flagged for an overlong tail whatever was chosen.
+   */
+  it("can state a tail as long as the concept's own ending", async () => {
+    expect(aftermathOverrun(13, 17)).toBe(2);
+    expect(aftermathOverrun(13, 17, 3)).toBe(1);
+    expect(aftermathOverrun(13, 17, 4)).toBe(0);
+    const project = await createProject({
+      concept: "A dancer works a stage and then the room.",
+      requestedDurationSeconds: 340,
+      aftermathScenes: 4,
+    });
+    expect(project.aftermathScenes).toBe(4);
+  });
+
+  it("never lets the chosen tail take the climax's own scene", () => {
+    expect(denouementBudget(17, MAX_AFTERMATH_SCENES)).toBe(MAX_AFTERMATH_SCENES);
+    expect(denouementBudget(4, MAX_AFTERMATH_SCENES)).toBe(3);
+    expect(earliestClimax(4, MAX_AFTERMATH_SCENES)).toBe(1);
+  });
+});
+
+describe("the aftermath dropdown", () => {
+  const offered = () =>
+    [...screen.getByLabelText(/scenes after the climax/i).querySelectorAll("option")].map(
+      (o) => o.getAttribute("value"),
+    );
+
+  it("offers up to the cap on a long piece, and one scene fewer than the piece on a short one", () => {
+    const { unmount } = render(
+      <ClimaxFields
+        climax="" aftermath={undefined} segmentCount={17} field="" label=""
+        onClimaxChange={() => undefined} onAftermathChange={() => undefined}
+      />,
+    );
+    expect(offered()).toEqual(["", ...Array.from({ length: MAX_AFTERMATH_SCENES + 1 }, (_, n) => String(n))]);
+    unmount();
+    render(
+      <ClimaxFields
+        climax="" aftermath={undefined} segmentCount={4} field="" label=""
+        onClimaxChange={() => undefined} onAftermathChange={() => undefined}
+      />,
+    );
+    expect(offered()).toEqual(["", "0", "1", "2", "3"]);
+  });
+
+  it("keeps a saved value selectable after the piece gets shorter", () => {
+    render(
+      <ClimaxFields
+        climax="" aftermath={6} segmentCount={4} field="" label=""
+        onClimaxChange={() => undefined} onAftermathChange={() => undefined}
+      />,
+    );
+    expect(offered()).toContain("6");
+    expect(screen.getByLabelText(/scenes after the climax/i)).toHaveValue("6");
   });
 });
 

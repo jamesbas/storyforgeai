@@ -33,6 +33,8 @@ export type TelemetryEvent =
   | "prompt.gate"
   /** Explicit work that fell back to the template, which cannot write one. */
   | "prompt.explicit_fallback"
+  /** Saved prompt length limits could not be read, so the built-in ones were used. */
+  | "prompt.budget_settings_unreadable"
   | "task.created"
   | "task.transition"
   | "task.cancel_requested"

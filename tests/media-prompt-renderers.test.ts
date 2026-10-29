@@ -360,8 +360,9 @@ describe("deriving a spec from a scene card", () => {
     expect(built.dialogue).toEqual([{ speaker: "Ana", line: "Now." }]);
   });
 
-  it("marks the closing scene as resolving rather than setting up another", () => {
+  it("states the closing state as a held pose, not a beat label", () => {
     const built = buildMediaPromptSpec(project, scene({ sceneNumber: 3 }), undefined, undefined);
-    expect(built.endState).toContain("resolving beat");
+    expect(built.endState).toBe("A clock chimes");
+    expect(built.endState).not.toContain("resolving beat");
   });
 });

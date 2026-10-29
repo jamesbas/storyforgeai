@@ -89,7 +89,14 @@ describe("app-wide planning model settings", () => {
   it("uses OPENAI_MODEL by default and the built-in default when unset", async () => {
     const { getPlanningModelSettings } = await import("@/lib/services/planning-model-settings-service");
     expect(await getPlanningModelSettings()).toEqual({
-      version: 1, model: null, defaultModel: DEFAULT_MODEL, effectiveModel: DEFAULT_MODEL,
+      version: 2,
+      model: null,
+      stages: { storyboard: null, agentic_canvas: null, render_prompts: null },
+      defaultModel: DEFAULT_MODEL,
+      effectiveModel: DEFAULT_MODEL,
+      effectiveStages: {
+        storyboard: DEFAULT_MODEL, agentic_canvas: DEFAULT_MODEL, render_prompts: DEFAULT_MODEL,
+      },
     });
     vi.stubEnv("OPENAI_MODEL", "");
     vi.resetModules();
@@ -145,7 +152,17 @@ describe("app-wide planning model settings", () => {
     const initial = await GET();
     expect(initial.headers.get("cache-control")).toBe("no-store");
     expect(await initial.json()).toEqual({
-      settings: { version: 1, model: null, defaultModel: DEFAULT_MODEL, effectiveModel: DEFAULT_MODEL },
+      settings: {
+        version: 2,
+        model: null,
+        stages: { storyboard: null, agentic_canvas: null, render_prompts: null },
+        defaultModel: DEFAULT_MODEL,
+        effectiveModel: DEFAULT_MODEL,
+        effectiveStages: {
+          storyboard: DEFAULT_MODEL, agentic_canvas: DEFAULT_MODEL, render_prompts: DEFAULT_MODEL,
+        },
+      },
+      available: [],
     });
     const request = (model: unknown) => new Request("http://localhost/api/settings/planning-model", {
       method: "PUT",
@@ -156,7 +173,7 @@ describe("app-wide planning model settings", () => {
     expect(saved.status).toBe(200);
     expect(saved.headers.get("cache-control")).toBe("no-store");
     expect((await saved.json()).settings.effectiveModel).toBe(MODEL_B);
-    expect((await PUT(request("unknown"))).status).toBe(400);
+    expect((await PUT(request("--all"))).status).toBe(400);
     const reset = await PUT(request(null));
     expect((await reset.json()).settings.effectiveModel).toBe(DEFAULT_MODEL);
   });

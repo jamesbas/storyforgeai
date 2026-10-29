@@ -826,7 +826,7 @@ Holding the tail to its budget leaves the padding nowhere to go.
 
 **The user can name the climax instead.** `project.climax` is a one-line
 statement of the event the story builds to, and `project.aftermathScenes`
-(0–3) replaces the automatic `denouementBudget()` — stored as a count from the
+(0–8, and never more than the scene count less one) replaces the automatic `denouementBudget()` — stored as a count from the
 end rather than a scene number, so a runtime change does not move it off the
 story. Both are set on the New Project form or under **Story climax** in project
 settings, and reach the Story Architect through `climaxPlanOf()`: the event is

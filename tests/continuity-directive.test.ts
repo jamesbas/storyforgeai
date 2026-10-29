@@ -182,8 +182,8 @@ describe("what the prompt agents are told about the seam", () => {
     const drafts = draftsFor(project);
     await attachScenePrompts(project, drafts, provider);
 
-    // Image and video calls alternate, so the image calls are the even ones.
-    const imageCalls = calls.filter((_, i) => i % 2 === 0);
+    // Image and video calls interleave only while the project renders video.
+    const imageCalls = calls.filter((call) => call.system.includes("Image Prompt Agent"));
     expect(imageCalls).toHaveLength(drafts.length);
 
     const first = JSON.parse(imageCalls[0]!.user) as { previousEndFramePrompt?: string };

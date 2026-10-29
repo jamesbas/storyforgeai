@@ -39,11 +39,11 @@ recent updates are kept below — every release ever made is in
 
 | Version | Date | What changed |
 | --- | --- | --- |
+| **2.79** | 2026-10-29 | **You can now say a story has a longer ending than the automatic limit.** "Scenes after the climax" stopped at 3, so a 17-scene piece whose named climax is followed by an exchange, a farewell and a fade-out could never be told it needed four, and its arc was flagged for an overlong tail whatever you chose. The setting now goes up to 8 (never more than the scene count less one, so the climax keeps a scene of its own); the automatic budget is unchanged. A story arc, plan or prompt that the model wrote and the app kept while flagging a check now reads "Hybrid · kept, with a check flagged" instead of "the model's answer failed a check". Existing arcs are unchanged; set the number, then regenerate the arc. |
+| **2.78** | 2026-10-29 | **Fewer contradictions in keyframes, a model per stage, and clip prompts that survive.** When the cards say a character is nude but the storyboard never recorded the undressing, the first such scene is now marked automatically (one cast member in the scene, never over a change you set), the "dressed in black lace" line is no longer appended to a frame that says she is naked, and a "change" that merely restates her current outfit is no longer recorded. Camera moves and sequence wording in any tense ("camera tracked forward", "as she pulled herself up") are caught in frames and removed where it is safe. A clip prompt that runs over its limit is trimmed, and a spoken line the model dropped is put back word for word, instead of replacing the whole prompt with the scene card; dialogue now matches regardless of punctuation or case. Projects that only render keyframes skip the clip prompt pass (about half the prompt time) and the storyboard says so if you later switch to a video mode. The run record now separates what was repaired from what is still wrong. Settings → AI planning models now has a dropdown for the default model and one for each of story and storyboard, creative plans, and prompt writing, listing the models LM Studio reports plus presets, with "Other model id…" to type any model not listed. Existing saved prompts are unchanged; regenerate the storyboard or rewrite prompts to apply this. |
+| **2.77** | 2026-10-29 | **Set how long your image and video prompts may be, and let busy frames use more.** A new "Prompt length limits" section in Settings controls the word ceilings for every project: the one-person image limit (left empty it keeps each model's default of 120, or 140 for Qwen), extra words for each additional person in the frame, an upper cap, and one video limit for any clip length. Frames with several people now get more room by default — 140 words for two, up to 200 for five or more — so crowded scenes are no longer squeezed to a single person's budget, while single-person frames stay short. Existing prompts are unchanged until rewritten. |
+| **2.76** | 2026-10-29 | **Keyframe prompts describe one held pose again, not the clip's movement.** Start and end frames were picking up motion, pace and sequence wording — "begins her walk", "slow rhythmic control", camera moves — because a model prompt that ran a few words over its length ceiling was thrown away for a template that pasted the clip's whole narrated action into both frames (13 of 17 scenes in one live run). Over-long prompts are now shortened from the end instead of replaced, the retry is told exactly how many words it has once the automatic cast and look text is counted, camera moves, durations and rhythm wording are removed from frames that still carry them, "begins/continues" wording is caught and retried, and the template gives the start frame the opening pose and the end frame the pose the action settles on. Existing saved prompts are unchanged; rewrite prompts to apply this. |
 | **2.75** | 2026-10-28 | **Fibo image prompts now use reviewable VGL JSON.** New or rewritten Fibo prompts are converted after cast and continuity checks using your configured planner, without adding a BRIA/Gemini service. Dev uses 30-50 automatic steps and guidance 5; Edit Turbo uses four steps and requires a source image. Both render near one megapixel, preserve reviewed JSON and seeds, and keep bulk prompt edits JSON-safe. Existing saved prompts and other image models are unchanged. |
-| **2.74** | 2026-10-28 | **Switch the AI planning model from Settings.** Choose one of six model presets for future planning calls across every project, or return to the OPENAI_MODEL environment default. The choice survives restarts and also controls LM Studio's Load for planning button, without editing .env.local. Existing artifacts, in-flight requests and the separate vision model are unchanged. |
-| **2.73** | 2026-10-28 | **Edit many saved prompts without rewriting the storyboard.** New batch tools append or prepend your text to selected image prompts, with start-frame, end-frame or both targeting, and simplify image/video prompts for all or selected scenes. Simplification uses concise, positive language while preserving the scene, shows before/after previews, and saves only checked results. Newer scene edits are protected from stale previews; existing media and negative prompts are untouched. |
-| **2.72** | 2026-10-27 | **Shorter prompts put people, positions and actions first.** Image and video writers now use concise, positive instructions, check for incompatible poses and swapped roles, and get one rewrite attempt when their prompts exceed shorter model-specific budgets. Video writers receive the accepted keyframe prompts so they connect established positions instead of inventing a different opening. H3 no longer asks for 350–500 words, fallback clips no longer repeat appearance and cinematic plan blocks, and critical frame relationships are kept ahead of optional lighting and style. Existing saved prompts and running renders are unchanged; rewrite prompts to apply the new guidance. |
-| **2.71** | 2026-10-25 | **MiniMax H3 Omni models now use reference mode.** Both FastH3 Omni 8-Step 20B and FastH3 Omni NVFP4 QAD 8-Step 20B were treated as first-and-last-frame-only models, hiding the character reference controls and leaving photographs out of video generation. They now use the H3 reference-image workflow, including character photographs and reference prompts, while retaining native first/last-frame inputs when the model exposes them. |
 
 ---
 
@@ -639,24 +639,43 @@ OPENAI_MODEL=<model id from the server>
 OPENAI_API_KEY=lm-studio
 ```
 
-**Settings → AI planning model** lets you switch between six model presets without
-editing `.env.local` or restarting StoryForgeAI. **Use environment default** follows
-`OPENAI_MODEL` (or `gpt-4o-mini` if unset). An explicit selection overrides that
-default until you choose the environment option again. The selection is saved in
-`<STORYFORGE_DATA_DIR>/library/planning-model-settings.json` and applies to future
-text planning calls in every project, including subsequent calls in a running
-batch. Wait for planning to finish before switching if a batch should use only one
-model. Existing artifacts and in-flight requests are not changed.
+**Settings → AI planning models** lets you choose the text model without editing
+`.env.local` or restarting StoryForgeAI. **Planning model** is the default for every
+stage; leave it on *Use environment default* to follow `OPENAI_MODEL` (or `gpt-4o-mini`
+if unset). Three more dropdowns pick a different model for one stage — *Story and
+storyboard* (brief, story arc, visual bible, scene cards), *Creative plans* (world bible,
+director, cinematographer, art direction) and *Prompt writing* (image and video prompts
+and the prompt tools); a stage left on *Same as planning model* follows it. For example,
+a larger model for the story and a smaller one for the many short prompt calls. LM Studio
+loads each model as its stage begins, which costs time and VRAM, so a split is worth it
+only when the difference in quality is.
 
-The dropdown includes Gemma 4 26B balanced MTP, Qwen 3.5 9B aggressive, Qwen 3.8 9B
-NVFP4 in Q4_K_M and Q8_0, Huihui Qwen 3.8 27B abliterated, and Qwen 3.8 27B
-Heretic Ara 16 GB MTP, using their full server model IDs. These are presets, not
-automatic discovery: the chosen model must be available on the server configured
-by `OPENAI_BASE_URL`. Selecting one does not install or load its weights.
-The storyboard's **Load for planning** button uses the saved choice.
-`AI_PLANNING_ENABLED` still controls live planning, and `OPENAI_VISION_MODEL`
-remains separate. Environment defaults are read at startup, so changing the
-environment itself still requires a restart.
+Every dropdown lists the text models LM Studio reports (when it is reachable) and a few
+presets (Gemma 4 26B balanced MTP, Qwen 3.5 9B aggressive, Qwen 3.8 9B NVFP4 in Q4_K_M
+and Q8_0, Huihui Qwen 3.8 27B abliterated, Qwen 3.8 27B Heretic Ara 16 GB MTP). Nothing is
+hard-coded as a limit: choose *Other model id…* to type one that is not listed, such as a
+model released after this version, and a saved id that is in neither list is shown that
+way. Ids may contain letters, digits and `. _ @ : / + -` and may not start with a dash.
+The choices are saved in
+`<STORYFORGE_DATA_DIR>/library/planning-model-settings.json` and apply to future text
+planning calls in every project, including subsequent calls in a running batch. Saving
+does not install or load weights, and existing artifacts and in-flight requests are not
+changed. The storyboard's **Load for planning** button loads the planning model, not a
+stage's. `AI_PLANNING_ENABLED` still controls live planning, and `OPENAI_VISION_MODEL`
+remains separate. Environment defaults are read at startup, so changing the environment
+itself still requires a restart.
+
+**Settings → Prompt length limits** sets the word ceilings for the prompts the
+planner writes, for every project, saved in
+`<STORYFORGE_DATA_DIR>/library/prompt-budget-settings.json` and applied to prompts
+written from then on. Limits are in words, not tokens. The image ceiling for one
+person is the model's default (120, or 140 for Qwen) unless you set it, grows by
+*extra words per additional person* for each further person in the frame (20 by
+default, so 140 for two and 160 for three), and never exceeds the maximum (200 by
+default). It counts the style, cast and wardrobe text StoryForgeAI appends after
+the model's answer. The video limit, when set, replaces each model's own
+length formula for every clip length; spoken dialogue is not counted against it.
+A prompt over the image ceiling is shortened from the end rather than replaced.
 
 Use an instruction-tuned model with enough context for the project and support for
 structured output. StoryForgeAI defaults to a 12,000-token completion budget and a

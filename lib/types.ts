@@ -171,7 +171,12 @@ export const MAX_CLIMAX_CHARACTERS = 300;
 
 /**
  * The most closing scenes a user may ask for after the climax. The automatic
- * budget never exceeds two; three is there for a piece that genuinely wants a
- * longer landing, and more than that is the filler tail this exists to prevent.
+ * budget never exceeds two and is the right default, since a model left to
+ * itself fills a longer tail with reaction shots. A concept can still describe
+ * several things that happen after its named climax — a 17-scene piece whose
+ * climax is followed by an exchange, a farewell and a fade-out needs four — and
+ * with the cap at three there was no way to say so: the arc was flagged for an
+ * overlong tail whatever the user chose. The scene count bounds it further, so
+ * the climax always keeps a scene of its own.
  */
-export const MAX_AFTERMATH_SCENES = 3;
+export const MAX_AFTERMATH_SCENES = 8;

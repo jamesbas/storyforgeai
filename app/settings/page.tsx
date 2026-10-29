@@ -7,6 +7,7 @@ import { CharacterLibrary } from "@/components/settings/character-library";
 import { GenerationDefaults } from "@/components/settings/generation-defaults";
 import { SystemPromptSettingsForm } from "@/components/settings/system-prompt-settings";
 import { PlanningModelSettingsForm } from "@/components/settings/planning-model-settings";
+import { PromptBudgetSettingsForm } from "@/components/settings/prompt-budget-settings";
 import { CollapsibleSection } from "@/components/shared/collapsible-section";
 import { useLoadEffect } from "@/components/shared/use-load-effect";
 import type { Project } from "@/lib/schemas/project";
@@ -48,6 +49,7 @@ export default function SettingsPage() {
 
         <PlanningModelSettingsForm />
 
+        <PromptBudgetSettingsForm />
         <SystemPromptSettingsForm />
 
         <GenerationDefaults />

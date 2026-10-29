@@ -1,4 +1,9 @@
-import { countWords, visualWordCount, wordBudget } from "@/lib/agents/media-prompt-spec";
+import {
+  countWords,
+  visualWordCount,
+  wordBudget,
+  type BudgetContext,
+} from "@/lib/agents/media-prompt-spec";
 import type { ModelFamily } from "@/lib/wangp/family";
 
 export { visualWordCount } from "@/lib/agents/media-prompt-spec";
@@ -8,17 +13,19 @@ export function exceedsPromptBudget(
   family: ModelFamily,
   kind: "image" | "video",
   seconds: number,
+  budget: BudgetContext = {},
 ): boolean {
   return (kind === "video" ? visualWordCount(text) : countWords(text)) >
-    wordBudget(family, kind, seconds);
+    wordBudget(family, kind, seconds, budget);
 }
 
 export function concisePromptDirective(
   family: ModelFamily,
   kind: "image" | "video",
   seconds: number,
+  budgetContext: BudgetContext = {},
 ): string {
-  const budget = wordBudget(family, kind, seconds);
+  const budget = wordBudget(family, kind, seconds, budgetContext);
   return (
     ` Keep each ${kind} prompt within ${budget} words` +
     (kind === "video" ? " of visual prose, with verbatim dialogue additional" : "") +

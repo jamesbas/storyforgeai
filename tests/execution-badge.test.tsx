@@ -42,6 +42,22 @@ describe("the provenance badge", () => {
     expect(badge.textContent).not.toMatch(/could not|failed|wrong/i);
   });
 
+  it("says a kept-but-flagged hybrid was kept, rather than that it failed", () => {
+    render(
+      <ExecutionBadge
+        execution={execution({
+          source: "hybrid",
+          status: "degraded",
+          fallbackReason: "invalid_set",
+        })}
+      />,
+    );
+    const badge = screen.getByTestId("execution-badge");
+    expect(badge).toHaveTextContent("Hybrid");
+    expect(badge).toHaveTextContent("kept, with a check flagged");
+    expect(badge.textContent).not.toMatch(/failed/i);
+  });
+
   it("gives the reason when a run degraded", () => {
     render(
       <ExecutionBadge

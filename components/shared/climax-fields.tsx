@@ -76,11 +76,22 @@ export function ClimaxFields({
           className={`mt-1 w-full ${field}`}
         >
           <option value="">Automatic ({automatic})</option>
-          {Array.from({ length: MAX_AFTERMATH_SCENES + 1 }, (_, n) => (
-            <option key={n} value={n}>
-              {n === 0 ? "0 — end on the climax" : n}
-            </option>
-          ))}
+          {Array.from(
+            {
+              // The climax needs a scene of its own, and a saved value from a
+              // longer piece stays selectable rather than silently vanishing.
+              length:
+                Math.max(
+                  Math.min(MAX_AFTERMATH_SCENES, Math.max(segmentCount - 1, 0)),
+                  aftermath ?? 0,
+                ) + 1,
+            },
+            (_, n) => (
+              <option key={n} value={n}>
+                {n === 0 ? "0 — end on the climax" : n}
+              </option>
+            ),
+          )}
         </select>
         {placeable ? (
           <p className="mt-1 text-xs text-slate-500" data-testid="climax-position">

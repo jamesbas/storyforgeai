@@ -7,7 +7,8 @@ import {
 } from "@/lib/schemas/storyboard";
 import { buildImagePrompts, buildVideoPrompts } from "@/lib/agents/mock-agents";
 import { buildMediaPromptSpec } from "@/lib/agents/media-prompt-builder";
-import { COMPOSER_VERSION, lintRendered } from "@/lib/agents/media-prompt-spec";
+import { COMPOSER_VERSION, countWords, lintRendered, splitSentences, wordBudget, type BudgetContext } from "@/lib/agents/media-prompt-spec";
+import { trimToBudget } from "@/lib/agents/media-prompt-renderers";
 import { logEvent } from "@/lib/telemetry";
 import {
   missingDialogue,
@@ -15,12 +16,14 @@ import {
   normaliseVideoPrompt,
 } from "@/lib/agents/media-prompt-normalise";
 import {
+  composeExecution,
   deterministicExecution,
   executeArtifact,
   providerCall,
   type ExecutionCollector,
 } from "@/lib/agents/provenance";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
+import { DEFERRED_VIDEO_PROMPT } from "@/lib/agents/prompt-family";
 import type { ProgressReporter } from "@/lib/agents/types";
 import {
   castContinuityClause,
@@ -41,8 +44,8 @@ import { familyOf, isFiboFamily, type ModelFamily } from "@/lib/wangp/family";
 import { writeFiboPrompts } from "@/lib/agents/fibo-prompt";
 import {
   concisePromptDirective,
-  exceedsPromptBudget,
   SHORTEN_PROMPT_DIRECTIVE,
+  visualWordCount,
 } from "@/lib/agents/prompt-concision";
 import { charactersInFrame, charactersInScene } from "@/lib/agents/scene-cast";
 import { explicitnessDirective, isExplicitProject, isExplicitScene } from "@/lib/agents/explicitness";
@@ -70,7 +73,9 @@ import type { Character } from "@/lib/schemas/character";
 import type { VisualBible } from "@/lib/schemas/agents";
 import type { Project } from "@/lib/schemas/project";
 import type { PlanningProvider, ProviderResult } from "@/lib/agents/llm/provider";
-
+import type { PromptBudgetSettings } from "@/lib/schemas/prompt-budget-settings";
+import { resolvePromptBudgetSettings } from "@/lib/services/prompt-budget-settings-service";
+import { statedHeadcount } from "@/lib/media/seam";
 /**
  * The two prompt passes, each its own model call.
  *
@@ -86,6 +91,8 @@ export type ScenePromptContext = {
   cast?: readonly Character[];
   visualBible?: VisualBible;
   plans?: CreativePlans;
+  /** Saved prompt length limits. Read from settings when absent. */
+  budgets?: PromptBudgetSettings;
   /**
    * Rewrite only these scenes, keeping every other scene's stored prompts.
    *
@@ -295,6 +302,8 @@ export async function attachScenePrompts(
   const imageFamily = imageFamilyFor(project);
   const videoFamily = videoFamilyFor(project);
   const timeline = wardrobeTimeline(project, drafts, cast);
+  const budgets = context.budgets ?? (await resolvePromptBudgetSettings());
+  const videoBudget = { settings: budgets };
   const scenes: Scene[] = [];
   // The seam can only be matched by an agent that can see what it is matching.
   let previousEndFramePrompt: string | undefined;
@@ -308,6 +317,10 @@ export async function attachScenePrompts(
     // character carried into a scene they are absent from is a description of
     // someone the model will then try to put in the picture.
     const sceneCast = charactersInScene(draft, cast);
+    // Every named person in the shot has to fit in the frame, so the image
+    // ceiling grows with the count. Unnamed people the prompt adds are counted
+    // from its own headcount when the frame is checked.
+    const imageBudgetContext = { settings: budgets, people: sceneCast.length };
 
     // Kept scenes still advance the seam and the wardrobe walk; they just cost
     // nothing and keep whatever was written or hand-edited before.
@@ -323,7 +336,15 @@ export async function attachScenePrompts(
     // builder, which would quietly downgrade a model-authored prompt.
     const carried = context.existing?.[draft.id];
     const skipImage = !wantsImage && carried !== undefined;
-    const skipVideo = !wantsVideo && carried !== undefined;
+    // A project that never renders a clip has no use for the clip prompt, and it
+    // is the slower half of this run: a model call per scene to write something
+    // nothing reads. It is stamped "deferred" so that the day the project moves
+    // to a mode that renders video, the storyboard says these were never
+    // written instead of passing the builder's template off as the real thing.
+    // Asking for the video pass by name still runs it.
+    const deferVideo = wantsVideo && !context.passes && !generationStages(project.generationMode).video;
+    const skipVideo = (!wantsVideo || deferVideo) && carried !== undefined;
+    const noVideoCall = skipVideo || deferVideo;
 
     let imagePart: ImagePart = skipImage
       ? {
@@ -331,7 +352,7 @@ export async function attachScenePrompts(
           endFramePrompt: carried.endFramePrompt,
           imageNegativePrompt: carried.imageNegativePrompt,
         }
-      : buildImagePrompts(project, draft, sceneCast, plans, wardrobe, imageFamily);
+      : buildImagePrompts(project, draft, sceneCast, plans, wardrobe, imageFamily, imageBudgetContext);
     let videoPart: VideoPart = skipVideo
       ? {
           videoPromptSegment: carried.videoPromptSegment,
@@ -340,7 +361,7 @@ export async function attachScenePrompts(
           videoScore: carried.videoScore,
           promptQualityChecklist: carried.promptQualityChecklist,
         }
-      : buildVideoPrompts(project, draft, sceneCast, plans, wardrobe, videoFamily);
+      : buildVideoPrompts(project, draft, sceneCast, plans, wardrobe, videoFamily, videoBudget);
 
     // Whether this scene's clip will actually open on the previous scene's end
     // frame. Decided the same way `resolveContinuity` decides it at render
@@ -366,6 +387,7 @@ export async function attachScenePrompts(
           isImage ? imageFamily : videoFamily,
           isImage ? "image" : "video",
           draft,
+          isImage ? imageBudgetContext : videoBudget,
         );
         context.onExecution?.(
           deterministicExecution({
@@ -455,7 +477,10 @@ export async function attachScenePrompts(
         inheritsOpening,
         clipCarriesArrivals: generationStages(project.generationMode).video,
       };
-      const gated: { codes: PromptGateCode[] } = { codes: [] };
+      const gated: { codes: PromptGateCode[]; repaired: PromptGateCode[]; unresolved: PromptGateCode[]; trimmed: boolean } = {
+        codes: [], repaired: [], unresolved: [], trimmed: false,
+      };
+      const gatedVideo: ClipSalvage = { initial: [], salvaged: [] };
       const imageResult = skipImage
         ? null
         : await executeArtifact<ImagePart>({
@@ -475,35 +500,48 @@ export async function attachScenePrompts(
                 seamDirective(project) +
                 castSystemDirective(sceneCast, true) +
                 precedenceDirective(sceneCast, plans) +
-                concisePromptDirective(imageFamily, "image", 0),
+                concisePromptDirective(imageFamily, "image", 0, imageBudgetContext),
               user,
               gate,
               gated,
-              (part) => {
-                const final = withCastEnforced(
-                  normaliseImageResult(part, project, draft, plans, wardrobe, imageFamily),
-                  sceneCast, plans, project, wardrobe, draft,
-                );
-                return [final.startFramePrompt, final.endFramePrompt].some((text) =>
-                  exceedsPromptBudget(text, imageFamily, "image", 0),
-                );
-              },
+              imageBudget(
+                imageFamily,
+                sceneCast.map((character) => character.name),
+                (part) =>
+                  withCastEnforced(
+                    normaliseImageResult(part, project, draft, plans, wardrobe, imageFamily),
+                    sceneCast, plans, project, wardrobe, draft,
+                  ),
+                imageBudgetContext,
+              ),
             ),
             // A prompt the model wrote and the gate had to patch is neither its
             // work nor the builder's, and a run that needed patching is a run
             // whose model is not doing the job.
-            outcome: () =>
-              gated.codes.length
-                ? {
-                    source: "hybrid" as const,
-                    fallbackReason: "invalid_set" as const,
-                    detail: gated.codes.join(","),
-                  }
-                : {},
+            outcome: () => {
+              const parts = [
+                ...(gated.repaired.length ? [`repaired=${gated.repaired.join(",")}`] : []),
+                ...(gated.unresolved.length ? [`unresolved=${gated.unresolved.join(",")}`] : []),
+                ...(gated.trimmed ? ["trimmed=over_budget"] : []),
+              ];
+              if (!parts.length) return {};
+              return {
+                source: "hybrid" as const,
+                detail: parts.join("; "),
+                // Trimming alone is routine and says nothing against the model;
+                // a gate finding is what marks the run degraded.
+                ...(gated.codes.length ? { fallbackReason: "invalid_set" as const } : {}),
+              };
+            },
             fallback: () => imagePart,
           });
       if (gated.codes.length) {
-        logEvent("prompt.gate", { scene: draft.id, kind: "image", codes: gated.codes });
+        logEvent("prompt.gate", {
+          scene: draft.id,
+          kind: "image",
+          codes: gated.codes,
+          unresolved: gated.unresolved,
+        });
       }
       // The deterministic builder is a template, not an author: it can keep the
       // card's own words but cannot turn an indirect description into a
@@ -526,7 +564,7 @@ export async function attachScenePrompts(
         );
       }
 
-      const videoResult = skipVideo
+      const videoResult = noVideoCall
         ? null
         : await executeArtifact<VideoPart>({
             artifact: `${draft.id}.video_prompt`,
@@ -547,7 +585,7 @@ export async function attachScenePrompts(
                 (inheritsOpening ? inheritedOpeningDirective(previousEndFramePrompt) : "") +
                 videoCastDirective(sceneCast, videoFamily) +
                 precedenceDirective(sceneCast, plans) +
-                concisePromptDirective(videoFamily, "video", project.segmentSeconds),
+                concisePromptDirective(videoFamily, "video", project.segmentSeconds, videoBudget),
               JSON.stringify({
                 ...userContext,
                 keyframes: {
@@ -560,21 +598,44 @@ export async function attachScenePrompts(
                 },
               }),
               draft,
-              (part) => exceedsPromptBudget(
-                withCastEnforcedVideo(part, sceneCast, plans, wardrobe).videoPromptSegment,
+              clipBudget(
                 videoFamily,
-                "video",
                 draft.trimAtEndSeconds ?? draft.targetDurationSeconds,
+                (part) => withCastEnforcedVideo(part, sceneCast, plans, wardrobe),
+                videoBudget,
               ),
+              gatedVideo,
             ),
+            outcome: () => {
+              const notes = [
+                ...(gatedVideo.initial.length ? [`found=${gatedVideo.initial.join(",")}`] : []),
+                ...(gatedVideo.salvaged.length ? [`salvaged=${gatedVideo.salvaged.join(",")}`] : []),
+              ];
+              return notes.length
+                ? { source: "hybrid" as const, detail: notes.join("; ") }
+                : {};
+            },
             fallback: () => videoPart,
           });
-      if (videoResult?.execution.source === "llm") {
+      if (videoResult && videoResult.execution.source !== "deterministic") {
         videoPart = withCastEnforcedVideo(
           normaliseVideoResult(videoResult.value, draft, videoFamily),
           sceneCast,
           plans,
           wardrobe,
+        );
+      }
+      if (deferVideo) {
+        context.onExecution?.(
+          composeExecution({
+            artifact: `${draft.id}.video_prompt`,
+            scope: draft.id,
+            correlationId: context.correlationId,
+            builderVersion: BUILDER_VERSION,
+            source: "deterministic",
+            detail: "deferred: this project does not render video",
+            startedAt: new Date(),
+          }),
         );
       }
     }
@@ -601,7 +662,11 @@ export async function attachScenePrompts(
         // The stamp records which family the clip prompt was written for, so a
         // pass that did not run must keep the stamp it already had. Restamping
         // it here would clear the staleness warning without rewriting anything.
-        videoPromptFamily: skipVideo ? carried?.videoPromptFamily : videoFamily,
+        videoPromptFamily: skipVideo
+          ? carried?.videoPromptFamily
+          : deferVideo
+            ? DEFERRED_VIDEO_PROMPT
+            : videoFamily,
       },
     });
     previousEndFramePrompt = imagePart.endFramePrompt;
@@ -689,6 +754,69 @@ export function establishedGarments(
     .toLocaleLowerCase();
 }
 
+type ImageBudget = {
+  exceeds: (part: ImagePart) => boolean;
+  /** Shortens what the model wrote, never what is appended after it. */
+  fit: (part: ImagePart) => ImagePart;
+  /** Words each frame prompt may use once the automatic text is counted. */
+  bodyWords: (part: ImagePart) => number;
+};
+
+/** Below this the model has too little room to describe anyone at all. */
+const MIN_FRAME_WORDS = 45;
+
+/**
+ * The image word ceiling, applied to what the model can actually control.
+ *
+ * The ceiling counts the look, cast sheet and wardrobe text appended after the
+ * model's answer, which the model never sees. Failing a scene for being over it
+ * threw away a model-authored prompt and substituted the template — which is
+ * three times longer, because it carries the whole scene card. So the overflow
+ * is trimmed from the end of the model's own prompt instead, where the
+ * directive already tells it the optional detail lives.
+ */
+function imageBudget(
+  family: ModelFamily,
+  participants: readonly string[],
+  finalise: (part: ImagePart) => ImagePart,
+  budget: BudgetContext,
+): ImageBudget {
+  const frames = ["startFramePrompt", "endFramePrompt"] as const;
+  // A frame may state a larger headcount than the cast pinned for the scene.
+  const ceilingFor = (text: string) =>
+    wordBudget(family, "image", 0, {
+      ...budget,
+      people: Math.max(budget.people ?? 0, statedHeadcount(text) ?? 0),
+    });
+  const room = (part: ImagePart, frame: (typeof frames)[number]) => {
+    const final = finalise(part)[frame];
+    const appended = countWords(final) - countWords(part[frame]);
+    return Math.max(MIN_FRAME_WORDS, ceilingFor(final) - Math.max(0, appended));
+  };
+  return {
+    exceeds: (part) => {
+      const final = finalise(part);
+      return frames.some((frame) => countWords(final[frame]) > ceilingFor(final[frame]));
+    },
+    bodyWords: (part) => Math.min(...frames.map((frame) => room(part, frame))),
+    fit: (part) => {
+      const fitted = { ...part };
+      for (const frame of frames) {
+        const limit = room(part, frame);
+        if (countWords(part[frame]) <= limit) continue;
+        // The first sentence naming each person stays, or the cast sheet that
+        // is appended for people the prompt names would go with it.
+        const sentences = splitSentences(part[frame]);
+        const named = participants
+          .map((name) => sentences.find((s) => s.toLowerCase().includes(name.trim().toLowerCase())))
+          .filter((s): s is string => Boolean(s));
+        fitted[frame] = trimToBudget(part[frame], limit, 1, named);
+      }
+      return fitted;
+    },
+  };
+}
+
 /**
  * The image call with the acceptance gate around it.
  *
@@ -705,8 +833,13 @@ function gatedImageCall(
   system: string,
   user: string,
   gate: ImageGateContext,
-  gated: { codes: PromptGateCode[] },
-  overBudget: (part: ImagePart) => boolean,
+  gated: {
+    codes: PromptGateCode[];
+    repaired: PromptGateCode[];
+    unresolved: PromptGateCode[];
+    trimmed: boolean;
+  },
+  budget: ImageBudget,
 ): () => Promise<ProviderResult<ImagePart>> {
   return async () => {
     const first = await providerCall(provider, system, user, imagePartSchema, {
@@ -714,33 +847,37 @@ function gatedImageCall(
     })();
     if (!first.ok) return first;
     const codes = gateFindings(first.value, gate);
-    if (!codes.length && !overBudget(first.value)) return first;
+    if (!codes.length && !budget.exceeds(first.value)) return first;
 
     let best = first;
     const retry = await providerCall(
       provider,
-      system + gateRepairDirective(codes, gate) + SHORTEN_PROMPT_DIRECTIVE,
+      system +
+        gateRepairDirective(codes, gate) +
+        SHORTEN_PROMPT_DIRECTIVE +
+        ` Each frame prompt must be at most ${budget.bodyWords(first.value)} words, because the ` +
+        "project's look and the cast descriptions are appended automatically after it.",
       `${user}\nPrevious answer to rewrite:\n${JSON.stringify(first.value)}`,
       imagePartSchema,
       { systemPromptScope: "render_prompts" },
     )();
     if (retry.ok) {
       const retryCodes = gateFindings(retry.value, gate);
-      if (!retryCodes.length && !overBudget(retry.value)) return retry;
+      if (!retryCodes.length && !budget.exceeds(retry.value)) return retry;
       if (retryCodes.length <= codes.length) best = retry;
     }
 
     gated.codes = gateFindings(best.value, gate);
-    const repaired = repairPart(best.value, gate);
-    if (overBudget(repaired)) {
-      return {
-        ok: false,
-        provider: best.provider,
-        model: best.model,
-        reason: "invalid_set",
-        detail: "Image prompts remain over_budget after one rewrite.",
-      };
+    let repaired = repairPart(best.value, gate);
+    if (budget.exceeds(repaired)) {
+      repaired = budget.fit(repaired);
+      gated.trimmed = true;
     }
+    // What the repair fixed and what is still wrong are different facts: the
+    // first says the model needed help, the second says the prompt still has a
+    // defect a person should look at.
+    gated.unresolved = gateFindings(repaired, gate);
+    gated.repaired = gated.codes.filter((code) => !gated.unresolved.includes(code));
     return { ...best, value: repaired };
   };
 }
@@ -756,35 +893,127 @@ function videoCastDirective(cast: readonly Character[], family: ModelFamily): st
   );
 }
 
+/** What the clip call produced that the project cannot use as it stands. */
+type ClipSalvage = {
+  /** Faults found in the model's first answer. */
+  initial: string[];
+  /** What was done to the answer that was kept. */
+  salvaged: string[];
+};
+
+type ClipBudget = {
+  exceeds: (part: VideoPart) => boolean;
+  /** Visual words the model's own prompt may use once appended text is counted. */
+  bodyWords: (part: VideoPart) => number;
+  fit: (part: VideoPart) => VideoPart;
+};
+
+/** Below this a clip prompt cannot hold a movement and a camera. */
+const MIN_CLIP_WORDS = 30;
+
+/**
+ * The clip word ceiling, applied to what the model controls.
+ *
+ * Same reasoning as the image side: the ceiling counts text appended after the
+ * model's answer, and the fallback for failing it was the scene card's raw
+ * action, which ran 133–198 words against a 140-word ceiling — worse than the
+ * overrun it replaced. Spoken lines are not counted, as in the ceiling itself.
+ */
+function clipBudget(
+  family: ModelFamily,
+  seconds: number,
+  finalise: (part: VideoPart) => VideoPart,
+  budget: BudgetContext,
+): ClipBudget {
+  const limit = wordBudget(family, "video", seconds, budget);
+  const finalWords = (part: VideoPart) => visualWordCount(finalise(part).videoPromptSegment);
+  const bodyWords = (part: VideoPart) =>
+    Math.max(
+      MIN_CLIP_WORDS,
+      limit - Math.max(0, finalWords(part) - visualWordCount(part.videoPromptSegment)),
+    );
+  return {
+    exceeds: (part) => finalWords(part) > limit,
+    bodyWords,
+    fit: (part) => {
+      const text = part.videoPromptSegment;
+      const room = bodyWords(part);
+      if (visualWordCount(text) <= room) return part;
+      // Speech is excluded from the ceiling but not from the trimmer's count.
+      const speech = countWords(text) - visualWordCount(text);
+      return { ...part, videoPromptSegment: trimToBudget(text, room + speech, 1) };
+    },
+  };
+}
+
+/** Spoken lines the prompt no longer carries, with who says them. */
+function droppedLines(text: string, dialogue: SceneDraft["dialogue"]) {
+  return (dialogue ?? []).filter((entry) => missingDialogue(text, [entry]).length > 0);
+}
+
+/**
+ * The clip call, with the acceptance checks around it.
+ *
+ * A prompt that is over the ceiling or has lost a spoken line gets one retry
+ * that says which. If it is still wrong it is repaired rather than replaced:
+ * the overrun is trimmed from the end and any missing line is put back word for
+ * word. Replacing it with the scene card's own action text lost the model's
+ * work, ignored the ceiling it had just failed, and on a 9B model happened on
+ * every scene of a 17-scene run.
+ */
 function gatedVideoCall(
   provider: PlanningProvider,
   system: string,
   user: string,
   draft: SceneDraft,
-  overBudget: (part: VideoPart) => boolean,
+  budget: ClipBudget,
+  salvage: ClipSalvage,
 ): () => Promise<ProviderResult<VideoPart>> {
+  const faults = (part: VideoPart) => [
+    ...(budget.exceeds(part) ? ["over_budget"] : []),
+    ...(droppedLines(part.videoPromptSegment, draft.dialogue).length ? ["dialogue_dropped"] : []),
+  ];
   return async () => {
-    const valid = (part: VideoPart) =>
-      !overBudget(part) && !missingDialogue(part.videoPromptSegment, draft.dialogue ?? []).length;
     const first = await providerCall(provider, system, user, videoPartSchema, {
       systemPromptScope: "render_prompts",
     })();
-    if (!first.ok || valid(first.value)) return first;
+    if (!first.ok) return first;
+    salvage.initial = faults(first.value);
+    if (!salvage.initial.length) return first;
+
+    const missing = droppedLines(first.value.videoPromptSegment, draft.dialogue);
     const retry = await providerCall(
       provider,
-      system + SHORTEN_PROMPT_DIRECTIVE,
+      system +
+        SHORTEN_PROMPT_DIRECTIVE +
+        ` The visual prose must be at most ${budget.bodyWords(first.value)} words; spoken lines are additional.` +
+        (missing.length
+          ? " Carry these spoken lines word for word: " +
+            missing.map((entry) => `${entry.character}: "${entry.line}"`).join(" ")
+          : ""),
       `${user}\nPrevious answer to rewrite:\n${JSON.stringify(first.value)}`,
       videoPartSchema,
       { systemPromptScope: "render_prompts" },
     )();
-    if (retry.ok && valid(retry.value)) return retry;
-    return {
-      ok: false,
-      provider: first.provider,
-      model: first.model,
-      reason: "invalid_set",
-      detail: "Video prompt remains over_budget or dialogue_dropped after one rewrite.",
-    };
+    let best = first;
+    if (retry.ok) {
+      const retryFaults = faults(retry.value);
+      if (!retryFaults.length) return retry;
+      if (retryFaults.length <= salvage.initial.length) best = retry;
+    }
+
+    let value = best.value;
+    if (budget.exceeds(value)) {
+      value = budget.fit(value);
+      salvage.salvaged.push("trimmed");
+    }
+    const lost = droppedLines(value.videoPromptSegment, draft.dialogue);
+    if (lost.length) {
+      const restored = lost.map((entry) => `${entry.character} says, "${entry.line.replace(/"/g, "'")}"`);
+      value = { ...value, videoPromptSegment: `${value.videoPromptSegment.trimEnd()} ${restored.join(" ")}` };
+      salvage.salvaged.push("dialogue_restored");
+    }
+    return { ...best, value };
   };
 }
 
@@ -799,9 +1028,10 @@ function composerLint(
   family: ModelFamily,
   kind: "image" | "video",
   draft: SceneDraft,
+  budget: BudgetContext,
 ): string[] {
   const seconds = draft.trimAtEndSeconds ?? draft.targetDurationSeconds;
-  const findings = lintRendered(text, family, kind, kind === "image" ? 0 : seconds);
+  const findings = lintRendered(text, family, kind, kind === "image" ? 0 : seconds, budget);
   const codes = findings.map((f) => f.code as string);
   if (kind === "video" && draft.dialogue?.length) {
     if (missingDialogue(text, draft.dialogue).length) codes.push("dialogue_dropped");

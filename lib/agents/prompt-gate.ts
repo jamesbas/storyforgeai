@@ -1,4 +1,5 @@
 import { splitSentences } from "@/lib/agents/media-prompt-spec";
+import { describesMotion, stripMotion } from "@/lib/agents/still-frame";
 import { namesExplicitContent } from "@/lib/agents/explicitness";
 import {
   isTighterThan,
@@ -177,35 +178,6 @@ const CONTACT =
  */
 const POSITION =
   /\b(?:cowgirl|missionary|doggy(?:[- ]style)?|spit[- ]roast|straddl\w*|astride|on all fours|on (?:her|his) (?:back|knees|side|stomach|front)|bent over|kneel\w*|l(?:ying|ies|ay) (?:back|down|on)|pinned|mounted|riding|lean(?:s|ing)? over|stand(?:s|ing)? over|crouch\w*|on top of|below|above|beneath|underneath|behind (?:her|him)|over (?:her|him|them)|grip\w* (?:her|his) (?:hips|waist|thighs|head|hair)|between (?:her|his) (?:legs|thighs|knees)|legs? (?:over|around|either side|apart|spread)|spread (?:legs|wide|eagled)|from behind|face down|either side of|thighs either side|hips against)\b/i;
-
-/**
- * Words for time passing, in a medium that has none.
- *
- * Three groups, and only unambiguous ones. A camera move named in a still is
- * always wrong — the frame has no camera travel to show. A stated duration is
- * always wrong for the same reason. The rhythm set was the original list and is
- * kept.
- *
- * Deliberately excludes bare action verbs. A still can legitimately read "her
- * hand rests on the door" or "caught mid-stride", and rejecting those would
- * repair correct prose — the v1.77 failure. Sequenced verbs are a quality
- * question rather than a fault, and belong in the advisory lint.
- */
-const CAMERA_TRAVEL_IN_STILL =
-  /\b(?:push(?:es|ing)?[- ]in|pull(?:s|ing)?[- ](?:out|back)|dollies|dolly(?:ing)? (?:in|out|left|right)|tracking shot|track(?:s|ing)? (?:left|right|alongside|with)|pan(?:s|ning)? (?:left|right|across|to)|tilt(?:s|ing)? (?:up|down)|cranes? (?:up|down)|zoom(?:s|ing)? (?:in|out)|orbit(?:s|ing)? (?:around|the)|camera (?:moves|travels|follows|drifts|glides|sweeps|circles|rises|descends|begins|starts|settles))\b/i;
-
-const DURATION_IN_STILL =
-  /\b(?:over (?:\d+|one|two|three|four|five|six|seven|eight|nine|ten|several|a few) seconds?|over the (?:next|following)|for (?:a moment|several seconds)|begins? (?:from here|to)|starts? to|continu(?:es?|ing) (?:to|into)|cuts? to|transitions? to|dissolves? (?:in)?to)\b/i;
-
-const RHYTHM_IN_STILL =
-  /\b(?:rhythm\w*|tempo|repeatedly|continuous\w*|back and forth|in and out|steady pace|each thrust|every thrust|over and over)\b/i;
-
-/** Whether this prompt describes time passing rather than one held instant. */
-function describesMotion(text: string): boolean {
-  return (
-    CAMERA_TRAVEL_IN_STILL.test(text) || DURATION_IN_STILL.test(text) || RHYTHM_IN_STILL.test(text)
-  );
-}
 
 const GARMENTS =
   /\b(?:t-?shirts?|shirts?|blouses?|dress(?:es)?|skirts?|trousers|slacks|chinos|pants|jeans|denim|shorts|suits?|jackets?|blazers?|coats?|sweaters?|hoodies?|cardigans?|bras?|brassieres?|panties|knickers|briefs|thongs?|underwear|lingerie|robes?|gowns?|stockings|tights|corsets?|socks|shoes|boots|leggings)\b/i;
@@ -564,8 +536,11 @@ export function gateRepairDirective(
   }
   if (codes.includes("motion_in_still")) {
     reasons.push(
-      "you described rhythm or repetition, which a single frame cannot show; freeze it at one " +
-        "instant and state how deep at that instant",
+      "you described movement, timing or a camera move — rhythm, repetition, a duration, " +
+        "'begins' or 'continues', a push-in or a tracking move — which a single frame cannot " +
+        "show; describe only the pose held at that one instant, with where each hand, limb and " +
+        "object is (and for an act, how deep at that instant), and leave the camera and the " +
+        "motion to the clip prompt",
     );
   }
   if (codes.includes("wardrobe_contradicts_act")) {
@@ -639,7 +614,13 @@ export function repairImagePrompt(
   if (codes.includes("wardrobe_contradicts_act")) {
     body = withoutInventedGarments(body, established);
   }
-
+  // Camera travel, durations and rhythm are never part of a held instant, so
+  // they come out rather than being asked for again. Only these: the wording
+  // that merely implies sequence ("begins her walk") earns a retry and a flag,
+  // because cutting it could cut the action.
+  if (codes.includes("motion_in_still")) {
+    body = stripMotion(body) || body;
+  }
   const said = new Set(splitSentences(body).map(sentenceKey));
   const stems = contentStems(body);
 
@@ -671,7 +652,7 @@ export function repairImagePrompt(
   const unnamed = codes.includes("anatomy_unnamed");
 
   if (codes.includes("euphemism") || unnamed) {
-    const restated = splitSentences(ctx.scene.actionDescription ?? "")
+    const restated = splitSentences(stripMotion(ctx.scene.actionDescription ?? ""))
       .map(unsaid)
       .filter((sentence): sentence is string => Boolean(sentence));
     if (restated.length) {
