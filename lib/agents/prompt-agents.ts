@@ -24,6 +24,7 @@ import {
 } from "@/lib/agents/provenance";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import { DEFERRED_VIDEO_PROMPT } from "@/lib/agents/prompt-family";
+import { projectSetting, settingSuffix } from "@/lib/agents/setting-anchor";
 import type { ProgressReporter } from "@/lib/agents/types";
 import {
   castContinuityClause,
@@ -54,6 +55,7 @@ import {
   gateImagePrompt,
   gateRepairDirective,
   inventedGarments,
+  statedClothing,
   repairImagePrompt,
   type ImageGateContext,
   type PromptGateCode,
@@ -303,6 +305,9 @@ export async function attachScenePrompts(
   const videoFamily = videoFamilyFor(project);
   const timeline = wardrobeTimeline(project, drafts, cast);
   const budgets = context.budgets ?? (await resolvePromptBudgetSettings());
+  // The world bible's own statement of where the story happens, carried into
+  // frames that do not already name it. Absent when the bible states none.
+  const sceneSetting = projectSetting(plans);
   const videoBudget = { settings: budgets };
   const scenes: Scene[] = [];
   // The seam can only be matched by an agent that can see what it is matching.
@@ -455,23 +460,24 @@ export async function attachScenePrompts(
         forbiddenContradictions: plans?.worldBible?.forbiddenContradictions,
       };
       const user = JSON.stringify(userContext);
+      const cardClothing = statedClothing(draft);
       const gate: ImageGateContext = {
         scene: draft,
         participants: sceneCast.map((c) => c.name),
         explicit: isExplicitProject(project) || isExplicitScene(draft),
         establishedWardrobe: {
-          start: establishedGarments(
+          start: `${establishedGarments(
             wardrobe?.start,
             wardrobe?.othersStart,
             sceneCast,
             context.visualBible?.characters,
-          ),
-          end: establishedGarments(
+          )} ${cardClothing}`,
+          end: `${establishedGarments(
             wardrobe?.end,
             wardrobe?.othersEnd,
             sceneCast,
             context.visualBible?.characters,
-          ),
+          )} ${cardClothing}`,
         },
         wardrobeChange: Boolean(wardrobe?.within.length),
         inheritsOpening,
@@ -510,7 +516,7 @@ export async function attachScenePrompts(
                 (part) =>
                   withCastEnforced(
                     normaliseImageResult(part, project, draft, plans, wardrobe, imageFamily),
-                    sceneCast, plans, project, wardrobe, draft,
+                    sceneCast, plans, project, wardrobe, draft, sceneSetting,
                   ),
                 imageBudgetContext,
               ),
@@ -561,6 +567,7 @@ export async function attachScenePrompts(
           project,
           wardrobe,
           draft,
+          sceneSetting,
         );
       }
 
@@ -1102,6 +1109,7 @@ function withCastEnforced(
   project: Project,
   wardrobe: SceneWardrobe | undefined,
   draft: SceneDraft,
+  setting?: string,
 ): ImagePart {
   const negative = `${castNegativeSuffix(cast, part.imageNegativePrompt)}${continuityNegativeSuffix(plans)}`;
   // Each frame is read for its own shot size: a scene can push from a medium
@@ -1112,8 +1120,8 @@ function withCastEnforced(
   });
   const frameCast = (prompt: string) => charactersInFrame(prompt, cast);
   return {
-    startFramePrompt: `${part.startFramePrompt}${lookPromptSuffix(project, part.startFramePrompt)}${castPromptSuffix(frameCast(part.startFramePrompt), wardrobe?.start, sheetFor(part.startFramePrompt), part.startFramePrompt)}${othersWardrobeSuffix(othersInFrame(part.startFramePrompt, wardrobe?.othersStart ?? {}), part.startFramePrompt)}`,
-    endFramePrompt: `${part.endFramePrompt}${lookPromptSuffix(project, part.endFramePrompt)}${castPromptSuffix(frameCast(part.endFramePrompt), wardrobe?.end, sheetFor(part.endFramePrompt), part.endFramePrompt)}${othersWardrobeSuffix(othersInFrame(part.endFramePrompt, wardrobe?.othersEnd ?? {}), part.endFramePrompt)}`,
+    startFramePrompt: `${part.startFramePrompt}${settingSuffix(part.startFramePrompt, setting)}${lookPromptSuffix(project, part.startFramePrompt)}${castPromptSuffix(frameCast(part.startFramePrompt), wardrobe?.start, sheetFor(part.startFramePrompt), part.startFramePrompt)}${othersWardrobeSuffix(othersInFrame(part.startFramePrompt, wardrobe?.othersStart ?? {}), part.startFramePrompt)}`,
+    endFramePrompt: `${part.endFramePrompt}${settingSuffix(part.endFramePrompt, setting)}${lookPromptSuffix(project, part.endFramePrompt)}${castPromptSuffix(frameCast(part.endFramePrompt), wardrobe?.end, sheetFor(part.endFramePrompt), part.endFramePrompt)}${othersWardrobeSuffix(othersInFrame(part.endFramePrompt, wardrobe?.othersEnd ?? {}), part.endFramePrompt)}`,
     imageNegativePrompt: normaliseNegative(`${part.imageNegativePrompt}${negative}`),
   };
 }

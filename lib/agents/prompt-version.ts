@@ -12,11 +12,11 @@ export const PROMPT_VERSIONS = {
   // v3: a climax the user named is quoted and declared not the model's to
   // change, and a chosen aftermath count replaces the automatic budget.
   storyArchitect: "story-architect-v3",
-  visualBible: "visual-bible-v1",
+  visualBible: "visual-bible-v2",
   // v2: each batch is handed the wardrobe as it stands after the changes
   // declared so far, and the undressing case is stated as a requirement.
   storyboard: "storyboard-v2",
-  imagePrompt: "image-prompt-v4",
+  imagePrompt: "image-prompt-v5",
   // v4: a scene continuing from the one before it is handed its actual opening
   // frame in the payload, not just told about it in the system prompt.
   videoPrompt: "video-prompt-v5",

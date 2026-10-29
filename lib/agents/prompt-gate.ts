@@ -323,6 +323,24 @@ function explicitSentences(scene: SceneDraft): string[] {
 }
 
 /**
+ * Garments the scene card itself says somebody is wearing.
+ *
+ * The card is the authority on who wears what in this scene, and the directive
+ * tells the model so. The check that takes an invented outfit back off only
+ * knew the wardrobe timeline and the visual bible, so a patron the card dressed
+ * in a shirt, and whom the bible described as "casual attire", was undressed
+ * the moment the dancer was bare.
+ */
+export function statedClothing(scene: SceneDraft): string {
+  const text = [
+    scene.visualDescription,
+    scene.actionDescription,
+    ...(scene.continuityNotes ?? []),
+  ].join(" ");
+  return [...text.matchAll(WORN_CLAUSE)].map((match) => match[1]).join(" ").toLowerCase();
+}
+
+/**
  * Garments the prompt puts on somebody that this scene's wardrobe never did.
  *
  * Exported because the repair is not to argue with the sentence but to put the
@@ -545,8 +563,9 @@ export function gateRepairDirective(
   }
   if (codes.includes("wardrobe_contradicts_act")) {
     reasons.push(
-      "you put clothing on someone taking part; every participant is naked unless this scene's " +
-        "wardrobe dresses them",
+      "you put clothing on someone taking part in the act; every participant is naked unless " +
+        "this scene's wardrobe, the scene card or the visual bible dresses them. A person the " +
+        "card dresses who only touches, fondles or tips someone keeps those clothes",
     );
   }
   if (codes.includes("framing_too_tight")) {

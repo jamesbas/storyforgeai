@@ -252,7 +252,14 @@ const IMAGE_FRAME_CONTRACT =
   "Everyone taking part in the act is naked. This overrides the instruction to give characters " +
   "outside the cast specific named garments: a participant wears nothing, and you must not put " +
   "a shirt, trousers, lingerie or underwear on anyone the act involves. Clothing belongs only " +
-  "to people this scene's wardrobe explicitly dresses.\n" +
+  "to people this scene's wardrobe explicitly dresses, or whose clothing the scene card or the " +
+  "visual bible states. \"The act\" means penetration, oral contact or hands on genitals. " +
+  "Touching, fondling, tipping or dancing near someone is not the act: a patron at a table " +
+  "who reaches for a dancer keeps his clothes on, exactly as the card or the bible dresses " +
+  "him. Where you state clothing, state it complete — garment, colour and fastening, such as " +
+  "\"a black short-sleeved shirt, buttoned, and dark trousers\" — and never \"an open shirt\", " +
+  "\"unbuttoned\", \"revealing\" or \"over bare chest\", which an image model draws as no " +
+  "shirt at all.\n" +
   "A finished frame reads like this: \"Medium shot, low angle. Reverse cowgirl: Mara sits " +
   "astride Mark facing away from him, his cock (penis) fully inserted in her pussy (vagina), " +
   "her labia stretched tight around his shaft, the base still visible where they join. Her " +
@@ -266,4 +273,5 @@ const VIDEO_ACT_CONTRACT =
   "what each body is doing — rather than alluding to it. Name the position and what is inside " +
   "what before describing how it moves: a clip that says only \"he thrusts rhythmically\" has " +
   "not said which bodies, in what arrangement, or where. Everyone taking part is naked unless " +
-  "this scene's wardrobe dresses them.";
+  "this scene's wardrobe dresses them, or the card or visual bible states what they wear; " +
+  "touching, fondling and tipping are not the act, and nobody is undressed by them.";
