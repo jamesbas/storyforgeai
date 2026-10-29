@@ -7,7 +7,7 @@ import { creativeModeDirective } from "@/lib/agents/look";
 import { explicitnessDirective } from "@/lib/agents/explicitness";
 import { planningPayloadForSegments, precedenceDirective } from "@/lib/agents/creative-context";
 import { castWardrobeAfter } from "@/lib/agents/wardrobe";
-import { composeExecution } from "@/lib/agents/provenance";
+import { composeExecution, providerCall } from "@/lib/agents/provenance";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import { SEGMENT_SECONDS } from "@/lib/types";
 import type { FailureReason } from "@/lib/schemas/provenance";
@@ -243,6 +243,10 @@ export async function storyboardAgent(
   const continued = new Set(storyPlan.continuedSegments ?? []);
   let builderFilled = 0;
   let batchReason: FailureReason | undefined;
+  // Recorded on the execution so the badge can say which model wrote the cards.
+  // It was blank, which left a per-stage model choice impossible to confirm
+  // from the storyboard itself.
+  const modelsUsed = new Set<string>();
 
   for (let start = 0; start < wanted; start += CARDS_PER_CALL) {
     const end = Math.min(start + CARDS_PER_CALL, wanted);
@@ -284,7 +288,8 @@ export async function storyboardAgent(
         : undefined,
     });
 
-    const result = await provider.generateJson(
+    const result = await providerCall(
+      provider,
       system +
         batchDirective(start + 1, end, wanted) +
         continuationDirective(continuedHere) +
@@ -292,9 +297,12 @@ export async function storyboardAgent(
       user,
       sceneDraftsSchema,
       { systemPromptScope: "storyboard" },
-    );
-    const returned = result?.scenes ?? [];
-    if (returned.length !== end - start) batchReason ??= returned.length ? "short_collection" : "unknown";
+    )();
+    if (result.model) modelsUsed.add(result.model);
+    const returned = result.ok ? result.value.scenes : [];
+    if (returned.length !== end - start) {
+      batchReason ??= returned.length ? "short_collection" : result.ok ? "unknown" : result.reason;
+    }
     for (let i = 0; i < end - start; i += 1) {
       const card = returned[i];
       if (card) scenes.push(card);
@@ -324,6 +332,7 @@ export async function storyboardAgent(
       promptVersion: PROMPT_VERSIONS.storyboard,
       builderVersion: BUILDER_VERSION,
       provider: provider.name,
+      ...(modelsUsed.size ? { model: [...modelsUsed].join(", ") } : {}),
       source: builderFilled === 0 ? "llm" : fromLlm === 0 ? "deterministic" : "hybrid",
       fallbackReason: builderFilled === 0 ? undefined : batchReason ?? "unknown",
       detail:
