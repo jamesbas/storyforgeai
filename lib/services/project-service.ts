@@ -894,7 +894,7 @@ export async function repairNegativePrompts(id: string): Promise<{
   if (!record.storyboard) throw new ValidationError("Generate a storyboard before repairing prompts");
 
   const cast = await resolveProjectCast(record.project);
-  const timeline = wardrobeTimeline(record.project, record.storyboard.scenes, cast);
+  const timeline = wardrobeTimeline(record.project, record.storyboard.scenes, cast, record.storyboard.visualBible);
 
   let changed = 0;
   let castScenes = 0;

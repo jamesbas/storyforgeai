@@ -1668,6 +1668,16 @@ export default function HelpPage() {
             the continuity rules and the output shape. So you never need to paste StoryForgeAI&apos;s
             own wording in, and where the two disagree about structure, the built-in contract wins.
           </p>
+          <p className={p}>
+            Image prompts describe each visible character once, inline with their pose. The
+            canonical appearance is appended only as a fallback. The obsolete stock instruction
+            saying not to restate a supplied character&apos;s appearance because it is always
+            appended is omitted from image requests; your saved custom text is not changed.
+            To apply prompt-writing fixes, restart the app and use <strong>Rewrite all image
+            prompts</strong>. The existing scene cards and creative plans are reused, so you do
+            not need a new Agentic Canvas. Correct any wrong scene card first, rewrite video
+            prompts afterward if needed, and re-render existing media to see the result.
+          </p>
 
           <h3 className={h3}>Three scopes, because the workflows want different things</h3>
           <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -1864,10 +1874,21 @@ export default function HelpPage() {
           <p className={p}>
             The card also holds the scene&apos;s <strong>dialogue</strong>, which is the only source
             of speech in a clip — LTX speaks it word for word from the prompt, and nothing is
-            synthesised separately. Roughly two words per second fills a segment at a natural pace,
-            so a 20-second scene carries about forty. The word count beside the field tells you where
-            you are. A wordless scene is a legitimate choice; a scene that should have people talking
-            and does not is silence you did not ask for.
+            synthesised separately. Speaking scenes target 30-35 words per 20 seconds, with a
+            25-word minimum estimate, so speech covers at least half the shot while the physical
+            action continues. Dialogue should respond to the scene&apos;s action and stakes, not
+            simply narrate the picture or pause it for a conversation.
+          </p>
+          <p className={p}>
+            The storyboard writer gets up to two dialogue-only revisions for short or overlong
+            scripts, preserving the action, speakers and camera. If it still misses the length
+            target, the original lines stay and a warning asks you to review them; generation is
+            not blocked. The editor estimates speech at 2.5 words per second and adjusts its targets
+            for a trimmed final scene. These are writing estimates, not checks of the finished
+            audio. Intentionally wordless scenes stay empty. Existing saved scripts are not
+            automatically rewritten: regenerate the storyboard for newly authored dialogue, or
+            edit the dialogue and use <strong>Save and rewrite prompts</strong>. Rewriting video
+            prompts alone keeps the existing words.
           </p>
 
           <h3 className={h3}>Editing prompts by hand</h3>

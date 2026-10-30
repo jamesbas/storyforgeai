@@ -21,7 +21,7 @@ import type { ModelFamily } from "@/lib/wangp/family";
 import { buildMediaPromptSpec } from "@/lib/agents/media-prompt-builder";
 import type { BudgetContext } from "@/lib/agents/media-prompt-spec";
 import { stillStates } from "@/lib/agents/still-frame";
-import { renderImagePrompt, renderVideoPrompt } from "@/lib/agents/media-prompt-renderers";
+import { dialogueClause, renderImagePrompt, renderVideoPrompt } from "@/lib/agents/media-prompt-renderers";
 import { hasNativeAudio } from "@/lib/agents/model-directives";
 
 /**
@@ -273,23 +273,6 @@ export function buildSceneDrafts(
   return drafts;
 }
 
-/**
- * Render dialogue the way LTX-2 expects it: spoken lines quoted inline in the
- * prose of the shot description, not as a separate script block. This matches
- * the prompt format shipped in WanGP's own LTX-2 model defaults, and is how
- * spoken audio reaches the clip — nothing here is synthesized separately.
- */
-function dialogueProse(scene: SceneDraft): string {
-  if (!scene.dialogue?.length) return "";
-  return (
-    " " +
-    scene.dialogue
-      .map((d) => `${d.character} says, "${d.line.replace(/"/g, "'")}"`)
-      .join(" ") +
-    " Lip movement matches the spoken words."
-  );
-}
-
 function sentence(text: string | undefined): string {
   const trimmed = (text ?? "").trim();
   if (!trimmed) return "";
@@ -379,7 +362,6 @@ export function buildVideoPrompts(
   family: ModelFamily = "unknown",
   budget: BudgetContext = {},
 ): Pick<ScenePrompts, "videoPromptSegment" | "videoNegativePrompt" | "promptQualityChecklist"> {
-  const spoken = dialogueProse(scene);
   const narration = scene.narrationText ? ` Voice-over: "${scene.narrationText}"` : "";
   const slice = sceneCreativeSlice(plans, scene);
   const change = wardrobeChangeClause(
@@ -391,6 +373,7 @@ export function buildVideoPrompts(
 
   const seconds = scene.trimAtEndSeconds ?? scene.targetDurationSeconds;
   const spec = buildMediaPromptSpec(project, scene, plans, wardrobe);
+  const spoken = dialogueClause(spec);
   const continuity = castContinuityClause(cast, change) ||
     (change
       ? ` Preserve subject identity, location, and lighting throughout.${change}`
@@ -408,7 +391,7 @@ export function buildVideoPrompts(
     : sentence(scene.actionDescription) +
       `Camera: ${scene.cameraMovement.toLowerCase()}, evolving from the start frame to the end frame ` +
       `over ${seconds} seconds.` +
-      spoken +
+      (spoken ? ` ${spoken}` : "") +
       narration;
 
   return {

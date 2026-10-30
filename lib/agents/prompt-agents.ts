@@ -7,7 +7,7 @@ import {
 } from "@/lib/schemas/storyboard";
 import { buildImagePrompts, buildVideoPrompts } from "@/lib/agents/mock-agents";
 import { buildMediaPromptSpec } from "@/lib/agents/media-prompt-builder";
-import { COMPOSER_VERSION, countWords, lintRendered, splitSentences, wordBudget, type BudgetContext } from "@/lib/agents/media-prompt-spec";
+import { COMPOSER_VERSION, countWords, lintDialogue, lintRendered, splitSentences, wordBudget, type BudgetContext } from "@/lib/agents/media-prompt-spec";
 import { trimToBudget } from "@/lib/agents/media-prompt-renderers";
 import { logEvent } from "@/lib/telemetry";
 import {
@@ -45,6 +45,7 @@ import { familyOf, isFiboFamily, type ModelFamily } from "@/lib/wangp/family";
 import { writeFiboPrompts } from "@/lib/agents/fibo-prompt";
 import {
   concisePromptDirective,
+  imageConstraintSentences,
   SHORTEN_PROMPT_DIRECTIVE,
   visualWordCount,
 } from "@/lib/agents/prompt-concision";
@@ -78,6 +79,7 @@ import type { PlanningProvider, ProviderResult } from "@/lib/agents/llm/provider
 import type { PromptBudgetSettings } from "@/lib/schemas/prompt-budget-settings";
 import { resolvePromptBudgetSettings } from "@/lib/services/prompt-budget-settings-service";
 import { statedHeadcount } from "@/lib/media/seam";
+import { sceneFrameParticipants } from "@/lib/agents/frame-contract";
 /**
  * The two prompt passes, each its own model call.
  *
@@ -219,7 +221,11 @@ export const videoPromptSystem = (segmentSeconds: number) =>
   "Carry the scene's dialogue into the prompt in full and word for word, in quotation marks, " +
   "attributed to whoever says it — it is what the video model speaks, so anything you shorten " +
   "or leave out is not heard. Do not paraphrase it, summarise it, or reduce an exchange to one " +
-  "line. Where the scene has no dialogue, do not invent any. " +
+  "line. Where the scene has no dialogue, do not invent any. Weave each spoken line into the " +
+  "moment of action it responds to, naming what the speaker keeps doing while talking. " +
+  "Speech and physical action happen concurrently; do not stop the movement for an exchange " +
+  "or append a separate conversation after the action has finished. Keep delivery and movement " +
+  "directions outside the quotation marks, and do not invent extra action to accompany speech. " +
   // Every published image-to-video guide says the same thing in different
   // words: a clip has a finite motion budget, and each additional independent
   // change is drawn from the same account as identity and anatomy.
@@ -303,7 +309,7 @@ export async function attachScenePrompts(
   const wantsVideo = !context.passes || context.passes.includes("video");
   const imageFamily = imageFamilyFor(project);
   const videoFamily = videoFamilyFor(project);
-  const timeline = wardrobeTimeline(project, drafts, cast);
+  const timeline = wardrobeTimeline(project, drafts, cast, context.visualBible);
   const budgets = context.budgets ?? (await resolvePromptBudgetSettings());
   // The world bible's own statement of where the story happens, carried into
   // frames that do not already name it. Absent when the bible states none.
@@ -325,7 +331,16 @@ export async function attachScenePrompts(
     // Every named person in the shot has to fit in the frame, so the image
     // ceiling grows with the count. Unnamed people the prompt adds are counted
     // from its own headcount when the frame is checked.
-    const imageBudgetContext = { settings: budgets, people: sceneCast.length };
+    const frameParticipants = sceneFrameParticipants(
+      draft,
+      sceneCast,
+      context.visualBible?.characters,
+      Object.keys(wardrobe?.othersStart ?? {}),
+    );
+    const imageBudgetContext = {
+      settings: budgets,
+      people: Math.max(frameParticipants.start.people, frameParticipants.end.people),
+    };
 
     // Kept scenes still advance the seam and the wardrobe walk; they just cost
     // nothing and keep whatever was written or hand-edited before.
@@ -377,6 +392,12 @@ export async function attachScenePrompts(
       index > 0 &&
       previousEndFramePrompt !== undefined &&
       !seamBreak(drafts[index - 1]!, draft);
+    if (inheritsOpening) {
+      frameParticipants.start = sceneFrameParticipants(
+        draft, sceneCast, context.visualBible?.characters,
+        Object.keys(wardrobe?.othersStart ?? {}), previousEndFramePrompt,
+      ).start;
+    }
 
     if (!provider) {
       // Demo mode still reports itself, or a scene written by a template would
@@ -412,6 +433,7 @@ export async function attachScenePrompts(
       const userContext = {
         project,
         scene: draft,
+        frameParticipants,
         previousEndFramePrompt,
         // Named in the payload rather than left to the system prompt, because
         // the scene card sitting beside it describes the opening the storyboard
@@ -464,6 +486,7 @@ export async function attachScenePrompts(
       const gate: ImageGateContext = {
         scene: draft,
         participants: sceneCast.map((c) => c.name),
+        frameParticipants,
         explicit: isExplicitProject(project) || isExplicitScene(draft),
         establishedWardrobe: {
           start: `${establishedGarments(
@@ -487,6 +510,15 @@ export async function attachScenePrompts(
         codes: [], repaired: [], unresolved: [], trimmed: false,
       };
       const gatedVideo: ClipSalvage = { initial: [], salvaged: [] };
+      const frameBudget = imageBudget(
+        imageFamily,
+        [...new Set([...frameParticipants.start.names, ...frameParticipants.end.names])],
+        (part) => withCastEnforced(
+          normaliseImageResult(part, project, draft, plans, wardrobe, imageFamily),
+          sceneCast, plans, project, wardrobe, draft, sceneSetting,
+        ),
+        imageBudgetContext,
+      );
       const imageResult = skipImage
         ? null
         : await executeArtifact<ImagePart>({
@@ -510,16 +542,7 @@ export async function attachScenePrompts(
               user,
               gate,
               gated,
-              imageBudget(
-                imageFamily,
-                sceneCast.map((character) => character.name),
-                (part) =>
-                  withCastEnforced(
-                    normaliseImageResult(part, project, draft, plans, wardrobe, imageFamily),
-                    sceneCast, plans, project, wardrobe, draft, sceneSetting,
-                  ),
-                imageBudgetContext,
-              ),
+              frameBudget,
             ),
             // A prompt the model wrote and the gate had to patch is neither its
             // work nor the builder's, and a run that needed patching is a run
@@ -536,7 +559,7 @@ export async function attachScenePrompts(
                 detail: parts.join("; "),
                 // Trimming alone is routine and says nothing against the model;
                 // a gate finding is what marks the run degraded.
-                ...(gated.codes.length ? { fallbackReason: "invalid_set" as const } : {}),
+                ...(gated.codes.length || gated.unresolved.length ? { fallbackReason: "invalid_set" as const } : {}),
               };
             },
             fallback: () => imagePart,
@@ -692,6 +715,7 @@ function gateFindings(part: ImagePart, gate: ImageGateContext): PromptGateCode[]
       ...gateImagePrompt(part.endFramePrompt, "end", gate),
       ...gateFramePair(part.startFramePrompt, part.endFramePrompt, {
         clipCarriesArrivals: gate.clipCarriesArrivals ?? true,
+        expected: gate.frameParticipants,
       }),
     ]),
   ];
@@ -789,11 +813,11 @@ function imageBudget(
   budget: BudgetContext,
 ): ImageBudget {
   const frames = ["startFramePrompt", "endFramePrompt"] as const;
-  // A frame may state a larger headcount than the cast pinned for the scene.
+  // Only an unknown card count may be supplied by the answer itself.
   const ceilingFor = (text: string) =>
     wordBudget(family, "image", 0, {
       ...budget,
-      people: Math.max(budget.people ?? 0, statedHeadcount(text) ?? 0),
+      people: budget.people ? budget.people : (statedHeadcount(text) ?? 0),
     });
   const room = (part: ImagePart, frame: (typeof frames)[number]) => {
     const final = finalise(part)[frame];
@@ -817,7 +841,10 @@ function imageBudget(
         const named = participants
           .map((name) => sentences.find((s) => s.toLowerCase().includes(name.trim().toLowerCase())))
           .filter((s): s is string => Boolean(s));
-        fitted[frame] = trimToBudget(part[frame], limit, 1, named);
+        fitted[frame] = trimToBudget(part[frame], limit, 1, [
+          ...named,
+          ...imageConstraintSentences(part[frame]),
+        ]);
       }
       return fitted;
     },
@@ -849,7 +876,14 @@ function gatedImageCall(
   budget: ImageBudget,
 ): () => Promise<ProviderResult<ImagePart>> {
   return async () => {
-    const first = await providerCall(provider, system, user, imagePartSchema, {
+    const bodyDirective = (part: ImagePart) =>
+      ` The text you author in each frame field may use at most ${budget.bodyWords(part)} words; ` +
+      "the remainder of the total ceiling is reserved for automatic setting, look, appearance " +
+      "and wardrobe additions. Describe each supplied character inline as required; its full " +
+      "appearance is appended only as a fallback when that inline description is missing.";
+    const first = await providerCall(provider, system + bodyDirective({
+      startFramePrompt: "", endFramePrompt: "", imageNegativePrompt: "",
+    }), user, imagePartSchema, {
       systemPromptScope: "render_prompts",
     })();
     if (!first.ok) return first;
@@ -860,10 +894,9 @@ function gatedImageCall(
     const retry = await providerCall(
       provider,
       system +
-        gateRepairDirective(codes, gate) +
-        SHORTEN_PROMPT_DIRECTIVE +
-        ` Each frame prompt must be at most ${budget.bodyWords(first.value)} words, because the ` +
-        "project's look and the cast descriptions are appended automatically after it.",
+        (codes.length ? gateRepairDirective(codes, gate) : "") +
+        (budget.exceeds(first.value) ? SHORTEN_PROMPT_DIRECTIVE : "") +
+        bodyDirective(first.value),
       `${user}\nPrevious answer to rewrite:\n${JSON.stringify(first.value)}`,
       imagePartSchema,
       { systemPromptScope: "render_prompts" },
@@ -884,6 +917,7 @@ function gatedImageCall(
     // first says the model needed help, the second says the prompt still has a
     // defect a person should look at.
     gated.unresolved = gateFindings(repaired, gate);
+    if (budget.exceeds(repaired)) gated.unresolved.push("over_budget");
     gated.repaired = gated.codes.filter((code) => !gated.unresolved.includes(code));
     return { ...best, value: repaired };
   };
@@ -1040,6 +1074,9 @@ function composerLint(
   const seconds = draft.trimAtEndSeconds ?? draft.targetDurationSeconds;
   const findings = lintRendered(text, family, kind, kind === "image" ? 0 : seconds, budget);
   const codes = findings.map((f) => f.code as string);
+  if (kind === "video") {
+    codes.push(...lintDialogue(draft.dialogue ?? [], seconds).map((finding) => finding.code));
+  }
   if (kind === "video" && draft.dialogue?.length) {
     if (missingDialogue(text, draft.dialogue).length) codes.push("dialogue_dropped");
   }

@@ -245,12 +245,75 @@ describe("concise prompt generation", () => {
     expect(calls.filter((c) => c.kind === "image")).toHaveLength(2);
     // The retry is told how much room the appended text leaves it.
     expect(calls.filter((c) => c.kind === "image")[1]!.system).toMatch(/at most \d+ words/);
-    // Over the ceiling is a reason to shorten the model's prompt, not to
-    // replace it with the template, and says nothing against the model.
+    // The automatic suffix alone exceeds the ceiling. Keep the constraints,
+    // but report the unresolved budget rather than claiming success.
     expect(executions.find((e) => e.artifact.endsWith(".image_prompt"))).toMatchObject({
-      source: "hybrid", status: "ok", detail: "trimmed=over_budget",
+      source: "hybrid", status: "degraded", detail: "unresolved=over_budget; trimmed=over_budget",
     });
     expect(scene!.prompts.startFramePrompt).toContain("Ben stands directly behind Ana");
+  });
+
+  it("reserves automatic additions before the first image call", async () => {
+    const { project, drafts } = await fixture();
+    project.style = "muted colors and soft directional workshop lighting";
+    const { fake, calls } = provider();
+    await attachScenePrompts(project, [drafts[0]!], fake);
+    const system = calls.find((call) => call.kind === "image")!.system;
+    expect(system).toContain("within 120 words");
+    const room = Number(system.match(/at most (\d+) words/)?.[1]);
+    expect(room).toBeGreaterThanOrEqual(45);
+    expect(room).toBeLessThan(120);
+    expect(system).toContain("full appearance is appended only as a fallback");
+  });
+
+  it("budgets and retries for supporting people even when only one person is pinned", async () => {
+    const { project, drafts } = await fixture();
+    const ana = {
+      id: "ana", name: "Ana", description: "A woman with short curly hair.",
+      createdAt: "now", updatedAt: "now",
+    };
+    const card = "Ana holds a silver clipboard at the table. Two crew members stand beside Ana.";
+    const dropped = "Wide shot, eye level. Ana holds a silver clipboard at the table. Exactly one person is in frame.";
+    const complete = "Wide shot, eye level. Ana holds a silver clipboard at the table. " +
+      "Two crew members in blue overalls stand beside Ana, each holding a separate yellow toolbox. " +
+      "Exactly three people are in frame.";
+    const pair = (text: string) => ({
+      startFramePrompt: text, endFramePrompt: text, imageNegativePrompt: "blur",
+    });
+    const { fake, calls } = provider([pair(dropped), pair(complete)]);
+    const [scene] = await attachScenePrompts(
+      { ...project, generationMode: "keyframes_only" },
+      [{ ...drafts[0]!, visualDescription: card, actionDescription: card, charactersPresent: ["Ana"] }],
+      fake, {
+        cast: [ana],
+        budgets: { version: 1, imageWords: 200, wordsPerExtraPerson: 50, imageMaxWords: 500, videoWords: 250 },
+      },
+    );
+    const images = calls.filter((call) => call.kind === "image");
+    expect(images).toHaveLength(2);
+    expect(images[0].system).toContain("within 300 words");
+    expect(JSON.parse(images[0].user).frameParticipants.end.people).toBe(3);
+    expect(images[1].system).toContain("preserve every distinct person");
+    expect(scene!.prompts.endFramePrompt).toContain("Two crew members");
+    expect(scene!.prompts.endFramePrompt).toContain("Exactly three people");
+  });
+
+  it("keeps a failed population repair visibly unresolved rather than appending a list of names", async () => {
+    const { project, drafts } = await fixture();
+    const card = "Exactly three people are in frame. Ana holds a silver clipboard at the table.";
+    const dropped = "Wide shot, eye level. Ana holds a silver clipboard at the table. Exactly one person is in frame.";
+    const { fake } = provider([{
+      startFramePrompt: dropped, endFramePrompt: dropped, imageNegativePrompt: "blur",
+    }]);
+    const executions: ArtifactExecution[] = [];
+    await attachScenePrompts(
+      { ...project, generationMode: "keyframes_only" },
+      [{ ...drafts[0]!, visualDescription: card, actionDescription: card }], fake,
+      { onExecution: (execution) => executions.push(execution) },
+    );
+    expect(executions.find((entry) => entry.artifact.endsWith(".image_prompt"))).toMatchObject({
+      source: "hybrid", status: "degraded", detail: "unresolved=headcount_mismatch",
+    });
   });
 
   it("trims an over-long model prompt from the end instead of discarding it", async () => {

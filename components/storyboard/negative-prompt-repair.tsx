@@ -40,7 +40,7 @@ export function NegativePromptRepair({
 
   // The same comparison the repair itself makes, so the offer cannot disagree
   // with what pressing the button would do.
-  const timeline = wardrobeTimeline(record.project, scenes, cast);
+  const timeline = wardrobeTimeline(record.project, scenes, cast, record.storyboard?.visualBible);
   const staleCast = scenes.filter((scene) =>
     sheetIsStale(scene, cast, timeline.get(scene.id)),
   ).length;

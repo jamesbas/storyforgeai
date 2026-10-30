@@ -257,7 +257,7 @@ export function castSystemDirective(cast: readonly Character[], forRender = fals
 
 /** Words that carry no identity, so a body repeating them proves nothing. */
 const GENERIC_APPEARANCE =
-  /^(?:with|and|the|her|his|their|she|he|they|wears|wearing|dressed|year|years|old|tall|about|around|beautiful|attractive|woman|women|man|men|person|people)$/i;
+  /^(?:with|and|the|her|his|their|she|he|they|wears|wearing|dressed|year|years|old|tall|about|around|beautiful|attractive|woman|women|man|men|person|people|medium|shoulder|shoulders|skin|natural|texture|hair|eyes?|face|body|length|sized|long|short|wide|close|light|dark|large|small|soft|hands?|arms?|legs?|feet|build|breasts?|age|aged|appropriate)$/i;
 
 function identityWords(text: string): string[] {
   const words = text.toLocaleLowerCase().match(/[a-z]{4,}/g) ?? [];
@@ -283,13 +283,35 @@ function identityWords(text: string): string[] {
  *
  * Reads the canonical appearance, not the wardrobe, because a character's
  * clothing changes between scenes and their face does not.
+ *
+ * Counts only words that tell one person from another. "Medium", "shoulder",
+ * "skin", "natural" and "texture" are in every description and every prompt —
+ * a medium wide shot with soft neon on someone's skin shares half of a library
+ * entry without saying she is blonde — and a frame that merely shared them was
+ * judged to describe her, so her sheet was skipped and she rendered as a
+ * red-haired stranger. Two distinguishing words are required, not one.
  */
 export function describedInline(body: string, character: Character, castSize = 1): boolean {
   const appearance = appearanceFor(character, true, true);
   const words = identityWords(compactForRender(appearance, appearanceBudgetFor(castSize)));
-  if (words.length < 4) return false;
+  if (words.length < 3) return false;
   const lower = body.toLocaleLowerCase();
-  return words.filter((word) => lower.includes(word)).length / words.length >= 0.25;
+  const hits = words.filter((word) => lower.includes(word)).length;
+  return hits >= 2 && hits / words.length >= 0.25;
+}
+
+/** Words that name a garment's role rather than the garment. */
+const WARDROBE_FILLER = new Set(["and", "with", "the", "her", "his", "matching", "plus", "except", "for", "wearing"]);
+
+/** Whether a prompt body already says what somebody is wearing, or that they are bare. */
+function wardrobeStated(body: string, wardrobe: string): boolean {
+  if (NUDE.test(wardrobe)) return /\b(?:nude|naked|topless|bare)\b/i.test(body);
+  const words = [...new Set(wardrobe.toLocaleLowerCase().match(/[a-z]{3,}/g) ?? [])].filter(
+    (word) => !WARDROBE_FILLER.has(word),
+  );
+  if (!words.length) return true;
+  const lower = body.toLocaleLowerCase();
+  return words.filter((word) => lower.includes(word)).length / words.length >= 0.5;
 }
 
 /**
@@ -310,9 +332,39 @@ export function castPromptSuffix(
   body?: string,
 ): string {
   const missing = body ? cast.filter((c) => !describedInline(body, c, cast.length)) : cast;
-  const wardrobe = body ? bareWhereBodySaysSo(body, missing, cast.length, wardrobeAt) : wardrobeAt;
+  const wardrobe = body ? bareWhereBodySaysSo(body, cast, cast.length, wardrobeAt) : wardrobeAt;
   const sheet = castSheet(missing, true, wardrobe, options);
-  return sheet ? ` Character continuity — ${sheet}` : "";
+  return `${sheet ? ` Character continuity — ${sheet}` : ""}${unstatedWardrobe(body, cast, missing, wardrobe)}`;
+}
+
+/**
+ * Wardrobe for the people whose appearance is already in the prompt.
+ *
+ * The sheet carries the wardrobe along with the description, so skipping it for
+ * someone the body describes also skipped what she is wearing. A frame that
+ * names no clothing at all, on a prompt that says "explicit content", is
+ * drawn with none. The description is not repeated — that is the second mention
+ * that makes the model draw her twice — only the one sentence the body left out.
+ */
+function unstatedWardrobe(
+  body: string | undefined,
+  cast: readonly Character[],
+  missing: readonly Character[],
+  wardrobeAt: Record<string, string> | undefined,
+): string {
+  if (!body) return "";
+  const sentences = cast
+    .filter((c) => !missing.includes(c))
+    .flatMap((c) => {
+      const outfit = (wardrobeAt?.[c.id] ?? c.wardrobe)?.trim().replace(/\s+/g, " ");
+      if (!outfit || wardrobeStated(body, outfit)) return [];
+      return [
+        NUDE.test(outfit)
+          ? `${c.name} is completely naked with no clothing.`
+          : `${c.name} is dressed in ${positiveGarments(outfit)}.`,
+      ];
+    });
+  return sentences.length ? ` Wardrobe continuity — ${sentences.join(" ")}` : "";
 }
 
 const BODY_SAYS_BARE = /\b(?:nude|naked|topless)\b/i;

@@ -5,7 +5,7 @@ import type { Scene } from "@/lib/schemas/storyboard";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { ArtifactExecution } from "@/lib/schemas/provenance";
 import { ExecutionBadge } from "@/components/shared/execution-badge";
-import { dedupeSentences, hasPunctuationArtifact } from "@/lib/agents/media-prompt-spec";
+import { dedupeSentences, hasPunctuationArtifact, lintDialogue } from "@/lib/agents/media-prompt-spec";
 import { missingDialogue, opensWithFraming, echoesInstructions, mixesStandingAndSeated } from "@/lib/agents/media-prompt-normalise";
 
 /** The prompt fields a user may edit. The quality checklist is agent review notes. */
@@ -54,6 +54,10 @@ function lintField(key: FieldKey, text: string, scene: Scene): string[] {
   }
 
   if (key === "videoPromptSegment" && scene.dialogue?.length) {
+    notes.push(...lintDialogue(
+      scene.dialogue,
+      scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
+    ).map((finding) => finding.message));
     const dropped = missingDialogue(text, scene.dialogue);
     if (dropped.length) {
       notes.push(`Dialogue missing from the prompt, so it will not be spoken: ${dropped.join(" / ")}`);

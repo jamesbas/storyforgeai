@@ -22,6 +22,7 @@ export type TelemetryEvent =
   | "project.restored"
   | "project.load_failed"
   | "storyboard.generated"
+  | "storyboard.dialogue.warning"
   | "storyboard.exported"
   | "agent.run"
   | "agent.run_started"

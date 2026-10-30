@@ -15,11 +15,11 @@ export const PROMPT_VERSIONS = {
   visualBible: "visual-bible-v2",
   // v2: each batch is handed the wardrobe as it stands after the changes
   // declared so far, and the undressing case is stated as a requirement.
-  storyboard: "storyboard-v2",
-  imagePrompt: "image-prompt-v5",
+  storyboard: "storyboard-v3",
+  imagePrompt: "image-prompt-v6",
   // v4: a scene continuing from the one before it is handed its actual opening
   // frame in the payload, not just told about it in the system prompt.
-  videoPrompt: "video-prompt-v5",
+  videoPrompt: "video-prompt-v6",
   variants: "variants-v2",
   worldBible: "world-bible-v1",
   director: "director-v1",
@@ -31,4 +31,4 @@ export const PROMPT_VERSIONS = {
 } as const;
 
 /** Deterministic builders carry their own version, so a fallback is traceable too. */
-export const BUILDER_VERSION = "builders-v2";
+export const BUILDER_VERSION = "builders-v3";

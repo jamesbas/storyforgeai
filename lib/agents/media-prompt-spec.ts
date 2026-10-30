@@ -30,7 +30,7 @@ export type BudgetContext = {
  */
 
 /** Bumped when the rendered output changes materially. Recorded per execution. */
-export const COMPOSER_VERSION = "media-composer-v3";
+export const COMPOSER_VERSION = "media-composer-v4";
 
 export type ShotFraming = {
   /** "Medium shot", "Extreme close-up" — the first thing an image prompt says. */
@@ -77,6 +77,7 @@ export type LintCode =
   | "missing_end_state"
   | "duplicate_sentence"
   | "punctuation_artifact"
+  | "dialogue_under_budget"
   | "dialogue_over_budget"
   | "over_budget";
 
@@ -105,9 +106,43 @@ export function dialogueWordBudget(seconds: number): number {
   return Math.max(1, Math.round(seconds * WORDS_PER_SECOND));
 }
 
+export function dialogueWordTargets(seconds: number) {
+  const maximum = dialogueWordBudget(seconds);
+  return {
+    minimum: Math.ceil(maximum / 2),
+    targetMin: Math.max(1, Math.round(maximum * 0.6)),
+    targetMax: Math.max(1, Math.round(maximum * 0.7)),
+    maximum,
+  };
+}
+
 export function countWords(text: string): number {
   const trimmed = text.trim();
   return trimmed ? trimmed.split(/\s+/).length : 0;
+}
+
+export function lintDialogue(
+  dialogue: readonly { line: string }[],
+  seconds: number,
+): LintFinding[] {
+  if (!dialogue.length) return [];
+  const spoken = countWords(dialogue.map((d) => d.line).join(" "));
+  const { minimum, maximum } = dialogueWordTargets(seconds);
+  if (spoken < minimum) {
+    return [{
+      code: "dialogue_under_budget",
+      severity: "warning",
+      message: `Dialogue has ${spoken} words, about ${(spoken / WORDS_PER_SECOND).toFixed(1)}s of speech. Aim for at least ${minimum} words to cover half of this ${seconds}s scene while the action continues. Timing is estimated, not measured audio.`,
+    }];
+  }
+  if (spoken > maximum) {
+    return [{
+      code: "dialogue_over_budget",
+      severity: "warning",
+      message: `Dialogue runs about ${spoken} words against roughly ${maximum} for ${seconds}s. It will be rushed or clipped.`,
+    }];
+  }
+  return [];
 }
 
 /** Exclude attributed speech, but not quoted visual instructions or signage. */
@@ -352,15 +387,7 @@ export function lintVideoSpec(spec: MediaPromptSpec, segmentSeconds: number): Li
       message: "No end state; the movement has nowhere to finish.",
     });
   }
-  const spoken = countWords(spec.dialogue.map((d) => d.line).join(" "));
-  const budget = dialogueWordBudget(segmentSeconds);
-  if (spoken > budget) {
-    findings.push({
-      code: "dialogue_over_budget",
-      severity: "warning",
-      message: `Dialogue runs about ${spoken} words against roughly ${budget} for ${segmentSeconds}s. It will be rushed or clipped.`,
-    });
-  }
+  findings.push(...lintDialogue(spec.dialogue, segmentSeconds));
   return findings;
 }
 

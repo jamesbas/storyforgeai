@@ -25,5 +25,13 @@ export async function resolveSystemPrompt(
       : scope === "storyboard"
         ? settings.storyboard
         : settings.renderPrompts;
-  return composeSystemPrompt(system, custom);
+  // This old stock instruction contradicts the inline identity contract.
+  // Leave the saved policy intact; discard only that obsolete pair of sentences.
+  const current = scope === "render_prompts" && system.includes("Image Prompt Agent")
+    ? custom?.replace(
+        /Do not restate a supplied character['’]s appearance\.\s*It is appended automatically, and describing someone twice renders them twice\./gi,
+        "",
+      ).trim()
+    : custom;
+  return composeSystemPrompt(system, current);
 }

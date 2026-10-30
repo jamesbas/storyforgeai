@@ -10,6 +10,7 @@ import {
 } from "@/lib/media/seam";
 import { focalSide, sideVisibleIn } from "@/lib/media/viewpoint";
 import type { SceneDraft } from "@/lib/schemas/storyboard";
+import { mentionsParticipant, physicalContradictions, type FrameParticipantPair } from "@/lib/agents/frame-contract";
 
 /**
  * The acceptance gate between "the agent was instructed correctly" and "this
@@ -55,6 +56,10 @@ export const PROMPT_GATE_CODES = [
   "focal_point_hidden",
   /** The two frames of one scene disagree about how many people are in it. */
   "headcount_mismatch",
+  "headcount_missing",
+  "pose_conflict",
+  "limb_conflict",
+  "over_budget",
 ] as const;
 export type PromptGateCode = (typeof PROMPT_GATE_CODES)[number];
 
@@ -62,6 +67,7 @@ export type ImageGateContext = {
   scene: SceneDraft;
   /** Cast the storyboard placed in this scene, by name. */
   participants: readonly string[];
+  frameParticipants?: FrameParticipantPair;
   explicit: boolean;
   /**
    * Garment text this scene's wardrobe actually establishes, per frame.
@@ -432,10 +438,17 @@ export function gateImagePrompt(
   // Not cosmetic: the cast sheet is appended only for characters the prompt
   // names, so a person left out of the prose is dropped from the render's
   // description of them entirely.
-  const lower = text.toLowerCase();
-  if (ctx.participants.some((name) => name.trim() && !lower.includes(name.trim().toLowerCase()))) {
+  const expected = ctx.frameParticipants?.[frame];
+  const participants = expected?.names ?? ctx.participants;
+  if (participants.some((name) => name.trim() && !mentionsParticipant(text, name))) {
     codes.push("participant_missing");
   }
+  const headcount = statedHeadcount(text);
+  if (expected && expected.people > 1 && headcount === null) codes.push("headcount_missing");
+  if (expected && expected.people > 0 && headcount !== null && headcount !== expected.people) {
+    codes.push("headcount_mismatch");
+  }
+  codes.push(...physicalContradictions(text, participants));
 
   // Before the explicit branch: a keyframe is one held instant whatever the
   // scene contains, and this check spent its first three releases switched off
@@ -446,7 +459,7 @@ export function gateImagePrompt(
   // ones it cannot hold are simply not drawn. The stated headcount is the
   // better source where the prompt gives one: it counts everybody in shot,
   // while `participants` only knows the cast pinned from the library.
-  const people = Math.max(statedHeadcount(text) ?? 0, ctx.participants.length);
+  const people = Math.max(headcount ?? 0, expected?.people ?? participants.length);
   const floor = minimumShotSizeFor(people);
   const size = shotSizeOf(text);
   if (floor && size && isTighterThan(size, floor)) codes.push("framing_too_tight");
@@ -499,11 +512,12 @@ export function gateImagePrompt(
 export function gateFramePair(
   startFrame: string,
   endFrame: string,
-  options: { clipCarriesArrivals: boolean },
+  options: { clipCarriesArrivals: boolean; expected?: FrameParticipantPair },
 ): PromptGateCode[] {
   if (options.clipCarriesArrivals) return [];
   const start = statedHeadcount(startFrame);
   const end = statedHeadcount(endFrame);
+  if (options.expected && start === options.expected.start.people && end === options.expected.end.people) return [];
   return start !== null && end !== null && end > start ? ["headcount_mismatch"] : [];
 }
 
@@ -525,7 +539,11 @@ export function gateRepairDirective(
   }
   if (codes.includes("participant_missing")) {
     reasons.push(
-      `every person in the shot must be named in the prompt — ${ctx.participants.join(", ")}`,
+      `every person in the shot must be named in the prompt — ${
+        [...new Set(ctx.frameParticipants
+          ? [...ctx.frameParticipants.start.names, ...ctx.frameParticipants.end.names]
+          : ctx.participants)].join(", ")
+      }; use the supplied frameParticipants roster for each endpoint`,
     );
   }
   if (codes.includes("euphemism")) {
@@ -587,8 +605,20 @@ export function gateRepairDirective(
   }
   if (codes.includes("headcount_mismatch")) {
     reasons.push(
-      "the closing frame adds someone the opening frame does not contain, and no clip will " +
-        "carry them in; keep the same people in both",
+      ctx.frameParticipants
+        ? `the counts disagree with the scene: the opening holds ${ctx.frameParticipants.start.people} ` +
+          `people and the closing holds ${ctx.frameParticipants.end.people}; preserve every distinct person`
+        : "the closing frame adds someone the opening frame does not contain, and no clip will " +
+          "carry them in; keep the same people in both",
+    );
+  }
+  if (codes.includes("headcount_missing")) {
+    reasons.push("give each frame its own short 'Exactly N people are in frame' sentence, matching its supplied roster");
+  }
+  if (codes.includes("pose_conflict") || codes.includes("limb_conflict")) {
+    reasons.push(
+      "the same person or owned limb has incompatible simultaneous states; give each person one " +
+      "pose and each named hand one compatible state, using the scene rather than inventing a repair",
     );
   }
   return (
@@ -626,7 +656,7 @@ export function repairImagePrompt(
   let body = prompt.trim();
   if (codes.includes("framing_too_tight")) {
     const floor = minimumShotSizeFor(
-      Math.max(statedHeadcount(body) ?? 0, ctx.participants.length),
+      Math.max(statedHeadcount(body) ?? 0, ctx.frameParticipants?.[frame].people ?? ctx.participants.length),
     );
     if (floor) body = widenShotSize(body, floor);
   }
@@ -704,7 +734,7 @@ export function repairImagePrompt(
     );
     if (guard) additions.push(guard);
   }
-  if (codes.includes("participant_missing") && ctx.participants.length) {
+  if (codes.includes("participant_missing") && !ctx.frameParticipants && ctx.participants.length) {
     additions.push(`In frame: ${ctx.participants.join(", ")}.`);
   }
   // Repairable from the card alone: the scene says the frame is about the back

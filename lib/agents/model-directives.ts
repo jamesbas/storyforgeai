@@ -118,9 +118,9 @@ export function videoPromptDirective(
             "the language and the accent whenever a line is not spoken in unaccented English. " +
             `About ${Math.round(segmentSeconds * WORDS_PER_SECOND)} words of speech fill ` +
             `${segmentSeconds} ` +
-            "seconds at a natural pace, so use that budget rather than reducing an exchange to " +
-            "a single remark — a clip with two words in it wastes the model's one real " +
-            "advantage. Only trim when the scene genuinely carries more than will fit."
+            "seconds at a natural pace. This is capacity, not a target: keep the authored lines " +
+            "verbatim rather than padding, shortening or replacing them. Place the speech " +
+            "alongside the ongoing physical action, not in a pause after it."
           : "")
       );
     case "minimax":
@@ -176,9 +176,10 @@ export function videoPromptDirective(
             "and establish them once — age, whether they are on or off screen, pitch and pace " +
             "— and keep the delivery outside the quotation marks with only the spoken words " +
             "inside, word for word. " +
-            `About ${Math.round(segmentSeconds * 2)} words of speech fill ${segmentSeconds} ` +
-            "seconds at a natural pace — use that budget rather than reducing an exchange to a " +
-            "single remark. " +
+            `About ${Math.round(segmentSeconds * WORDS_PER_SECOND)} words of speech fill ${segmentSeconds} ` +
+            "seconds at a natural pace. This is capacity, not a target: keep the authored lines " +
+            "verbatim rather than padding, shortening or replacing them. Place the speech " +
+            "alongside the ongoing physical action, not in a pause after it. " +
             // H3 fields the three layers separately, so they are returned
             // separately: `videoSoundscape` for ambience and physical sound,
             // `videoScore` for the audience-only music.

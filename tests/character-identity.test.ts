@@ -81,10 +81,19 @@ describe("not describing a character twice in one prompt", () => {
     expect(castPromptSuffix([subject], undefined, {}, body)).toContain("Elena:");
   });
 
-  it("withholds it once the body carries the description itself", () => {
+  it("withholds the description once the body carries it, and says only what she wears", () => {
     const body =
       "Elena, a tall lean woman in her thirties with shoulder-length dark curly hair, " +
       "stands at the window.";
+    const suffix = castPromptSuffix([subject], undefined, {}, body);
+    expect(suffix).not.toContain("Elena:");
+    expect(suffix).toBe(" Wardrobe continuity — Elena is dressed in red coat.");
+  });
+
+  it("withholds everything once the body carries description and wardrobe both", () => {
+    const body =
+      "Elena, a tall lean woman in her thirties with shoulder-length dark curly hair in a red " +
+      "coat, stands at the window.";
     expect(castPromptSuffix([subject], undefined, {}, body)).toBe("");
   });
 

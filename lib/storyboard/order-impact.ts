@@ -142,8 +142,8 @@ export function orderImpact(
     .map((id) => byId.get(id))
     .filter((scene): scene is Scene => scene !== undefined);
 
-  const timelineBefore = wardrobeTimeline(record.project, orderedBefore, cast);
-  const timelineAfter = wardrobeTimeline(record.project, orderedAfter, cast);
+  const timelineBefore = wardrobeTimeline(record.project, orderedBefore, cast, record.storyboard?.visualBible);
+  const timelineAfter = wardrobeTimeline(record.project, orderedAfter, cast, record.storyboard?.visualBible);
 
   const wardrobe: ImpactScene[] = [];
   for (const scene of orderedAfter) {

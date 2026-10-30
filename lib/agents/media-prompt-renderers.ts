@@ -59,7 +59,7 @@ export function dialogueClause(spec: MediaPromptSpec): string {
   const spoken = spec.dialogue
     .map((d) => `${d.speaker} says, "${d.line.replace(/"/g, "'")}"`)
     .join(" ");
-  return `${spoken} Lip movement matches the spoken words.`;
+  return `While the movement continues, ${spoken} Lip movement matches the spoken words.`;
 }
 
 /**

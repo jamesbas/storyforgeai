@@ -6,6 +6,94 @@ import { wardrobeKeyOf } from "@/lib/schemas/wardrobe";
 import { isContinuousTake } from "@/lib/agents/continuity";
 import { charactersInScene } from "@/lib/agents/scene-cast";
 
+/** Wording that says a description is about a change of clothes, not a standing outfit. */
+const OUTFIT_CHANGES =
+  /\b(?:initially|at first|removes?|strips?|undress\w*|takes? off|then|later|until|by segment|naked|nude)\b/i;
+
+/**
+ * What the visual bible says people who are not in the cast wear.
+ *
+ * The bible is the project's continuity guide and states a patron's clothing
+ * once, but only the storyboard's declared changes ever reached the timeline,
+ * so an unnamed man's outfit was in no frame unless the model chose to repeat
+ * it — and the model, told to be concise, did not. A man left undescribed
+ * beside a bare woman, in a prompt that says "explicit", is drawn bare.
+ *
+ * Only a standing outfit is taken. A description that walks through a change
+ * ("wearing sweatpants initially; he removes them") is left to the storyboard's
+ * own declared changes, because pinning the first outfit for the whole piece
+ * would dress him in the scene where he is meant to be naked.
+ */
+/** A garment, as opposed to jewellery or an accessory, which is not an outfit. */
+const GARMENT_WORD =
+  /\b(?:shirt|t-?shirt|tee|polo|henley|blouse|top|tank|jacket|coat|blazer|suit|sweater|jumper|hoodie|cardigan|vest|dress|sundress|gown|skirt|trousers|pants|slacks|chinos|jeans|denim|shorts|leggings|scrubs|overalls|uniform|robe|jumpsuit|tunic|button-?(?:up|down)|bra|panties|briefs|boxers|lingerie|pajamas?|pyjamas?|apron|kilt|swimsuit|bikini|trunks)\b/i;
+
+export function outfitsFromBible(
+  bible: { characters: readonly { name: string; description: string }[] } | undefined,
+  cast: readonly Character[],
+): Record<string, string> {
+  const pinned = new Set(cast.map((c) => c.name.trim().toLocaleLowerCase()));
+  const outfits: Record<string, string> = {};
+  for (const character of bible?.characters ?? []) {
+    const name = character.name.trim();
+    if (!name || pinned.has(name.toLocaleLowerCase())) continue;
+    if (OUTFIT_CHANGES.test(character.description)) continue;
+    const worn = /\b(?:wears?|wearing|dressed in|clad in)\s+([^.;]+)/i.exec(character.description);
+    const outfit = worn?.[1]?.trim().replace(/[,\s]+$/, "");
+    if (!outfit || isUndressed(outfit) || !GARMENT_WORD.test(outfit)) continue;
+    // "Dressed in a gold chain" is nudity with jewellery, and "no shirt" is
+    // an absence a text encoder reads as a shirt.
+    if (/\b(?:bare|shirtless|topless|nothing)\b|\bno\s+(?:shirt|top|pants|trousers|clothes)\b/i.test(outfit)) {
+      continue;
+    }
+    outfits[name] = outfit;
+  }
+  return outfits;
+}
+
+function subjectWords(subject: string): string[] {
+  return subject
+    .toLocaleLowerCase()
+    .split(/[^\p{L}\p{N}]+/u)
+    .filter((word) => word && !SUBJECT_STOP_WORDS.has(word));
+}
+
+/** The existing label for the same person, however the prompt phrases them. */
+function sameSubjectKey(keys: readonly string[], subject: string): string | undefined {
+  const wanted = subjectWords(subject);
+  if (!wanted.length) return undefined;
+  return keys.find((key) => {
+    const known = subjectWords(key);
+    return (
+      known.length > 0 &&
+      (known.every((word) => wanted.includes(word)) || wanted.every((word) => known.includes(word)))
+    );
+  });
+}
+
+type TimelineScene = {
+  id: string;
+  visualDescription?: string;
+  actionDescription?: string;
+  continuityNotes?: string[];
+};
+
+/** Whether a sentence of the card says this subject is unclothed. */
+function cardUndresses(scene: TimelineScene, subject: string): boolean {
+  const words = subjectWords(subject);
+  if (!words.length) return false;
+  const text = [scene.visualDescription, scene.actionDescription, ...(scene.continuityNotes ?? [])]
+    .filter(Boolean)
+    .join(" ");
+  return text
+    .split(/(?<=[.!?])\s+/)
+    .some(
+      (sentence) =>
+        NUDITY_STATE.test(sentence) &&
+        words.every((word) => sentence.toLocaleLowerCase().includes(word)),
+    );
+}
+
 /**
  * Resolve what each character wears at each end of every scene.
  *
@@ -21,22 +109,28 @@ import { charactersInScene } from "@/lib/agents/scene-cast";
  */
 export function wardrobeTimeline(
   project: Project,
-  scenes: readonly { id: string }[],
+  scenes: readonly TimelineScene[],
   cast: readonly Character[],
+  bible?: { characters: readonly { name: string; description: string }[] },
 ): Map<string, SceneWardrobe> {
   const current: Record<string, string> = {};
   for (const character of cast) {
     const wardrobe = wardrobeOf(project, character);
     if (wardrobe) current[character.id] = wardrobe;
   }
-  // Unnamed people start with nothing established: whatever the first scene
-  // they appear in decides. From then on it is carried like anyone else's.
-  const others: Record<string, string> = {};
+  // Unnamed people start from what the visual bible says they wear, and from
+  // then on it is carried like anyone else's.
+  const others: Record<string, string> = outfitsFromBible(bible, cast);
 
   const byId = new Map(cast.map((c) => [c.id, c] as const));
   const timeline = new Map<string, SceneWardrobe>();
 
   for (const scene of scenes) {
+    // A card that says somebody is bare outranks the standing outfit, and the
+    // state carries forward like any other change.
+    for (const key of Object.keys(others)) {
+      if (!isUndressed(others[key]!) && cardUndresses(scene, key)) others[key] = "nude";
+    }
     const changes = (project.wardrobeChanges?.[scene.id] ?? []).filter(
       (c) => !c.characterId || byId.has(c.characterId),
     );
@@ -49,7 +143,11 @@ export function wardrobeTimeline(
       if (!wardrobe) continue;
       const target = change.characterId ? current : others;
       const opening = change.characterId ? start : othersStart;
-      const key = change.characterId ?? change.subject!.trim();
+      // The same man is "the large black man" in one place and "Large Black Man"
+      // in another; two labels would put two outfits on him.
+      const key = change.characterId
+        ? change.characterId
+        : (sameSubjectKey(Object.keys(others), change.subject!) ?? change.subject!.trim());
 
       if (change.mode === "within") {
         within.push(change);

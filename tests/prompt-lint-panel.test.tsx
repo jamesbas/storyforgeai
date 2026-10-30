@@ -112,6 +112,7 @@ describe("prompt lint in the panel", () => {
     );
     open();
     expect(screen.queryByText(/will not be spoken/i)).toBeNull();
+    expect(screen.getByText(/at least 25 words/)).toBeVisible();
   });
 
   it("does not lint negative prompts, which are term lists rather than prose", () => {

@@ -45,6 +45,45 @@ function sceneWith(overrides: Partial<Scene> = {}): Scene {
   } as Scene;
 }
 
+describe("dialogue coverage in the scene editor", () => {
+  it("shows a duration estimate, the writing target, and a nonblocking warning", () => {
+    render(<SceneCardEditor
+      scene={sceneWith({ dialogue: [{ character: "Ana", line: "Keep the light steady." }] })}
+      projectId="p1"
+    />);
+    expect(screen.getByText(/4 words.*1.6s speech/)).toBeInTheDocument();
+    expect(screen.getByText(/aim for 30–35 words in 20s/)).toBeInTheDocument();
+    expect(screen.getByTestId("dialogue-warning")).toHaveTextContent("at least 25 words");
+    fireEvent.change(screen.getByLabelText("Line 1"), { target: { value: "Keep the light steady now." } });
+    expect(screen.getByRole("button", { name: /save card/i })).toBeEnabled();
+  });
+
+  it("clears the warning as speech reaches the minimum, without saving", () => {
+    render(<SceneCardEditor
+      scene={sceneWith({ dialogue: [{ character: "Ana", line: "Keep turning." }] })}
+      projectId="p1"
+    />);
+    fireEvent.change(screen.getByLabelText("Line 1"), {
+      target: { value: Array.from({ length: 25 }, () => "word").join(" ") },
+    });
+    expect(screen.queryByTestId("dialogue-warning")).toBeNull();
+  });
+
+  it("keeps intentional silence quiet and uses the actual trimmed duration", () => {
+    const { rerender } = render(<SceneCardEditor scene={sceneWith({ dialogue: [] })} projectId="p1" />);
+    expect(screen.queryByTestId("dialogue-warning")).toBeNull();
+    rerender(<SceneCardEditor
+      scene={sceneWith({
+        trimAtEndSeconds: 10,
+        dialogue: [{ character: "Ana", line: Array.from({ length: 13 }, () => "word").join(" ") }],
+      })}
+      projectId="p1"
+    />);
+    expect(screen.getByText(/aim for 15–18 words in 10s/)).toBeInTheDocument();
+    expect(screen.queryByTestId("dialogue-warning")).toBeNull();
+  });
+});
+
 describe("prompts rewritten while the panel is open", () => {
   it("shows the new text without a reload", () => {
     const scene = sceneWith();

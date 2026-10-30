@@ -90,6 +90,12 @@ export function PromptBudgetSettingsForm() {
       title="Prompt length limits"
       description="Word ceilings for the image and video prompts the planner writes, for every project. Shorter, more direct image prompts tend to render better, so raise these only where a scene needs the room. Existing prompts are unchanged until rewritten."
     >
+      <p className="text-sm text-muted-foreground">
+        Image allowance = one-person words + extra words for each additional person, up to
+        the maximum. A 200-word base with 50 extra and a 500-word cap gives three people
+        300 words, not 500. Automatic additions use part of that allowance. Required people
+        and contact details are kept and flagged if they cannot fit.
+      </p>
       {fields ? (
         <form
           className="space-y-4"

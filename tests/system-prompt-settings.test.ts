@@ -143,4 +143,24 @@ describe("app-wide system prompt settings", () => {
     expect(canvas.indexOf("CANVAS_POLICY")).toBeLessThan(canvas.indexOf("BUILT IN"));
     expect(canvas).toContain("MANDATORY STORYFORGEAI AGENT CONTRACT");
   });
+
+  it("drops the obsolete appended-appearance instruction only for image requests", async () => {
+    const { service } = await isolated();
+    const { resolveSystemPrompt } = await import("@/lib/agents/llm/system-prompt");
+    const legacy = "Do not restate a supplied character's appearance. It is appended automatically, " +
+      "and describing someone twice renders them twice.";
+    await service.saveSystemPromptSettings({
+      agenticCanvas: "Canvas policy.", storyboard: "Storyboard policy.",
+      renderPrompts: `Keep the original roles. ${legacy} Preserve the setting.`,
+    });
+    const resolved = await resolveSystemPrompt(
+      "You are the Image Prompt Agent. Describe each character inline.", "render_prompts",
+    );
+    expect(resolved).not.toContain(legacy);
+    expect(resolved).toContain("Keep the original roles.");
+    expect(resolved).toContain("Preserve the setting.");
+    expect(resolved).toContain("Describe each character inline.");
+    expect((await service.getSystemPromptSettings()).renderPrompts).toContain(legacy);
+    expect(await resolveSystemPrompt("You are the Video Prompt Agent.", "render_prompts")).toContain(legacy);
+  });
 });

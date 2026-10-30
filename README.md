@@ -39,11 +39,11 @@ recent updates are kept below — every release ever made is in
 
 | Version | Date | What changed |
 | --- | --- | --- |
+| **2.85** | 2026-10-30 | **Image-prompt rewrites protect people and physical relationships.** Existing scene cards and bibles now supply supporting names and recognized person groups for word budgets and per-frame checks, with explicit arrivals, departures and offscreen people respected. The first request reserves space for automatic additions; trimming protects people, poses and contact details, and unresolved count, pose, owned-limb or budget conflicts remain flagged. An obsolete custom instruction about always-appended appearance is omitted from image requests without changing saved settings. Apply this with Rewrite all image prompts, not a new Agentic Canvas; existing media needs re-rendering. These text checks cannot guarantee correct anatomy in a generated image. |
+| **2.84** | 2026-10-30 | **More substantial dialogue without stopping the action.** New speaking scenes target 30-35 dialogue words per 20 seconds, with a 25-word minimum estimate. Short or overlong scripts get up to two dialogue-only revisions that preserve the scene action and speakers; unresolved cases keep their original lines with visible warnings. Video prompts carry speech alongside ongoing movement, and the editor shows estimated speech time and duration-aware targets, including trimmed final scenes. Intentionally wordless scenes and saved storyboards are not automatically rewritten. Speech timing is estimated, not verified against rendered audio. |
+| **2.83** | 2026-10-29 | **Unnamed people are now dressed in the keyframe, and the dancer's outfit is stated even when her look is.** Patrons and other unnamed characters described in the visual bible ("a dark t-shirt and dark trousers") had their clothing dropped from concise frames, so the image model drew them bare; their bible outfit is now added as wardrobe continuity (jewellery, accessories, nude or "no shirt" descriptions and bibles that describe an undressing are not treated as outfits), and a scene card that says one of them is naked takes it off for the rest of the scene. The check for whether a prompt already describes a pinned character counted shot and skin words ("medium", "shoulder", "natural") as a description, so a frame could skip her cast sheet and render her bare with the wrong hair; it now needs real appearance words, and her wardrobe is added whenever the frame does not state it. Existing prompts are unchanged until rewritten: rerun the storyboard prompts, then re-render. |
 | **2.82** | 2026-10-29 | **The club/clothing fixes now hold for any project.** Checked against all 38 stored projects: the setting added to frames is now just the place ("a single small hotel guest room"), without framing words or negations like "no windows", and is left out when the world bible describes a story that moves between places ("exterior field, then interior bay") or places that do not belong together. Descriptions of anatomy in the visual bible are never reworded; only a shirt or blouse described as open or unbuttoned (and what it "reveals") becomes a buttoned one. A garment the scene card itself says someone is wearing is no longer taken back off as "invented" when the dancer is bare, so a dressed patron stays dressed even if the visual bible gave him no clothes. Existing prompts are unchanged until rewritten. |
 | **2.81** | 2026-10-29 | **Clubs stop turning into trailer parks, and patrons keep their shirts.** Keyframes written to be concise left out where the scene was, so a close-up in a strip club could render against white clapboard siding; the world bible's own statement of the setting ("an upscale strip club interior, dim, purple and pink neon") is now added to any frame that does not already say it. The adult-content rules told the model that everyone who touches the dancer is naked, so patrons who only grope or tip were drawn bare-chested or nude; "taking part in the act" now means penetration, oral contact or hands on genitals, and anyone whose clothing the scene card or visual bible states keeps it. The visual bible is now asked to dress unnamed characters in complete garments ("a black short-sleeved shirt, buttoned") rather than "an open shirt revealing his biceps", which renders as no shirt. Existing bibles and prompts are unchanged: edit the patrons' clothing in the visual bible or the scene wardrobe, then rewrite the prompts. |
-| **2.80** | 2026-10-29 | **The storyboard now shows which model wrote its scene cards.** The Storyboard Artist's record had no model, so with a different model per stage there was no way to confirm from the storyboard that the scene cards used the "Story and storyboard" model while the image prompts used the "Prompt writing" one. The badge now names it, and a failed scene-card batch records its real reason (timeout, unreachable, wrong shape) instead of "unknown". |
-| **2.79** | 2026-10-29 | **You can now say a story has a longer ending than the automatic limit.** "Scenes after the climax" stopped at 3, so a 17-scene piece whose named climax is followed by an exchange, a farewell and a fade-out could never be told it needed four, and its arc was flagged for an overlong tail whatever you chose. The setting now goes up to 8 (never more than the scene count less one, so the climax keeps a scene of its own); the automatic budget is unchanged. A story arc, plan or prompt that the model wrote and the app kept while flagging a check now reads "Hybrid · kept, with a check flagged" instead of "the model's answer failed a check". Existing arcs are unchanged; set the number, then regenerate the arc. |
-| **2.78** | 2026-10-29 | **Fewer contradictions in keyframes, a model per stage, and clip prompts that survive.** When the cards say a character is nude but the storyboard never recorded the undressing, the first such scene is now marked automatically (one cast member in the scene, never over a change you set), the "dressed in black lace" line is no longer appended to a frame that says she is naked, and a "change" that merely restates her current outfit is no longer recorded. Camera moves and sequence wording in any tense ("camera tracked forward", "as she pulled herself up") are caught in frames and removed where it is safe. A clip prompt that runs over its limit is trimmed, and a spoken line the model dropped is put back word for word, instead of replacing the whole prompt with the scene card; dialogue now matches regardless of punctuation or case. Projects that only render keyframes skip the clip prompt pass (about half the prompt time) and the storyboard says so if you later switch to a video mode. The run record now separates what was repaired from what is still wrong. Settings → AI planning models now has a dropdown for the default model and one for each of story and storyboard, creative plans, and prompt writing, listing the models LM Studio reports plus presets, with "Other model id…" to type any model not listed. Existing saved prompts are unchanged; regenerate the storyboard or rewrite prompts to apply this. |
 
 ---
 
@@ -482,6 +482,25 @@ action, story beat, camera move, and dialogue. Dialogue is quoted inline in the
 prose (`Lead says, "..."`), which is the format LTX-2 expects and how spoken
 audio reaches the clip; nothing is synthesized separately.
 
+Speaking scenes aim for dialogue during at least half the shot: **30-35 words
+for 20 seconds**, with a **25-word estimated minimum** and a 50-word capacity.
+Targets scale with the scene's final duration, including a trimmed last scene.
+The storyboard writer is asked for character-specific exchanges tied to the
+scene's objective and action, not filler or narration of the picture. Characters
+continue their physical task while speaking; the conversation is not a separate
+pause after the action.
+
+An underwritten or overlong model-authored script gets up to two targeted
+dialogue-only revisions. These cannot change the scene's action, camera, wardrobe,
+endpoints or speakers. If revisions fail, the original lines remain and the run
+is flagged for review; the scene editor and video-prompt panel show nonblocking
+dialogue warnings. Intentionally wordless scenes stay empty. Demo/builder dialogue
+is not creatively expanded and can show the same warnings. These checks estimate
+speech at 2.5 words per second; they do not measure the rendered audio.
+Existing saved storyboards are unchanged: regenerate the storyboard for newly
+authored dialogue, or edit a scene's dialogue and save/rewrite its prompts.
+Rewriting video prompts alone preserves the existing script rather than expanding it.
+
 Deterministic builders always produce a complete prompt. When `AI_PLANNING_ENABLED`
 is set, an LLM refines each artifact and falls back to the builder on any failure.
 
@@ -675,7 +694,23 @@ default, so 140 for two and 160 for three), and never exceeds the maximum (200 b
 default). It counts the style, cast and wardrobe text StoryForgeAI appends after
 the model's answer. The video limit, when set, replaces each model's own
 length formula for every clip length; spoken dialogue is not counted against it.
-A prompt over the image ceiling is shortened from the end rather than replaced.
+A prompt over the image ceiling is shortened by removing optional sentences rather than replaced.
+The maximum is a cap, not the allowance for every scene: with a 200-word base,
+50 extra words per person and a 500-word maximum, three people get 300 words.
+Supporting names and recognized person groups are recovered from the existing
+scene cards and visual bible, rather than counting only pinned characters.
+The first request reserves room for automatic additions. Trimming protects
+people, body positions and contact relationships before optional visual detail;
+if those protected details or automatic additions cannot fit, the prompt is kept
+with an unresolved budget warning rather than silently deleting them.
+
+To apply prompt-writing fixes to an existing project, restart the app and use
+**Rewrite all image prompts**. This reuses the scene cards, visual bible and
+creative plans; it does not require rerunning the Agentic Canvas. Correct a card
+first if its people or action are wrong. For video projects, rewrite video prompts
+afterward so they connect the corrected keyframes. Existing rendered images and
+clips are unchanged until re-rendered. Count and explicit pose/owned-limb checks
+are text safeguards, not a complete anatomy or physics validator.
 
 Use an instruction-tuned model with enough context for the project and support for
 structured output. StoryForgeAI defaults to a 12,000-token completion budget and a
@@ -739,6 +774,12 @@ replacing that contract. Leaving the settings empty preserves StoryForgeAI's
 current request exactly; it does not remove the app's system message in favor of
 a separate default configured in LM Studio — a system prompt saved in LM Studio's
 own Config Presets governs its chat window and never reaches these calls.
+Image requests omit the obsolete stock instruction "Do not restate a supplied
+character's appearance. It is appended automatically, and describing someone
+twice renders them twice." It contradicts the current inline-appearance rule:
+describe each visible person once, with their pose, and append the canonical
+appearance only as a fallback. Other custom instructions and saved settings are
+unchanged; video prompts still rely on the supplied keyframe for appearance.
 
 Instructions written for the wrong scope degrade output without raising an error,
 so Help § 10 covers the four common mistakes — render rules in a planning scope,
@@ -1233,9 +1274,11 @@ describes the wrong thing produces the wrong shot again, however many times you 
 
 Dialogue is the only source of speech in a clip: LTX speaks it word for word out of
 the prompt, quoted inline in the prose the way its own model defaults do, and
-nothing is synthesised separately. Roughly two words per second fills a segment at a
-natural pace — about forty words for a twenty-second scene, proportionally fewer for
-a shorter one — and the editor counts them for you.
+nothing is synthesised separately. The editor estimates speech at 2.5 words per
+second and targets 30-35 words for a twenty-second speaking scene, with a warning
+below 25 words or above the 50-word capacity. Targets use the final trimmed scene
+duration. These are writing estimates, not measurements of the finished audio;
+warnings do not prevent saving deliberately short lines or wordless scenes.
 
 **Prompts** — start frame, end frame, motion, and both negative prompts, exactly as
 sent to WanGP. Edits apply to that scene only. **Regenerate these prompts** asks the

@@ -4,6 +4,8 @@ import {
   countWords,
   dedupeSentences,
   dialogueWordBudget,
+  dialogueWordTargets,
+  lintDialogue,
   hasBlockingFinding,
   hasPunctuationArtifact,
   lintImageSpec,
@@ -147,7 +149,7 @@ describe("dialogue duration budget", () => {
 
   it("passes a line that fits five seconds", () => {
     const findings = lintVideoSpec(
-      spec({ dialogue: [{ speaker: "Ana", line: "Then we decide now." }] }),
+      spec({ dialogue: [{ speaker: "Ana", line: "Then we decide now, before the clock stops." }] }),
       5,
     );
     expect(findings).toEqual([]);
@@ -159,6 +161,30 @@ describe("dialogue duration budget", () => {
     const finding = findings.find((f) => f.code === "dialogue_over_budget");
     expect(finding?.severity).toBe("warning");
     expect(hasBlockingFinding(findings)).toBe(false);
+  });
+
+  it("warns below half-scene coverage without blocking or changing the script", () => {
+    const dialogue = [{ line: Array.from({ length: 24 }, () => "word").join(" ") }];
+    const original = structuredClone(dialogue);
+    const findings = lintDialogue(dialogue, 20);
+    expect(findings).toMatchObject([{ code: "dialogue_under_budget", severity: "warning" }]);
+    expect(findings[0]!.message).toContain("at least 25 words");
+    expect(findings[0]!.message).toContain("not measured audio");
+    expect(hasBlockingFinding(findings)).toBe(false);
+    expect(dialogue).toEqual(original);
+  });
+
+  it("accepts the exact floor and preserves intentionally silent scenes", () => {
+    expect(lintDialogue([{ line: Array.from({ length: 25 }, () => "word").join(" ") }], 20)).toEqual([]);
+    expect(lintDialogue([], 20)).toEqual([]);
+    expect(lintDialogue([{ line: "" }], 20)[0]?.code).toBe("dialogue_under_budget");
+  });
+
+  it.each([1, 5, 10, 14, 20, 30])("keeps targets within the capacity of a %is scene", (seconds) => {
+    const targets = dialogueWordTargets(seconds);
+    expect(targets.minimum).toBeLessThanOrEqual(targets.targetMin);
+    expect(targets.targetMin).toBeLessThanOrEqual(targets.targetMax);
+    expect(targets.targetMax).toBeLessThanOrEqual(targets.maximum);
   });
 });
 

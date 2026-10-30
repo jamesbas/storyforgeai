@@ -71,7 +71,7 @@ function peopleInFrame(
   prompt: string,
   cast: readonly Character[],
 ): (FramePerson & { id?: string })[] {
-  const timeline = wardrobeTimeline(record.project, record.storyboard?.scenes ?? [], cast);
+  const timeline = wardrobeTimeline(record.project, record.storyboard?.scenes ?? [], cast, record.storyboard?.visualBible);
   const wardrobe = timeline.get(scene.id);
   const isStart = prompt.startsWith(scene.prompts.startFramePrompt.slice(0, 60));
   const at = isStart ? wardrobe?.start : wardrobe?.end;

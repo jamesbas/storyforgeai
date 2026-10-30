@@ -1,5 +1,6 @@
 import {
   countWords,
+  splitSentences,
   visualWordCount,
   wordBudget,
   type BudgetContext,
@@ -52,3 +53,10 @@ export const SHORTEN_PROMPT_DIRECTIVE =
   "from the scene. State each constraint once and positively. Remove repeated appearance, " +
   "lighting, lens and mood language before shortening the composition or action. Check for " +
   "incompatible simultaneous poses and swapped roles. Do not truncate sentences or dialogue.";
+
+/** These clauses are more important than a word ceiling, wherever they occur. */
+export function imageConstraintSentences(text: string): string[] {
+  return splitSentences(text).filter((sentence) =>
+    /\b(?:he|she|they|his|her|their|person|people|man|woman|men|women|crew|assistants?|guards?|workers?|hands?|arms?|wrists?|legs?|feet|foot|knees?|shoulders?|torso|limbs?|bodies|body|attached|detached|bound|restrained|free|holds?|holding|grips?|grasp\w*|behind|beside|between|in front of|left|right|stands?|seated|sits?|kneels?|lies|lying|leans?)\b/i.test(sentence),
+  );
+}

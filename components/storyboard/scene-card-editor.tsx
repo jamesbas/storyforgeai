@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { ProjectRecord, Scene } from "@/lib/schemas/storyboard";
 import type { DialogueLine } from "@/lib/schemas/audio";
+import { countWords, dialogueWordTargets, lintDialogue, WORDS_PER_SECOND } from "@/lib/agents/media-prompt-spec";
 
 /** The story content a person may correct. Timing and identity are derived. */
 const FIELDS = [
@@ -99,9 +100,10 @@ export function SceneCardEditor({
     if (sameLines(lines, syncedLines)) setLines(storedLines);
   }
 
-  const spokenWords = lines
-    .flatMap((l) => l.line.trim().split(/\s+/))
-    .filter(Boolean).length;
+  const spokenWords = countWords(lines.map((line) => line.line).join(" "));
+  const seconds = scene.trimAtEndSeconds ?? scene.targetDurationSeconds;
+  const speechTargets = dialogueWordTargets(seconds);
+  const dialogueFindings = lintDialogue(lines, seconds);
 
   const save = async (thenRewrite: boolean) => {
     // Only what was actually edited. Sending the whole card wrote this
@@ -197,14 +199,20 @@ export function SceneCardEditor({
           <span className="text-[11px] uppercase tracking-wide text-slate-500">
             Dialogue
             <span className="ml-2 normal-case tracking-normal text-slate-600">
-              {spokenWords} words · about {Math.round(scene.targetDurationSeconds * 2)} fills{" "}
-              {scene.targetDurationSeconds}s
+              {spokenWords} words · about {(spokenWords / WORDS_PER_SECOND).toFixed(1)}s speech
+              {" "}· aim for {speechTargets.targetMin}–{speechTargets.targetMax} words in {seconds}s
             </span>
           </span>
           <p className="text-xs text-slate-500">
             Spoken aloud by the video model, word for word. This is the only source of speech in
-            the clip.
+            the clip. Aim for speech through at least half the scene while the physical action
+            continues. Intentionally wordless scenes can stay empty. Timing is estimated.
           </p>
+          {dialogueFindings.length ? (
+            <div className="text-xs text-amber-300" aria-live="polite" data-testid="dialogue-warning">
+              {dialogueFindings.map((finding) => <p key={finding.code}>{finding.message}</p>)}
+            </div>
+          ) : null}
           {lines.map((line, index) => (
             <div key={index} className="flex gap-2">
               <input

@@ -6,6 +6,7 @@ import { positiveConstraintClause } from "@/lib/agents/negative-prompt";
 import { clampPreset, videoResolutionCeiling } from "@/lib/wangp/resolution";
 import { clipLengthGuidance, recommendedSegmentSeconds } from "@/lib/wangp/clip-length";
 import type { WangpModelSchema } from "@/lib/schemas/wangp";
+import { dialogueWordBudget } from "@/lib/agents/media-prompt-spec";
 
 /**
  * MiniMax H3 support.
@@ -150,7 +151,7 @@ describe("MiniMax prompt guidance", () => {
 
   it("is told the speech budget when it renders audio", () => {
     const directive = videoPromptDirective("minimax", { segmentSeconds: 15, nativeAudio: true });
-    expect(directive).toContain("30 words");
+    expect(directive).toContain(`${dialogueWordBudget(15)} words`);
   });
 
   it("omits the audio paragraph when audio is off", () => {

@@ -200,7 +200,7 @@ describe("dialogue rendering", () => {
 
   it("attributes each speaker and quotes the line inline", () => {
     expect(dialogueClause(speaking)).toBe(
-      'Ana says, "Then we decide now, together." Ben says, "Not yet." ' +
+      'While the movement continues, Ana says, "Then we decide now, together." Ben says, "Not yet." ' +
         "Lip movement matches the spoken words.",
     );
   });
