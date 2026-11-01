@@ -41,6 +41,9 @@ import { qcAgent } from "@/lib/agents/qc-agent";
 import { getPlanningProvider } from "@/lib/agents/llm/provider";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
+import { referencesCarriedFrame } from "@/lib/agents/continuity";
+import { mapFiboDescription } from "@/lib/agents/fibo-prompt";
+import { CARRIED_FRAME_MATCH_INSTRUCTION as MATCH_INSTRUCTION } from "@/lib/agents/model-directives";
 
 function findScene(record: ProjectRecord, sceneId: string): Scene {
   const scene = record.storyboard?.scenes.find((s) => s.id === sceneId);
@@ -131,8 +134,8 @@ function withSceneStatus(record: ProjectRecord, sceneId: string, status: Scene["
  */
 async function resolveCastReferenceImages(
   record: ProjectRecord,
-  scene?: Scene,
-  prompt?: string,
+  scene: Scene,
+  prompt: string,
 ): Promise<string[]> {
   // The keyframe switch only. A reference-to-video model reads its own
   // `videoCharacterReferences`, because the constraint this one lifts — the
@@ -142,49 +145,31 @@ async function resolveCastReferenceImages(
   const cast = await resolveProjectCast(record.project);
   // A reference photo outranks the prompt text, so one belonging to a character
   // who is not in this shot is the strongest possible instruction to put them
-  // in it. Without a scene the whole cast applies, which is only right for
-  // callers that have no single shot in hand.
-  const sceneCast = scene ? charactersInScene(scene, cast) : cast;
+  // in it.
+  const sceneCast = charactersInScene(scene, cast);
   // Narrowed again by the frame: a card that seats a watcher in the corner
   // chair is still a card the shot may frame out, and his photograph would
   // dress whoever is left in his clothes.
-  const inFrame = prompt ? charactersInFrame(prompt, sceneCast) : sceneCast;
+  const inFrame = charactersInFrame(prompt, sceneCast);
   return referenceImagePathsOf(
-    prompt
-      ? photographedSubject(prompt, inFrame, { sceneId: scene?.id ?? "", purpose: "keyframe" })
-      : inFrame,
+    photographedSubject(prompt, inFrame, { sceneId: scene.id, purpose: "keyframe" }),
   );
 }
 
-/**
- * One photograph per person.
- *
- * An edit model reads each reference as a separate element to place in the
- * frame, not as more evidence about the same face — four photographs of one
- * woman rendered her twice in the same shot. The ref2va path settled this
- * already: a second photo of the same person measured as marginally better
- * identity for the cost of another image in the sequence, and here it is worse
- * than nothing. The rest of the library still earns its keep on the face swap,
- * which takes them one at a time.
- */
+/** All saved photo candidates; the resolved model's capacity is applied before submission. */
 function referenceImagePathsOf(cast: readonly Character[]): string[] {
   return cast
-    .map((character) => referenceImagesOf(character)[0])
-    .filter((filename): filename is string => filename !== undefined)
+    .flatMap((character) => referenceImagesOf(character))
     .map((filename) => resolveReferenceImagePath(filename))
     .filter((filePath): filePath is string => filePath !== null);
 }
 
 /**
- * The one character whose photograph this frame carries.
+ * The one character whose photographs this frame carries.
  *
- * Nothing in the job says which reference is which person. With a single photo
- * the model has no choice to get wrong, and the others render from the written
- * description, which measures well — a frame of one photographed woman and one
- * man described only in words came back correct. With two, the binding between
- * photograph, name and stated wardrobe collapses: a husband's portrait and a
- * wife's on the same job produced her likeness in his chair and his shirt on a
- * third man who was supposed to be naked.
+ * Keep the photos bound to one person. Portraits of different people on the same
+ * keyframe job can redistribute their likenesses and wardrobe across the shot.
+ * Additional angles of the selected person are identified together at rendering.
  *
  * The frame's first-named character wins, since a prompt opens on its subject.
  * Everyone else is recovered by the face swap, which runs one person at a time
@@ -312,50 +297,6 @@ function keyframeSeed(
   return purpose === "start_frame" ? base : (base + 1) % (2 ** 31 - 1);
 }
 
-/**
- * What the end frame's reference image is allowed to dictate.
- *
- * The reference is only ever a frame carried in from the previous scene. A
- * scene's own start frame is never shown to its end frame: an edit model handed
- * a picture returns that picture, so the two keyframes came back identical and
- * the clip between them had nothing to move through. Wording did not fix it —
- * only withholding the image did.
- *
- * The wording below asks the inherited frame to govern the people and yield on
- * everything else. An earlier version stated only what to preserve, and
- * measured, it did not hold: asked for a medium shot of two characters walking
- * away from a doorway toward a bed, the end frame returned the doorway, and the
- * same prompt at the same seed with the reference withheld obeyed it.
- *
- * Every model that can be handed this is an instruction-following edit
- * checkpoint — a model with no reference input never reaches here — and those
- * models answer the question they are asked. Preserve-only wording asks nothing
- * of the composition, so the composition is preserved too. It is therefore
- * phrased as an edit: the change first, then what survives it, then where the
- * geography comes from, which is the clause the doorway defeated.
- *
- * Still a preference rather than a guarantee. A scene whose end frame must show
- * a part of the set the reference does not contain needs
- * `sceneEndFrameRefs[sceneId] = false`.
- */
-const MATCH_INSTRUCTION = {
-  inherited:
-    " Edit the supplied reference frame into this shot: its location, framing, camera position" +
-    " and action come from this scene's own description, not from the reference frame." +
-    " The named characters' faces, wardrobe, hair and styling are exactly as in the supplied" +
-    " reference frame; identical clothing on them." +
-    " Anyone else is dressed and styled only as this scene's own description says, and never" +
-    " takes clothing from a person in the reference frame." +
-    " Integrate every change naturally and alter nothing else.",
-  /** The one scene that depicts the costume change itself; its prompt names the outfit. */
-  inheritedChangingWardrobe:
-    " Edit the supplied reference frame into this shot: its location, framing, camera position," +
-    " action and clothing come from this scene's own description, not from the reference frame." +
-    " The named characters' faces, hair and styling are exactly as in the supplied reference" +
-    " frame." +
-    " Integrate every change naturally and alter nothing else.",
-} as const;
-
 /** Does this scene depict a costume change, rather than arriving with one done? */
 function changingWardrobe(record: ProjectRecord, sceneId: string): boolean {
   return (record.project.wardrobeChanges?.[sceneId] ?? []).some((c) => c.mode === "within");
@@ -371,9 +312,7 @@ function changingWardrobe(record: ProjectRecord, sceneId: string): boolean {
  * start frame is the failure the exclusion exists to prevent.
  */
 function referencesStartFrame(record: ProjectRecord, sceneId: string, inherited: boolean): boolean {
-  if (!inherited || !config.media.endFrameReferencesStartFrame) return false;
-  if (record.project.endFrameReferences === false) return false;
-  return record.project.sceneEndFrameRefs?.[sceneId] !== false;
+  return referencesCarriedFrame(record.project, sceneId, inherited);
 }
 
 /**
@@ -477,7 +416,12 @@ function endFrameIsCarried(record: ProjectRecord, scene: Scene): boolean {
  * Shared so a preview and the generation it stands in for compose identically.
  */
 function endFramePromptFor(record: ProjectRecord, scene: Scene, conditionOnStart: boolean): string {
-  const match = !conditionOnStart
+  const edit = conditionOnStart &&
+    (record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY) === "reuse_end_frame"
+    ? scene.prompts.endFrameEditPrompt
+    : undefined;
+  const prompt = edit || scene.prompts.endFramePrompt;
+  const match = !conditionOnStart || edit
     ? ""
     : changingWardrobe(record, scene.id)
       ? MATCH_INSTRUCTION.inheritedChangingWardrobe
@@ -485,9 +429,9 @@ function endFramePromptFor(record: ProjectRecord, scene: Scene, conditionOnStart
   // A scene deliberately framed without a face is not asked to find one.
   const body =
     scene.subjectFaceVisible !== false && endFrameIsCarried(record, scene)
-      ? afterFraming(scene.prompts.endFramePrompt, CARRY_INSTRUCTION)
-      : scene.prompts.endFramePrompt;
-  return `${body}${match}`;
+      ? mapFiboDescription(prompt, (text) => afterFraming(text, CARRY_INSTRUCTION))
+      : prompt;
+  return mapFiboDescription(body, (text) => `${text}${match}`);
 }
 
 /** Whether the end frame may be conditioned on the start frame it inherits. */
@@ -704,6 +648,11 @@ async function keyframeManifest(
   extraRefs: string[],
 ): Promise<WangpGenerationSettings> {
   const cast = await resolveProjectCast(record.project);
+  const referenceSubject = castRefs.length
+    ? cast.find((character) => referenceImagesOf(character).some(
+        (filename) => resolveReferenceImagePath(filename) === castRefs[0],
+      ))?.name
+    : undefined;
   return buildImageManifest({
     sceneId: scene.id,
     purpose,
@@ -724,6 +673,7 @@ async function keyframeManifest(
     // A leading scene frame is the "main subject / landscape" reference; the
     // cast portraits that follow are the people.
     imageRefsLeadWithScene: extraRefs.length > 0,
+    referenceSubject,
     loras: resolveSceneLoras(record.project, scene.id, "image"),
   });
 }
@@ -816,7 +766,6 @@ export async function generateSceneKeyframe(
   const scene = findScene(record, sceneId);
 
   const seeded = await ensureSceneSeeds(projectId, record, [sceneId]);
-  const castRefs = await resolveCastReferenceImages(seeded, scene);
   const swapSubjects = await sceneFaceSwapSubjects(seeded, scene);
 
   // Condition the preview the same way the real render would be, so what it
@@ -837,6 +786,7 @@ export async function generateSceneKeyframe(
     prompt = endFramePromptFor(seeded, scene, conditionOnStart);
   }
 
+  const castRefs = await resolveCastReferenceImages(seeded, scene, prompt);
   const result = await renderKeyframe(seeded, scene, purpose, prompt, castRefs, extraRefs, swapSubjects);
   if (!result.path) throw new ValidationError(`WanGP returned no image for the ${purpose}.`);
 
@@ -2028,14 +1978,9 @@ export async function generateSceneMedia(
    */
   const inheritedStart = Boolean(continuity.startImagePath);
   const conditionOnStartFrame = conditionEndOnStart(record, scene, inheritedStart);
-  const matchInstruction = changingWardrobe(record, sceneId)
-    ? MATCH_INSTRUCTION.inheritedChangingWardrobe
-    : MATCH_INSTRUCTION.inherited;
   const referenceFrame = continuity.startImagePath ?? start?.path;
 
-  const endPrompt = conditionOnStartFrame
-    ? `${scene.prompts.endFramePrompt}${matchInstruction}`
-    : scene.prompts.endFramePrompt;
+  const endPrompt = endFramePromptFor(record, scene, conditionOnStartFrame);
   const end = await keyframe(
     "end_frame",
     endPrompt,

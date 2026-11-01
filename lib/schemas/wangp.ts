@@ -27,6 +27,8 @@ export const wangpModelSchema = z.object({
              * sending a second is not a richer answer but a discarded one.
              */
             multipleReferences: z.boolean().optional(),
+            /** Total reference images, including a carried scene frame, when published. */
+            maxReferences: z.number().int().nonnegative().optional(),
           })
           .optional(),
         audio: z
@@ -77,6 +79,8 @@ export const wangpFieldSchema = z.object({
   min: z.number().optional(),
   max: z.number().optional(),
   step: z.number().optional(),
+  /** JSON Schema array bound, used for the total image_refs capacity. */
+  maxItems: z.number().int().nonnegative().optional(),
 });
 
 export const wangpModelSchemaSchema = z.object({

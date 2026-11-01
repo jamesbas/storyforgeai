@@ -2,6 +2,7 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import type { WangpModel, WangpModelSchema } from "@/lib/schemas/wangp";
 
 /**
  * Opting out of reference photographs.
@@ -242,13 +243,7 @@ describe("choosing how a likeness reaches the frame", () => {
     }
   });
 
-  /**
-   * An edit model reads each reference as another element to place in the
-   * frame rather than more evidence about one face, so a character carrying
-   * four photographs was rendered twice in the same shot. The library still
-   * earns its keep on the face swap, which takes them one at a time.
-   */
-  it("sends one photograph per character however many are stored", async () => {
+  it("sends one photograph on a single-reference model however many are stored", async () => {
     const env = await isolated();
 
     const mara = await env.characters.createCharacter({
@@ -279,5 +274,158 @@ describe("choosing how a likeness reaches the frame", () => {
       const hers = refs.filter((p) => stored.referenceImages!.some((f) => p.includes(f)));
       expect(hers.length).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+function recordingModelClient(env: Env, model: WangpModel, maxItems?: number) {
+  return new class extends env.MockWangpClient {
+    readonly calls: Record<string, unknown>[] = [];
+    async listModels(output?: "image" | "video" | "audio") {
+      const models = await super.listModels(output);
+      return !output || output === "image" ? [model, ...models] : models;
+    }
+    async getModelSchema(type: string): Promise<WangpModelSchema> {
+      if (type !== model.modelType) return super.getModelSchema(type);
+      return {
+        modelType: type,
+        defaultSettings: { model_type: type, resolution: "1280x720", num_inference_steps: 20, seed: -1 },
+        fields: [
+          { name: "prompt", type: "string" },
+          { name: "negative_prompt", type: "string" },
+          { name: "resolution", type: "string" },
+          { name: "num_inference_steps", type: "number" },
+          { name: "seed", type: "number" },
+          ...(model.metadata.mediaInputs?.image?.reference ? [
+            { name: "image_refs", type: "array", ...(maxItems === undefined ? {} : { maxItems }) },
+            { name: "video_prompt_type", type: "string" },
+          ] : []),
+        ],
+      };
+    }
+    async generate(settings: Record<string, unknown>) {
+      this.calls.push(settings);
+      return super.generate(settings);
+    }
+  }();
+}
+
+async function fourPhotoProject(modelType: string, options: { maxItems?: number; maxReferences?: number; noReferences?: boolean } = {}) {
+  const env = await isolated();
+  const client = recordingModelClient(env, {
+    modelType, name: modelType,
+    metadata: {
+      mainOutput: "image", inputs: ["text", "image"], availability: "available",
+      mediaInputs: { image: {
+        reference: !options.noReferences, multipleReferences: true,
+        ...(options.maxReferences === undefined ? {} : { maxReferences: options.maxReferences }),
+      } },
+    },
+  }, options.maxItems);
+  env.setWangpClient(client);
+  const mara = await env.characters.createCharacter({ name: "Mara", description: "A woman with brown hair." });
+  for (let i = 0; i < 4; i++) await env.characters.setReferenceImage(mara.id, pngFile());
+  const photoNames = (await env.characters.getCharacter(mara.id)).referenceImages!;
+  const project = await env.projects.createProject({
+    concept: "Mara sits at a wooden table and sets down a cup.",
+    requestedDurationSeconds: 40, generationMode: "keyframes_only", sceneContinuity: "reuse_end_frame",
+    useCharacterLibrary: true, characterIds: [mara.id], imageModel: modelType,
+  });
+  const record = await env.projects.generateStoryboard(project.id);
+  const ids = record.storyboard!.scenes.map((scene) => scene.id);
+  for (const id of ids) {
+    await env.projects.updateScenePrompts(project.id, id, {
+      startFramePrompt: "Medium shot, eye level. Mara sits at the table holding a cup. Exactly one woman is in frame.",
+      endFramePrompt: "Medium shot, eye level. Mara sits at the table with the cup on the table. Exactly one woman is in frame.",
+      ...(id === ids[1] ? {
+        endFrameEditPrompt: "Edit the supplied reference frame: set Mara's cup on the table. Keep her face, hair and outfit unchanged. Exactly one woman is in frame.",
+      } : {}),
+    });
+  }
+  return { env, client, project, ids, photoNames };
+}
+
+function references(settings: Record<string, unknown>): string[] {
+  return Array.isArray(settings.image_refs)
+    ? settings.image_refs.filter((ref): ref is string => typeof ref === "string")
+    : [];
+}
+
+describe("model-aware keyframe photo counts", () => {
+  it.each([
+    ["qwen_image_21_7B", 4, 4],
+    ["qwen_image_21_turbo_7B", 4, 4],
+    ["krea2_turbo_identity_edit_v2", 2, 1],
+    ["fibo2_dev", 4, 3],
+  ] as const)("reserves the carried frame and fits saved photos on %s in a batch", async (type, creationPhotos, carriedPhotos) => {
+    const { env, client, project, ids, photoNames } = await fourPhotoProject(type);
+    await env.media.generateProjectMediaPhased(project.id, ids);
+    expect(references(client.calls[0]!).map((ref) => path.basename(ref))).toEqual(photoNames.slice(0, creationPhotos));
+    const record = await env.projects.getProjectRecord(project.id);
+    const source = record.attempts![ids[0]!]![0]!.endImagePath;
+    const last = client.calls.at(-1)!;
+    expect(references(last)).toHaveLength(1 + carriedPhotos);
+    expect(references(last)[0]).toBe(source);
+    expect(references(last).slice(1).map((ref) => path.basename(ref))).toEqual(photoNames.slice(0, carriedPhotos));
+    expect(last.video_prompt_type).toBe(type === "fibo2_dev" ? "I" : "KI");
+    if (carriedPhotos > 1) expect(String(last.prompt)).toContain(`${carriedPhotos} character reference photographs show the same person, Mara`);
+
+    const previews = await env.media.previewSceneRenders(project.id);
+    const settings = previews.find((frame) => frame.sceneId === ids[1] && frame.purpose === "end_frame")!.settings!;
+    expect(references(settings)).toEqual(references(last));
+  });
+
+  it("uses all four photos alongside the source on individual renders and keyframe previews", async () => {
+    const { env, client, project, ids, photoNames } = await fourPhotoProject("qwen_image_21_7B");
+    await env.media.generateSceneMedia(project.id, ids[0]!);
+    await env.media.generateSceneMedia(project.id, ids[1]!);
+    const source = (await env.projects.getProjectRecord(project.id)).attempts![ids[1]!]![0]!.startImagePath;
+    expect(references(client.calls.at(-1)!)[0]).toBe(source);
+    expect(references(client.calls.at(-1)!).slice(1).map((ref) => path.basename(ref))).toEqual(photoNames);
+    client.calls.length = 0;
+    await env.media.generateSceneKeyframe(project.id, ids[1]!, "end_frame");
+    expect(references(client.calls[0]!)[0]).toBe(source);
+    expect(references(client.calls[0]!).slice(1).map((ref) => path.basename(ref))).toEqual(photoNames);
+  });
+
+  it("honours schema capacity even when catalogue metadata advertises more", async () => {
+    const { env, client, project, ids, photoNames } = await fourPhotoProject("qwen_image_21_7B", {
+      maxItems: 3, maxReferences: 8,
+    });
+    await env.media.generateProjectMediaPhased(project.id, ids);
+    expect(references(client.calls[0]!)).toHaveLength(3);
+    expect(references(client.calls.at(-1)!)).toHaveLength(3);
+    expect(references(client.calls.at(-1)!).slice(1).map((ref) => path.basename(ref))).toEqual(photoNames.slice(0, 2));
+    expect(String(client.calls.at(-1)!.prompt)).toContain("2 character reference photographs");
+  });
+
+  it("uses the substituted model's capacity, not the incompatible project pin", async () => {
+    const { env, client, project, ids } = await fourPhotoProject("plain_image", { noReferences: true });
+    await env.media.generateProjectMediaPhased(project.id, ids);
+    const record = await env.projects.getProjectRecord(project.id);
+    expect(references(client.calls[0]!)).toHaveLength(1);
+    expect(references(client.calls.at(-1)!)).toEqual([record.attempts![ids[0]!]![0]!.endImagePath]);
+  });
+
+  it("sends no character photos when that project option is disabled", async () => {
+    const { env, client, project, ids, photoNames } = await fourPhotoProject("qwen_image_21_7B");
+    await env.projects.updateProjectModels(project.id, { useCharacterReferenceImages: false });
+    await env.media.generateProjectMediaPhased(project.id, ids);
+    expect(references(client.calls[0]!)).toEqual([]);
+    expect(references(client.calls.at(-1)!)).toHaveLength(1);
+    expect(client.calls.flatMap(references).some((ref) => photoNames.includes(path.basename(ref)))).toBe(false);
+  });
+
+  it("withholds the carried frame on an opted-out scene but still fits all four character photos", async () => {
+    const { env, client, project, ids, photoNames } = await fourPhotoProject("qwen_image_21_7B");
+    await env.projects.updateSceneFraming(project.id, ids[1]!, { endFrameReference: false });
+    await env.media.generateProjectMediaPhased(project.id, ids);
+    expect(references(client.calls.at(-1)!).map((ref) => path.basename(ref))).toEqual(photoNames);
+    expect(client.calls.at(-1)!.video_prompt_type).toBe("I");
+  });
+
+  it("refuses a zero-capacity schema before submitting any image job", async () => {
+    const { env, client, project, ids } = await fourPhotoProject("qwen_image_21_7B", { maxItems: 0 });
+    await expect(env.media.generateSceneMedia(project.id, ids[0]!)).rejects.toThrow(/capacity of zero/);
+    expect(client.calls).toHaveLength(0);
   });
 });

@@ -56,6 +56,7 @@ export type TelemetryEvent =
   | "wangp.job.submitted"
   | "wangp.job.polled"
   | "wangp.reference_images.trimmed"
+  | "wangp.reference_images.selected"
   | "wangp.negative.folded"
   | "wangp.h3_format.applied"
   | "wangp.ref2va.composed"

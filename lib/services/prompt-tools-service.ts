@@ -11,7 +11,7 @@ import {
   simplifyPromptsSchema,
   type PromptPreview,
 } from "@/lib/schemas/prompt-tools";
-import { scenePromptsPatchSchema, type ProjectRecord, type Scene } from "@/lib/schemas/storyboard";
+import { applyScenePromptsPatch, scenePromptsPatchSchema, type ProjectRecord, type Scene } from "@/lib/schemas/storyboard";
 import { getAgentRun, trackAgentRun } from "@/lib/services/agent-runs";
 import { appendHistory, getProjectRecord } from "@/lib/services/project-service";
 import { getQueue } from "@/lib/services/scene-queue";
@@ -71,7 +71,7 @@ async function savePrompts(
     storyboard: {
       ...record.storyboard!,
       scenes: record.storyboard!.scenes.map((scene) => patches.has(scene.id)
-        ? { ...scene, prompts: { ...scene.prompts, ...patches.get(scene.id) } }
+        ? { ...scene, prompts: applyScenePromptsPatch(scene.prompts, patches.get(scene.id)!) }
         : scene),
     },
   };
@@ -88,8 +88,9 @@ export async function addImagePromptText(projectId: string, raw: unknown): Promi
   const patches = new Map<string, Partial<Scene["prompts"]>>();
   for (const scene of scenes) {
     const patch: Partial<Scene["prompts"]> = {};
-    for (const field of imagePromptFields(input.frames)) {
+    for (const field of imagePromptFields(input.frames, scene.prompts.endFrameEditPrompt !== undefined)) {
       const current = scene.prompts[field];
+      if (current === undefined) continue;
       patch[field] = mapFiboDescription(current, (description) => (input.placement === "prepend"
         ? [input.text, description]
         : [description, input.text]).filter((text) => text.length > 0).join("\n"));
@@ -110,15 +111,18 @@ export async function previewSimplifiedPrompts(projectId: string, raw: unknown):
   }
   return trackAgentRun(projectId, "prompt_simplifier", "Prompt Simplifier", async () => {
     const results: PromptPreview["results"] = [];
-    const fields = input.target === "video" ? [] : imagePromptFields(input.frames);
-    if (input.target !== "image") fields.push("videoPromptSegment");
     for (const scene of scenes) {
+      const fields = input.target === "video" ? [] :
+        imagePromptFields(input.frames, scene.prompts.endFrameEditPrompt !== undefined);
+      if (input.target !== "image") fields.push("videoPromptSegment");
       for (const field of fields) {
+        const before = scene.prompts[field];
+        if (before === undefined) continue;
         const base = {
           sceneId: scene.id,
           sceneNumber: scene.sceneNumber,
           field,
-          before: scene.prompts[field],
+          before,
           sourceHash: sourceHash(scene),
         };
         try {

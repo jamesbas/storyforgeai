@@ -496,6 +496,9 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
               <span>
                 <strong>Reference photograph</strong> — strongest likeness.
                 <span className="block text-slate-500">
+                  Saved photos of the frame&apos;s selected character are sent in order, up to the
+                  resolved image model&apos;s capacity. A carried frame takes the first slot.
+                  {" "}
                   The photo conditions the whole frame rather than one figure in it, so on a shot
                   with several people the model can apply the likeness to more than one of them. The
                   image model must accept reference images (marked{" "}
@@ -632,6 +635,9 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
                   marked <span className="font-semibold">✓ refs</span> — a pin that accepts none
                   renders the first scene and is substituted for every scene after it, its LoRAs
                   going with it.
+                  {" "}New or rewritten image prompts describe editing that carried image into the
+                  closing frame. The first image, and scenes with no carried reference, still use
+                  creation prompts.
                 </span>
               </span>
             </label>

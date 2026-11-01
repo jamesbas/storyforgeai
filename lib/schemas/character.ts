@@ -13,12 +13,10 @@ import {
 /**
  * Reference images per character.
  *
- * Four, and all four are now reachable: a reference-to-video model can be given
- * several angles of the same face through `videoReferencesPerCharacter`, and
- * the face swap takes them one at a time. The comment here used to say two was
- * the ceiling of the models in use, which stopped being true as the catalogue
- * grew — every reference-capable model on a current server advertises
- * `multiple_references`.
+ * Keyframes send as many saved photos of the selected character as the resolved
+ * model permits, reserving room for a carried scene frame. Reference-to-video
+ * models use `videoReferencesPerCharacter`, and face swaps take photos one at
+ * a time.
  *
  * Still a small number on purpose. These are angles on one face, not a gallery:
  * past a handful the marginal identity gain is smaller than the cost of another
@@ -102,9 +100,7 @@ export const characterSchema = z.object({
   /**
    * Uploaded reference images, most representative first.
    *
-   * Capped at two because that is the ceiling of the reference-capable models in
-   * play, and because a second angle measurably improved identity while further
-   * images had nowhere to go.
+   * Keyframe generation keeps this order when a model's capacity trims the list.
    */
   referenceImages: z.array(z.string()).max(MAX_REFERENCE_IMAGES).optional(),
   /**

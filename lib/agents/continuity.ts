@@ -1,5 +1,14 @@
 import { DEFAULT_SCENE_CONTINUITY } from "@/lib/types";
 import type { Project } from "@/lib/schemas/project";
+import { config } from "@/lib/config";
+
+/** Shared by prompt authorship and rendering; a scene may only opt out. */
+export function referencesCarriedFrame(project: Project, sceneId: string, inherited: boolean): boolean {
+  return inherited &&
+    config.media.endFrameReferencesStartFrame &&
+    project.endFrameReferences !== false &&
+    project.sceneEndFrameRefs?.[sceneId] !== false;
+}
 
 /**
  * Tell the planning agents whether the segments are one continuous take.

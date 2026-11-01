@@ -1,4 +1,5 @@
 import type { WangpJob, WangpModel, WangpModelSchema } from "@/lib/schemas/wangp";
+import { ValidationError } from "@/lib/errors";
 import {
   NUMERIC_FIELDS,
   invertFieldMap,
@@ -29,6 +30,15 @@ export function finite(value: unknown): number | undefined {
         ? Number(value)
         : Number.NaN;
   return Number.isFinite(n) ? n : undefined;
+}
+
+function referenceLimit(value: unknown, location: string): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  const limit = finite(value);
+  if (limit === undefined || !Number.isSafeInteger(limit) || limit < 0) {
+    throw new ValidationError(`Invalid reference-image capacity in ${location}: expected a non-negative integer.`);
+  }
+  return limit;
 }
 
 function modelDefinition(schema: Record<string, unknown>): Record<string, unknown> {
@@ -74,7 +84,8 @@ export function knownKeys(
 
   // Media inputs are advertised as capability flags rather than settings keys.
   const metadata = asRecord(schema.metadata) ?? {};
-  const mediaInputs = asRecord(metadata.media_inputs) ?? asRecord(modelDef.media_inputs) ?? {};
+  const mediaInputs = asRecord(metadata.media_inputs) ?? asRecord(metadata.mediaInputs) ??
+    asRecord(modelDef.media_inputs) ?? asRecord(modelDef.mediaInputs) ?? {};
   const image = mediaInputs.image;
   if (hasMediaRole(image, "start")) keys.add("image_start");
   if (hasMediaRole(image, "end")) keys.add("image_end");
@@ -290,6 +301,12 @@ export function normalizeModel(
   inputs.add("text"); // every WanGP workflow accepts a prompt
 
   const modelDef = asRecord(read("model_def")) ?? {};
+  const maxReferences = referenceLimit(
+    pick(asRecord(image), source, metadata, modelDef)(
+      "maxReferences", "max_references", "max_reference_images",
+    ),
+    `model ${modelType}`,
+  );
 
   // WanGP publishes the LoRA flag as `capabilities.lora`. The `supports_lora` /
   // `loras` spellings are kept as fallbacks but are absent from every live
@@ -344,7 +361,9 @@ export function normalizeModel(
                       start: hasMediaRole(image, "start"),
                       end: hasMediaRole(image, "end"),
                       reference: hasMediaRole(image, "reference"),
-                      multipleReferences: hasMediaRole(image, "multiple_references"),
+                      multipleReferences: hasMediaRole(image, "multiple_references") ||
+                        hasMediaRole(image, "multipleReferences"),
+                      ...(maxReferences === undefined ? {} : { maxReferences }),
                     },
                   }
                 : {}),
@@ -404,11 +423,27 @@ export function normalizeModelSchema(
     defaultSettings[actualToCanonical[key] ?? key] = value;
   }
   defaultSettings.model_type = modelType;
+  const metadata = asRecord(rawSchema.metadata);
+  const definition = modelDefinition(rawSchema);
+  const mediaInputs = asRecord(metadata?.media_inputs) ?? asRecord(metadata?.mediaInputs) ??
+    asRecord(definition.media_inputs) ?? asRecord(definition.mediaInputs);
+  const maxReferences = referenceLimit(
+    pick(asRecord(mediaInputs?.image), metadata, definition)(
+      "maxReferences", "max_references", "max_reference_images",
+    ),
+    `model ${modelType}`,
+  );
 
   const fields: WangpModelSchema["fields"] = Object.entries(fieldMap).map(([canonical, actual]) => {
     const type = fieldTypeFor(canonical, defaults[actual]);
     const choices = choicesFor(rawSchema, actual, [`${actual}s`]);
     const range = numericRange(rawSchema, actual, [`${actual}_slider`]);
+    const arrayLimit = canonical === "image_refs"
+      ? referenceLimit(asRecord(settingDefinition(rawSchema, actual))?.maxItems, `${modelType}.${actual}.maxItems`)
+      : undefined;
+    const limits = canonical === "image_refs"
+      ? [arrayLimit, maxReferences].filter((limit): limit is number => limit !== undefined)
+      : [];
 
     const allowed = choices.length
       ? type === "number"
@@ -423,6 +458,7 @@ export function normalizeModelSchema(
       ...(type === "number" && range.min !== undefined ? { min: range.min } : {}),
       ...(type === "number" && range.max !== undefined ? { max: range.max } : {}),
       ...(type === "number" && range.step !== undefined ? { step: range.step } : {}),
+      ...(limits.length ? { maxItems: Math.min(...limits) } : {}),
     };
   });
 

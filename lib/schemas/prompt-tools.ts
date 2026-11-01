@@ -3,12 +3,14 @@ import { z } from "zod";
 export const PROMPT_FIELD_LABELS = {
   startFramePrompt: "Start frame",
   endFramePrompt: "End frame",
+  endFrameEditPrompt: "End frame (carried-frame edit)",
   videoPromptSegment: "Video",
 } as const;
 
 export const promptFieldSchema = z.enum([
   "startFramePrompt",
   "endFramePrompt",
+  "endFrameEditPrompt",
   "videoPromptSegment",
 ]);
 export type PromptField = z.infer<typeof promptFieldSchema>;
@@ -65,8 +67,11 @@ export const applySimplifiedPromptsSchema = z.object({
   results: z.array(simplifiedPromptSchema).min(1),
 }).strict();
 
-export function imagePromptFields(frames: "start" | "end" | "both"): PromptField[] {
+export function imagePromptFields(
+  frames: "start" | "end" | "both",
+  hasEditPrompt = false,
+): PromptField[] {
   if (frames === "start") return ["startFramePrompt"];
-  if (frames === "end") return ["endFramePrompt"];
-  return ["startFramePrompt", "endFramePrompt"];
+  const end: PromptField[] = ["endFramePrompt", ...(hasEditPrompt ? ["endFrameEditPrompt" as const] : [])];
+  return frames === "end" ? end : ["startFramePrompt", ...end];
 }

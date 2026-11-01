@@ -162,7 +162,7 @@ describe("planning agents — deterministic fallback (no provider)", () => {
     }
   });
 
-  it("builds a distinct prompt per scene from that scene's own content", async () => {
+  it("builds a distinct creation prompt per scene when carried references are disabled", async () => {
     const ctx: AgentContext = {
       project,
       brief: buildCreativeBrief(project),
@@ -170,7 +170,7 @@ describe("planning agents — deterministic fallback (no provider)", () => {
       visualBible: buildVisualBible(project),
     };
     const drafts = await storyboardAgent(ctx, null);
-    const scenes = await attachScenePrompts(project, drafts, null);
+    const scenes = await attachScenePrompts({ ...project, endFrameReferences: false }, drafts, null);
 
     // Regression guard: the builders once ignored the scene draft entirely and
     // emitted the same prompt for every scene bar the number, which would have

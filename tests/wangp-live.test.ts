@@ -38,6 +38,60 @@ const ltxMetadata = {
 };
 
 describe("normalizeModel", () => {
+  it("preserves numeric reference limits and camelCase capability roles", () => {
+    const model = normalizeModel({
+      model_type: "custom_qwen", main_output: "image",
+      mediaInputs: { image: { reference: true, multipleReferences: true, maxReferences: 6 } },
+    });
+    expect(model?.metadata.mediaInputs?.image).toMatchObject({
+      reference: true, multipleReferences: true, maxReferences: 6,
+    });
+  });
+
+  it("reads the numeric limit from enriched snake_case model metadata", () => {
+    const model = normalizeModel(
+      { model_type: "custom_qwen", main_output: "image" },
+      { media_inputs: { image: { reference: true, multiple_references: true, max_reference_images: "5" } } },
+    );
+    expect(model?.metadata.mediaInputs?.image?.maxReferences).toBe(5);
+  });
+
+  it("preserves a schema's array count limit, independently of its UI field type", () => {
+    const { schema } = normalizeModelSchema("custom_qwen", {
+      properties: { image_refs: { type: "array", maxItems: 5 } },
+    }, {});
+    expect(schema.fields.find((field) => field.name === "image_refs")?.maxItems).toBe(5);
+  });
+
+  it("combines a definition's array limit with metadata's reference capacity", () => {
+    const { schema } = normalizeModelSchema("custom_qwen", {
+      properties: { image_refs: { type: "array", maxItems: 3 } },
+      metadata: { media_inputs: { image: { reference: true, multiple_references: true, max_references: 7 } } },
+    }, {});
+    expect(schema.fields.find((field) => field.name === "image_refs")?.maxItems).toBe(3);
+  });
+
+  it("exposes a capability limit even without a settings array declaration", () => {
+    const { schema } = normalizeModelSchema("custom_qwen", {
+      metadata: { mediaInputs: { image: { reference: true, multipleReferences: true, maxReferences: 5 } } },
+    }, {});
+    expect(schema.fields.find((field) => field.name === "image_refs")?.maxItems).toBe(5);
+  });
+
+  it("rejects malformed reference-image bounds rather than silently widening them", () => {
+    expect(() => normalizeModelSchema("custom_qwen", {
+      properties: { image_refs: { type: "array", maxItems: -2 } },
+    }, {})).toThrow(/Invalid reference-image capacity/);
+  });
+
+  it("treats a null optional server limit as unpublished, not a numeric capacity", () => {
+    const model = normalizeModel({
+      model_type: "custom_qwen", main_output: "image",
+      media_inputs: { image: { reference: true, multiple_references: true, max_references: null } },
+    });
+    expect(model?.metadata.mediaInputs?.image?.maxReferences).toBeUndefined();
+  });
+
   it("maps a snake_case list entry enriched with metadata", () => {
     const model = normalizeModel(ltxListEntry, ltxMetadata);
     expect(model).not.toBeNull();

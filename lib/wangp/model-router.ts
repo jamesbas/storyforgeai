@@ -1,6 +1,7 @@
-import type { ModelCapability, WangpModel } from "@/lib/schemas/wangp";
+import type { ModelCapability, WangpModel, WangpModelSchema } from "@/lib/schemas/wangp";
 import type { Project } from "@/lib/schemas/project";
 import { familyOfModel } from "@/lib/wangp/family";
+import { ValidationError } from "@/lib/errors";
 
 /** Minimal preferences the router needs (avoids requiring a full Project). */
 export type ModelPreference = { modelStrategy: Project["modelStrategy"] };
@@ -45,8 +46,8 @@ export function toCapability(model: WangpModel): ModelCapability {
 /**
  * How many reference images a model is worth sending.
  *
- * Read from what the model advertises, with a family table only where a real
- * published limit is narrower than "several". It used to be
+ * Published numeric limits win. Models that only advertise multiple references
+ * use a known model/family capacity, then a conservative default. It used to be
  * `modelType.startsWith("flux2") ? 4 : 2` — a prefix guess that never consulted
  * the catalogue, so a model announcing `multiple_references` was still held to
  * two, and an unknown model that could take none was offered two anyway.
@@ -68,17 +69,39 @@ const DEFAULT_MULTI_REFERENCE_CAPACITY = 4;
 
 export function referenceImageCapacity(model: {
   modelType: string;
-  metadata?: { mediaInputs?: { image?: { reference?: boolean; multipleReferences?: boolean } }; family?: string };
-}): number {
+  metadata?: {
+    mediaInputs?: { image?: { reference?: boolean; multipleReferences?: boolean; maxReferences?: number } };
+    family?: string;
+    baseModelType?: string;
+  };
+}, schema?: Pick<WangpModelSchema, "fields">): number {
   const image = model.metadata?.mediaInputs?.image;
+  const limits = [
+    image?.maxReferences,
+    schema?.fields.find((field) => field.name === "image_refs")?.maxItems,
+  ].filter((limit): limit is number => limit !== undefined);
+  if (limits.some((limit) => !Number.isSafeInteger(limit) || limit < 0)) {
+    throw new ValidationError(`Model ${model.modelType} has an invalid reference-image capacity.`);
+  }
+  const declared = limits.length ? Math.min(...limits) : undefined;
 
   // Absent metadata is the pre-discovery case and a test fixture's usual shape.
   // Two is what the prefix guess gave everything, so it stays the unknown-model
   // answer rather than becoming a silent widening.
-  if (!image) return model.modelType.startsWith("flux2") ? 4 : 2;
+  if (!image) return declared ?? (model.modelType.startsWith("flux2") ? 4 : 2);
 
   if (!image.reference) return 0;
-  if (!image.multipleReferences) return 1;
+  if (!image.multipleReferences) return Math.min(1, declared ?? 1);
+  if (declared !== undefined) return declared;
+
+  // Qwen Image 2.1 has been tested with a carried frame and four identity photos.
+  const modelTypes = [model.modelType, model.metadata?.baseModelType];
+  if (modelTypes.some((type) =>
+    type !== undefined && /^qwen_image_21(?:_|$)/i.test(type),
+  )) return 5;
+  if (modelTypes.some((type) =>
+    type !== undefined && /^krea2(?:_|$)/i.test(type),
+  )) return 2;
 
   const family = model.metadata?.family;
   const published = family ? FAMILY_REFERENCE_CEILING[family] : undefined;

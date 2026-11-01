@@ -15,7 +15,7 @@ import type { WangpModel } from "@/lib/schemas/wangp";
 
 function model(
   modelType: string,
-  image?: { reference?: boolean; multipleReferences?: boolean },
+  image?: { reference?: boolean; multipleReferences?: boolean; maxReferences?: number },
   family?: string,
 ): WangpModel {
   return {
@@ -31,6 +31,51 @@ function model(
 }
 
 describe("reference image capacity", () => {
+  it.each(["qwen_image_21_7B", "qwen_image_21_turbo_7B"])("allows a carried frame and four photos on %s", (type) => {
+    expect(referenceImageCapacity(
+      model(type, { reference: true, multipleReferences: true }, "qwen_image_2"),
+    )).toBe(5);
+  });
+
+  it("uses published numeric capacity before the known-model fallback", () => {
+    expect(referenceImageCapacity(
+      model("qwen_image_21_7B", { reference: true, multipleReferences: true, maxReferences: 7 }),
+    )).toBe(7);
+  });
+
+  it("honours the narrower of the catalogue and image_refs schema limits", () => {
+    expect(referenceImageCapacity(
+      model("qwen_image_21_7B", { reference: true, multipleReferences: true, maxReferences: 7 }),
+      { fields: [{ name: "image_refs", type: "array", maxItems: 3 }] },
+    )).toBe(3);
+  });
+
+  it("uses schema limits when model metadata supplies no numeric capacity", () => {
+    expect(referenceImageCapacity(
+      model("unknown", { reference: true, multipleReferences: true }),
+      { fields: [{ name: "image_refs", type: "array", maxItems: 6 }] },
+    )).toBe(6);
+  });
+
+  it("does not widen single-reference models just because a generic schema accepts a longer list", () => {
+    expect(referenceImageCapacity(
+      model("single", { reference: true }),
+      { fields: [{ name: "image_refs", type: "array", maxItems: 5 }] },
+    )).toBe(1);
+  });
+
+  it.each([-1, 1.5, Number.NaN])("rejects invalid advertised capacities (%s)", (maxReferences) => {
+    expect(() => referenceImageCapacity(
+      model("bad", { reference: true, multipleReferences: true, maxReferences }),
+    )).toThrow(/invalid reference-image capacity/);
+  });
+
+  it("keeps Krea's limit when the catalogue omits its family name", () => {
+    expect(referenceImageCapacity(
+      model("krea2_turbo_identity_edit_v2", { reference: true, multipleReferences: true }),
+    )).toBe(2);
+  });
+
   it("offers several to a model advertising multiple_references", () => {
     // Qwen Image Edit Plus, live: "optimized to combine multiple Subjects".
     expect(

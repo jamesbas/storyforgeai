@@ -16,7 +16,7 @@ import {
   validateSelectionSet,
 } from "@/lib/services/lora-service";
 import type { ConceptImage, Project } from "@/lib/schemas/project";
-import { sceneFramingPatchSchema, scenePromptsPatchSchema, sceneCardPatchSchema } from "@/lib/schemas/storyboard";
+import { applyScenePromptsPatch, sceneFramingPatchSchema, scenePromptsPatchSchema, sceneCardPatchSchema } from "@/lib/schemas/storyboard";
 import { hasFiboVgl, parseFiboPrompt } from "@/lib/agents/fibo-prompt";
 import { normaliseNegative } from "@/lib/agents/negative-prompt";
 import { sceneWardrobeChangesSchema, type WardrobeChange } from "@/lib/schemas/wardrobe";
@@ -849,7 +849,7 @@ export async function updateScenePrompts(
   raw: unknown,
 ): Promise<ProjectRecord> {
   const patch = scenePromptsPatchSchema.parse(raw);
-  for (const field of ["startFramePrompt", "endFramePrompt"] as const) {
+  for (const field of ["startFramePrompt", "endFramePrompt", "endFrameEditPrompt"] as const) {
     if (patch[field] !== undefined && hasFiboVgl(patch[field])) parseFiboPrompt(patch[field]);
   }
   const record = await getProjectRecord(id);
@@ -863,7 +863,7 @@ export async function updateScenePrompts(
     storyboard: {
       ...record.storyboard,
       scenes: record.storyboard.scenes.map((s) =>
-        s.id === sceneId ? { ...s, prompts: { ...s.prompts, ...patch } } : s,
+        s.id === sceneId ? { ...s, prompts: applyScenePromptsPatch(s.prompts, patch) } : s,
       ),
     },
     project: { ...record.project, updatedAt: new Date().toISOString() },
@@ -925,14 +925,13 @@ export async function repairNegativePrompts(id: string): Promise<{
     return {
       ...scene,
       charactersPresent: sceneCast.map((c) => c.name),
-      prompts: {
-        ...scene.prompts,
+      prompts: applyScenePromptsPatch(scene.prompts, {
         startFramePrompt,
         endFramePrompt,
         videoPromptSegment,
         imageNegativePrompt,
         videoNegativePrompt,
-      },
+      }),
     };
   });
 

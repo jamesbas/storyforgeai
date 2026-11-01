@@ -12,6 +12,7 @@ import { missingDialogue, opensWithFraming, echoesInstructions, mixesStandingAnd
 const FIELDS = [
   { key: "startFramePrompt", label: "Start frame", rows: 4, kind: "image" },
   { key: "endFramePrompt", label: "End frame", rows: 4, kind: "image" },
+  { key: "endFrameEditPrompt", label: "End frame (carried-frame edit)", rows: 4, kind: "image" },
   { key: "imageNegativePrompt", label: "Image negative", rows: 2, kind: "image" },
   { key: "videoPromptSegment", label: "Video (motion)", rows: 5, kind: "video" },
   { key: "videoNegativePrompt", label: "Video negative", rows: 2, kind: "video" },
@@ -71,6 +72,7 @@ function draftFrom(scene: Scene): Draft {
   return {
     startFramePrompt: scene.prompts.startFramePrompt,
     endFramePrompt: scene.prompts.endFramePrompt,
+    endFrameEditPrompt: scene.prompts.endFrameEditPrompt ?? "",
     imageNegativePrompt: scene.prompts.imageNegativePrompt,
     videoPromptSegment: scene.prompts.videoPromptSegment,
     videoNegativePrompt: scene.prompts.videoNegativePrompt,
@@ -227,7 +229,8 @@ export function ScenePromptsPanel({
       ) : null}
 
       <div className="mt-2 space-y-3">
-        {FIELDS.map((field) => {
+        {FIELDS.filter((field) => field.key !== "endFrameEditPrompt" ||
+          scene.prompts.endFrameEditPrompt !== undefined).map((field) => {
           const words = triggerWords?.[field.kind] ?? [];
           const isNegative = field.key.toLowerCase().includes("negative");
           const pending = isNegative
@@ -249,6 +252,13 @@ export function ScenePromptsPanel({
                   per character in the scene. Those lines are built from the cast at render time
                   rather than stored, because the cast can change after a prompt is written; they
                   are not editable here. The prose below is sent as you write it.
+                </p>
+              ) : null}
+              {field.key === "endFrameEditPrompt" ? (
+                <p className="text-[11px] text-slate-400">
+                  Used only with Show it the carried frame and an actual supplied frame.
+                  End frame above is the creation fallback when no carried frame is sent.
+                  {" "}Changing that fallback clears the old edit unless both are saved together.
                 </p>
               ) : null}
               <label className="block space-y-1">

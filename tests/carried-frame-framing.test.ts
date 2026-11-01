@@ -62,9 +62,10 @@ describe("a frame the next scene inherits", () => {
     await generateProjectMediaPhased(record.project.id, sceneIdsOf(record));
 
     const startFrames = client.calls.filter((prompt) =>
-      record.storyboard!.scenes.some((s) => prompt.startsWith(s.prompts.startFramePrompt)),
+      prompt.startsWith(record.storyboard!.scenes[0]!.prompts.startFramePrompt),
     );
-    expect(startFrames.length).toBeGreaterThan(0);
+    // Later openings are copies of the preceding closing prompt, not renders.
+    expect(startFrames).toHaveLength(1);
     expect(startFrames.some((prompt) => prompt.includes(CARRY_MARKER))).toBe(false);
   });
 
@@ -88,7 +89,9 @@ describe("a frame the next scene inherits", () => {
     const record = await project("reuse_end_frame");
     await generateProjectMediaPhased(record.project.id, sceneIdsOf(record));
 
-    const endFrames = record.storyboard!.scenes.map((s) => s.prompts.endFramePrompt);
+    const endFrames = record.storyboard!.scenes.flatMap((s) =>
+      [s.prompts.endFramePrompt, ...(s.prompts.endFrameEditPrompt ? [s.prompts.endFrameEditPrompt] : [])],
+    );
     for (const prompt of carrying()) {
       // Nothing stands between the shot size and the first thing in the picture.
       expect(prompt).not.toContain(`. ${CARRY_MARKER}`.slice(0, 30));

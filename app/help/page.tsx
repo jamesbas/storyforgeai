@@ -718,10 +718,16 @@ export default function HelpPage() {
               testing. Planning agents still receive it, since they have no photo to work from.
             </li>
             <li className={li}>
-              <strong>Reference images</strong> — up to two pictures, most representative first. They
-              are sent to the generation backend as reference input for the start and end frames, so
-              the render is conditioned on the actual likeness rather than only the words. A second
-              angle helps; two is the ceiling of the reference-capable models in use. Requires an
+              <strong>Reference images</strong> — up to four pictures, most representative first.
+              Keyframes automatically send as many saved photos of the selected character as the
+              resolved image model can accept. A carried scene frame goes first and counts toward
+              the total; remaining slots take character photos in their saved order. Published
+              numeric limits take priority. When Wan2GP supplies no numeric maximum, StoryForge uses
+              known model limits: Qwen Image 2.1 allows the tested combination of one carried frame
+              plus four photos, while Krea 2 allows two total images. Other multiple-reference models
+              default to four total; single-reference models get one. Extra photos are identified
+              as angles of the same person, not additional people. Reference-to-video settings and
+              face-swap photo handling are separate and unchanged. Requires an
               image model that accepts reference images; if the pinned model cannot, StoryForgeAI
               substitutes one that can. The background behind the subject is stripped automatically,
               so the setting in the photo does not become part of the reference.
@@ -1078,6 +1084,17 @@ export default function HelpPage() {
             on every scene. The join is unaffected either way — a scene&apos;s end frame is still
             the next scene&apos;s start frame — so what you trade is the set and wardrobe matching
             frame to frame for the look of the model you chose.
+          </p>
+          <p className={p}>
+            With <strong>Show it the carried frame</strong>, new or rewritten image prompts include
+            a scene-specific edit prompt for the closing frame: what changes from the carried image
+            and what stays consistent. Each inherited opening keeps the preceding accepted
+            closing-frame prompt exactly, even if this scene&apos;s card describes a different
+            shot. New framing belongs in the closing frame rather than resetting the opening.
+            The first image still uses a creation prompt. The edit is
+            sent only when the carried frame is actually supplied; disabling references, a broken
+            seam or rendering without a predecessor uses the stored creation prompt instead.
+            Existing storyboards need <strong>Rewrite all image prompts</strong> to adopt this.
           </p>
           <p className={p}>
             <strong>Watch for a head cropped out of a carried frame.</strong> That frame is the only

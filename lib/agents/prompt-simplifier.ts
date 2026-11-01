@@ -37,7 +37,7 @@ export async function simplifyPrompt(
   provider: PlanningProvider,
 ): Promise<string> {
   const before = scene.prompts[field];
-  if (!before.trim()) throw new ValidationError("This prompt is empty; there is nothing to simplify.");
+  if (!before?.trim()) throw new ValidationError("This prompt is empty; there is nothing to simplify.");
   const structured = field !== "videoPromptSegment" && hasFiboVgl(before);
   if (structured) parseFiboPrompt(before);
   const { prompts, ...card } = scene;
@@ -51,7 +51,11 @@ export async function simplifyPrompt(
   let correction = "";
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const result = await provider.generateJson(
-      SIMPLIFY_PROMPT_SYSTEM + (structured
+      SIMPLIFY_PROMPT_SYSTEM +
+        (field === "endFrameEditPrompt"
+          ? " This is a carried-frame edit: preserve the edit instruction, the specific changes " +
+            "and what remains unchanged. Do not turn it into a new-image creation prompt."
+          : "") + (structured
         ? " The current image prompt is Fibo VGL JSON. Keep valid JSON with the same caption/edit " +
           "structure, the same object entries and exact text_render entries. Shorten descriptions " +
           "without removing visual facts or changing spatial relationships; never return prose."
@@ -68,6 +72,11 @@ export async function simplifyPrompt(
     const dialogue = field === "videoPromptSegment"
       ? missingDialogue(after, scene.dialogue ?? [])
       : [];
+    if (field === "endFrameEditPrompt" && !structured &&
+        !/\bEdit the supplied reference frame\b/i.test(after)) {
+      correction = "Keep this as an edit of the supplied reference frame, not a new-image description.";
+      continue;
+    }
     if (structured && !fiboTextPreserved(before, after)) {
       correction = "Preserve valid Fibo VGL JSON, every object and exact text_render entries.";
       continue;

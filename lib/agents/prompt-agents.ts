@@ -7,7 +7,7 @@ import {
 } from "@/lib/schemas/storyboard";
 import { buildImagePrompts, buildVideoPrompts } from "@/lib/agents/mock-agents";
 import { buildMediaPromptSpec } from "@/lib/agents/media-prompt-builder";
-import { COMPOSER_VERSION, countWords, lintDialogue, lintRendered, splitSentences, wordBudget, type BudgetContext } from "@/lib/agents/media-prompt-spec";
+import { COMPOSER_VERSION, cleanPunctuation, countWords, dedupeSentences, lintDialogue, lintRendered, splitSentences, wordBudget, type BudgetContext } from "@/lib/agents/media-prompt-spec";
 import { trimToBudget } from "@/lib/agents/media-prompt-renderers";
 import { logEvent } from "@/lib/telemetry";
 import {
@@ -32,17 +32,19 @@ import {
   castPromptSuffix,
   castSystemDirective,
 } from "@/lib/agents/cast";
-import { seamDirective } from "@/lib/agents/continuity";
+import { referencesCarriedFrame, seamDirective } from "@/lib/agents/continuity";
 import { lookPromptSuffix } from "@/lib/agents/look";
 import { normaliseNegative } from "@/lib/agents/negative-prompt";
 import {
   hasNativeAudio,
+  buildCarriedFrameEditPrompt,
+  CARRIED_FRAME_EDIT_DIRECTIVE,
   imagePromptDirective,
   inheritedOpeningDirective,
   videoPromptDirective,
 } from "@/lib/agents/model-directives";
 import { familyOf, isFiboFamily, type ModelFamily } from "@/lib/wangp/family";
-import { writeFiboPrompts } from "@/lib/agents/fibo-prompt";
+import { fiboCaptionOf, fiboPromptText, parseFiboPrompt, serialiseFiboPrompt, writeFiboPrompts } from "@/lib/agents/fibo-prompt";
 import {
   concisePromptDirective,
   imageConstraintSentences,
@@ -274,6 +276,7 @@ export const VIDEO_PROMPT_SYSTEM = videoPromptSystem(SEGMENT_SECONDS);
 const imagePartSchema = scenePromptsSchema.pick({
   startFramePrompt: true,
   endFramePrompt: true,
+  endFrameEditPrompt: true,
   imageNegativePrompt: true,
 });
 const videoPartSchema = scenePromptsSchema.pick({
@@ -370,6 +373,7 @@ export async function attachScenePrompts(
       ? {
           startFramePrompt: carried.startFramePrompt,
           endFramePrompt: carried.endFramePrompt,
+          endFrameEditPrompt: carried.endFrameEditPrompt,
           imageNegativePrompt: carried.imageNegativePrompt,
         }
       : buildImagePrompts(project, draft, sceneCast, plans, wardrobe, imageFamily, imageBudgetContext);
@@ -383,20 +387,44 @@ export async function attachScenePrompts(
         }
       : buildVideoPrompts(project, draft, sceneCast, plans, wardrobe, videoFamily, videoBudget);
 
-    // Whether this scene's clip will actually open on the previous scene's end
-    // frame. Decided the same way `resolveContinuity` decides it at render
-    // time, from the cards alone, so the agent is told before it writes rather
-    // than contradicted afterwards.
+    const previousScene = scenes.at(-1);
+    const copyCarriedOpening = !skipImage && referencesCarriedFrame(
+      project, draft.id, previousScene !== undefined,
+    );
+    // The card describes this scene's destination, not the frame it inherits.
+    // Compare completed endpoints and keep the carried opening verbatim.
+    const openingCandidate = copyCarriedOpening
+      ? previousEndFramePrompt
+      : imagePart.startFramePrompt;
     const inheritsOpening =
       (project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY) === "reuse_end_frame" &&
-      index > 0 &&
+      previousScene !== undefined &&
       previousEndFramePrompt !== undefined &&
-      !seamBreak(drafts[index - 1]!, draft);
+      !seamBreak(
+        previousScene,
+        { ...draft, prompts: { startFramePrompt: openingCandidate } },
+        { clipCarriesArrivals: generationStages(project.generationMode).video },
+      );
+    const inheritedStartFramePrompt = copyCarriedOpening && inheritsOpening
+      ? previousEndFramePrompt
+      : undefined;
+    if (inheritedStartFramePrompt !== undefined) {
+      imagePart.startFramePrompt = inheritedStartFramePrompt;
+    }
     if (inheritsOpening) {
       frameParticipants.start = sceneFrameParticipants(
         draft, sceneCast, context.visualBible?.characters,
         Object.keys(wardrobe?.othersStart ?? {}), previousEndFramePrompt,
       ).start;
+    }
+    const editsCarriedFrame = referencesCarriedFrame(project, draft.id, inheritsOpening) &&
+      (generationStages(project.generationMode).video ||
+        statedHeadcount(previousEndFramePrompt) === null ||
+        frameParticipants.end.people <= frameParticipants.start.people);
+    if (!skipImage && editsCarriedFrame) {
+      imagePart.endFrameEditPrompt = buildCarriedFrameEditPrompt(
+        imagePart.endFramePrompt, Boolean(wardrobe?.within.length),
+      );
     }
 
     if (!provider) {
@@ -435,6 +463,12 @@ export async function attachScenePrompts(
         scene: draft,
         frameParticipants,
         previousEndFramePrompt,
+        carriedFrame: editsCarriedFrame
+          ? {
+              shows: previousEndFramePrompt,
+              instruction: "This is the source image to edit into the scene's closing frame.",
+            }
+          : undefined,
         // Named in the payload rather than left to the system prompt, because
         // the scene card sitting beside it describes the opening the storyboard
         // intended and that is what the agent follows. A scene continuing from
@@ -510,14 +544,21 @@ export async function attachScenePrompts(
         codes: [], repaired: [], unresolved: [], trimmed: false,
       };
       const gatedVideo: ClipSalvage = { initial: [], salvaged: [] };
+      const finaliseImagePart = (part: ImagePart): ImagePart => {
+        const final = withCastEnforced(
+          normaliseImageResult(part, project, draft, plans, wardrobe, imageFamily),
+          sceneCast, plans, project, wardrobe, draft, sceneSetting,
+        );
+        return inheritedStartFramePrompt === undefined
+          ? final
+          : { ...final, startFramePrompt: inheritedStartFramePrompt };
+      };
       const frameBudget = imageBudget(
         imageFamily,
         [...new Set([...frameParticipants.start.names, ...frameParticipants.end.names])],
-        (part) => withCastEnforced(
-          normaliseImageResult(part, project, draft, plans, wardrobe, imageFamily),
-          sceneCast, plans, project, wardrobe, draft, sceneSetting,
-        ),
+        finaliseImagePart,
         imageBudgetContext,
+        inheritedStartFramePrompt !== undefined,
       );
       const imageResult = skipImage
         ? null
@@ -538,11 +579,15 @@ export async function attachScenePrompts(
                 seamDirective(project) +
                 castSystemDirective(sceneCast, true) +
                 precedenceDirective(sceneCast, plans) +
-                concisePromptDirective(imageFamily, "image", 0, imageBudgetContext),
+                concisePromptDirective(imageFamily, "image", 0, imageBudgetContext) +
+                (editsCarriedFrame ? CARRIED_FRAME_EDIT_DIRECTIVE :
+                  " Return only creation prompts; do not return endFrameEditPrompt."),
               user,
               gate,
               gated,
               frameBudget,
+              editsCarriedFrame,
+              inheritedStartFramePrompt,
             ),
             // A prompt the model wrote and the gate had to patch is neither its
             // work nor the builder's, and a run that needed patching is a run
@@ -553,10 +598,11 @@ export async function attachScenePrompts(
                 ...(gated.unresolved.length ? [`unresolved=${gated.unresolved.join(",")}`] : []),
                 ...(gated.trimmed ? ["trimmed=over_budget"] : []),
               ];
-              if (!parts.length) return {};
+              const mode = editsCarriedFrame ? "end_frame=carried_frame_edit" : undefined;
+              if (!parts.length) return mode ? { detail: mode } : {};
               return {
                 source: "hybrid" as const,
-                detail: parts.join("; "),
+                detail: [...(mode ? [mode] : []), ...parts].join("; "),
                 // Trimming alone is routine and says nothing against the model;
                 // a gate finding is what marks the run degraded.
                 ...(gated.codes.length || gated.unresolved.length ? { fallbackReason: "invalid_set" as const } : {}),
@@ -583,15 +629,7 @@ export async function attachScenePrompts(
         });
       }
       if (imageResult && imageResult.execution.source !== "deterministic") {
-        imagePart = withCastEnforced(
-          normaliseImageResult(imageResult.value, project, draft, plans, wardrobe, imageFamily),
-          sceneCast,
-          plans,
-          project,
-          wardrobe,
-          draft,
-          sceneSetting,
-        );
+        imagePart = finaliseImagePart(imageResult.value);
       }
 
       const videoResult = noVideoCall
@@ -672,7 +710,7 @@ export async function attachScenePrompts(
 
     if (!skipImage && isFiboFamily(imageFamily)) {
       const vgl = await writeFiboPrompts({
-        start: imagePart.startFramePrompt,
+        start: fiboPromptText(imagePart.startFramePrompt),
         end: imagePart.endFramePrompt,
         sceneId: draft.id,
         provider,
@@ -681,7 +719,18 @@ export async function attachScenePrompts(
         participants: sceneCast.map((character) => character.name),
       });
       imagePart = { ...imagePart, startFramePrompt: vgl.start, endFramePrompt: vgl.end };
+      const caption = parseFiboPrompt(vgl.end);
+      if (caption && imagePart.endFrameEditPrompt) {
+        imagePart.endFrameEditPrompt = serialiseFiboPrompt({
+          structured_caption: fiboCaptionOf(caption),
+          edit_instruction: imagePart.endFrameEditPrompt,
+        });
+      }
     }
+    if (inheritedStartFramePrompt !== undefined) {
+      imagePart.startFramePrompt = inheritedStartFramePrompt;
+    }
+    if (!skipImage && !editsCarriedFrame) delete imagePart.endFrameEditPrompt;
 
     scenes.push({
       ...draft,
@@ -708,11 +757,25 @@ type ImagePart = z.infer<typeof imagePartSchema>;
 type VideoPart = z.infer<typeof videoPartSchema>;
 
 /** Both frames' findings, deduplicated: a fault in either is a fault in the pair. */
-function gateFindings(part: ImagePart, gate: ImageGateContext): PromptGateCode[] {
+function gateFindings(
+  part: ImagePart,
+  gate: ImageGateContext,
+  editing = false,
+  inheritedStartFramePrompt?: string,
+): PromptGateCode[] {
   return [
     ...new Set([
-      ...gateImagePrompt(part.startFramePrompt, "start", gate),
+      ...(inheritedStartFramePrompt === undefined
+        ? gateImagePrompt(part.startFramePrompt, "start", gate)
+        : []),
       ...gateImagePrompt(part.endFramePrompt, "end", gate),
+      ...(editing
+        ? [
+            ...gateImagePrompt(part.endFrameEditPrompt ?? "", "end", gate),
+            ...(/^Edit the supplied reference frame\b/i.test(part.endFrameEditPrompt ?? "")
+              ? [] : ["prompt_blank" as const]),
+          ]
+        : []),
       ...gateFramePair(part.startFramePrompt, part.endFramePrompt, {
         clipCarriesArrivals: gate.clipCarriesArrivals ?? true,
         expected: gate.frameParticipants,
@@ -721,12 +784,16 @@ function gateFindings(part: ImagePart, gate: ImageGateContext): PromptGateCode[]
   ];
 }
 
-function repairPart(part: ImagePart, gate: ImageGateContext): ImagePart {
+function repairPart(
+  part: ImagePart,
+  gate: ImageGateContext,
+  editing = false,
+  inheritedStartFramePrompt?: string,
+): ImagePart {
   const start = gateImagePrompt(part.startFramePrompt, "start", gate);
   const end = gateImagePrompt(part.endFramePrompt, "end", gate);
-  const startFramePrompt = start.length
-    ? repairImagePrompt(part.startFramePrompt, "start", start, gate)
-    : part.startFramePrompt;
+  const startFramePrompt = inheritedStartFramePrompt ??
+    (start.length ? repairImagePrompt(part.startFramePrompt, "start", start, gate) : part.startFramePrompt);
   const endFramePrompt = end.length
     ? repairImagePrompt(part.endFramePrompt, "end", end, gate)
     : part.endFramePrompt;
@@ -747,6 +814,12 @@ function repairPart(part: ImagePart, gate: ImageGateContext): ImagePart {
   return {
     startFramePrompt,
     endFramePrompt,
+    ...(editing ? {
+      endFrameEditPrompt: gateImagePrompt(part.endFrameEditPrompt ?? "", "end", gate).length ||
+        !/^Edit the supplied reference frame\b/i.test(part.endFrameEditPrompt ?? "")
+        ? buildCarriedFrameEditPrompt(endFramePrompt, gate.wardrobeChange)
+        : part.endFrameEditPrompt,
+    } : {}),
     imageNegativePrompt: invented.length
       ? `${part.imageNegativePrompt}, ${invented.join(", ")}`
       : part.imageNegativePrompt,
@@ -811,8 +884,10 @@ function imageBudget(
   participants: readonly string[],
   finalise: (part: ImagePart) => ImagePart,
   budget: BudgetContext,
+  immutableStart = false,
 ): ImageBudget {
-  const frames = ["startFramePrompt", "endFramePrompt"] as const;
+  const frames = (["startFramePrompt", "endFramePrompt", "endFrameEditPrompt"] as const)
+    .filter((frame) => !immutableStart || frame !== "startFramePrompt");
   // Only an unknown card count may be supplied by the answer itself.
   const ceilingFor = (text: string) =>
     wordBudget(family, "image", 0, {
@@ -820,30 +895,34 @@ function imageBudget(
       people: budget.people ? budget.people : (statedHeadcount(text) ?? 0),
     });
   const room = (part: ImagePart, frame: (typeof frames)[number]) => {
-    const final = finalise(part)[frame];
-    const appended = countWords(final) - countWords(part[frame]);
+    const final = finalise(part)[frame] ?? "";
+    const appended = countWords(final) - countWords(part[frame] ?? "");
     return Math.max(MIN_FRAME_WORDS, ceilingFor(final) - Math.max(0, appended));
   };
   return {
     exceeds: (part) => {
       const final = finalise(part);
-      return frames.some((frame) => countWords(final[frame]) > ceilingFor(final[frame]));
+      return frames.some((frame) => countWords(final[frame] ?? "") > ceilingFor(final[frame] ?? ""));
     },
     bodyWords: (part) => Math.min(...frames.map((frame) => room(part, frame))),
     fit: (part) => {
       const fitted = { ...part };
       for (const frame of frames) {
         const limit = room(part, frame);
-        if (countWords(part[frame]) <= limit) continue;
+        const text = part[frame];
+        if (!text || countWords(text) <= limit) continue;
         // The first sentence naming each person stays, or the cast sheet that
         // is appended for people the prompt names would go with it.
-        const sentences = splitSentences(part[frame]);
+        const sentences = splitSentences(text);
         const named = participants
           .map((name) => sentences.find((s) => s.toLowerCase().includes(name.trim().toLowerCase())))
           .filter((s): s is string => Boolean(s));
-        fitted[frame] = trimToBudget(part[frame], limit, 1, [
+        fitted[frame] = trimToBudget(text, limit, 1, [
           ...named,
-          ...imageConstraintSentences(part[frame]),
+          ...imageConstraintSentences(text),
+          ...(frame === "endFrameEditPrompt" ? sentences.filter((sentence) =>
+            /\b(?:preserve|keep|unchanged|identity references)\b/i.test(sentence),
+          ) : []),
         ]);
       }
       return fitted;
@@ -874,24 +953,30 @@ function gatedImageCall(
     trimmed: boolean;
   },
   budget: ImageBudget,
+  editing: boolean,
+  inheritedStartFramePrompt?: string,
 ): () => Promise<ProviderResult<ImagePart>> {
   return async () => {
+    const withOpening = (part: ImagePart): ImagePart => inheritedStartFramePrompt === undefined
+      ? part
+      : { ...part, startFramePrompt: inheritedStartFramePrompt };
     const bodyDirective = (part: ImagePart) =>
       ` The text you author in each frame field may use at most ${budget.bodyWords(part)} words; ` +
       "the remainder of the total ceiling is reserved for automatic setting, look, appearance " +
       "and wardrobe additions. Describe each supplied character inline as required; its full " +
       "appearance is appended only as a fallback when that inline description is missing.";
-    const first = await providerCall(provider, system + bodyDirective({
+    const initial = await providerCall(provider, system + bodyDirective({
       startFramePrompt: "", endFramePrompt: "", imageNegativePrompt: "",
     }), user, imagePartSchema, {
       systemPromptScope: "render_prompts",
     })();
-    if (!first.ok) return first;
-    const codes = gateFindings(first.value, gate);
+    if (!initial.ok) return initial;
+    const first = { ...initial, value: withOpening(initial.value) };
+    const codes = gateFindings(first.value, gate, editing, inheritedStartFramePrompt);
     if (!codes.length && !budget.exceeds(first.value)) return first;
 
     let best = first;
-    const retry = await providerCall(
+    const retried = await providerCall(
       provider,
       system +
         (codes.length ? gateRepairDirective(codes, gate) : "") +
@@ -901,14 +986,15 @@ function gatedImageCall(
       imagePartSchema,
       { systemPromptScope: "render_prompts" },
     )();
-    if (retry.ok) {
-      const retryCodes = gateFindings(retry.value, gate);
+    if (retried.ok) {
+      const retry = { ...retried, value: withOpening(retried.value) };
+      const retryCodes = gateFindings(retry.value, gate, editing, inheritedStartFramePrompt);
       if (!retryCodes.length && !budget.exceeds(retry.value)) return retry;
       if (retryCodes.length <= codes.length) best = retry;
     }
 
-    gated.codes = gateFindings(best.value, gate);
-    let repaired = repairPart(best.value, gate);
+    gated.codes = gateFindings(best.value, gate, editing, inheritedStartFramePrompt);
+    let repaired = repairPart(best.value, gate, editing, inheritedStartFramePrompt);
     if (budget.exceeds(repaired)) {
       repaired = budget.fit(repaired);
       gated.trimmed = true;
@@ -916,7 +1002,7 @@ function gatedImageCall(
     // What the repair fixed and what is still wrong are different facts: the
     // first says the model needed help, the second says the prompt still has a
     // defect a person should look at.
-    gated.unresolved = gateFindings(repaired, gate);
+    gated.unresolved = gateFindings(repaired, gate, editing, inheritedStartFramePrompt);
     if (budget.exceeds(repaired)) gated.unresolved.push("over_budget");
     gated.repaired = gated.codes.filter((code) => !gated.unresolved.includes(code));
     return { ...best, value: repaired };
@@ -1113,6 +1199,9 @@ function normaliseImageResult(
     ...part,
     startFramePrompt: normaliseImagePrompt(part.startFramePrompt, spec, family).text,
     endFramePrompt: normaliseImagePrompt(part.endFramePrompt, spec, family).text,
+    ...(part.endFrameEditPrompt ? {
+      endFrameEditPrompt: cleanPunctuation(dedupeSentences(part.endFrameEditPrompt)),
+    } : {}),
   };
 }
 
@@ -1157,6 +1246,7 @@ function withCastEnforced(
   });
   const frameCast = (prompt: string) => charactersInFrame(prompt, cast);
   return {
+    ...part,
     startFramePrompt: `${part.startFramePrompt}${settingSuffix(part.startFramePrompt, setting)}${lookPromptSuffix(project, part.startFramePrompt)}${castPromptSuffix(frameCast(part.startFramePrompt), wardrobe?.start, sheetFor(part.startFramePrompt), part.startFramePrompt)}${othersWardrobeSuffix(othersInFrame(part.startFramePrompt, wardrobe?.othersStart ?? {}), part.startFramePrompt)}`,
     endFramePrompt: `${part.endFramePrompt}${settingSuffix(part.endFramePrompt, setting)}${lookPromptSuffix(project, part.endFramePrompt)}${castPromptSuffix(frameCast(part.endFramePrompt), wardrobe?.end, sheetFor(part.endFramePrompt), part.endFramePrompt)}${othersWardrobeSuffix(othersInFrame(part.endFramePrompt, wardrobe?.othersEnd ?? {}), part.endFramePrompt)}`,
     imageNegativePrompt: normaliseNegative(`${part.imageNegativePrompt}${negative}`),

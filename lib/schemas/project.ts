@@ -158,13 +158,10 @@ export const projectSchema = z.object({
   /**
    * How many photographs of each character reach a reference-to-video model.
    *
-   * One is the default and was the only behaviour: every path took
-   * `referenceImagesOf(character)[0]` and the rest of the library was read only
-   * as a has-a-photo test. That is right for an *edit* model, which treats each
-   * reference as a separate element to place in the frame — four photographs of
-   * one woman rendered her twice in the same shot — but a reference-to-video
-   * model conditions identity across a whole clip and is the one place more
-   * angles of the same face plausibly help.
+   * One is the default. Independent of keyframes, which send the selected
+   * character's saved photos up to the image model's capacity. A reference-to-video
+   * model conditions identity across a whole clip, where more angles of the same
+   * face may help but each adds render time.
    *
    * Opt-in rather than raised, because the cost is real and measured: roughly
    * seven minutes of render per added reference, paid on every clip. A user who

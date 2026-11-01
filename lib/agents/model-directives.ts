@@ -58,6 +58,55 @@ export function imagePromptDirective(family: ModelFamily): string {
   }
 }
 
+export const CARRIED_FRAME_EDIT_DIRECTIVE =
+  " This scene's closing image is an edit of the supplied carried frame, not a new image. " +
+  "Also return endFrameEditPrompt: a self-contained image-edit instruction beginning " +
+  "'Edit the supplied reference frame'. Compare carriedFrame.shows with the intended closing " +
+  "state and specify the concrete changes to each named person's pose, expression, contact, " +
+  "placement and props. State the resulting shot size, angle and headcount; describe one final " +
+  "still, never a movement sequence. Preserve faces, hair, wardrobe, setting, lighting and style " +
+  "unless this scene explicitly changes them; spell out any directed wardrobe or camera change. " +
+  "Additional character photographs are identity references for those same people, not extra " +
+  "people to insert or a scene to copy. Describe an arriving person's appearance and outfit " +
+  "from this scene's own cast and wardrobe, never copy an existing person's clothing onto them. " +
+  "The destination's geography and camera position come from this scene's plan, not the source. " +
+  "Focus on what changes rather than recreating the whole " +
+  "image or repeating an inventory of unchanged details. The framing-first rule applies to the " +
+  "creation fields, not this edit field: lead with the edit. Keep endFramePrompt as a standalone " +
+  "creation description of the same final state, for renders where no carried frame is available. " +
+  "Full appearance and style-description rules apply to the creation fields only; for the edit, " +
+  "name the affected people and preserve unchanged details from the source rather than restating " +
+  "them. Describe appearance and clothing only for an arrival or a directed change. " +
+  "startFramePrompt remains a description of the inherited opening, not an edit. StoryForge " +
+  "copies that opening from the preceding accepted closing-frame prompt automatically; do not " +
+  "reset its framing, people, wardrobe or pose to match this scene's destination.";
+
+/** A carried frame fixes identity, not the destination shot's geography. */
+export const CARRIED_FRAME_MATCH_INSTRUCTION = {
+  inherited:
+    " Edit the supplied reference frame into this shot: its location, framing, camera position" +
+    " and action come from this scene's own description, not from the reference frame." +
+    " The named characters' faces, wardrobe, hair and styling are exactly as in the supplied" +
+    " reference frame; identical clothing on them." +
+    " Anyone else is dressed and styled only as this scene's own description says, and never" +
+    " takes clothing from a person in the reference frame." +
+    " Integrate every change naturally and alter nothing else.",
+  inheritedChangingWardrobe:
+    " Edit the supplied reference frame into this shot: its location, framing, camera position," +
+    " action and clothing come from this scene's own description, not from the reference frame." +
+    " The named characters' faces, hair and styling are exactly as in the supplied reference" +
+    " frame." +
+    " Integrate every change naturally and alter nothing else.",
+} as const;
+
+export function buildCarriedFrameEditPrompt(endPrompt: string, wardrobeChange = false): string {
+  const instruction = wardrobeChange
+    ? CARRIED_FRAME_MATCH_INSTRUCTION.inheritedChangingWardrobe
+    : CARRIED_FRAME_MATCH_INSTRUCTION.inherited;
+  return `${instruction.trim()} Desired final still state: ${endPrompt}` +
+    " Use any additional character photographs only as identity references, not as extra people.";
+}
+
 export type VideoDirectiveOptions = {
   segmentSeconds: number;
   /** Whether the model writes its own soundtrack from this prompt. */

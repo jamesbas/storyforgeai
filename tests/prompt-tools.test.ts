@@ -38,6 +38,7 @@ async function seeded() {
   const project = await createProject({
     concept: "Mara opens a red door and walks into a courtyard.",
     requestedDurationSeconds: 60,
+    sceneContinuity: "cut",
   });
   const record = await generateStoryboard(project.id);
   for (const scene of record.storyboard!.scenes) {

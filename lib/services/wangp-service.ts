@@ -866,6 +866,8 @@ export async function buildImageManifest(args: {
   imageRefs?: string[];
   /** Set when the first reference is a scene frame rather than a person. */
   imageRefsLeadWithScene?: boolean;
+  /** Every character photo in this keyframe's reference list belongs to this one person. */
+  referenceSubject?: string;
   /** LoRAs selected for this scene's keyframe generation. */
   loras?: LoraSelection[];
   /** Pinned seed, so a preview and the real render sample identically. */
@@ -906,7 +908,10 @@ export async function buildImageManifest(args: {
 
   // Trimmed against the resolved model, not the pin, because the model may have
   // been substituted above. A leading scene frame outranks the cast portraits.
-  const capacity = referenceImageCapacity(model);
+  const capacity = referenceImageCapacity(model, schema);
+  if (needsRefs && capacity === 0) {
+    throw new ValidationError(`Model ${model.modelType} declares a reference-image capacity of zero.`);
+  }
   const imageRefs = args.imageRefs?.slice(0, capacity);
   if (args.imageRefs && imageRefs && imageRefs.length < args.imageRefs.length) {
     logEvent("wangp.reference_images.trimmed", {
@@ -914,12 +919,29 @@ export async function buildImageManifest(args: {
       modelType: model.modelType,
       supplied: args.imageRefs.length,
       sent: imageRefs.length,
+      capacity,
+    });
+  }
+  if (needsRefs) {
+    logEvent("wangp.reference_images.selected", {
+      sceneId: args.sceneId,
+      purpose: args.purpose,
+      modelType: model.modelType,
+      capacity,
+      supplied: args.imageRefs?.length ?? 0,
+      sent: imageRefs?.length ?? 0,
+      carriedFrame: args.imageRefsLeadWithScene === true,
     });
   }
 
+  const photoCount = (imageRefs?.length ?? 0) - (args.imageRefsLeadWithScene ? 1 : 0);
+  const referenceDirective = args.referenceSubject && photoCount > 1
+    ? ` The ${photoCount} character reference photographs show the same person, ${args.referenceSubject},` +
+      ` from different angles. Use them together for ${args.referenceSubject}'s identity, not as separate people.`
+    : "";
   const prompt = fibo
-    ? mapFiboDescription(args.prompt, (text) => withTriggerWords(text, loras))
-    : withTriggerWords(fiboPromptText(args.prompt), loras);
+    ? mapFiboDescription(args.prompt, (text) => withTriggerWords(`${text}${referenceDirective}`, loras))
+    : withTriggerWords(`${fiboPromptText(args.prompt)}${referenceDirective}`, loras);
   const routed = routeNegative(
     model, prompt, args.negativePrompt,
     { sceneId: args.sceneId, purpose: args.purpose },

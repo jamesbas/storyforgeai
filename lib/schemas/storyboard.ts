@@ -21,6 +21,8 @@ export const sceneStatusSchema = z.enum(SCENE_STATUSES);
 export const scenePromptsSchema = z.object({
   startFramePrompt: z.string(),
   endFramePrompt: z.string(),
+  /** Used only when the carried frame is actually sent; the creation prompt remains a fallback. */
+  endFrameEditPrompt: maybe(z.string()),
   imageNegativePrompt: z.string(),
   /**
    * Prompt for the clip. Named for the segment rather than a fixed length:
@@ -67,6 +69,7 @@ export const scenePromptsPatchSchema = z
   .object({
     startFramePrompt: z.string().max(8000),
     endFramePrompt: z.string().max(8000),
+    endFrameEditPrompt: z.string().max(8000),
     imageNegativePrompt: z.string().max(4000),
     videoPromptSegment: z.string().max(8000),
     videoNegativePrompt: z.string().max(4000),
@@ -78,6 +81,16 @@ export const scenePromptsPatchSchema = z
     message: "Provide at least one prompt field to update.",
   });
 export type ScenePromptsPatch = z.infer<typeof scenePromptsPatchSchema>;
+
+/** Changing the destination must not leave a stale edit rendering the old state. */
+export function applyScenePromptsPatch(prompts: ScenePrompts, patch: ScenePromptsPatch): ScenePrompts {
+  return {
+    ...prompts,
+    ...(patch.endFramePrompt !== undefined && patch.endFramePrompt !== prompts.endFramePrompt &&
+      patch.endFrameEditPrompt === undefined ? { endFrameEditPrompt: undefined } : {}),
+    ...patch,
+  };
+}
 
 /** Framing facts a human can correct after seeing the render. */
 export const sceneFramingPatchSchema = z
