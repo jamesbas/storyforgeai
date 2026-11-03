@@ -427,6 +427,20 @@ export default function HelpPage() {
           </p>
           <DocList docs={GENERATION_MODE_DOCS} />
 
+          <h3 className={h3}>Qwen Image 2.1 keyframes</h3>
+          <p className={p}>
+            Standard Qwen Image 2.1 uses <strong>INT8 KV Cache</strong>,{" "}
+            <strong>Guidance (CFG) 5</strong>, and <strong>FlowMatch Euler</strong> for keyframes
+            and previews. StoryForge sends these values explicitly: changing them in Wan2GP&apos;s
+            UI does not override this preset, and MCP may return shipped defaults rather than the
+            values last selected in that UI. FlowMatch Euler is named <code>default</code> in MCP,
+            and the cache value is <code>custom_settings.qwen21_kv_cache = INT8</code>.
+            Unsupported settings cause an error before submission. RGBA and other custom settings
+            are left as returned by MCP. Turbo retains its own guidance and sampler defaults;
+            older Qwen models and face swaps do not use this preset. Qwen 2.1 LoRAs are read from
+            the <code>qwen21</code> folder under the configured LoRA root.
+          </p>
+
           <h3 className={h3}>Narration, dialogue, music &amp; SFX</h3>
           <DocList docs={AUDIO_TOGGLE_DOCS} />
 
@@ -720,8 +734,9 @@ export default function HelpPage() {
             <li className={li}>
               <strong>Reference images</strong> — up to four pictures, most representative first.
               Keyframes automatically send as many saved photos of the selected character as the
-              resolved image model can accept. A carried scene frame goes first and counts toward
-              the total; remaining slots take character photos in their saved order. Published
+              resolved image model can accept. A carried scene frame counts toward the total:
+              it uses the Control Image input when supported, otherwise the first reference slot.
+              Character photos use the separate people-reference list in their saved order. Published
               numeric limits take priority. When Wan2GP supplies no numeric maximum, StoryForge uses
               known model limits: Qwen Image 2.1 allows the tested combination of one carried frame
               plus four photos, while Krea 2 allows two total images. Other multiple-reference models
@@ -1045,7 +1060,7 @@ export default function HelpPage() {
           <p className={p}>
             A scene&apos;s start and end frames are two independent renders, so without help the model
             reinvents anything the prompt does not pin down. Three things hold them together. The{" "}
-            <strong>end frame is rendered with the start frame as a reference image</strong>, which
+            <strong>end frame is rendered with its inherited start frame as the edit source</strong>, which
             carries wardrobe, styling, location and lighting across while the prompt still drives the
             change in framing and action. The <strong>Image Prompt agent</strong> is instructed to
             name specific garments and repeat that wording in both frames rather than writing a vague
@@ -1075,7 +1090,14 @@ export default function HelpPage() {
             not a guarantee: withholding the frame is still the only reliable lever.
           </p>
           <p className={p}>
-            <strong>A carried frame is a reference image.</strong> That confines the project to
+            <strong>A carried frame is an edit source, not a character photo.</strong> Qwen and
+            other models declaring a Control Image input receive it in <code>image_guide</code>;
+            character photos alone go in <code>image_refs</code>. StoryForge selects Control Image,
+            Whole Frame, and Reference Images Are People or Objects: <code>image_mode = 1</code>{" "}
+            and <code>video_prompt_type = IV</code>, or <code>V</code> with no character photos.
+            No mask is sent. Reference-only models such as Krea and Fibo instead keep their
+            ordered-reference contract, with the source frame first. The carried-image feature
+            still confines the project to
             image models marked <span className="font-semibold">✓ refs</span> — a pin that accepts
             none renders the first scene and is quietly substituted for every scene after it, taking
             its LoRAs with it. Project settings therefore offers the same choice for the whole

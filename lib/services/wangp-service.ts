@@ -50,6 +50,7 @@ import { config } from "@/lib/config";
 import { ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
 import { APP_VERSION } from "@/lib/version";
+import { qwen21ImageOverrides } from "@/lib/wangp/qwen21";
 
 export type WangpStatus = {
   enabled: boolean;
@@ -864,7 +865,9 @@ export async function buildImageManifest(args: {
    * honoured — see below.
    */
   imageRefs?: string[];
-  /** Set when the first reference is a scene frame rather than a person. */
+  /** Frame to edit: mapped to image_guide when supported, otherwise the first reference. */
+  sourceImage?: string;
+  /** Legacy ordered input: the first reference is the source frame, not a person. */
   imageRefsLeadWithScene?: boolean;
   /** Every character photo in this keyframe's reference list belongs to this one person. */
   referenceSubject?: string;
@@ -879,7 +882,20 @@ export async function buildImageManifest(args: {
 }): Promise<WangpGenerationSettings> {
   const client = getWangpClient();
   const imageModels = await client.listModels("image");
-  const needsRefs = Boolean(args.imageRefs?.length);
+  if (args.sourceImage !== undefined && args.imageRefsLeadWithScene) {
+    throw new ValidationError("Supply the edit source separately or as the first reference, not both.");
+  }
+  const sourceImage = args.sourceImage ??
+    (args.imageRefsLeadWithScene ? args.imageRefs?.[0] : undefined);
+  if (sourceImage !== undefined && !sourceImage.trim()) {
+    throw new ValidationError("An edit source image must have a non-empty path.");
+  }
+  if (args.imageRefsLeadWithScene && !sourceImage) {
+    throw new ValidationError("An ordered edit request must include its source image.");
+  }
+  const characterRefs = args.imageRefsLeadWithScene ? args.imageRefs!.slice(1) : args.imageRefs ?? [];
+  const candidates = [...(sourceImage ? [sourceImage] : []), ...characterRefs];
+  const needsRefs = candidates.length > 0;
 
   const model = pickImageModel(imageModels, {
     modelType: args.modelType,
@@ -897,6 +913,9 @@ export async function buildImageManifest(args: {
   }
 
   const schema = await client.getModelSchema(model.modelType);
+  const qwen21 = qwen21ImageOverrides({
+    modelType: model.modelType, baseModelType: model.metadata.baseModelType,
+  }, schema);
   const loras = await lorasFor(model, args.loras, args.sceneId, "image");
   const family = familyOfModel(model);
   const fibo = isFiboFamily(family);
@@ -907,18 +926,22 @@ export async function buildImageManifest(args: {
   }
 
   // Trimmed against the resolved model, not the pin, because the model may have
-  // been substituted above. A leading scene frame outranks the cast portraits.
+  // been substituted above. Reserve the source frame before character photos.
   const capacity = referenceImageCapacity(model, schema);
   if (needsRefs && capacity === 0) {
     throw new ValidationError(`Model ${model.modelType} declares a reference-image capacity of zero.`);
   }
-  const imageRefs = args.imageRefs?.slice(0, capacity);
-  if (args.imageRefs && imageRefs && imageRefs.length < args.imageRefs.length) {
+  const selected = candidates.slice(0, capacity);
+  const hasControlInput = !fibo && schema.fields.some((field) => field.name === "image_guide");
+  const imageGuide = sourceImage && hasControlInput ? selected[0] : undefined;
+  const imageRefs = imageGuide ? selected.slice(1) : selected;
+  const sceneReference = Boolean(sourceImage && !imageGuide);
+  if (selected.length < candidates.length) {
     logEvent("wangp.reference_images.trimmed", {
       purpose: args.purpose,
       modelType: model.modelType,
-      supplied: args.imageRefs.length,
-      sent: imageRefs.length,
+      supplied: candidates.length,
+      sent: selected.length,
       capacity,
     });
   }
@@ -928,13 +951,15 @@ export async function buildImageManifest(args: {
       purpose: args.purpose,
       modelType: model.modelType,
       capacity,
-      supplied: args.imageRefs?.length ?? 0,
-      sent: imageRefs?.length ?? 0,
-      carriedFrame: args.imageRefsLeadWithScene === true,
+      supplied: candidates.length,
+      sent: selected.length,
+      carriedFrame: Boolean(sourceImage),
+      sourceRole: imageGuide ? "control_image" : sceneReference ? "main_reference" : "none",
+      characterPhotos: imageRefs.length - (sceneReference ? 1 : 0),
     });
   }
 
-  const photoCount = (imageRefs?.length ?? 0) - (args.imageRefsLeadWithScene ? 1 : 0);
+  const photoCount = imageRefs.length - (sceneReference ? 1 : 0);
   const referenceDirective = args.referenceSubject && photoCount > 1
     ? ` The ${photoCount} character reference photographs show the same person, ${args.referenceSubject},` +
       ` from different angles. Use them together for ${args.referenceSubject}'s identity, not as separate people.`
@@ -952,10 +977,11 @@ export async function buildImageManifest(args: {
     purpose: args.purpose,
     ...routed,
     prompt: fibo
-      ? fiboRenderPrompt(routed.prompt, imageRefs?.length ?? 0, args.imageRefsLeadWithScene === true)
+      ? fiboRenderPrompt(routed.prompt, imageRefs.length, sceneReference)
       : routed.prompt,
+    imageGuide,
     imageRefs,
-    imageRefsLeadWithScene: args.imageRefsLeadWithScene,
+    imageRefsLeadWithScene: sceneReference,
     loras,
     loraCapable: model.metadata.supportsLora,
     resolution: resolutionFor(schema, args.frame, {
@@ -964,7 +990,9 @@ export async function buildImageManifest(args: {
       modelType: model.modelType,
     }, family),
     seed: args.seed,
-    guidanceScale: fibo ? (family === "fibo_turbo" ? 1 : 5) : undefined,
+    guidanceScale: fibo ? (family === "fibo_turbo" ? 1 : 5) : qwen21.guidanceScale,
+    sampleSolver: qwen21.sampleSolver,
+    customSettings: qwen21.customSettings,
     steps: stepsFor(
       model.modelType,
       schema,
@@ -988,6 +1016,15 @@ export async function buildImageManifest(args: {
     manifest.settings.multi_prompts_gen_type = "FG";
     if ("spatial_upsampling" in manifest.settings) manifest.settings.spatial_upsampling = "";
     if ("remove_background_images_ref" in manifest.settings) manifest.settings.remove_background_images_ref = 0;
+  }
+  if (qwen21.sampleSolver !== undefined) {
+    logEvent("wangp.image_settings.resolved", {
+      sceneId: args.sceneId,
+      modelType: model.modelType,
+      guidance: qwen21.guidanceScale,
+      sampler: qwen21.sampleSolver,
+      kvCache: qwen21.customSettings?.qwen21_kv_cache,
+    });
   }
   return manifest;
 }

@@ -22,6 +22,7 @@ import {
   ref2vaEstimateMinutes,
 } from "@/lib/wangp/render-estimate";
 import { familyOf, isMinimaxFamily, type ModelFamily } from "@/lib/wangp/family";
+import { isStandardQwen21Model } from "@/lib/wangp/qwen21";
 
 type ModelsResponse = { models: WangpModel[]; total: number; availabilityKnown: boolean };
 
@@ -201,6 +202,11 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
   }
 
   const { project } = record;
+  const resolvedImageType = choice?.image?.modelType ?? project.imageModel ?? "";
+  const standardQwen21 = isStandardQwen21Model({
+    modelType: resolvedImageType,
+    baseModelType: imageModels.find((model) => model.modelType === resolvedImageType)?.metadata.baseModelType,
+  });
   const usesCharacters = Boolean(project.useCharacterLibrary && project.characterIds?.length);
 
   // Guidance is keyed on the pinned video model. An unpinned project gets none,
@@ -423,6 +429,14 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           choice?.image,
           choice?.pinMissing?.image ?? false,
         )}
+        {standardQwen21 ? (
+          <p className="text-xs text-slate-400" data-testid="qwen21-generation-preset">
+            Standard Qwen Image 2.1 uses INT8 KV Cache, Guidance (CFG) 5, and FlowMatch Euler
+            for keyframes and previews. These are sent explicitly rather than inherited from
+            Wan2GP&apos;s UI defaults. LoRAs are read from the qwen21 folder. The Turbo
+            checkpoint keeps its own guidance and sampler defaults.
+          </p>
+        ) : null}
         {picker(
           "Video model (clips)",
           project.videoModel,
@@ -497,7 +511,8 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
                 <strong>Reference photograph</strong> — strongest likeness.
                 <span className="block text-slate-500">
                   Saved photos of the frame&apos;s selected character are sent in order, up to the
-                  resolved image model&apos;s capacity. A carried frame takes the first slot.
+                  resolved image model&apos;s capacity. A carried frame reserves capacity separately
+                  and uses the Control Image input when supported.
                   {" "}
                   The photo conditions the whole frame rather than one figure in it, so on a shot
                   with several people the model can apply the likeness to more than one of them. The
@@ -631,7 +646,8 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
                 <strong>Show it the carried frame</strong> — strongest continuity.
                 <span className="block text-slate-500">
                   Wardrobe, hair, set and lighting hold across the join because the model can see
-                  them. A carried frame is a reference image, so this confines the project to models
+                  them. Qwen uses it as the Control Image, separate from character references;
+                  reference-only models use it as their main reference. This confines the project to models
                   marked <span className="font-semibold">✓ refs</span> — a pin that accepts none
                   renders the first scene and is substituted for every scene after it, its LoRAs
                   going with it.

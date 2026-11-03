@@ -87,6 +87,12 @@ export const wangpModelSchemaSchema = z.object({
   modelType: z.string(),
   defaultSettings: z.record(z.unknown()),
   fields: z.array(wangpFieldSchema),
+  /** Model-defined dropdown values carried inside custom_settings. */
+  customSettings: z.array(z.object({
+    id: z.string(),
+    label: z.string().optional(),
+    allowed: z.array(z.string()),
+  })).optional(),
 });
 export type WangpModelSchema = z.infer<typeof wangpModelSchemaSchema>;
 

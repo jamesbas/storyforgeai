@@ -514,6 +514,23 @@ describe("field alias resolution", () => {
 });
 
 describe("normalizeModelSchema", () => {
+  it("preserves model-defined dropdown choices for nested custom settings", () => {
+    const { schema } = normalizeModelSchema("qwen_image_21_7B", {
+      model_def: {
+        custom_settings: [
+          { id: "qwen21_kv_cache", label: "KV Cache", type: "dropdown", choices: [["Disabled", "Disabled"], ["INT8 (Fastest)", "INT8"]] },
+          { id: "rgba", label: "RGBA", choices: ["Disabled", "Enabled"] },
+        ],
+        sample_solvers: [["FlowMatch Euler", "default"]],
+      },
+    }, { custom_settings: { qwen21_kv_cache: "Disabled", rgba: "Disabled" } });
+    expect(schema.customSettings).toEqual([
+      { id: "qwen21_kv_cache", label: "KV Cache", allowed: ["Disabled", "INT8"] },
+      { id: "rgba", label: "RGBA", allowed: ["Disabled", "Enabled"] },
+    ]);
+    expect(schema.fields.find((field) => field.name === "sample_solver")?.allowed).toEqual(["default"]);
+  });
+
   const rawSchema = {
     setting_values: {
       resolution: { choices: ["1280x720", "1920x1080"] },

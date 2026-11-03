@@ -669,10 +669,8 @@ async function keyframeManifest(
     seed: keyframeSeed(record.project.sceneSeeds?.[scene.id], purpose),
     steps: record.project.imageSteps,
     frame: frameOf(record.project),
-    imageRefs: [...extraRefs, ...castRefs],
-    // A leading scene frame is the "main subject / landscape" reference; the
-    // cast portraits that follow are the people.
-    imageRefsLeadWithScene: extraRefs.length > 0,
+    sourceImage: extraRefs[0],
+    imageRefs: castRefs,
     referenceSubject,
     loras: resolveSceneLoras(record.project, scene.id, "image"),
   });

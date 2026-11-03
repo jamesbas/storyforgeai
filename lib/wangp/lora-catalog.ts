@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import type { LoraCatalog, LoraCatalogEntry } from "@/lib/schemas/lora";
+import { isQwen21Model } from "@/lib/wangp/qwen21";
 
 /**
  * WanGP loads LoRA weights from these extensions only. The `.lset` files that
@@ -64,7 +65,12 @@ export async function resolveLoraDirectory(
   if (!directories.length) return undefined;
 
   const byLower = new Map(directories.map((name) => [name.toLocaleLowerCase(), name]));
-  const candidates = [identity.baseModelType, identity.family, identity.modelType];
+  const candidates = [
+    identity.baseModelType,
+    ...(isQwen21Model(identity) ? ["qwen21"] : []),
+    identity.family,
+    identity.modelType,
+  ];
 
   for (const candidate of candidates) {
     if (!candidate) continue;

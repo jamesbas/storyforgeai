@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { config } from "@/lib/config";
+import { ValidationError } from "@/lib/errors";
 import { SEGMENT_SECONDS } from "@/lib/types";
 import type { LoraSelection } from "@/lib/schemas/lora";
 import type { WangpModelSchema, WangpGenerationSettings, WangpPurpose } from "@/lib/schemas/wangp";
@@ -20,6 +21,8 @@ export type ManifestOverrides = {
   negativePrompt?: string;
   imageStart?: string;
   imageEnd?: string;
+  /** Whole-frame edit source (WanGP Control Image), separate from person references. */
+  imageGuide?: string;
   /**
    * Reference images for identity conditioning (WanGP `image_refs`).
    *
@@ -71,6 +74,8 @@ export type ManifestOverrides = {
   /** Denoising steps. Left unset, the model's own default stands. */
   steps?: number;
   guidanceScale?: number;
+  sampleSolver?: string;
+  customSettings?: Record<string, string>;
   /** Audio models: clip length in seconds. Video: segment length for frame maths. */
   durationSeconds?: number;
   /** The model can render past one window, so a published window size is not a clip ceiling. */
@@ -217,6 +222,10 @@ export function singlePromptGenType(
   const setIf = (name: string, value: unknown) => {
     if (fieldNames.has(name) && value !== undefined) settings[name] = value;
   };
+  const keyframe = overrides.purpose === "start_frame" || overrides.purpose === "end_frame";
+  if (keyframe && (fieldNames.has("image_mode") || "image_mode" in settings)) {
+    settings.image_mode = 1;
+  }
 
   setIf("prompt", overrides.prompt);
   setIf("negative_prompt", overrides.negativePrompt ?? "");
@@ -226,6 +235,31 @@ export function singlePromptGenType(
   if (overrides.guidanceScale !== undefined &&
       (fieldNames.has("guidance_scale") || "guidance_scale" in settings)) {
     settings.guidance_scale = overrides.guidanceScale;
+  }
+  if (overrides.sampleSolver !== undefined) {
+    const solver = schema.fields.find((field) => field.name === "sample_solver");
+    if ((!solver && !("sample_solver" in settings)) ||
+        (solver?.allowed && !solver.allowed.includes(overrides.sampleSolver))) {
+      throw new ValidationError(
+        `Model ${schema.modelType} does not accept sampler '${overrides.sampleSolver}'.`,
+      );
+    }
+    settings.sample_solver = overrides.sampleSolver;
+  }
+  if (overrides.customSettings) {
+    for (const [id, value] of Object.entries(overrides.customSettings)) {
+      const declaration = schema.customSettings?.find((setting) => setting.id === id);
+      if (!declaration || !declaration.allowed.includes(value)) {
+        throw new ValidationError(
+          `Model ${schema.modelType} does not declare custom setting '${id}' with value '${value}'.`,
+        );
+      }
+    }
+    const current = settings.custom_settings;
+    if (current !== undefined && (current === null || typeof current !== "object" || Array.isArray(current))) {
+      throw new ValidationError(`Model ${schema.modelType} returned invalid custom_settings defaults.`);
+    }
+    settings.custom_settings = { ...current, ...overrides.customSettings };
   }
 
   // WanGP can rewrite the prompt with its own local LLM before generating.
@@ -309,18 +343,42 @@ export function singlePromptGenType(
     ["image_start", overrides.imageStart],
     ["image_end", overrides.imageEnd],
     ["video_source", overrides.videoSource],
+    ["image_guide", overrides.imageGuide],
   ].filter(([name, value]) => value !== undefined && !fieldNames.has(name as string));
   if (missingConditioning.length) {
     throw new Error(
       `Model ${schema.modelType} does not accept ${missingConditioning
         .map(([name]) => String(name))
-        .join(", ")}, so those inputs would be silently ignored. Pin a video model that declares ` +
+        .join(", ")}, so those inputs would be silently ignored. Pin a model that declares ` +
         "every selected conditioning input.",
     );
   }
 
   setIf("image_start", overrides.imageStart);
   setIf("image_end", overrides.imageEnd);
+  if (overrides.imageGuide !== undefined) {
+    if (!overrides.imageGuide.trim()) {
+      throw new ValidationError("A Control Image must have a non-empty path.");
+    }
+    if (!fieldNames.has("video_prompt_type")) {
+      throw new ValidationError(`Model ${schema.modelType} cannot activate its Control Image input.`);
+    }
+    if (overrides.imageRefsLeadWithScene) {
+      throw new ValidationError("A Control Image must not also be designated as the first reference.");
+    }
+    if (overrides.keepModelReferenceGroup) {
+      throw new ValidationError("A Control Image requires explicit control and reference modes.");
+    }
+    settings.image_guide = overrides.imageGuide;
+    // Still-image mode is not always declared, but without it V can mean Control Video.
+    settings.image_mode = 1;
+    delete settings.image_mask;
+    settings.image_refs = overrides.imageRefs ?? [];
+    setIf("image_prompt_type", "");
+  } else if (keyframe) {
+    delete settings.image_guide;
+    delete settings.image_mask;
+  }
 
   // `image_prompt_type` is a combinable letter set: "S" start image, "E" end image,
   // "V" continue from source video, "L" continue from the last generated video
@@ -336,7 +394,7 @@ export function singlePromptGenType(
     overrides.imageEnd && fieldNames.has("image_end") ? "E" : "",
     overrides.videoSource && fieldNames.has("video_source") ? "V" : "",
   ].join("");
-  if (imagePromptType) setIf("image_prompt_type", imagePromptType);
+  if (imagePromptType || keyframe) setIf("image_prompt_type", imagePromptType);
 
   // Reference images are passed as a list even for a single character: the
   // models that accept them advertise `multiple_references`, and a list is what
@@ -365,20 +423,21 @@ export function singlePromptGenType(
     // "You must provide at least one Reference Image".
     //
     // It is set explicitly rather than merged into the model's default,
-    // because the other letter groups in this field select guide and mask
-    // inputs this pathway never sends. Flux 2 Klein ships "MV" (mask + video
+    // because the other letter groups in this field can select unwanted masks
+    // and preprocessing. A supplied Control Image adds only V (whole frame).
+    // Flux 2 Klein ships "MV" (mask + video
     // guide); keeping that would make WanGP demand images we do not provide.
     //
     // Except where the model publishes an empty default and takes `image_refs`
     // directly — then the letters are not its language and writing them changes
     // how it reads the pictures.
     if (!overrides.keepModelReferenceGroup) {
-      setIf("video_prompt_type", overrides.imageRefsLeadWithScene ? "KI" : "I");
+      setIf("video_prompt_type", overrides.imageGuide ? "IV" : overrides.imageRefsLeadWithScene ? "KI" : "I");
     }
   } else if (!overrides.keepModelReferenceGroup) {
     // Same reason in reverse: left alone, Flux 2 Klein's "MV" default demands a
     // control image this pathway never sends.
-    setIf("video_prompt_type", "");
+    setIf("video_prompt_type", overrides.imageGuide ? "V" : "");
   }
 
   // Audio models express length in seconds, clamped to any published bounds.

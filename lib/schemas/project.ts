@@ -175,8 +175,9 @@ export const projectSchema = z.object({
    * Whether a carried-over frame conditions the end frame rendered against it.
    *
    * The project-level default for the per-scene `sceneEndFrameRefs` override.
-   * A carried frame is a reference image like any other, so leaving it on
-   * confines the project to models that accept one — which is why a pin such as
+   * A carried frame uses the model's control input when available, otherwise
+   * its first reference slot. Leaving it on confines the project to models
+   * that accept image conditioning — which is why a pin such as
    * Krea 2 Turbo rendered the first scene and was substituted for every scene
    * after it. Turning it off keeps the pin and its LoRAs and leaves continuity
    * to what already carries it: the previous scene's end frame still becomes

@@ -58,6 +58,30 @@ const flux = { modelType: "flux2_klein_9b", family: "flux2", baseModelType: "flu
 const ltx = { modelType: "ltx2_22B_distilled_1_1", family: "ltx2", baseModelType: "ltx2_22B" };
 
 describe("mapping a model to its LoRA directory", () => {
+  it.each(["qwen_image_21_7B", "qwen_image_21_turbo_7B"])("finds qwen21 for %s instead of a generic Qwen folder", async (modelType) => {
+    await fs.mkdir(path.join(root, "qwen21"));
+    await fs.mkdir(path.join(root, "qwen_image_2"));
+    await fs.mkdir(path.join(root, "qwen"));
+    expect(await resolveLoraDirectory(root, {
+      modelType, family: "qwen_image_2", baseModelType: "qwen_image_21_7B",
+    })).toBe("qwen21");
+  });
+
+  it("routes a derivative from its Qwen 2.1 base and preserves on-disk casing", async () => {
+    await fs.mkdir(path.join(root, "Qwen21"));
+    expect(await resolveLoraDirectory(root, {
+      modelType: "custom_derivative", baseModelType: "qwen_image_21_7B", family: "qwen_image_2",
+    })).toBe("Qwen21");
+  });
+
+  it("does not offer Qwen 2.1 LoRAs to older Qwen models", async () => {
+    await fs.mkdir(path.join(root, "qwen21"));
+    await fs.mkdir(path.join(root, "qwen"));
+    expect(await resolveLoraDirectory(root, {
+      modelType: "qwen_image_edit_plus_20B", family: "qwen",
+    })).toBe("qwen");
+  });
+
   it("prefers the base model, which has its own folder", async () => {
     expect(await resolveLoraDirectory(root, flux)).toBe("flux2_klein_9b");
   });
@@ -85,6 +109,22 @@ describe("mapping a model to its LoRA directory", () => {
 });
 
 describe("reading the LoRA store", () => {
+  it("loads Qwen 2.1 weights and sidecar metadata from qwen21", async () => {
+    await fs.mkdir(path.join(root, "qwen21"));
+    await fs.mkdir(path.join(metadataRoot, "qwen21"));
+    await fs.writeFile(path.join(root, "qwen21", "portrait.safetensors"), "x");
+    await fs.writeFile(path.join(metadataRoot, "qwen21", "portrait.json"), JSON.stringify({
+      name: "Portrait", trainedWords: ["portrait21"],
+    }));
+    const catalog = await listLocalLoras(root, metadataRoot, {
+      modelType: "qwen_image_21_7B", family: "qwen_image_2", baseModelType: "qwen_image_21_7B",
+    });
+    expect(catalog).toMatchObject({
+      supported: true, directory: "qwen21",
+      loras: [{ name: "portrait.safetensors", label: "Portrait", triggerWords: ["portrait21"] }],
+    });
+  });
+
   it("lists only weight files, ignoring presets and nested folders", async () => {
     const catalog = await listLocalLoras(root, metadataRoot, ltx);
     expect(catalog.supported).toBe(true);

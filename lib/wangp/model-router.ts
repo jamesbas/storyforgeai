@@ -2,6 +2,7 @@ import type { ModelCapability, WangpModel, WangpModelSchema } from "@/lib/schema
 import type { Project } from "@/lib/schemas/project";
 import { familyOfModel } from "@/lib/wangp/family";
 import { ValidationError } from "@/lib/errors";
+import { isQwen21Model } from "@/lib/wangp/qwen21";
 
 /** Minimal preferences the router needs (avoids requiring a full Project). */
 export type ModelPreference = { modelStrategy: Project["modelStrategy"] };
@@ -96,9 +97,7 @@ export function referenceImageCapacity(model: {
 
   // Qwen Image 2.1 has been tested with a carried frame and four identity photos.
   const modelTypes = [model.modelType, model.metadata?.baseModelType];
-  if (modelTypes.some((type) =>
-    type !== undefined && /^qwen_image_21(?:_|$)/i.test(type),
-  )) return 5;
+  if (isQwen21Model({ modelType: model.modelType, baseModelType: model.metadata?.baseModelType })) return 5;
   if (modelTypes.some((type) =>
     type !== undefined && /^krea2(?:_|$)/i.test(type),
   )) return 2;

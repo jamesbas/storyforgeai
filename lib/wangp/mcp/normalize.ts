@@ -462,7 +462,25 @@ export function normalizeModelSchema(
     };
   });
 
-  return { schema: { modelType, defaultSettings, fields }, fieldMap };
+  const rawCustom = definition.custom_settings ?? metadata?.custom_settings;
+  const customSettings = Array.isArray(rawCustom)
+    ? rawCustom.flatMap((entry): NonNullable<WangpModelSchema["customSettings"]> => {
+        const setting = asRecord(entry);
+        if (!setting || typeof setting.id !== "string") return [];
+        const allowed = normalizeChoices(setting.choices).map((choice) => choice.value);
+        if (!allowed.length) return [];
+        const label = setting.label ?? setting.name;
+        return [{
+          id: setting.id,
+          ...(typeof label === "string" ? { label } : {}),
+          allowed,
+        }];
+      })
+    : [];
+  return {
+    schema: { modelType, defaultSettings, fields, ...(customSettings.length ? { customSettings } : {}) },
+    fieldMap,
+  };
 }
 
 const EVENT_STATUSES = ["submitted", "running", "completed", "failed", "cancelled"] as const;

@@ -289,12 +289,20 @@ function recordingModelClient(env: Env, model: WangpModel, maxItems?: number) {
       return {
         modelType: type,
         defaultSettings: { model_type: type, resolution: "1280x720", num_inference_steps: 20, seed: -1 },
+        ...(type.startsWith("qwen_image_21_") ? {
+          customSettings: [{ id: "qwen21_kv_cache", allowed: ["Disabled", "Enabled", "INT8", "INT8_RAM"] }],
+        } : {}),
         fields: [
           { name: "prompt", type: "string" },
           { name: "negative_prompt", type: "string" },
           { name: "resolution", type: "string" },
           { name: "num_inference_steps", type: "number" },
           { name: "seed", type: "number" },
+          ...(type.startsWith("qwen_image_21_") ? [
+            { name: "guidance_scale", type: "number" },
+            { name: "sample_solver", type: "string", allowed: ["default", "qwen21_turbo"] },
+            { name: "image_guide", type: "string" },
+          ] : []),
           ...(model.metadata.mediaInputs?.image?.reference ? [
             { name: "image_refs", type: "array", ...(maxItems === undefined ? {} : { maxItems }) },
             { name: "video_prompt_type", type: "string" },
@@ -363,28 +371,50 @@ describe("model-aware keyframe photo counts", () => {
     const record = await env.projects.getProjectRecord(project.id);
     const source = record.attempts![ids[0]!]![0]!.endImagePath;
     const last = client.calls.at(-1)!;
-    expect(references(last)).toHaveLength(1 + carriedPhotos);
-    expect(references(last)[0]).toBe(source);
-    expect(references(last).slice(1).map((ref) => path.basename(ref))).toEqual(photoNames.slice(0, carriedPhotos));
-    expect(last.video_prompt_type).toBe(type === "fibo2_dev" ? "I" : "KI");
+    const guide = type.startsWith("qwen_image_21_");
+    const photos = guide ? references(last) : references(last).slice(1);
+    expect(references(last)).toHaveLength((guide ? 0 : 1) + carriedPhotos);
+    if (guide) {
+      expect(last.image_guide).toBe(source);
+      expect(last.image_mode).toBe(1);
+      expect(references(last)).not.toContain(source);
+    } else {
+      expect(references(last)[0]).toBe(source);
+      expect(last.image_guide).toBeUndefined();
+    }
+    expect(photos.map((ref) => path.basename(ref))).toEqual(photoNames.slice(0, carriedPhotos));
+    expect(last.video_prompt_type).toBe(guide ? "IV" : type === "fibo2_dev" ? "I" : "KI");
     if (carriedPhotos > 1) expect(String(last.prompt)).toContain(`${carriedPhotos} character reference photographs show the same person, Mara`);
 
     const previews = await env.media.previewSceneRenders(project.id);
     const settings = previews.find((frame) => frame.sceneId === ids[1] && frame.purpose === "end_frame")!.settings!;
     expect(references(settings)).toEqual(references(last));
+    expect(settings.image_guide).toBe(last.image_guide);
+    expect(settings.video_prompt_type).toBe(last.video_prompt_type);
   });
 
-  it("uses all four photos alongside the source on individual renders and keyframe previews", async () => {
-    const { env, client, project, ids, photoNames } = await fourPhotoProject("qwen_image_21_7B");
+  it.each(["qwen_image_21_7B", "krea2_turbo_identity_edit_v2"])("keeps model-specific source roles on individual renders and previews for %s", async (type) => {
+    const { env, client, project, ids, photoNames } = await fourPhotoProject(type);
     await env.media.generateSceneMedia(project.id, ids[0]!);
     await env.media.generateSceneMedia(project.id, ids[1]!);
     const source = (await env.projects.getProjectRecord(project.id)).attempts![ids[1]!]![0]!.startImagePath;
-    expect(references(client.calls.at(-1)!)[0]).toBe(source);
-    expect(references(client.calls.at(-1)!).slice(1).map((ref) => path.basename(ref))).toEqual(photoNames);
+    const guide = type === "qwen_image_21_7B";
+    const last = client.calls.at(-1)!;
+    if (guide) {
+      expect(last.image_guide).toBe(source);
+      expect(references(last).map((ref) => path.basename(ref))).toEqual(photoNames);
+    } else {
+      expect(last.image_guide).toBeUndefined();
+      expect(references(last)[0]).toBe(source);
+      expect(path.basename(references(last)[1]!)).toBe(photoNames[0]);
+      expect(references(last)).toHaveLength(2);
+      expect(last.video_prompt_type).toBe("KI");
+    }
     client.calls.length = 0;
     await env.media.generateSceneKeyframe(project.id, ids[1]!, "end_frame");
-    expect(references(client.calls[0]!)[0]).toBe(source);
-    expect(references(client.calls[0]!).slice(1).map((ref) => path.basename(ref))).toEqual(photoNames);
+    expect(client.calls[0]!.image_guide).toBe(last.image_guide);
+    expect(references(client.calls[0]!)).toEqual(references(last));
+    expect(client.calls[0]!.video_prompt_type).toBe(last.video_prompt_type);
   });
 
   it("honours schema capacity even when catalogue metadata advertises more", async () => {
@@ -393,8 +423,9 @@ describe("model-aware keyframe photo counts", () => {
     });
     await env.media.generateProjectMediaPhased(project.id, ids);
     expect(references(client.calls[0]!)).toHaveLength(3);
-    expect(references(client.calls.at(-1)!)).toHaveLength(3);
-    expect(references(client.calls.at(-1)!).slice(1).map((ref) => path.basename(ref))).toEqual(photoNames.slice(0, 2));
+    expect(client.calls.at(-1)!.image_guide).toBeTruthy();
+    expect(references(client.calls.at(-1)!)).toHaveLength(2);
+    expect(references(client.calls.at(-1)!).map((ref) => path.basename(ref))).toEqual(photoNames.slice(0, 2));
     expect(String(client.calls.at(-1)!.prompt)).toContain("2 character reference photographs");
   });
 
@@ -411,7 +442,9 @@ describe("model-aware keyframe photo counts", () => {
     await env.projects.updateProjectModels(project.id, { useCharacterReferenceImages: false });
     await env.media.generateProjectMediaPhased(project.id, ids);
     expect(references(client.calls[0]!)).toEqual([]);
-    expect(references(client.calls.at(-1)!)).toHaveLength(1);
+    expect(references(client.calls.at(-1)!)).toHaveLength(0);
+    expect(client.calls.at(-1)!.image_guide).toBeTruthy();
+    expect(client.calls.at(-1)!.video_prompt_type).toBe("V");
     expect(client.calls.flatMap(references).some((ref) => photoNames.includes(path.basename(ref)))).toBe(false);
   });
 
@@ -421,6 +454,7 @@ describe("model-aware keyframe photo counts", () => {
     await env.media.generateProjectMediaPhased(project.id, ids);
     expect(references(client.calls.at(-1)!).map((ref) => path.basename(ref))).toEqual(photoNames);
     expect(client.calls.at(-1)!.video_prompt_type).toBe("I");
+    expect(client.calls.at(-1)!.image_guide).toBeUndefined();
   });
 
   it("refuses a zero-capacity schema before submitting any image job", async () => {
