@@ -25,6 +25,16 @@ async function seeded() {
 }
 
 describe("editing a scene card", () => {
+  it("persists separate endpoint visibility and allows explicitly empty frames", async () => {
+    const record = await seeded();
+    const scene = record.storyboard!.scenes[0]!;
+    const after = await updateSceneCard(record.project.id, scene.id, {
+      frameVisibility: { start: ["James", "Mara"], end: [] },
+    });
+    expect(after.storyboard!.scenes[0]!.frameVisibility).toEqual({ start: ["James", "Mara"], end: [] });
+    const cleared = await updateSceneCard(record.project.id, scene.id, { frameVisibility: null });
+    expect(cleared.storyboard!.scenes[0]!.frameVisibility).toBeUndefined();
+  });
   beforeEach(() => {
     setWangpClient(new MockWangpClient());
   });

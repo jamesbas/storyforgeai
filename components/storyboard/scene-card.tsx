@@ -59,6 +59,7 @@ type SceneCardProps = {
   supersededBy?: number;
   /** SPEC-004 record for this scene's image-prompt pass; owns source and version. */
   promptExecution?: ArtifactExecution;
+  previewWarnings?: readonly string[];
   onPromptsSaved?: (record: ProjectRecord) => void;
   /** The project's pinned cast, for the wardrobe panel. Empty hides it. */
   cast?: readonly Character[];
@@ -158,6 +159,7 @@ export function SceneCard({
   onLoraSave,
   triggerWords,
   promptExecution,
+  previewWarnings,
   onPromptsSaved,
   videoFamily,
   supersededBy,
@@ -353,6 +355,12 @@ export function SceneCard({
 
       {(onGenerate || attempt) && (
         <div className="mt-4 border-t border-white/10 pt-3" data-testid="scene-media">
+          {previewWarnings?.length ? (
+            <div className="text-xs text-amber-200">
+              Preview prompt warnings:
+              <ul>{previewWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+            </div>
+          ) : null}
           {attempt ? (
             <div className="space-y-1 text-xs text-slate-400">
               <div>
@@ -367,6 +375,12 @@ export function SceneCard({
                   <span className="text-slate-500">not graded</span>
                 )}
               </div>
+              {attempt.promptWarnings?.length ? (
+                <div className="text-amber-200" data-testid="render-prompt-warnings">
+                  Rendered with prompt warnings:
+                  <ul>{attempt.promptWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+                </div>
+              ) : null}
               {attempt.qcResult && !attempt.qcResult.passed ? (
                 <div
                   className="rounded-md border border-amber-400/25 bg-amber-400/5 p-2 text-amber-200/90"

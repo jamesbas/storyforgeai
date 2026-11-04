@@ -24,7 +24,7 @@ import type { ImageSize, SavedFrame } from "@/lib/media/imported-frames";
 import { resolveResolution } from "@/lib/wangp/resolution";
 import { DEFAULT_SCENE_CONTINUITY, generationStages } from "@/lib/types";
 import { resolveProjectCast } from "@/lib/services/character-service";
-import { charactersInFrame, charactersInScene } from "@/lib/agents/scene-cast";
+import { frameCast, charactersInScene } from "@/lib/agents/scene-cast";
 import { othersInFrame, wardrobeTimeline } from "@/lib/agents/wardrobe";
 import {
   withActGuards,
@@ -44,6 +44,7 @@ import { logEvent } from "@/lib/telemetry";
 import { referencesCarriedFrame } from "@/lib/agents/continuity";
 import { mapFiboDescription } from "@/lib/agents/fibo-prompt";
 import { CARRIED_FRAME_MATCH_INSTRUCTION as MATCH_INSTRUCTION } from "@/lib/agents/model-directives";
+import { storedSceneImageContext, videoContextFromImage } from "@/lib/agents/prompt-validation";
 
 function findScene(record: ProjectRecord, sceneId: string): Scene {
   const scene = record.storyboard?.scenes.find((s) => s.id === sceneId);
@@ -73,19 +74,24 @@ function peopleInFrame(
   scene: Scene,
   prompt: string,
   cast: readonly Character[],
+  frame?: "start" | "end",
 ): (FramePerson & { id?: string })[] {
   const timeline = wardrobeTimeline(record.project, record.storyboard?.scenes ?? [], cast, record.storyboard?.visualBible);
   const wardrobe = timeline.get(scene.id);
-  const isStart = prompt.startsWith(scene.prompts.startFramePrompt.slice(0, 60));
+  const isStart = frame ? frame === "start" : prompt === scene.prompts.startFramePrompt;
   const at = isStart ? wardrobe?.start : wardrobe?.end;
   const others = isStart ? wardrobe?.othersStart : wardrobe?.othersEnd;
 
-  const pinned = charactersInFrame(prompt, charactersInScene(scene, cast)).map((character) => ({
+  const selected = frameCast(scene, isStart ? "start" : "end", prompt, cast);
+  const pinned = selected.map((character) => ({
     id: character.id,
     wardrobe: at?.[character.id] ?? character.wardrobe,
     description: character.description,
   }));
-  const unnamed = Object.entries(othersInFrame(prompt, others ?? {})).map(([label, outfit]) => ({
+  const visible = scene.frameVisibility?.[isStart ? "start" : "end"];
+  const unnamed = Object.entries(othersInFrame(prompt, others ?? {}))
+    .filter(([name]) => visible === undefined || visible.some((person) => person.toLowerCase() === name.toLowerCase()))
+    .map(([label, outfit]) => ({
     wardrobe: outfit,
     description: label,
   }));
@@ -136,6 +142,7 @@ async function resolveCastReferenceImages(
   record: ProjectRecord,
   scene: Scene,
   prompt: string,
+  frame: "start" | "end",
 ): Promise<string[]> {
   // The keyframe switch only. A reference-to-video model reads its own
   // `videoCharacterReferences`, because the constraint this one lifts — the
@@ -150,7 +157,7 @@ async function resolveCastReferenceImages(
   // Narrowed again by the frame: a card that seats a watcher in the corner
   // chair is still a card the shot may frame out, and his photograph would
   // dress whoever is left in his clothes.
-  const inFrame = charactersInFrame(prompt, sceneCast);
+  const inFrame = frameCast(scene, frame, prompt, sceneCast);
   return referenceImagePathsOf(
     photographedSubject(prompt, inFrame, { sceneId: scene.id, purpose: "keyframe" }),
   );
@@ -246,6 +253,11 @@ async function resolveCastSubjects(
 async function sceneFaceSwapSubjects(record: ProjectRecord, scene: Scene) {
   const cast = await resolveProjectCast(record.project);
   return faceSwapSubjects(charactersInScene(scene, cast));
+}
+
+async function videoValidation(record: ProjectRecord, scene: Scene) {
+  return videoContextFromImage(scene, storedSceneImageContext(record.project, scene,
+    await resolveProjectCast(record.project), record.storyboard?.visualBible, record.storyboard?.scenes));
 }
 
 /**
@@ -672,6 +684,11 @@ async function keyframeManifest(
     sourceImage: extraRefs[0],
     imageRefs: castRefs,
     referenceSubject,
+    validation: {
+      frame: purpose === "start_frame" ? "start" : "end",
+      context: storedSceneImageContext(record.project, scene, cast, record.storyboard?.visualBible,
+        record.storyboard?.scenes),
+    },
     loras: resolveSceneLoras(record.project, scene.id, "image"),
   });
 }
@@ -702,8 +719,10 @@ async function swapFrame(
   // One pass per character, each taking the last good output as its guide.
   // A failed pass costs its own correction, not the ones before it.
   let current = rendered;
-  const present = peopleInFrame(record, scene, prompt, await resolveProjectCast(record.project));
-  for (const [index, subject] of swapSubjects.entries()) {
+  const present = peopleInFrame(record, scene, prompt, await resolveProjectCast(record.project),
+    purpose === "start_frame" ? "start" : "end");
+  const selectedSubjects = swapSubjects.filter((subject) => present.some((person) => person.id === subject.id));
+  for (const [index, subject] of selectedSubjects.entries()) {
     logEvent("face_swap.pass", {
       sceneId: scene.id,
       purpose,
@@ -735,13 +754,16 @@ async function renderKeyframe(
   castRefs: string[],
   extraRefs: string[] = [],
   swapSubjects: readonly Character[] = [],
-): Promise<{ id: string; path?: string; source?: string }> {
+): Promise<{ id: string; path?: string; source?: string; promptWarnings?: string[] }> {
   const manifest = await keyframeManifest(record, scene, purpose, prompt, castRefs, extraRefs);
   const job = await runToCompletion(manifest.settings);
   const rendered = job.generatedFiles[0];
   if (!rendered) return { id: manifest.id };
 
-  return { id: manifest.id, ...(await swapFrame(record, scene, purpose, rendered, prompt, swapSubjects)) };
+  return {
+    id: manifest.id, promptWarnings: manifest.promptWarnings,
+    ...(await swapFrame(record, scene, purpose, rendered, prompt, swapSubjects)),
+  };
 }
 
 /**
@@ -784,7 +806,7 @@ export async function generateSceneKeyframe(
     prompt = endFramePromptFor(seeded, scene, conditionOnStart);
   }
 
-  const castRefs = await resolveCastReferenceImages(seeded, scene, prompt);
+  const castRefs = await resolveCastReferenceImages(seeded, scene, prompt, purpose === "start_frame" ? "start" : "end");
   const result = await renderKeyframe(seeded, scene, purpose, prompt, castRefs, extraRefs, swapSubjects);
   if (!result.path) throw new ValidationError(`WanGP returned no image for the ${purpose}.`);
 
@@ -799,6 +821,7 @@ export async function generateSceneKeyframe(
           ? { startFramePath: result.path }
           : { endFramePath: result.path }),
         updatedAt: new Date().toISOString(),
+        promptWarnings: result.promptWarnings,
       },
     },
     project: { ...seeded.project, updatedAt: new Date().toISOString() },
@@ -891,6 +914,7 @@ export async function adoptScenePreview(
   // "undo" would quietly replace the adopted preview with an old render.
   const replaced: SceneAttempt = {
     ...target,
+    promptWarnings: [...new Set([...(target.promptWarnings ?? []), ...(preview?.promptWarnings ?? [])])],
     ...(purpose === "start_frame"
       ? {
           startImagePath: adopted,
@@ -1052,12 +1076,12 @@ export async function generateProjectMediaPhased(
   record = await ensureSceneSeeds(projectId, record, scenes.map((scene) => scene.id));
   const projectCast = await resolveProjectCast(record.project);
   const useRefs = record.project.useCharacterReferenceImages !== false;
-  const castRefsFor = (scene: Scene, prompt: string) =>
+  const castRefsFor = (scene: Scene, prompt: string, frame: "start" | "end") =>
     useRefs
       ? referenceImagePathsOf(
           photographedSubject(
             prompt,
-            charactersInFrame(prompt, charactersInScene(scene, projectCast)),
+            frameCast(scene, frame, prompt, charactersInScene(scene, projectCast)),
             { sceneId: scene.id, purpose: "keyframe" },
           ),
         )
@@ -1123,13 +1147,15 @@ export async function generateProjectMediaPhased(
         pinnedOpening ?? (mode === "reuse_end_frame" && !broken ? previousEnd : undefined);
       let startPath = inherited;
       let startId: string | undefined;
+      const frameWarnings: string[] = [];
 
       if (!startPath) {
         const rendered = await run(() =>
-          renderKeyframe(record, scene, "start_frame", scene.prompts.startFramePrompt, castRefsFor(scene, scene.prompts.startFramePrompt), [], []),
+          renderKeyframe(record, scene, "start_frame", scene.prompts.startFramePrompt, castRefsFor(scene, scene.prompts.startFramePrompt, "start"), [], []),
         );
         startPath = rendered.path;
         startId = rendered.id;
+        frameWarnings.push(...(rendered.promptWarnings ?? []));
       }
 
       const conditionOnStart = conditionEndOnStart(record, scene, Boolean(inherited));
@@ -1140,7 +1166,7 @@ export async function generateProjectMediaPhased(
           scene,
           "end_frame",
           endFramePromptFor(record, scene, conditionOnStart),
-          castRefsFor(scene, scene.prompts.endFramePrompt),
+          castRefsFor(scene, scene.prompts.endFramePrompt, "end"),
           conditionOnStart ? [startPath!] : [],
           [],
         ),
@@ -1153,6 +1179,7 @@ export async function generateProjectMediaPhased(
         endId: endRender.id,
         inherited: Boolean(inherited),
         imported: Boolean(pinnedOpening),
+        promptWarnings: [...frameWarnings, ...(endRender.promptWarnings ?? [])],
         inheritedPrompt: pinnedOpening
           ? scene.prompts.startFramePrompt
           : inherited
@@ -1242,7 +1269,10 @@ export async function generateProjectMediaPhased(
         continue;
       }
       const framePrompt = promptOf.get(path);
-      const inFrame = framePrompt ? charactersInFrame(framePrompt, projectCast) : projectCast;
+      const owner = using[0];
+      const isStart = owner && frames.get(owner.id)?.start === path && !frames.get(owner.id)?.inherited;
+      const inFrame = framePrompt && owner
+        ? frameCast(owner, isStart ? "start" : "end", framePrompt, projectCast) : [];
       const subjects = swapSubjects.filter(
         (character) =>
           inFrame.some((c) => c.id === character.id) &&
@@ -1284,7 +1314,8 @@ export async function generateProjectMediaPhased(
       const owner = usedBy.get(original)?.[0];
       const present =
         owner && promptOf.has(original)
-          ? peopleInFrame(record, owner, promptOf.get(original)!, projectCast)
+          ? peopleInFrame(record, owner, promptOf.get(original)!, projectCast,
+              frames.get(owner.id)?.start === original && !frames.get(owner.id)?.inherited ? "start" : "end")
           : [];
       for (const [index, subject] of subjects.entries()) {
         logEvent("face_swap.pass", {
@@ -1337,6 +1368,7 @@ export async function generateProjectMediaPhased(
       const videoManifest = stages.video
         ? await buildVideoManifest({
             sceneId: scene.id,
+            validation: await videoValidation(record, scene),
             prompt: scene.prompts.videoPromptSegment,
             negativePrompt: await videoExclusions(
               record,
@@ -1367,6 +1399,7 @@ export async function generateProjectMediaPhased(
         attemptId: entry.attemptId,
         videoPath: videoJob?.generatedFiles[0],
         videoSettingsId: videoManifest?.id,
+        promptWarnings: videoManifest?.promptWarnings,
         frames: entry,
       });
       record = await getProjectRecord(projectId);
@@ -1421,6 +1454,7 @@ async function bankKeyframes(
     endId?: string;
     inherited?: boolean;
     imported?: boolean;
+    promptWarnings?: string[];
   },
 ): Promise<string> {
   const record = await getProjectRecord(projectId);
@@ -1434,6 +1468,7 @@ async function bankKeyframes(
     startImageInherited: frames.inherited || undefined,
     startImageImported: frames.imported || undefined,
     settingsIds: [frames.startId, frames.endId].filter((id): id is string => id !== undefined),
+    promptWarnings: frames.promptWarnings,
     approved: false,
     createdAt: new Date().toISOString(),
   };
@@ -1455,6 +1490,7 @@ export type FramePreview = {
   seamBreak?: SeamBreak;
   /** Exactly what would go to Wan2GP. Absent for an inherited frame. */
   settings?: WangpGenerationSettings["settings"];
+  promptWarnings?: string[];
 };
 
 /**
@@ -1478,12 +1514,12 @@ export async function previewSceneRenders(projectId: string): Promise<FramePrevi
   const mode = record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY;
   const projectCast = await resolveProjectCast(record.project);
   const useRefs = record.project.useCharacterReferenceImages !== false;
-  const castRefsFor = (scene: Scene, prompt: string) =>
+  const castRefsFor = (scene: Scene, prompt: string, frame: "start" | "end") =>
     useRefs
       ? referenceImagePathsOf(
           photographedSubject(
             prompt,
-            charactersInFrame(prompt, charactersInScene(scene, projectCast)),
+            frameCast(scene, frame, prompt, charactersInScene(scene, projectCast)),
             { sceneId: scene.id, purpose: "keyframe" },
           ),
         )
@@ -1514,15 +1550,17 @@ export async function previewSceneRenders(projectId: string): Promise<FramePrevi
       });
     } else {
       const prompt = scene.prompts.startFramePrompt;
+      const manifest = await keyframeManifest(
+        record, scene, "start_frame", prompt, castRefsFor(scene, prompt, "start"), [],
+      );
       out.push({
         sceneNumber: scene.sceneNumber,
         sceneId: scene.id,
         purpose: "start_frame",
         rendered: true,
         ...(broken ? { seamBreak: broken } : {}),
-        settings: (
-          await keyframeManifest(record, scene, "start_frame", prompt, castRefsFor(scene, prompt), [])
-        ).settings,
+        settings: manifest.settings,
+        promptWarnings: manifest.promptWarnings,
       });
     }
 
@@ -1531,21 +1569,17 @@ export async function previewSceneRenders(projectId: string): Promise<FramePrevi
     // frame is the honest stand-in: it is the file the last run actually used.
     const startPath = inherited ?? "<this scene's start frame>";
     const endPrompt = endFramePromptFor(record, scene, conditionOnStart);
+    const manifest = await keyframeManifest(
+      record, scene, "end_frame", endPrompt,
+      castRefsFor(scene, scene.prompts.endFramePrompt, "end"), conditionOnStart ? [startPath] : [],
+    );
     out.push({
       sceneNumber: scene.sceneNumber,
       sceneId: scene.id,
       purpose: "end_frame",
       rendered: true,
-      settings: (
-        await keyframeManifest(
-          record,
-          scene,
-          "end_frame",
-          endPrompt,
-          castRefsFor(scene, scene.prompts.endFramePrompt),
-          conditionOnStart ? [startPath] : [],
-        )
-      ).settings,
+      settings: manifest.settings,
+      promptWarnings: manifest.promptWarnings,
     });
 
     previousEnd =
@@ -1624,6 +1658,7 @@ async function completeAttempt(
     attemptId?: string;
     videoPath?: string;
     videoSettingsId?: string;
+    promptWarnings?: string[];
     frames: { start?: string; end?: string; startId?: string; endId?: string };
   },
 ): Promise<SceneAttempt> {
@@ -1637,6 +1672,7 @@ async function completeAttempt(
       settingsIds: [...banked.settingsIds, args.videoSettingsId].filter(
         (id): id is string => id !== undefined,
       ),
+      promptWarnings: [...(banked.promptWarnings ?? []), ...(args.promptWarnings ?? [])],
     };
     const updated: ProjectRecord = {
       ...record,
@@ -1660,6 +1696,7 @@ async function completeAttempt(
     settingsIds: [args.frames.startId, args.frames.endId, args.videoSettingsId].filter(
       (id): id is string => id !== undefined,
     ),
+    promptWarnings: args.promptWarnings,
     approved: false,
     createdAt: new Date().toISOString(),
   };
@@ -1814,6 +1851,7 @@ export async function regenerateSceneVideo(
 
   const manifest = await buildVideoManifest({
     sceneId,
+    validation: await videoValidation(loaded, scene),
     prompt: scene.prompts.videoPromptSegment,
     negativePrompt: await videoExclusions(
       loaded,
@@ -1850,6 +1888,7 @@ export async function regenerateSceneVideo(
     id: randomUUID(),
     attemptNumber: existing.length + 1,
     videoPath: job.generatedFiles[0],
+    promptWarnings: [...(previous.promptWarnings ?? []), ...(manifest.promptWarnings ?? [])],
     // The frames carry over untouched, so the settings that produced them stay
     // on the record; only the clip's manifest is new.
     settingsIds: [
@@ -1938,13 +1977,13 @@ export async function generateSceneMedia(
     purpose: "start_frame" | "end_frame",
     prompt: string,
     extraRefs: string[] = [],
-  ): Promise<{ id: string; path?: string; source?: string }> =>
+  ): Promise<{ id: string; path?: string; source?: string; promptWarnings?: string[] }> =>
     renderKeyframe(
       record,
       scene,
       purpose,
       prompt,
-      await resolveCastReferenceImages(record, scene, prompt),
+      await resolveCastReferenceImages(record, scene, prompt, purpose === "start_frame" ? "start" : "end"),
       extraRefs,
       // Deliberately none: both frames render on the image model first and are
       // corrected together below. WanGP holds one model at a time, so swapping
@@ -2004,6 +2043,7 @@ export async function generateSceneMedia(
   const videoManifest = renderVideo
     ? await buildVideoManifest({
         sceneId,
+        validation: await videoValidation(record, scene),
         prompt: scene.prompts.videoPromptSegment,
         negativePrompt: await videoExclusions(
           record,
@@ -2052,6 +2092,7 @@ export async function generateSceneMedia(
     startImageInherited: continuity.startImagePath ? true : undefined,
     startImageImported: openingFrameFor(record, scene) ? true : undefined,
     videoPath: videoJob?.generatedFiles[0],
+    promptWarnings: [...(start?.promptWarnings ?? []), ...(end?.promptWarnings ?? []), ...(videoManifest?.promptWarnings ?? [])],
     settingsIds: [start?.id, end?.id, videoManifest?.id].filter(
       (id): id is string => id !== undefined,
     ),
@@ -2137,8 +2178,9 @@ export async function swapAttemptFrame(
     scene,
     purpose === "start_frame" ? scene.prompts.startFramePrompt : scene.prompts.endFramePrompt,
     await resolveProjectCast(record.project),
+    purpose === "start_frame" ? "start" : "end",
   );
-  for (const subject of subjects) {
+  for (const subject of subjects.filter((subject) => present.some((person) => person.id === subject.id))) {
     const result = await swapFace(current, subject, { sceneId, purpose }, {
       wardrobe: present.find((p) => p.id === subject.id)?.wardrobe,
       others: present.filter((p) => p.id !== subject.id),

@@ -359,6 +359,21 @@ function references(settings: Record<string, unknown>): string[] {
 }
 
 describe("model-aware keyframe photo counts", () => {
+  it("uses explicit closing visibility to omit a library photo from an unpinned person's solo frame", async () => {
+    const { env, client, project, ids } = await fourPhotoProject("qwen_image_21_7B");
+    await env.projects.updateSceneCard(project.id, ids[0]!, {
+      frameVisibility: { start: ["Mara", "James"], end: ["James"] },
+      visualDescription: "Mara stands beside James at a table.",
+      actionDescription: "James holds a card.",
+    });
+    await env.projects.updateScenePrompts(project.id, ids[0]!, {
+      endFramePrompt: "Close-up, eye level. James holds a card over the table. Exactly one man is in frame.",
+    });
+    await env.media.generateSceneMedia(project.id, ids[0]!);
+    expect(references(client.calls[0]!)).toHaveLength(4);
+    expect(references(client.calls.at(-1)!)).toEqual([]);
+    expect(client.calls.at(-1)!.image_guide).toBeUndefined();
+  });
   it.each([
     ["qwen_image_21_7B", 4, 4],
     ["qwen_image_21_turbo_7B", 4, 4],

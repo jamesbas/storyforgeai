@@ -50,6 +50,7 @@ export const sceneAttemptSchema = z.object({
   videoPath: maybe(z.string()),
   audioPath: maybe(z.string()),
   settingsIds: z.array(z.string()),
+  promptWarnings: maybe(z.array(z.string())),
   qcResult: maybe(qcResultSchema),
   approved: z.boolean(),
   createdAt: z.string(),
@@ -70,5 +71,6 @@ export const scenePreviewSchema = z.object({
   startFramePath: maybe(z.string()),
   endFramePath: maybe(z.string()),
   updatedAt: z.string(),
+  promptWarnings: maybe(z.array(z.string())),
 });
 export type ScenePreview = z.infer<typeof scenePreviewSchema>;

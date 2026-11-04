@@ -14,6 +14,8 @@ const FIELDS = [
   { key: "actionDescription", label: "Action", rows: 3 },
   { key: "cameraMovement", label: "Camera", rows: 1 },
   { key: "narrationText", label: "Voice-over (from outside the scene)", rows: 2 },
+  { key: "startVisible", label: "People visible in the opening frame (comma-separated names/roles)", rows: 2 },
+  { key: "endVisible", label: "People visible in the closing frame (comma-separated names/roles)", rows: 2 },
 ] as const;
 
 type FieldKey = (typeof FIELDS)[number]["key"];
@@ -28,6 +30,8 @@ function draftFrom(scene: Scene): Draft {
     actionDescription: scene.actionDescription,
     cameraMovement: scene.cameraMovement,
     narrationText: scene.narrationText ?? "",
+    startVisible: scene.frameVisibility?.start.join(", ") ?? "",
+    endVisible: scene.frameVisibility?.end.join(", ") ?? "",
   };
 }
 
@@ -114,7 +118,13 @@ export function SceneCardEditor({
 
     const dialogue = lines.filter((l) => l.character.trim() && l.line.trim());
     const fields = Object.fromEntries(edited.map((f) => [f.key, draft[f.key]]));
-    const patch: Record<string, unknown> = { ...fields };
+    const patch: Record<string, unknown> = Object.fromEntries(
+      Object.entries(fields).filter(([key]) => key !== "startVisible" && key !== "endVisible"),
+    );
+    if (edited.some((field) => field.key === "startVisible" || field.key === "endVisible")) {
+      const names = (text: string) => [...new Set(text.split(",").map((name) => name.trim()).filter(Boolean))];
+      patch.frameVisibility = { start: names(draft.startVisible), end: names(draft.endVisible) };
+    }
     if (linesEdited) patch.dialogue = dialogue;
 
     setSaving(thenRewrite ? "prompts" : "card");
@@ -176,6 +186,8 @@ export function SceneCardEditor({
         Prompts are written from this text, so correcting the card is how you change what the shot
         contains. Rewriting a scene&apos;s prompts without changing the card produces the same shot
         again.
+        {" "}Visibility lists include non-library people. Once either list is edited, an empty
+        list means nobody is visible in that frame. Use exact names from the card.
       </p>
 
       <div className="mt-2 space-y-3">

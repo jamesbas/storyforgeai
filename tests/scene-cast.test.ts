@@ -127,8 +127,8 @@ describe("narrowing the cast to what one frame shows", () => {
 
   /** A frame can describe people without naming them, and an empty sheet
    *  would drop face continuity altogether. */
-  it("falls back to the scene cast when the frame names nobody", () => {
+  it("keeps uncertain frame identity empty rather than adding the entire cast", () => {
     const body = "A close-up of one woman and one man, lit from the side.";
-    expect(charactersInFrame(body, [DAN, MARA])).toEqual([DAN, MARA]);
+    expect(charactersInFrame(body, [DAN, MARA])).toEqual([]);
   });
 });

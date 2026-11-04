@@ -51,8 +51,8 @@ import {
   SHORTEN_PROMPT_DIRECTIVE,
   visualWordCount,
 } from "@/lib/agents/prompt-concision";
-import { charactersInFrame, charactersInScene } from "@/lib/agents/scene-cast";
-import { explicitnessDirective, isExplicitProject, isExplicitScene } from "@/lib/agents/explicitness";
+import { frameCast, framePromptBody, charactersInScene } from "@/lib/agents/scene-cast";
+import { isExplicitProject, isExplicitScene } from "@/lib/agents/explicitness";
 import {
   gateFramePair,
   gateImagePrompt,
@@ -64,12 +64,10 @@ import {
   type PromptGateCode,
 } from "@/lib/agents/prompt-gate";
 import { isTightShot, seamBreak } from "@/lib/media/seam";
-import { wardrobeChangeClause, othersInFrame, othersWardrobeSuffix, wardrobeTimeline } from "@/lib/agents/wardrobe";
+import { wardrobeChangeClause, othersInFrame, othersWardrobeSuffix, wardrobeTimeline, frameWardrobeByName } from "@/lib/agents/wardrobe";
 import type { SceneWardrobe } from "@/lib/schemas/wardrobe";
 import { config } from "@/lib/config";
 import {
-  continuityNegativeSuffix,
-  precedenceDirective,
   sceneCreativeSlice,
   type CreativePlans,
 } from "@/lib/agents/creative-context";
@@ -81,7 +79,11 @@ import type { PlanningProvider, ProviderResult } from "@/lib/agents/llm/provider
 import type { PromptBudgetSettings } from "@/lib/schemas/prompt-budget-settings";
 import { resolvePromptBudgetSettings } from "@/lib/services/prompt-budget-settings-service";
 import { statedHeadcount } from "@/lib/media/seam";
-import { sceneFrameParticipants } from "@/lib/agents/frame-contract";
+import { sceneFrameParticipants, visibilityFromPrompts } from "@/lib/agents/frame-contract";
+import { imagePromptWarnings } from "@/lib/agents/prompt-validation";
+import {
+  gateVideoPrompt, essentialVideoSentences, videoGateRetryDirective, type VideoGateContext,
+} from "@/lib/agents/video-prompt-gate";
 /**
  * The two prompt passes, each its own model call.
  *
@@ -321,7 +323,24 @@ export async function attachScenePrompts(
   const scenes: Scene[] = [];
   // The seam can only be matched by an agent that can see what it is matching.
   let previousEndFramePrompt: string | undefined;
-  for (const [index, draft] of drafts.entries()) {
+  for (const [index, originalDraft] of drafts.entries()) {
+    const stored = context.existing?.[originalDraft.id];
+    const knownNames = [...new Set([
+      ...cast.map((person) => person.name),
+      ...(context.visualBible?.characters ?? []).map((person) => person.name),
+      ...(originalDraft.charactersPresent ?? []),
+      ...Object.values(originalDraft.frameVisibility ?? {}).flat(),
+    ])];
+    const draft = !originalDraft.frameVisibility && stored
+      ? { ...originalDraft, frameVisibility: visibilityFromPrompts(
+          stored.startFramePrompt, stored.endFramePrompt, knownNames,
+        ) }
+      : { ...originalDraft };
+    if (!originalDraft.frameVisibility && stored && draft.frameVisibility) {
+      const planned = sceneFrameParticipants(originalDraft, cast, context.visualBible?.characters);
+      const arrivals = planned.end.names.filter((name) => !planned.start.names.includes(name));
+      draft.frameVisibility.end = [...new Set([...draft.frameVisibility.end, ...arrivals])];
+    }
     context.onProgress?.({ phase: "Writing prompts", done: index + 1, total: drafts.length });
     // Only this scene's slice of the Director and Cinematographer plans travels
     // into the prompt. The full documents would crowd out the shot description.
@@ -331,6 +350,13 @@ export async function attachScenePrompts(
     // character carried into a scene they are absent from is a description of
     // someone the model will then try to put in the picture.
     const sceneCast = charactersInScene(draft, cast);
+    if (!draft.frameVisibility && !stored) {
+      const planned = sceneFrameParticipants(draft, sceneCast, context.visualBible?.characters,
+        Object.keys(wardrobe?.othersStart ?? {}));
+      if (planned.start.people === planned.start.names.length && planned.end.people === planned.end.names.length) {
+        draft.frameVisibility = { start: planned.start.names, end: planned.end.names };
+      }
+    }
     // Every named person in the shot has to fit in the frame, so the image
     // ceiling grows with the count. Unnamed people the prompt adds are counted
     // from its own headcount when the frame is checked.
@@ -349,7 +375,7 @@ export async function attachScenePrompts(
     // nothing and keep whatever was written or hand-edited before.
     const kept = context.only && !context.only.has(draft.id) ? context.existing?.[draft.id] : undefined;
     if (kept) {
-      scenes.push({ ...draft, prompts: kept });
+      scenes.push({ ...originalDraft, prompts: kept });
       previousEndFramePrompt = kept.endFramePrompt;
       continue;
     }
@@ -410,6 +436,13 @@ export async function attachScenePrompts(
       : undefined;
     if (inheritedStartFramePrompt !== undefined) {
       imagePart.startFramePrompt = inheritedStartFramePrompt;
+      if (draft.frameVisibility) {
+        draft.frameVisibility = {
+          ...draft.frameVisibility,
+          start: previousScene?.frameVisibility?.end ??
+            visibilityFromPrompts(inheritedStartFramePrompt, "", knownNames).start,
+        };
+      }
     }
     if (inheritsOpening) {
       frameParticipants.start = sceneFrameParticipants(
@@ -421,6 +454,18 @@ export async function attachScenePrompts(
       (generationStages(project.generationMode).video ||
         statedHeadcount(previousEndFramePrompt) === null ||
         frameParticipants.end.people <= frameParticipants.start.people);
+    const currentWardrobe = {
+      start: frameWardrobeByName(wardrobe, "start", sceneCast, frameParticipants.start.names),
+      end: frameWardrobeByName(wardrobe, "end", sceneCast, frameParticipants.end.names),
+    };
+    const videoContext: VideoGateContext = {
+      scene: draft,
+      participants: [...new Set([...frameParticipants.start.names, ...frameParticipants.end.names])],
+      wardrobe: currentWardrobe.start,
+      allowedWardrobeChanges: (wardrobe?.within ?? []).map((change) =>
+        cast.find((person) => person.id === change.characterId)?.name ?? change.subject ?? ""),
+      startFrame: imagePart.startFramePrompt, endFrame: imagePart.endFramePrompt,
+    };
     if (!skipImage && editsCarriedFrame) {
       imagePart.endFrameEditPrompt = buildCarriedFrameEditPrompt(
         imagePart.endFramePrompt, Boolean(wardrobe?.within.length),
@@ -459,10 +504,13 @@ export async function attachScenePrompts(
 
     if (provider) {
       const userContext = {
-        project,
+        project: {
+          id: project.id, segmentSeconds: project.segmentSeconds,
+          style: project.style, aspectRatio: project.aspectRatio,
+        },
         scene: draft,
         frameParticipants,
-        previousEndFramePrompt,
+        previousEndFramePrompt: inheritsOpening ? previousEndFramePrompt : undefined,
         carriedFrame: editsCarriedFrame
           ? {
               shows: previousEndFramePrompt,
@@ -485,11 +533,22 @@ export async function attachScenePrompts(
                 "write the move from there to that shot as the action of the clip.",
             }
           : undefined,
-        visualBible: context.visualBible,
-        cast: sceneCast,
+        visualBible: context.visualBible ? {
+          characters: context.visualBible.characters
+            .filter((person) => [...frameParticipants.start.names, ...frameParticipants.end.names].includes(person.name))
+            .map((person) => ({
+              name: person.name,
+              description: person.description.split(/\b(?:initially|then|before|after|until|which he strips)\b/i)[0],
+            })),
+        } : undefined,
+        cast: sceneCast.map((person) => ({
+          name: person.name, description: person.description,
+        })),
+        wardrobe: currentWardrobe,
+        instruction: "Current frame visibility and wardrobe are authoritative. Future events and the project audience do not authorize any extra action or clothing change.",
         sceneIntent: slice.intent,
         shotPlan: slice.shotPlan,
-        artDirection: plans?.artDirectionPlan,
+        setting: sceneSetting,
         // Only the changing scene is told about a change; every other scene
         // sees a settled wardrobe and has no reason to write one.
         wardrobeChange: wardrobe?.within.length
@@ -513,7 +572,6 @@ export async function attachScenePrompts(
               lightingRules: plans.cinematographyPlan.lightingRules,
             }
           : undefined,
-        forbiddenContradictions: plans?.worldBible?.forbiddenContradictions,
       };
       const user = JSON.stringify(userContext);
       const cardClothing = statedClothing(draft);
@@ -521,6 +579,8 @@ export async function attachScenePrompts(
         scene: draft,
         participants: sceneCast.map((c) => c.name),
         frameParticipants,
+        knownParticipants: knownNames,
+        wardrobeByPerson: currentWardrobe,
         explicit: isExplicitProject(project) || isExplicitScene(draft),
         establishedWardrobe: {
           start: `${establishedGarments(
@@ -543,7 +603,7 @@ export async function attachScenePrompts(
       const gated: { codes: PromptGateCode[]; repaired: PromptGateCode[]; unresolved: PromptGateCode[]; trimmed: boolean } = {
         codes: [], repaired: [], unresolved: [], trimmed: false,
       };
-      const gatedVideo: ClipSalvage = { initial: [], salvaged: [] };
+      const gatedVideo: ClipSalvage = { initial: [], salvaged: [], unresolved: [] };
       const finaliseImagePart = (part: ImagePart): ImagePart => {
         const final = withCastEnforced(
           normaliseImageResult(part, project, draft, plans, wardrobe, imageFamily),
@@ -573,12 +633,12 @@ export async function attachScenePrompts(
             llm: gatedImageCall(
               provider,
               IMAGE_PROMPT_SYSTEM +
-                explicitnessDirective(project, "image", draft) +
+                " Depict only the current scene's stated action. Audience and tone do not authorize extra events, people or wardrobe changes. " +
                 wardrobeChangeDirective(wardrobe) +
                 imagePromptDirective(imageFamily) +
                 seamDirective(project) +
                 castSystemDirective(sceneCast, true) +
-                precedenceDirective(sceneCast, plans) +
+                " Follow only this scene's action and its per-frame visibility and wardrobe contract. Do not advance to future events. " +
                 concisePromptDirective(imageFamily, "image", 0, imageBudgetContext) +
                 (editsCarriedFrame ? CARRIED_FRAME_EDIT_DIRECTIVE :
                   " Return only creation prompts; do not return endFrameEditPrompt."),
@@ -631,6 +691,8 @@ export async function attachScenePrompts(
       if (imageResult && imageResult.execution.source !== "deterministic") {
         imagePart = finaliseImagePart(imageResult.value);
       }
+      videoContext.startFrame = imagePart.startFramePrompt;
+      videoContext.endFrame = imagePart.endFramePrompt;
 
       const videoResult = noVideoCall
         ? null
@@ -645,14 +707,14 @@ export async function attachScenePrompts(
             llm: gatedVideoCall(
               provider,
               videoPromptSystem(project.segmentSeconds) +
-                explicitnessDirective(project, "video", draft) +
+                " Depict only the current scene's stated action; never borrow events from later scenes. " +
                 videoPromptDirective(videoFamily, {
                   segmentSeconds: project.segmentSeconds,
                   nativeAudio: hasNativeAudio(videoFamily),
                 }) +
                 (inheritsOpening ? inheritedOpeningDirective(previousEndFramePrompt) : "") +
                 videoCastDirective(sceneCast, videoFamily) +
-                precedenceDirective(sceneCast, plans) +
+                " Current scene action, frame visibility and wardrobe override stylistic suggestions. " +
                 concisePromptDirective(videoFamily, "video", project.segmentSeconds, videoBudget),
               JSON.stringify({
                 ...userContext,
@@ -671,16 +733,22 @@ export async function attachScenePrompts(
                 draft.trimAtEndSeconds ?? draft.targetDurationSeconds,
                 (part) => withCastEnforcedVideo(part, sceneCast, plans, wardrobe),
                 videoBudget,
+                videoContext,
               ),
               gatedVideo,
+              videoContext,
             ),
             outcome: () => {
               const notes = [
                 ...(gatedVideo.initial.length ? [`found=${gatedVideo.initial.join(",")}`] : []),
                 ...(gatedVideo.salvaged.length ? [`salvaged=${gatedVideo.salvaged.join(",")}`] : []),
+                ...(gatedVideo.unresolved.length ? [`unresolved=${gatedVideo.unresolved.length} prompt contract warnings`] : []),
               ];
               return notes.length
-                ? { source: "hybrid" as const, detail: notes.join("; ") }
+                ? {
+                    source: "hybrid" as const, detail: notes.join("; "),
+                    ...(gatedVideo.unresolved.length ? { fallbackReason: "invalid_set" as const } : {}),
+                  }
                 : {};
             },
             fallback: () => videoPart,
@@ -731,6 +799,21 @@ export async function attachScenePrompts(
       imagePart.startFramePrompt = inheritedStartFramePrompt;
     }
     if (!skipImage && !editsCarriedFrame) delete imagePart.endFrameEditPrompt;
+    const validation: ImageGateContext = {
+      scene: draft, participants: sceneCast.map((person) => person.name),
+      frameParticipants, knownParticipants: knownNames, wardrobeByPerson: currentWardrobe,
+      explicit: false, inheritsOpening,
+    };
+    const warnings = skipImage ? [] : [
+      ...imagePromptWarnings(imagePart.startFramePrompt, "start", validation),
+      ...imagePromptWarnings(imagePart.endFramePrompt, "end", validation),
+      ...(imagePart.endFrameEditPrompt
+        ? imagePromptWarnings(imagePart.endFrameEditPrompt, "end", validation).map((message) => `edit: ${message}`) : []),
+    ];
+    const videoWarnings = noVideoCall ? [] :
+      gateVideoPrompt(videoPart.videoPromptSegment, {
+        ...videoContext, startFrame: imagePart.startFramePrompt, endFrame: imagePart.endFramePrompt,
+      }).map((warning) => `video: ${warning}`);
 
     scenes.push({
       ...draft,
@@ -738,6 +821,12 @@ export async function attachScenePrompts(
       prompts: {
         ...imagePart,
         ...videoPart,
+        promptWarnings: [...new Set([
+          ...(carried?.promptWarnings ?? []).filter((warning) =>
+            warning.startsWith("video:") ? noVideoCall : skipImage),
+          ...warnings,
+          ...videoWarnings,
+        ])],
         // The stamp records which family the clip prompt was written for, so a
         // pass that did not run must keep the stamp it already had. Restamping
         // it here would clear the staleness warning without rewriting anything.
@@ -859,6 +948,7 @@ export function establishedGarments(
 }
 
 type ImageBudget = {
+  prepare: (part: ImagePart) => ImagePart;
   exceeds: (part: ImagePart) => boolean;
   /** Shortens what the model wrote, never what is appended after it. */
   fit: (part: ImagePart) => ImagePart;
@@ -900,6 +990,7 @@ function imageBudget(
     return Math.max(MIN_FRAME_WORDS, ceilingFor(final) - Math.max(0, appended));
   };
   return {
+    prepare: finalise,
     exceeds: (part) => {
       const final = finalise(part);
       return frames.some((frame) => countWords(final[frame] ?? "") > ceilingFor(final[frame] ?? ""));
@@ -972,7 +1063,7 @@ function gatedImageCall(
     })();
     if (!initial.ok) return initial;
     const first = { ...initial, value: withOpening(initial.value) };
-    const codes = gateFindings(first.value, gate, editing, inheritedStartFramePrompt);
+    const codes = gateFindings(budget.prepare(first.value), gate, editing, inheritedStartFramePrompt);
     if (!codes.length && !budget.exceeds(first.value)) return first;
 
     let best = first;
@@ -988,12 +1079,12 @@ function gatedImageCall(
     )();
     if (retried.ok) {
       const retry = { ...retried, value: withOpening(retried.value) };
-      const retryCodes = gateFindings(retry.value, gate, editing, inheritedStartFramePrompt);
+      const retryCodes = gateFindings(budget.prepare(retry.value), gate, editing, inheritedStartFramePrompt);
       if (!retryCodes.length && !budget.exceeds(retry.value)) return retry;
       if (retryCodes.length <= codes.length) best = retry;
     }
 
-    gated.codes = gateFindings(best.value, gate, editing, inheritedStartFramePrompt);
+    gated.codes = gateFindings(budget.prepare(best.value), gate, editing, inheritedStartFramePrompt);
     let repaired = repairPart(best.value, gate, editing, inheritedStartFramePrompt);
     if (budget.exceeds(repaired)) {
       repaired = budget.fit(repaired);
@@ -1002,7 +1093,7 @@ function gatedImageCall(
     // What the repair fixed and what is still wrong are different facts: the
     // first says the model needed help, the second says the prompt still has a
     // defect a person should look at.
-    gated.unresolved = gateFindings(repaired, gate, editing, inheritedStartFramePrompt);
+    gated.unresolved = gateFindings(budget.prepare(repaired), gate, editing, inheritedStartFramePrompt);
     if (budget.exceeds(repaired)) gated.unresolved.push("over_budget");
     gated.repaired = gated.codes.filter((code) => !gated.unresolved.includes(code));
     return { ...best, value: repaired };
@@ -1026,6 +1117,7 @@ type ClipSalvage = {
   initial: string[];
   /** What was done to the answer that was kept. */
   salvaged: string[];
+  unresolved: string[];
 };
 
 type ClipBudget = {
@@ -1051,6 +1143,7 @@ function clipBudget(
   seconds: number,
   finalise: (part: VideoPart) => VideoPart,
   budget: BudgetContext,
+  context: VideoGateContext,
 ): ClipBudget {
   const limit = wordBudget(family, "video", seconds, budget);
   const finalWords = (part: VideoPart) => visualWordCount(finalise(part).videoPromptSegment);
@@ -1068,7 +1161,10 @@ function clipBudget(
       if (visualWordCount(text) <= room) return part;
       // Speech is excluded from the ceiling but not from the trimmer's count.
       const speech = countWords(text) - visualWordCount(text);
-      return { ...part, videoPromptSegment: trimToBudget(text, room + speech, 1) };
+      return {
+        ...part,
+        videoPromptSegment: trimToBudget(text, room + speech, 0, essentialVideoSentences(text, context)),
+      };
     },
   };
 }
@@ -1095,10 +1191,13 @@ function gatedVideoCall(
   draft: SceneDraft,
   budget: ClipBudget,
   salvage: ClipSalvage,
+  context: VideoGateContext,
 ): () => Promise<ProviderResult<VideoPart>> {
   const faults = (part: VideoPart) => [
     ...(budget.exceeds(part) ? ["over_budget"] : []),
     ...(droppedLines(part.videoPromptSegment, draft.dialogue).length ? ["dialogue_dropped"] : []),
+    ...(gateVideoPrompt(part.videoPromptSegment, context).some((warning) =>
+      !warning.startsWith("Missing dialogue")) ? ["semantic_contract"] : []),
   ];
   return async () => {
     const first = await providerCall(provider, system, user, videoPartSchema, {
@@ -1113,6 +1212,7 @@ function gatedVideoCall(
       provider,
       system +
         SHORTEN_PROMPT_DIRECTIVE +
+        videoGateRetryDirective(gateVideoPrompt(first.value.videoPromptSegment, context)) +
         ` The visual prose must be at most ${budget.bodyWords(first.value)} words; spoken lines are additional.` +
         (missing.length
           ? " Carry these spoken lines word for word: " +
@@ -1140,6 +1240,7 @@ function gatedVideoCall(
       value = { ...value, videoPromptSegment: `${value.videoPromptSegment.trimEnd()} ${restored.join(" ")}` };
       salvage.salvaged.push("dialogue_restored");
     }
+    salvage.unresolved = faults(value);
     return { ...best, value };
   };
 }
@@ -1237,18 +1338,24 @@ function withCastEnforced(
   draft: SceneDraft,
   setting?: string,
 ): ImagePart {
-  const negative = `${castNegativeSuffix(cast, part.imageNegativePrompt)}${continuityNegativeSuffix(plans)}`;
+  const negative = castNegativeSuffix(cast, part.imageNegativePrompt);
   // Each frame is read for its own shot size: a scene can push from a medium
   // into a close-up, and only the tighter end needs the sheet trimming.
   const sheetFor = (prompt: string) => ({
     faceVisible: draft.subjectFaceVisible !== false,
     tightShot: isTightShot(prompt),
   });
-  const frameCast = (prompt: string) => charactersInFrame(prompt, cast);
+  const selected = (frame: "start" | "end", prompt: string) => frameCast(draft, frame, prompt, cast);
+  const otherOutfits = (frame: "start" | "end", prompt: string) => {
+    const outfits = frame === "start" ? wardrobe?.othersStart : wardrobe?.othersEnd;
+    const names = draft.frameVisibility?.[frame];
+    return names === undefined ? othersInFrame(framePromptBody(prompt), outfits ?? {}) :
+      Object.fromEntries(Object.entries(outfits ?? {}).filter(([name]) => names.includes(name)));
+  };
   return {
     ...part,
-    startFramePrompt: `${part.startFramePrompt}${settingSuffix(part.startFramePrompt, setting)}${lookPromptSuffix(project, part.startFramePrompt)}${castPromptSuffix(frameCast(part.startFramePrompt), wardrobe?.start, sheetFor(part.startFramePrompt), part.startFramePrompt)}${othersWardrobeSuffix(othersInFrame(part.startFramePrompt, wardrobe?.othersStart ?? {}), part.startFramePrompt)}`,
-    endFramePrompt: `${part.endFramePrompt}${settingSuffix(part.endFramePrompt, setting)}${lookPromptSuffix(project, part.endFramePrompt)}${castPromptSuffix(frameCast(part.endFramePrompt), wardrobe?.end, sheetFor(part.endFramePrompt), part.endFramePrompt)}${othersWardrobeSuffix(othersInFrame(part.endFramePrompt, wardrobe?.othersEnd ?? {}), part.endFramePrompt)}`,
+    startFramePrompt: `${part.startFramePrompt}${settingSuffix(part.startFramePrompt, setting)}${lookPromptSuffix(project, part.startFramePrompt)}${castPromptSuffix(selected("start", part.startFramePrompt), wardrobe?.start, sheetFor(part.startFramePrompt), part.startFramePrompt)}${othersWardrobeSuffix(otherOutfits("start", part.startFramePrompt), part.startFramePrompt)}`,
+    endFramePrompt: `${part.endFramePrompt}${settingSuffix(part.endFramePrompt, setting)}${lookPromptSuffix(project, part.endFramePrompt)}${castPromptSuffix(selected("end", part.endFramePrompt), wardrobe?.end, sheetFor(part.endFramePrompt), part.endFramePrompt)}${othersWardrobeSuffix(otherOutfits("end", part.endFramePrompt), part.endFramePrompt)}`,
     imageNegativePrompt: normaliseNegative(`${part.imageNegativePrompt}${negative}`),
   };
 }
@@ -1259,7 +1366,7 @@ function withCastEnforcedVideo(
   plans: CreativePlans | undefined,
   wardrobe: SceneWardrobe | undefined,
 ): VideoPart {
-  const negative = `${castNegativeSuffix(cast, part.videoNegativePrompt)}${continuityNegativeSuffix(plans)}`;
+  const negative = castNegativeSuffix(cast, part.videoNegativePrompt);
   const change = wardrobeChangeClause(
     wardrobe?.within ?? [],
     cast,

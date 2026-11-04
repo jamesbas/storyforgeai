@@ -4,7 +4,7 @@ import {
   applySimplifiedPrompts,
   previewSimplifiedPrompts,
 } from "@/lib/services/prompt-tools-service";
-import { createProject, generateStoryboard, getProjectRecord, updateScenePrompts } from "@/lib/services/project-service";
+import { createProject, generateStoryboard, getProjectRecord, updateScenePrompts, updateSceneCard } from "@/lib/services/project-service";
 import { getPlanningProvider, type PlanningProvider } from "@/lib/agents/llm/provider";
 import { SIMPLIFY_PROMPT_SYSTEM, simplifyPrompt } from "@/lib/agents/prompt-simplifier";
 import { countWords } from "@/lib/agents/media-prompt-spec";
@@ -26,8 +26,11 @@ vi.mock("@/lib/services/scene-queue", () => ({
 
 const originalStart = "Mara stands beside the red door, with her right hand resting on the brass handle in warm light.";
 const shorter = "Mara stands beside the red door, right hand on its handle.";
+const shorterEnd = "Mara stands in the courtyard, right hand resting on a wooden gate.";
 
-function model(answer: (user: string) => unknown = () => ({ prompt: shorter })): PlanningProvider {
+function model(answer: (user: string) => unknown = (user) => ({
+  prompt: JSON.parse(user).frame === "endFramePrompt" ? shorterEnd : shorter,
+})): PlanningProvider {
   return {
     name: "test",
     generateJson: vi.fn(async (_system, user, schema) => schema.parse(answer(user))),
@@ -42,6 +45,11 @@ async function seeded() {
   });
   const record = await generateStoryboard(project.id);
   for (const scene of record.storyboard!.scenes) {
+    await updateSceneCard(project.id, scene.id, {
+      visualDescription: "Mara stands beside a red door leading to a courtyard.",
+      actionDescription: "Mara stands beside the red door, her right hand on the handle. Mara then stands in the courtyard, right hand resting on a wooden gate.",
+      frameVisibility: { start: ["Mara"], end: ["Mara"] },
+    });
     await updateScenePrompts(project.id, scene.id, {
       startFramePrompt: originalStart,
       endFramePrompt: "Mara stands in the bright courtyard, facing the fountain, with her right hand resting on a wooden gate.",

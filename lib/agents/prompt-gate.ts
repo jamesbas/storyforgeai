@@ -6,7 +6,6 @@ import {
   minimumShotSizeFor,
   shotSizeOf,
   statedHeadcount,
-  widenShotSize,
 } from "@/lib/media/seam";
 import { focalSide, sideVisibleIn } from "@/lib/media/viewpoint";
 import type { SceneDraft } from "@/lib/schemas/storyboard";
@@ -38,6 +37,8 @@ export const PROMPT_GATE_CODES = [
   "action_dropped",
   /** A character the scene puts in this shot is not named in the prompt. */
   "participant_missing",
+  "participant_unexpected",
+  "wardrobe_state_conflict",
   /** The act was replaced by a phrase that names an idea rather than a thing. */
   "euphemism",
   /** No genital anatomy named, so the model is given no part to draw. */
@@ -68,6 +69,8 @@ export type ImageGateContext = {
   /** Cast the storyboard placed in this scene, by name. */
   participants: readonly string[];
   frameParticipants?: FrameParticipantPair;
+  knownParticipants?: readonly string[];
+  wardrobeByPerson?: { start: Readonly<Record<string, string>>; end: Readonly<Record<string, string>> };
   explicit: boolean;
   /**
    * Garment text this scene's wardrobe actually establishes, per frame.
@@ -418,6 +421,47 @@ const ACTION_COVERAGE = 1 / 3;
  */
 const PARAPHRASE_OVERLAP = 0.7;
 
+/** Only explicit clothing claims bound to a named person are compared. */
+export function wardrobeConflicts(
+  text: string,
+  outfits: Readonly<Record<string, string>>,
+  knownPeople: readonly string[] = Object.keys(outfits),
+): string[] {
+  const findings: string[] = [];
+  for (const [name, outfit] of Object.entries(outfits)) {
+    const bare = /\b(?:nude|naked|unclothed|undressed)\b/i.test(outfit);
+    const relevant = splitSentences(text).filter((sentence) => mentionsParticipant(sentence, name));
+    for (const sentence of relevant) {
+      const after = sentence.slice(sentence.toLowerCase().indexOf(name.toLowerCase()) + name.length);
+      const otherNames = knownPeople.filter((person) => person.toLowerCase() !== name.toLowerCase())
+        .map((person) => person.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      const clause = after.split(otherNames.length
+        ? new RegExp(`;\\s*|\\.\\s+|\\b(?:${otherNames.join("|")})\\b`, "i")
+        : /;\s*|\.\s+/)[0];
+      if (!bare && /\b(?:fully |completely |totally |entirely )?(?:naked|nude|unclothed|undressed)\b/i.test(clause) &&
+          !/\b(?:not|never|no longer)\s+(?:fully |completely )?(?:naked|nude|unclothed|undressed)/i.test(clause)) {
+        findings.push(`${name}: unauthorized undressing; approved wardrobe is ${outfit}.`);
+        break;
+      }
+      const worn = /\b(?:wears?|wearing|dressed in|clad in)\s+([^.;]+)/i.exec(clause)?.[1];
+      const colours = (value: string) => value.toLowerCase().match(
+        /\b(?:black|white|grey|gray|red|blue|green|yellow|purple|pink|orange|brown|navy|cream|beige)\b(?=\s+(?:[\w-]+\s+){0,2}(?:dress|shirt|coat|jacket|trousers|pants|skirt|suit|robe|blouse)\b)/g,
+      )?.map((colour) => colour === "gray" ? "grey" : colour) ?? [];
+      const expectedColours = colours(outfit);
+      if (worn && expectedColours.length && colours(worn).some((colour) => !expectedColours.includes(colour))) {
+        findings.push(`${name}: garment colour differs from approved wardrobe (${outfit}).`);
+        break;
+      }
+      if (worn && !/\b(?:nothing|no cloth|no garment)\b/i.test(worn) &&
+          (bare || inventedGarments(worn, outfit).length > 0)) {
+        findings.push(`${name}: clothing differs from approved wardrobe (${outfit}).`);
+        break;
+      }
+    }
+  }
+  return findings;
+}
+
 /** What is wrong with this keyframe prompt, as codes. Empty means it passes. */
 export function gateImagePrompt(
   prompt: string,
@@ -426,7 +470,7 @@ export function gateImagePrompt(
 ): PromptGateCode[] {
   const codes: PromptGateCode[] = [];
   const text = prompt.trim();
-  if (text.split(/\s+/).filter(Boolean).length < 12) return ["prompt_blank"];
+  if (!text) return ["prompt_blank"];
 
   const present = contentStems(text);
   const required = contentStems(ctx.scene.actionDescription);
@@ -440,6 +484,12 @@ export function gateImagePrompt(
   // description of them entirely.
   const expected = ctx.frameParticipants?.[frame];
   const participants = expected?.names ?? ctx.participants;
+  if (expected && ctx.knownParticipants?.some((name) =>
+    !participants.some((person) => person.toLowerCase() === name.toLowerCase()) &&
+    mentionsParticipant(text, name))) codes.push("participant_unexpected");
+  if (wardrobeConflicts(text, ctx.wardrobeByPerson?.[frame] ?? {}, ctx.knownParticipants).length) {
+    codes.push("wardrobe_state_conflict");
+  }
   if (participants.some((name) => name.trim() && !mentionsParticipant(text, name))) {
     codes.push("participant_missing");
   }
@@ -527,6 +577,12 @@ export function gateRepairDirective(
   ctx: ImageGateContext,
 ): string {
   const reasons: string[] = [];
+  if (codes.includes("participant_unexpected")) {
+    reasons.push("the prompt added someone outside this frame's visibility list; remove that person's description, not the intended framing");
+  }
+  if (codes.includes("wardrobe_state_conflict")) {
+    reasons.push(`the prompt contradicts this frame's approved wardrobe: ${JSON.stringify(ctx.wardrobeByPerson)}. No clothing change is permitted unless the current scene explicitly declares it`);
+  }
   if (codes.includes("prompt_blank")) {
     reasons.push("one or both frame prompts were empty or too short to render");
   }
@@ -654,12 +710,6 @@ export function repairImagePrompt(
   // Both of these edit the prompt rather than adding to it, so they run before
   // the paraphrase index below is built from it.
   let body = prompt.trim();
-  if (codes.includes("framing_too_tight")) {
-    const floor = minimumShotSizeFor(
-      Math.max(statedHeadcount(body) ?? 0, ctx.frameParticipants?.[frame].people ?? ctx.participants.length),
-    );
-    if (floor) body = widenShotSize(body, floor);
-  }
   if (codes.includes("wardrobe_contradicts_act")) {
     body = withoutInventedGarments(body, established);
   }
@@ -733,9 +783,6 @@ export function repairImagePrompt(
       "Everyone taking part in the act is completely naked; anyone else in frame keeps the clothing described.",
     );
     if (guard) additions.push(guard);
-  }
-  if (codes.includes("participant_missing") && !ctx.frameParticipants && ctx.participants.length) {
-    additions.push(`In frame: ${ctx.participants.join(", ")}.`);
   }
   // Repairable from the card alone: the scene says the frame is about the back
   // of a body, so the camera has to be somewhere it can see one. Three-quarter

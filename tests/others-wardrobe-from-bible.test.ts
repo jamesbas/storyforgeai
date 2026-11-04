@@ -38,6 +38,11 @@ const bible = {
 };
 
 describe("what the visual bible says unnamed people wear", () => {
+  it("uses the current outfit without passing a future removal clause into frame state", () => {
+    expect(outfitsFromBible({ characters: [{
+      name: "Noah", description: "A man wearing a grey cotton shirt which he removes before dinner.",
+    }] }, [])).toEqual({ Noah: "a grey cotton shirt" });
+  });
   it("takes a standing outfit for everyone who is not pinned", () => {
     expect(outfitsFromBible(bible, [TLB])).toEqual({
       "Large Black Man": "a simple unbranded dark t-shirt and dark trousers",

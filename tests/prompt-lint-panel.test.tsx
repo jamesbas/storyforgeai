@@ -47,6 +47,13 @@ function open() {
  * than after minutes of GPU time come back wrong.
  */
 describe("prompt lint in the panel", () => {
+  it("shows stored semantic warnings without disabling generation or editing", () => {
+    render(<ScenePromptsPanel scene={scene({ promptWarnings: ["end: participant_unexpected"] })} projectId="p1" />);
+    open();
+    expect(screen.getByText("end: participant_unexpected")).toBeVisible();
+    expect(screen.getByText(/generation remains allowed/)).toBeVisible();
+    expect(screen.getByRole("textbox", { name: /^End frame$/ })).toBeEnabled();
+  });
   it("shows an editable carried-frame prompt without enforcing creation framing on it", () => {
     const edit = "Edit the supplied reference frame: seat the gear on the bench. Keep the apprentice's appearance unchanged.";
     render(<ScenePromptsPanel scene={scene({ endFrameEditPrompt: edit })} projectId="p1" />);

@@ -427,6 +427,25 @@ export default function HelpPage() {
           </p>
           <DocList docs={GENERATION_MODE_DOCS} />
 
+          <h3 className={h3}>Frame visibility and prompt warnings</h3>
+          <p className={p}>
+            The scene card has separate opening- and closing-frame visibility lists. Include every
+            visible person or role, even people outside the character library, using the same names
+            as the card. Once either list is edited, an empty list means no people in that frame.
+            A scene can hold two people while a closing close-up shows just one. These lists also
+            control continuity additions, reference photographs and face swaps; an unrecognized
+            identity no longer adds the whole cast.
+          </p>
+          <p className={p}>
+            Current wardrobe and declared changes are authoritative. Prompt generation retries
+            contradictions with targeted instructions rather than adding people or widening the
+            shot. Final prompts are checked after composition and again after model formatting,
+            including video actions and dialogue speakers. Findings appear under Prompts and on
+            rendered attempts. Generation remains allowed even with unresolved warnings, so review
+            them before spending GPU time. These are conservative text checks: they cannot prove
+            physical correctness or guarantee what an image or video model draws.
+          </p>
+
           <h3 className={h3}>Qwen Image 2.1 keyframes</h3>
           <p className={p}>
             Standard Qwen Image 2.1 uses <strong>INT8 KV Cache</strong>,{" "}

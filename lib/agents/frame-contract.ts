@@ -3,6 +3,7 @@ import { othersInFrame } from "@/lib/agents/wardrobe";
 import { statedHeadcount } from "@/lib/media/seam";
 import type { Character } from "@/lib/schemas/character";
 import type { SceneDraft } from "@/lib/schemas/storyboard";
+import { framePromptBody } from "@/lib/agents/scene-cast";
 
 export type FrameParticipants = { names: string[]; people: number };
 export type FrameParticipantPair = { start: FrameParticipants; end: FrameParticipants };
@@ -75,7 +76,7 @@ function population(
       ).test(group.before);
       const list = group.after.match(/^(?:\s*[,:(]\s*|\s+(?:named|called|including)\s+)([^,.;:!?]+)/i)?.[1];
       if (apposition || (list && mentionsParticipant(list, name))) return true;
-      if (!group.ordinal) return false;
+      if (!group.ordinal && !/\b(?:he|she|they)\s+is\s*$/i.test(group.before)) return false;
       const description = descriptions.get(name.toLowerCase()) ?? "";
       if (group.kind === "men" || /^boys?$/.test(group.kind)) {
         return /\b(?:man|male|boy)\b/i.test(description);
@@ -129,6 +130,15 @@ export function sceneFrameParticipants(
   const people = population(text, individuals, descriptions);
   const forFrame = (frame: "start" | "end"): FrameParticipants => {
     const changing = frame === "start" ? ENTERS : LEAVES;
+    const declared = scene.frameVisibility?.[frame];
+    if (declared !== undefined) {
+      const unique = [...new Map(declared.map((name) => [name.toLowerCase(), name])).values()];
+      return {
+        names: unique,
+        people: unique.reduce((sum, name) =>
+          sum + Math.max(1, ...groupsIn(name).map((group) => group.count)), 0),
+      };
+    }
     const excluded = individuals.filter((name) =>
       new RegExp(
         `\\b${escaped(name)}\\s+(?:is|remains|stays)\\s+(?:off[- ]?screen|out of (?:the )?frame)\\b`, "i",
@@ -147,6 +157,17 @@ export function sceneFrameParticipants(
     },
     end: forFrame("end"),
   };
+}
+
+/** Seed legacy endpoints from what the frame actually names, before appended sheets. */
+export function visibilityFromPrompts(
+  start: string,
+  end: string,
+  known: readonly string[],
+): NonNullable<SceneDraft["frameVisibility"]> {
+  const visible = (text: string) => known.filter((name) =>
+    mentionsParticipant(framePromptBody(text), name));
+  return { start: visible(start), end: visible(end) };
 }
 
 /** Only explicit, owner-bound contradictions; this is not a physics simulator. */

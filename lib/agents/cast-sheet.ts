@@ -1,5 +1,5 @@
 import { castContinuityClause, castPromptSuffix } from "@/lib/agents/cast";
-import { charactersInFrame, charactersInScene } from "@/lib/agents/scene-cast";
+import { frameCast, charactersInScene } from "@/lib/agents/scene-cast";
 import { othersInFrame, othersWardrobeSuffix, wardrobeChangeClause } from "@/lib/agents/wardrobe";
 import { isTightShot } from "@/lib/media/seam";
 import type { Character } from "@/lib/schemas/character";
@@ -31,6 +31,7 @@ export function rebuiltPrompts(
       wardrobe?.start,
       wardrobe?.othersStart,
       scene,
+      "start",
     ),
     endFramePrompt: withCastSheet(
       scene.prompts.endFramePrompt,
@@ -38,6 +39,7 @@ export function rebuiltPrompts(
       wardrobe?.end,
       wardrobe?.othersEnd,
       scene,
+      "end",
     ),
     videoPromptSegment: withVideoCastClause(
       scene.prompts.videoPromptSegment,
@@ -72,6 +74,7 @@ function withCastSheet(
   wardrobeAt: Record<string, string> | undefined,
   others: Record<string, string> | undefined,
   scene: Scene,
+  frame: "start" | "end",
 ): string {
   const marker = " Character continuity — ";
   const cut = prompt.indexOf(marker);
@@ -80,8 +83,11 @@ function withCastSheet(
     faceVisible: scene.subjectFaceVisible !== false,
     tightShot: isTightShot(body),
   };
-  const frameCast = charactersInFrame(body, sceneCast);
-  return `${body}${castPromptSuffix(frameCast, wardrobeAt, options, body)}${othersWardrobeSuffix(othersInFrame(body, others ?? {}), body)}`;
+  const selected = frameCast(scene, frame, body, sceneCast);
+  const visible = scene.frameVisibility?.[frame];
+  const outfits = visible === undefined ? othersInFrame(body, others ?? {}) :
+    Object.fromEntries(Object.entries(others ?? {}).filter(([name]) => visible.includes(name)));
+  return `${body}${castPromptSuffix(selected, wardrobeAt, options, body)}${othersWardrobeSuffix(outfits, body)}`;
 }
 
 function stripOthers(prompt: string): string {

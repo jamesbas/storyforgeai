@@ -229,6 +229,12 @@ export function ScenePromptsPanel({
       ) : null}
 
       <div className="mt-2 space-y-3">
+        {scene.prompts.promptWarnings?.length ? (
+          <div className="rounded border border-amber-500/30 p-2 text-xs text-amber-200" role="status">
+            Prompt contract warnings (generation remains allowed):
+            <ul>{scene.prompts.promptWarnings.map((warning) => <li key={warning}>{warning}</li>)}</ul>
+          </div>
+        ) : null}
         {FIELDS.filter((field) => field.key !== "endFrameEditPrompt" ||
           scene.prompts.endFrameEditPrompt !== undefined).map((field) => {
           const words = triggerWords?.[field.kind] ?? [];

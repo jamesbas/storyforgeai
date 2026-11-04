@@ -84,6 +84,10 @@ export const storyboardSystem = (segmentSeconds: number) =>
   "List in charactersPresent exactly which of the supplied cast are visible in that shot, by " +
   "their cast name. Leave it empty for a shot none of them are in. Do not list a character " +
   "who is merely mentioned, referred to, or elsewhere at the time. " +
+  "Also supply frameVisibility with start and end arrays naming EVERY person or role visible " +
+  "at each endpoint, including non-library characters. An empty array means no person is visible. " +
+  "A person present in the scene may be cropped out of one endpoint; do not put them in that " +
+  "frame's list. Use the same names as the scene and visual bible. " +
   // Costume is otherwise a constant repeated into every prompt, so a change the
   // story requires has to be declared here or it cannot happen at all.
   "Record a costume change in wardrobeChanges, in the scene where it happens. Name the " +

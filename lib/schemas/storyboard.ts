@@ -18,6 +18,11 @@ import {
 
 export const sceneStatusSchema = z.enum(SCENE_STATUSES);
 
+export const frameVisibilitySchema = z.object({
+  start: z.array(z.string().trim().min(1)).max(30),
+  end: z.array(z.string().trim().min(1)).max(30),
+});
+
 export const scenePromptsSchema = z.object({
   startFramePrompt: z.string(),
   endFramePrompt: z.string(),
@@ -55,6 +60,8 @@ export const scenePromptsSchema = z.object({
   videoPromptFamily: maybe(z.string()),
   /** Advisory review notes; defaulted for the same reason as continuityNotes. */
   promptQualityChecklist: z.array(z.string()).default([]),
+  /** Advisory findings on the final composed text; never prevent generation. */
+  promptWarnings: maybe(z.array(z.string())),
 });
 export type ScenePrompts = z.infer<typeof scenePromptsSchema>;
 
@@ -123,6 +130,7 @@ export const sceneCardPatchSchema = z
     storyBeat: z.string().max(2000),
     visualDescription: z.string().max(4000),
     actionDescription: z.string().max(4000),
+    frameVisibility: frameVisibilitySchema.nullable().optional(),
     cameraMovement: z.string().max(500),
     /** What the characters say aloud. The video model speaks it verbatim. */
     dialogue: z.array(dialogueLineSchema).max(24),
@@ -219,6 +227,8 @@ export const sceneSchema = z.object({
    * parse; presence is then read from the scene card instead.
    */
   charactersPresent: z.array(z.string()).default([]),
+  /** All visible people/roles, not just library cast. Empty lists mean nobody. */
+  frameVisibility: maybe(frameVisibilitySchema),
   /**
    * Costume changes the story calls for in this scene, named by character
    * rather than id because the agent writing them has never seen an id.

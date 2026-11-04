@@ -21,6 +21,7 @@ const scene = (id: string, sceneNumber: number, tail: string) =>
     title: `Scene ${sceneNumber}`,
     subjectFaceVisible: true,
     charactersPresent: ["Mara"],
+    frameVisibility: { start: ["Mara"], end: ["Mara"] },
     prompts: {
       startFramePrompt: `A room.${tail}`,
       endFramePrompt: `A room.${tail}`,
@@ -74,7 +75,7 @@ describe("cast sheet staleness", () => {
 
   it("still drops a character the scene does not name", () => {
     const s = scene("s1", 1, SHEET);
-    const absent = { ...s, charactersPresent: [] } as Scene;
+    const absent = { ...s, charactersPresent: [], frameVisibility: { start: [], end: [] } } as Scene;
     const timeline = wardrobeTimeline(project(), [absent], [MARA]);
     expect(sheetIsStale(absent, [MARA], timeline.get("s1"))).toBe(true);
     expect(rebuiltPrompts(absent, [MARA], timeline.get("s1")).endFramePrompt).not.toContain(

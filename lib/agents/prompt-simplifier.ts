@@ -6,6 +6,9 @@ import type { PromptField } from "@/lib/schemas/prompt-tools";
 import type { Scene } from "@/lib/schemas/storyboard";
 import { ValidationError } from "@/lib/errors";
 import { fiboTextPreserved, hasFiboVgl, parseFiboPrompt } from "@/lib/agents/fibo-prompt";
+import { imagePromptWarnings, videoContextFromImage } from "@/lib/agents/prompt-validation";
+import { gateVideoPrompt } from "@/lib/agents/video-prompt-gate";
+import type { ImageGateContext } from "@/lib/agents/prompt-gate";
 
 export const SIMPLIFY_PROMPT_SYSTEM =
   "You simplify existing image and video prompts for AI generation models, especially Krea 2, " +
@@ -35,6 +38,7 @@ export async function simplifyPrompt(
   scene: Scene,
   field: PromptField,
   provider: PlanningProvider,
+  imageContext?: ImageGateContext,
 ): Promise<string> {
   const before = scene.prompts[field];
   if (!before?.trim()) throw new ValidationError("This prompt is empty; there is nothing to simplify.");
@@ -69,6 +73,25 @@ export async function simplifyPrompt(
       throw new ValidationError("The planning model returned no valid simplified prompt. Check the LLM connection and try again.");
     }
     const after = parsed.data.prompt;
+    if (imageContext && field !== "videoPromptSegment") {
+      const frame = field === "startFramePrompt" ? "start" : "end";
+      const beforeWarnings = new Set(imagePromptWarnings(before, frame, imageContext));
+      const introduced = imagePromptWarnings(after, frame, imageContext)
+        .filter((warning) => !beforeWarnings.has(warning));
+      if (introduced.length) {
+        correction = `Preserve the current frame contract. Correct: ${introduced.join("; ")}`;
+        continue;
+      }
+    }
+    if (imageContext && field === "videoPromptSegment") {
+        const context = videoContextFromImage(scene, imageContext);
+        const existing = new Set(gateVideoPrompt(before, context));
+        const introduced = gateVideoPrompt(after, context).filter((warning) => !existing.has(warning));
+        if (introduced.length) {
+          correction = `Preserve actions, participants and speakers. Correct: ${introduced.join("; ")}`;
+          continue;
+      }
+    }
     const dialogue = field === "videoPromptSegment"
       ? missingDialogue(after, scene.dialogue ?? [])
       : [];
@@ -87,6 +110,6 @@ export async function simplifyPrompt(
       : `Use fewer than ${countWords(before)} words and fewer than ${before.trim().length} characters. Preserve critical facts; do not truncate.`;
   }
   throw new ValidationError(
-    "The model could not produce a shorter prompt while preserving required dialogue. The original is unchanged.",
+    `The model could not produce a shorter prompt while preserving the frame, action and dialogue contract. ${correction} The original is unchanged.`,
   );
 }

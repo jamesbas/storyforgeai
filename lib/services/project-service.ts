@@ -18,6 +18,7 @@ import {
 import type { ConceptImage, Project } from "@/lib/schemas/project";
 import { applyScenePromptsPatch, sceneFramingPatchSchema, scenePromptsPatchSchema, sceneCardPatchSchema } from "@/lib/schemas/storyboard";
 import { hasFiboVgl, parseFiboPrompt } from "@/lib/agents/fibo-prompt";
+import { storedSceneImageContext, storedPromptWarnings } from "@/lib/agents/prompt-validation";
 import { normaliseNegative } from "@/lib/agents/negative-prompt";
 import { sceneWardrobeChangesSchema, type WardrobeChange } from "@/lib/schemas/wardrobe";
 import {
@@ -857,13 +858,18 @@ export async function updateScenePrompts(
 
   const scene = record.storyboard.scenes.find((s) => s.id === sceneId);
   if (!scene) throw new NotFoundError(`Scene ${sceneId} not found`);
+  const patched = { ...scene, prompts: applyScenePromptsPatch(scene.prompts, patch) };
+  patched.prompts.promptWarnings = storedPromptWarnings(patched, storedSceneImageContext(
+    record.project, patched, await resolveProjectCast(record.project), record.storyboard.visualBible,
+    record.storyboard.scenes,
+  ));
 
   const updated: ProjectRecord = {
     ...record,
     storyboard: {
       ...record.storyboard,
       scenes: record.storyboard.scenes.map((s) =>
-        s.id === sceneId ? { ...s, prompts: applyScenePromptsPatch(s.prompts, patch) } : s,
+        s.id === sceneId ? patched : s,
       ),
     },
     project: { ...record.project, updatedAt: new Date().toISOString() },
@@ -1001,7 +1007,16 @@ export async function updateSceneCard(
   if (!scene) throw new NotFoundError(`Scene ${sceneId} not found`);
 
   const cast = await resolveProjectCast(record.project);
-  const edited = { ...scene, ...patch };
+  const edited = {
+    ...scene, ...patch,
+    frameVisibility: patch.frameVisibility === undefined ? scene.frameVisibility : patch.frameVisibility ?? undefined,
+  };
+  edited.prompts = {
+    ...edited.prompts,
+    promptWarnings: storedPromptWarnings(edited, storedSceneImageContext(
+      record.project, edited, cast, record.storyboard.visualBible, record.storyboard.scenes,
+    )),
+  };
 
   const updated: ProjectRecord = {
     ...record,

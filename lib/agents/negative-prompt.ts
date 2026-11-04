@@ -376,6 +376,7 @@ export function positiveConstraintClause(raw: string, headcount: number | null =
     const guard = MULTI_SUBJECT_SET.has(lower);
     const match = POSITIVE_ALTERNATIVES.find(([pattern]) => pattern.test(lower));
     const rendered = match?.[1] ?? null;
+    if (rendered === SINGLE_SUBJECT && headcount === null) continue;
     if (rendered === SINGLE_SUBJECT && crowded) {
       guarded = true;
       continue;

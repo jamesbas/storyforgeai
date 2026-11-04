@@ -12,7 +12,6 @@ import { isExplicitProject, isExplicitScene } from "@/lib/agents/explicitness";
 import { lookPromptSuffix } from "@/lib/agents/look";
 import { normaliseNegative } from "@/lib/agents/negative-prompt";
 import {
-  continuityNegativeSuffix,
   sceneCreativeSlice,
   type CreativePlans,
 } from "@/lib/agents/creative-context";
@@ -23,6 +22,8 @@ import type { BudgetContext } from "@/lib/agents/media-prompt-spec";
 import { stillStates } from "@/lib/agents/still-frame";
 import { dialogueClause, renderImagePrompt, renderVideoPrompt } from "@/lib/agents/media-prompt-renderers";
 import { hasNativeAudio } from "@/lib/agents/model-directives";
+import { frameCast } from "@/lib/agents/scene-cast";
+import { sceneFrameParticipants } from "@/lib/agents/frame-contract";
 
 /**
  * Deterministic mock builders backing each agent. They produce schema-valid
@@ -211,6 +212,9 @@ export function buildSceneDrafts(
       projectId: project.id,
       wardrobeChanges: [],
       charactersPresent: cast.map((c) => c.name),
+      frameVisibility: cast.length ? {
+        start: cast.map((person) => person.name), end: cast.map((person) => person.name),
+      } : undefined,
       sceneNumber,
       startTimeSeconds,
       endTimeSeconds,
@@ -294,6 +298,10 @@ export function buildImagePrompts(
 ): Pick<ScenePrompts, "startFramePrompt" | "endFramePrompt" | "imageNegativePrompt"> {
   const spec = buildMediaPromptSpec(project, scene, plans, wardrobe);
   const frameBudget = { people: cast.length, ...budget };
+  const participants = sceneFrameParticipants(scene, cast);
+  const visibility = scene.frameVisibility ? scene : {
+    ...scene, frameVisibility: { start: participants.start.names, end: participants.end.names },
+  };
   // v2 opens with shot size and camera height and states each fact once; v1
   // opened with "Cinematic still" and repeated the scene description.
   const v2 = config.flags.mediaPromptComposerV2
@@ -338,17 +346,16 @@ export function buildImagePrompts(
     startFramePrompt:
       startBody +
       lookPromptSuffix(project, startBody) +
-      castPromptSuffix(cast, wardrobe?.start, sheetOptions(scene, startBody), startBody) +
+      castPromptSuffix(frameCast(visibility, "start", startBody, cast), wardrobe?.start, sheetOptions(scene, startBody), startBody) +
       othersWardrobeSuffix(wardrobe?.othersStart ?? {}, startBody),
     endFramePrompt:
       endBody +
       lookPromptSuffix(project, endBody) +
-      castPromptSuffix(cast, wardrobe?.end, sheetOptions(scene, endBody), endBody) +
+      castPromptSuffix(frameCast(visibility, "end", endBody, cast), wardrobe?.end, sheetOptions(scene, endBody), endBody) +
       othersWardrobeSuffix(wardrobe?.othersEnd ?? {}, endBody),
     imageNegativePrompt: normaliseNegative(
       "watermark, distorted anatomy, text artifacts, low quality" +
-        castNegativeSuffix(cast) +
-        continuityNegativeSuffix(plans),
+        castNegativeSuffix(cast),
     ),
   };
 }
@@ -404,8 +411,7 @@ export function buildVideoPrompts(
       // behind a moving camera.
       "flicker, jitter, warping, duplicated subjects, abrupt cuts, identity drift, " +
         "background deformation, unintended camera movement" +
-        castNegativeSuffix(cast) +
-        continuityNegativeSuffix(plans),
+        castNegativeSuffix(cast),
     ),
     promptQualityChecklist: [
       "continuity with visual bible",

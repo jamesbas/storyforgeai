@@ -51,6 +51,9 @@ import { ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
 import { APP_VERSION } from "@/lib/version";
 import { qwen21ImageOverrides } from "@/lib/wangp/qwen21";
+import { imagePromptWarnings } from "@/lib/agents/prompt-validation";
+import type { ImageGateContext } from "@/lib/agents/prompt-gate";
+import { gateVideoPrompt, type VideoGateContext } from "@/lib/agents/video-prompt-gate";
 
 export type WangpStatus = {
   enabled: boolean;
@@ -520,6 +523,7 @@ export async function buildVideoManifest(args: {
   sceneId: string;
   prompt: string;
   negativePrompt?: string;
+  validation?: VideoGateContext;
   imageStart?: string;
   imageEnd?: string;
   /** Previous scene's clip to continue from, for `continue_video` continuity. */
@@ -617,7 +621,7 @@ export async function buildVideoManifest(args: {
     resolutionPreset: preset,
   };
 
-  return buildSettingsManifest(schema, {
+  const manifest = buildSettingsManifest(schema, {
     sceneId: args.sceneId,
     purpose: "video_segment",
     prompt,
@@ -654,6 +658,14 @@ export async function buildVideoManifest(args: {
       context,
     ),
   });
+  if (args.validation) {
+    manifest.promptWarnings = gateVideoPrompt(String(manifest.settings.prompt ?? ""), args.validation)
+      .map((warning) => `video: ${warning}`);
+    if (manifest.promptWarnings.length) logEvent("prompt.validation", {
+      sceneId: args.sceneId, kind: "video", warningCount: manifest.promptWarnings.length,
+    });
+  }
+  return manifest;
 }
 
 /**
@@ -871,6 +883,7 @@ export async function buildImageManifest(args: {
   imageRefsLeadWithScene?: boolean;
   /** Every character photo in this keyframe's reference list belongs to this one person. */
   referenceSubject?: string;
+  validation?: { frame: "start" | "end"; context: ImageGateContext };
   /** LoRAs selected for this scene's keyframe generation. */
   loras?: LoraSelection[];
   /** Pinned seed, so a preview and the real render sample identically. */
@@ -1024,6 +1037,14 @@ export async function buildImageManifest(args: {
       guidance: qwen21.guidanceScale,
       sampler: qwen21.sampleSolver,
       kvCache: qwen21.customSettings?.qwen21_kv_cache,
+    });
+  }
+  if (args.validation) {
+    manifest.promptWarnings = imagePromptWarnings(
+      String(manifest.settings.prompt ?? ""), args.validation.frame, args.validation.context,
+    );
+    if (manifest.promptWarnings.length) logEvent("prompt.validation", {
+      sceneId: args.sceneId, kind: "image", warningCount: manifest.promptWarnings.length,
     });
   }
   return manifest;

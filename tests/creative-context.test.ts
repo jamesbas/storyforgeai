@@ -103,10 +103,8 @@ describe("agentic canvas plans reach the render prompts", () => {
       expect(scene.prompts.promptQualityChecklist).toContain("cinematography shot plan applied");
     }
 
-    // The World Bible's forbidden contradictions become negative-prompt terms,
-    // with the leading negation stripped: a sampler steers away from the whole
-    // phrase, so "No unexplained changes" would spend a word saying nothing.
-    expect(scenes[0]!.prompts.videoNegativePrompt).toContain(
+    // Global narrative rules are not unconditional exclusions for every frame.
+    expect(scenes[0]!.prompts.videoNegativePrompt).not.toContain(
       "unexplained changes to the subject or world",
     );
     expect(scenes[0]!.prompts.videoNegativePrompt).not.toContain("No unexplained");

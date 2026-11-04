@@ -489,7 +489,7 @@ describe("the acceptance gate on the finished keyframe prompt", () => {
   });
 
   it("rejects an empty answer the schema was happy with", () => {
-    expect(gateImagePrompt("A still.", "end", ctx)).toEqual(["prompt_blank"]);
+    expect(gateImagePrompt("", "end", ctx)).toEqual(["prompt_blank"]);
   });
 
   /**

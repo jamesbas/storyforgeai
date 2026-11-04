@@ -36,7 +36,7 @@ type SceneSubject = Pick<
   | "actionDescription"
   | "dialogue"
   | "continuityNotes"
-> & { charactersPresent?: string[] };
+> & { charactersPresent?: string[]; frameVisibility?: SceneDraft["frameVisibility"] };
 
 function mentions(text: string, name: string): boolean {
   const escaped = name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -61,7 +61,10 @@ export function charactersInScene(
 ): readonly Character[] {
   if (cast.length === 0) return [];
 
-  const declared = scene.charactersPresent ?? [];
+  const declared = [
+    ...(scene.charactersPresent ?? []),
+    ...Object.values(scene.frameVisibility ?? {}).flat(),
+  ];
   if (declared.length) {
     const wanted = new Set(declared.map((n) => n.trim().toLocaleLowerCase()));
     const matched = cast.filter((c) => wanted.has(c.name.trim().toLocaleLowerCase()));
@@ -94,14 +97,30 @@ export function presentCharacterNames(
  * the last thing the image model reads and it ends on "wearing exactly", so a
  * character who is not in shot donates his clothes to whoever is.
  *
- * Falls back to the scene cast when the prompt names nobody — a prompt can
- * describe people without naming them ("one woman and one man"), and an empty
- * sheet would drop face continuity altogether.
+ * An empty result must stay empty. Uncertain identity is a warning, not permission
+ * to add every library character to a frame of somebody else.
  */
 export function charactersInFrame(
   prompt: string,
   sceneCast: readonly Character[],
+  visibleNames?: readonly string[],
 ): readonly Character[] {
-  const named = sceneCast.filter((character) => mentions(prompt, character.name));
-  return named.length ? named : sceneCast;
+  return sceneCast.filter((character) => visibleNames === undefined
+    ? mentions(prompt, character.name) && !new RegExp(
+        `\\b${character.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s+(?:is|remains)\\s+(?:off[- ]?screen|out of frame)`, "i",
+      ).test(prompt)
+    : visibleNames.some((name) => name.toLocaleLowerCase() === character.name.toLocaleLowerCase()));
+}
+
+export function framePromptBody(prompt: string): string {
+  return prompt.split(/ Character continuity [—-]| Wardrobe continuity [—-]/)[0];
+}
+
+export function frameCast(
+  scene: Pick<SceneDraft, "frameVisibility">,
+  frame: "start" | "end",
+  prompt: string,
+  cast: readonly Character[],
+): readonly Character[] {
+  return charactersInFrame(framePromptBody(prompt), cast, scene.frameVisibility?.[frame]);
 }

@@ -18,6 +18,8 @@ import { getQueue } from "@/lib/services/scene-queue";
 import { activeTask } from "@/lib/tasks/task-service";
 import { logEvent } from "@/lib/telemetry";
 import { fiboTextPreserved, mapFiboDescription } from "@/lib/agents/fibo-prompt";
+import { storedSceneImageContext, storedPromptWarnings } from "@/lib/agents/prompt-validation";
+import { resolveProjectCast } from "@/lib/services/character-service";
 
 async function assertIdle(projectId: string): Promise<void> {
   if (getAgentRun(projectId) || getQueue(projectId).active ||
@@ -55,6 +57,16 @@ async function savePrompts(
   patches: Map<string, Partial<Scene["prompts"]>>,
   change: string,
 ): Promise<ProjectRecord> {
+  const cast = await resolveProjectCast(record.project);
+  const updatedScenes = record.storyboard!.scenes.map((scene) => {
+    const patch = patches.get(scene.id);
+    if (!patch) return scene;
+    const updated = { ...scene, prompts: applyScenePromptsPatch(scene.prompts, patch) };
+    updated.prompts.promptWarnings = storedPromptWarnings(updated, storedSceneImageContext(
+      record.project, updated, cast, record.storyboard!.visualBible, record.storyboard!.scenes,
+    ));
+    return updated;
+  });
   let historyRecord = record;
   for (const scene of record.storyboard!.scenes) {
     if (patches.has(scene.id)) {
@@ -70,9 +82,7 @@ async function savePrompts(
     project: { ...record.project, updatedAt: new Date().toISOString() },
     storyboard: {
       ...record.storyboard!,
-      scenes: record.storyboard!.scenes.map((scene) => patches.has(scene.id)
-        ? { ...scene, prompts: applyScenePromptsPatch(scene.prompts, patches.get(scene.id)!) }
-        : scene),
+      scenes: updatedScenes,
     },
   };
   await repository.update(record.project.id, updated);
@@ -110,6 +120,7 @@ export async function previewSimplifiedPrompts(projectId: string, raw: unknown):
     throw new PrerequisiteError("Prompt simplification requires AI planning and a configured planning model. Configure the LLM connection first.");
   }
   return trackAgentRun(projectId, "prompt_simplifier", "Prompt Simplifier", async () => {
+    const cast = await resolveProjectCast(record.project);
     const results: PromptPreview["results"] = [];
     for (const scene of scenes) {
       const fields = input.target === "video" ? [] :
@@ -126,7 +137,9 @@ export async function previewSimplifiedPrompts(projectId: string, raw: unknown):
           sourceHash: sourceHash(scene),
         };
         try {
-          results.push({ ...base, status: "ready", after: await simplifyPrompt(scene, field, provider) });
+          results.push({ ...base, status: "ready", after: await simplifyPrompt(scene, field, provider,
+            storedSceneImageContext(record.project, scene, cast, record.storyboard?.visualBible, record.storyboard?.scenes),
+          ) });
         } catch (error) {
           const message = error instanceof Error ? error.message : "Prompt simplification failed.";
           results.push({ ...base, status: "error", error: message });

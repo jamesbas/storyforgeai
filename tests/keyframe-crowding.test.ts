@@ -85,11 +85,11 @@ describe("a shot size that cannot hold the people in it", () => {
     expect(gateImagePrompt(widened, "end", ctx)).not.toContain("framing_too_tight");
   });
 
-  it("widens the prompt to the size the headcount needs", () => {
+  it("reports incompatible framing without silently widening the shot", () => {
     const codes = gateImagePrompt(SHIPPED, "end", ctx);
     const repaired = repairImagePrompt(SHIPPED, "end", codes, ctx);
-    expect(shotSizeOf(repaired)).toBe("medium");
-    expect(repaired).toMatch(/^Medium shot, eye level\./);
+    expect(shotSizeOf(repaired)).toBe("close");
+    expect(gateImagePrompt(repaired, "end", ctx)).toContain("framing_too_tight");
   });
 
   /** Only the framing words change; the direction around them is not at fault. */

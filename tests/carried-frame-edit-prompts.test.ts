@@ -124,7 +124,7 @@ describe("authoring carried-frame edits", () => {
       });
       expect(call?.system).toContain("a self-contained image-edit instruction");
       expect(executions.find((execution) => execution.artifact === `${scene.id}.image_prompt`)).toMatchObject({
-        source: "llm", promptVersion: "image-prompt-v8", detail: "end_frame=carried_frame_edit",
+        source: "llm", promptVersion: "image-prompt-v9", detail: "end_frame=carried_frame_edit",
       });
     }
     const record = await generateStoryboard(p.id);

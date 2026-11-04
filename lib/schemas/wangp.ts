@@ -156,6 +156,7 @@ export const wangpGenerationSettingsSchema = z.object({
   status: z.enum(["draft", "submitted", "running", "completed", "failed", "cancelled"]),
   generatedFiles: z.array(z.string()),
   errors: z.array(z.string()),
+  promptWarnings: z.array(z.string()).optional(),
   reproducibility: z.object({
     storyforgeVersion: z.string(),
     modelName: z.string(),

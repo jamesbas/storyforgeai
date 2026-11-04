@@ -37,8 +37,11 @@ export function outfitsFromBible(
   for (const character of bible?.characters ?? []) {
     const name = character.name.trim();
     if (!name || pinned.has(name.toLocaleLowerCase())) continue;
-    if (OUTFIT_CHANGES.test(character.description)) continue;
-    const worn = /\b(?:wears?|wearing|dressed in|clad in)\s+([^.;]+)/i.exec(character.description);
+    const openingDescription = character.description.replace(
+      /\s+which\s+(?:he|she|they)\s+(?:later\s+)?(?:removes?|strips?|takes? off)\b[\s\S]*/i, "",
+    );
+    if (OUTFIT_CHANGES.test(openingDescription)) continue;
+    const worn = /\b(?:wears?|wearing|dressed in|clad in)\s+([^.;]+)/i.exec(openingDescription);
     const outfit = worn?.[1]?.trim().replace(/[,\s]+$/, "");
     if (!outfit || isUndressed(outfit) || !GARMENT_WORD.test(outfit)) continue;
     // "Dressed in a gold chain" is nudity with jewellery, and "no shirt" is
@@ -168,6 +171,23 @@ export function wardrobeTimeline(
   }
 
   return timeline;
+}
+
+export function frameWardrobeByName(
+  wardrobe: SceneWardrobe | undefined,
+  frame: "start" | "end",
+  cast: readonly Character[],
+  visibleNames?: readonly string[],
+): Record<string, string> {
+  const outfits = {
+    ...(frame === "start" ? wardrobe?.othersStart : wardrobe?.othersEnd),
+    ...Object.fromEntries(cast.flatMap((person) => {
+      const outfit = wardrobe?.[frame][person.id] ?? person.wardrobe;
+      return outfit ? [[person.name, outfit]] : [];
+    })),
+  };
+  return Object.fromEntries(Object.entries(outfits).filter(([name]) =>
+    visibleNames === undefined || visibleNames.some((visible) => visible.toLowerCase() === name.toLowerCase())));
 }
 
 /**

@@ -264,6 +264,12 @@ function identityWords(text: string): string[] {
   return [...new Set(words)].filter((word) => !GENERIC_APPEARANCE.test(word));
 }
 
+function sentencesNaming(body: string, name: string): string {
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return body.split(/(?<=[.!?])\s+/).filter((sentence) =>
+    new RegExp(`\\b${escaped}\\b`, "i").test(sentence)).join(" ");
+}
+
 /**
  * Whether a prompt body already carries a character's appearance.
  *
@@ -295,7 +301,7 @@ export function describedInline(body: string, character: Character, castSize = 1
   const appearance = appearanceFor(character, true, true);
   const words = identityWords(compactForRender(appearance, appearanceBudgetFor(castSize)));
   if (words.length < 3) return false;
-  const lower = body.toLocaleLowerCase();
+  const lower = sentencesNaming(body, character.name).toLocaleLowerCase();
   const hits = words.filter((word) => lower.includes(word)).length;
   return hits >= 2 && hits / words.length >= 0.25;
 }
@@ -332,7 +338,7 @@ export function castPromptSuffix(
   body?: string,
 ): string {
   const missing = body ? cast.filter((c) => !describedInline(body, c, cast.length)) : cast;
-  const wardrobe = body ? bareWhereBodySaysSo(body, cast, cast.length, wardrobeAt) : wardrobeAt;
+  const wardrobe = wardrobeAt;
   const sheet = castSheet(missing, true, wardrobe, options);
   return `${sheet ? ` Character continuity — ${sheet}` : ""}${unstatedWardrobe(body, cast, missing, wardrobe)}`;
 }
@@ -357,7 +363,7 @@ function unstatedWardrobe(
     .filter((c) => !missing.includes(c))
     .flatMap((c) => {
       const outfit = (wardrobeAt?.[c.id] ?? c.wardrobe)?.trim().replace(/\s+/g, " ");
-      if (!outfit || wardrobeStated(body, outfit)) return [];
+      if (!outfit || wardrobeStated(sentencesNaming(body, c.name), outfit)) return [];
       return [
         NUDE.test(outfit)
           ? `${c.name} is completely naked with no clothing.`
@@ -365,43 +371,6 @@ function unstatedWardrobe(
       ];
     });
   return sentences.length ? ` Wardrobe continuity — ${sentences.join(" ")}` : "";
-}
-
-const BODY_SAYS_BARE = /\b(?:nude|naked|topless)\b/i;
-
-/**
- * The wardrobe the sheet should state, once the prompt's own words are heard.
- *
- * The sheet is appended last and is the strongest instruction in the prompt, so
- * where the timeline still says "dressed in black lace" and the prompt body says
- * "fully naked", the render follows the sheet. The timeline is the source of
- * truth and is fixed upstream; this is the backstop for when it is wrong,
- * making the one sentence that would contradict the body agree with it.
- *
- * With several people in frame the nudity has to be said in a sentence that
- * names the person, or it could belong to anyone.
- */
-function bareWhereBodySaysSo(
-  body: string,
-  cast: readonly Character[],
-  frameSize: number,
-  wardrobeAt: Record<string, string> | undefined,
-): Record<string, string> | undefined {
-  const overrides: Record<string, string> = {};
-  for (const c of cast) {
-    const wardrobe = (wardrobeAt?.[c.id] ?? c.wardrobe)?.trim();
-    if (!wardrobe || NUDE.test(wardrobe)) continue;
-    const name = c.name.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const relevant =
-      frameSize === 1
-        ? body
-        : body
-            .split(/(?<=[.!?])\s+/)
-            .filter((sentence) => name && new RegExp(`\\b${name}\\b`, "i").test(sentence))
-            .join(" ");
-    if (BODY_SAYS_BARE.test(relevant)) overrides[c.id] = "nude";
-  }
-  return Object.keys(overrides).length ? { ...wardrobeAt, ...overrides } : wardrobeAt;
 }
 
 /**

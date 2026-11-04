@@ -143,13 +143,13 @@ describe("the cast sheet and a prompt that says the character is naked", () => {
   const frame = { faceVisible: true, tightShot: false };
   const dressed = { "c-1": "matching black lace bra and panties" };
 
-  it("states her as naked rather than dressed when the prompt body says so", () => {
+  it("keeps the approved wardrobe rather than adopting the prompt's invented state", () => {
     const suffix = castPromptSuffix(
       [TLB], dressed, frame,
       "Medium wide shot. She is fully naked save for a single garter, gripping the pole.",
     );
-    expect(suffix).toContain("completely naked");
-    expect(suffix).not.toContain("black lace");
+    expect(suffix).not.toContain("completely naked");
+    expect(suffix).toContain("black lace");
   });
 
   it("leaves a dressed character dressed when the body does not say otherwise", () => {
@@ -157,15 +157,15 @@ describe("the cast sheet and a prompt that says the character is naked", () => {
     expect(suffix).toContain("black lace bra and panties");
   });
 
-  it("only undresses the person the nudity sentence names", () => {
+  it("does not override either person's approved wardrobe from generated prose", () => {
     const suffix = castPromptSuffix(
       [TLB, MAN],
       { "c-1": "black lace lingerie", "c-2": "a grey suit" },
       frame,
       "Wide shot. TLBr3f is naked beside the pole. Daniel stands at the bar.",
     );
-    expect(suffix).toContain("completely naked");
+    expect(suffix).not.toContain("completely naked");
     expect(suffix).toContain("grey suit");
-    expect(suffix).not.toContain("black lace lingerie");
+    expect(suffix).toContain("black lace lingerie");
   });
 });
