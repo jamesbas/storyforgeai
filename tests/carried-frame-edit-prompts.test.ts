@@ -17,6 +17,7 @@ import { simplifyPrompt } from "@/lib/agents/prompt-simplifier";
 import { repository } from "@/lib/db/store";
 import { seamBreak } from "@/lib/media/seam";
 import type { ArtifactExecution } from "@/lib/schemas/provenance";
+import { PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 
 const opening = "Medium shot, eye level, front. Mara sits at a wooden table in a quiet room, her right hand around a ceramic cup. Exactly one woman is in frame.";
 const closing = "Medium shot, eye level, front. Mara sits at a wooden table in a quiet room, the ceramic cup resting on the table beside her right hand. Exactly one woman is in frame.";
@@ -124,7 +125,7 @@ describe("authoring carried-frame edits", () => {
       });
       expect(call?.system).toContain("a self-contained image-edit instruction");
       expect(executions.find((execution) => execution.artifact === `${scene.id}.image_prompt`)).toMatchObject({
-        source: "llm", promptVersion: "image-prompt-v9", detail: "end_frame=carried_frame_edit",
+        source: "llm", promptVersion: PROMPT_VERSIONS.imagePrompt, detail: "end_frame=carried_frame_edit",
       });
     }
     const record = await generateStoryboard(p.id);

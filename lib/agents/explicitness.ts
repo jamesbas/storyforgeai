@@ -19,6 +19,11 @@ import type { SceneDraft } from "@/lib/schemas/storyboard";
 const EXPLICIT_AUDIENCE = /explicit/i;
 const EXPLICIT_TONE = /erotic|carnal|sexual/i;
 
+/** Whether the audience setting itself asks for explicit content. */
+export function isExplicitAudience(audience: string | undefined): boolean {
+  return EXPLICIT_AUDIENCE.test(audience ?? "");
+}
+
 /**
  * The words a description uses when it is actually describing the act.
  *
@@ -50,7 +55,7 @@ export function namesExplicitContent(text: string | undefined): boolean {
  */
 export function isExplicitProject(project: Project): boolean {
   return (
-    EXPLICIT_AUDIENCE.test(project.audience ?? "") ||
+    isExplicitAudience(project.audience) ||
     EXPLICIT_TONE.test(project.tone ?? "") ||
     namesExplicitContent(project.concept) ||
     namesExplicitContent(project.style)

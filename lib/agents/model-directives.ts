@@ -46,12 +46,30 @@ export function imagePromptDirective(family: ModelFamily): string {
         "Describe a material only when it distinguishes a subject or matters to the action."
       );
     case "krea":
+      // Krea 2's published prompting guide and expansion instructions: natural
+      // language describing a visible result, attributes bound to their
+      // subject, concrete light and materials, quoted lettering, essentials
+      // early, and none of the tag syntax other tools taught.
       return (
-        " This scene renders on Krea, which has no dependable negative prompt: state exclusions " +
-        "as the thing to render instead. Separate what is in the frame from how it looks — " +
-        "subject, action and composition first, then a single coherent visual language for " +
-        "palette, texture and finish. Do not stack competing style labels; one visual system " +
-        "described through its visible properties beats five names."
+        " This scene renders on Krea 2. Write each prompt as one natural-language paragraph " +
+        "describing the visible result — not a tag list, and never instructions to the model. " +
+        "After the framing, lead with the subject and what they are doing, then placement and " +
+        "spatial relationships, then the setting, then light, then materials and palette; keep " +
+        "anything essential early. Bind every attribute to the person or object it belongs to, " +
+        "so it is clear who wears which colour and who holds what. Describe light by its source, " +
+        "direction and visible effect — a window on the left casting soft highlights across one " +
+        "cheek — rather than a mood word, and name materials by how they look, such as brushed " +
+        "steel, rough linen or glazed ceramic. The project's look is placed beside the framing " +
+        "automatically: do not stack competing style labels. Put any lettering that must appear " +
+        "in double quotes exactly as it should read and name the surface carrying it, such as a " +
+        "sign or label; never invent visible text, logos or branding. Do not use quality tags " +
+        "such as masterpiece, best quality or 8K, weighting syntax such as (subject:1.3), " +
+        "aspect-ratio flags such as --ar, or <lora:…> tags; Krea reads them as words. Remove " +
+        "contradictions before answering: a tight close-up cannot also show a full body, and an " +
+        "overhead view cannot also be eye level. State exclusions as the thing to render " +
+        "instead — 'an empty, uninterrupted wall' rather than 'no clutter'. Keep the negative " +
+        "prompt to a few terms aimed at a failure this frame is genuinely at risk of, not a " +
+        "generic quality or anatomy list."
       );
     default:
       return "";

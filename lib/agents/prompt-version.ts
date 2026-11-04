@@ -16,7 +16,10 @@ export const PROMPT_VERSIONS = {
   // v2: each batch is handed the wardrobe as it stands after the changes
   // declared so far, and the undressing case is stated as a requirement.
   storyboard: "storyboard-v4",
-  imagePrompt: "image-prompt-v9",
+  // v10: Krea 2 is told its published prompting rules — natural-language
+  // paragraph, bound attributes, concrete light and materials, quoted lettering,
+  // no quality tags or weighting syntax, and a short task-specific negative.
+  imagePrompt: "image-prompt-v10",
   // v4: a scene continuing from the one before it is handed its actual opening
   // frame in the payload, not just told about it in the system prompt.
   videoPrompt: "video-prompt-v7",
@@ -30,5 +33,9 @@ export const PROMPT_VERSIONS = {
   conceptReader: "concept-reader-v1",
 } as const;
 
-/** Deterministic builders carry their own version, so a fallback is traceable too. */
-export const BUILDER_VERSION = "builders-v6";
+/**
+ * Deterministic builders carry their own version, so a fallback is traceable too.
+ * v7: on Krea the look follows the framing sentence and a non-explicit audience
+ * is left off.
+ */
+export const BUILDER_VERSION = "builders-v7";

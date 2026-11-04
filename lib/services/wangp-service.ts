@@ -162,7 +162,7 @@ function withTriggerWords(prompt: string, loras: readonly ResolvedLora[]): strin
  *
  * The model is only known here, after resolution: a pin can be missing from the
  * catalogue and fall through to the router, so the family a prompt was written
- * for is not necessarily the family that renders it. On FLUX and Krea the
+ * for is not necessarily the family that renders it. On FLUX and Krea 2 Turbo the
  * negative prompt is discarded by the model, so it is folded into the positive
  * prompt as the thing to render instead; everywhere else it is passed through,
  * normalised, because prompts written before this existed still carry prose
@@ -198,14 +198,15 @@ function routeNegative(
   const terms = negative?.trim() ? normaliseNegative(negative) : "";
   if (!terms) return { prompt, negativePrompt: negative };
 
-  if (negativePromptReaches(family, declaresNegative)) {
+  if (negativePromptReaches(family, declaresNegative, model.modelType)) {
     return { prompt, negativePrompt: terms };
   }
 
+  const foldOptions = { family, prompt };
   const clause = positiveConstraintClause(terms, statedHeadcount(
     isFiboFamily(family) ? fiboPromptText(prompt) : prompt,
-  ));
-  const dropped = unfoldableTerms(terms);
+  ), foldOptions);
+  const dropped = unfoldableTerms(terms, foldOptions);
   logEvent("wangp.negative.folded", {
     ...context,
     modelType: model.modelType,

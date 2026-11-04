@@ -293,7 +293,8 @@ export default function HelpPage() {
           <p className={p}>
             Who the piece is for. Shapes vocabulary, pacing and content limits in the creative brief
             and the story arc, and is appended to each render prompt as{" "}
-            <code>&quot;Intended audience: …&quot;</code>.
+            <code>&quot;Intended audience: …&quot;</code> — except on Krea 2 image prompts, where
+            only an explicit-content audience is stated, since nothing else is visible in a frame.
           </p>
           <p className={p}>
             StoryForgeAI applies no content filtering of its own — there is no moderation step, no

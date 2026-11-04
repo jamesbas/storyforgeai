@@ -39,11 +39,11 @@ recent updates are kept below — every release ever made is in
 
 | Version | Date | What changed |
 | --- | --- | --- |
+| **2.92** | 2026-11-04 | **Krea 2 image prompts follow Krea's own prompting guidance.** The image prompt writer is now told Krea 2's rules: one natural-language description of the visible result, attributes tied to the person or object they belong to, light described by source, direction and effect, quoted lettering on a named surface, no quality tags or weighting syntax, no contradictions, and a short task-specific negative. On Krea the project style now sits right after the framing instead of trailing the prompt, and a non-explicit audience line is left off because it is not something the model can draw. When exclusions are folded into a Turbo prompt, generic "sharp detail" filler is dropped, lettering is no longer spelled out as an absence, and nothing contradicts lettering the prompt quotes. Krea 2 RAW and RAW Edit, which sample with guidance, now receive their negative prompt directly instead of having it folded. Other model families are unchanged. Restart and rewrite image prompts to pick up the new wording; folding and RAW routing apply on the next render. |
 | **2.91** | 2026-11-03 | **Prompt writing now follows frame-specific people and wardrobe, with visible semantic warnings.** Opening and closing visibility can be edited separately on the scene card, including non-library people; the same selection drives continuity text, character photos and face swaps. Prompt writers receive current wardrobe and scene facts instead of future wardrobe narratives. Generated prose no longer overrides approved clothing, and uncertain framing is warned about rather than widened automatically. Completed image and video prompts are checked again after composition and render formatting; video checks include action and speaker attribution, and shortening protects essential action. Unresolved findings are saved and displayed while generation remains allowed. These checks are conservative text heuristics, not visual guarantees. Restart and rewrite affected image/video prompts; existing media is unchanged. |
 | **2.90** | 2026-11-03 | **Carried-frame edits now use Wan2GP's Control Image input when available.** Qwen receives the frame to edit as image_guide, with Whole Frame control, while only character photos are sent as people references in image_refs. The source is no longer mixed into the character-photo list. Individual renders, batches and previews share this mapping; models without a control input keep their ordered-reference contract. Stale mask and inpainting defaults cannot change a whole-frame keyframe request. Verified through Wan2GP's CPU-only validator, without inference. Restart StoryForge and regenerate affected images; no prompt rewrite is needed. |
 | **2.89** | 2026-11-01 | **Qwen Image 2.1 finds its LoRAs and uses explicit generation settings.** Its LoRA picker and generation now resolve the qwen21 folder instead of looking for a model or family folder that does not exist. Standard Qwen Image 2.1 keyframes and previews explicitly use INT8 KV Cache, Guidance (CFG) 5, and FlowMatch Euler; unsupported settings fail before submission rather than being ignored. Other custom settings, including RGBA, are preserved. Qwen 2.1 Turbo, older Qwen models and face-swap settings are unchanged. Restart StoryForge and refresh the LoRA picker; no prompt rewrite is needed. |
 | **2.88** | 2026-11-01 | **Keyframes use the character photos their image model can handle.** StoryForge now checks the resolved model's advertised reference support and numeric limits before submission, keeping a carried frame first and filling remaining slots with saved photos of the selected character. When Wan2GP publishes no numeric maximum, known limits apply: Qwen Image 2.1 supports the tested carried-frame-plus-four-photo combination; Krea 2 stays at two total images. Extra photos are identified as the same person, and counts are logged. Individual renders, batches and previews share this behavior; video and face-swap settings are unchanged. Applies on the next image generation after restarting, without a prompt rewrite. |
-| **2.87** | 2026-11-01 | **Edit prompts no longer disappear when scene-card framing changes.** Show it the carried frame now uses the previous accepted closing-frame prompt as the next opening, preserving it through model retries, repairs and formatting. Eligible closing frames receive edit prompts even when their cards describe different shots; new framing belongs in the closing frame, not a reset opening. Explicit cuts, reference opt-outs, missing source images and the no-clip arrival safeguard still use creation fallbacks. Existing storyboards need Rewrite all image prompts after restarting; saved media is unchanged. |
 
 ---
 
@@ -552,6 +552,11 @@ neutral one.
   thing to render instead, with one short lighting clause.
 - **Qwen** is literal about structure: lettering is quoted exactly, and material
   detail is used only when it matters to the scene.
+- **Krea 2** is written as one natural-language description of the visible result:
+  attributes tied to their subject, light by source and direction, quoted lettering,
+  and no quality tags or weighting syntax. The project style follows the framing.
+  Turbo ignores negative prompts, so its exclusions are folded in as the thing to
+  render instead; RAW and RAW Edit sample with guidance and receive theirs directly.
 - **Wan** asks for motion and camera and little else, so its clip prompts are short.
 - **LTX** wants one flowing present-tense paragraph, and writes its own soundtrack
   from that prompt, so ambience and dialogue belong in it.
@@ -1308,8 +1313,8 @@ Two additional tools sit beside those batch controls:
   people, positions and actions, states critical constraints once and positively,
   removes repeated continuity, wardrobe, lighting, mood and lens detail, and
   preserves video direction, start/end states and dialogue. It does not invent
-  characters, actions or camera moves. This is especially useful for Krea 2,
-  which has no negative prompt input.
+  characters, actions or camera moves. This is especially useful for Krea 2 Turbo,
+  which ignores negative prompts.
 
 Simplification requires AI planning to be enabled and a configured LLM connection.
 It shows each original beside its proposed replacement and word counts; nothing is

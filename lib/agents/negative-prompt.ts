@@ -1,3 +1,5 @@
+import type { ModelFamily } from "@/lib/wangp/family";
+
 /**
  * Negative prompts are a weighted term list, not a sentence.
  *
@@ -320,6 +322,37 @@ const POSITIVE_ALTERNATIVES: ReadonlyArray<readonly [RegExp, string]> = [
 
 const COUNT_WORDS = ["", "one", "two", "three", "four", "five"] as const;
 
+/** Who the fold is for, so a family's own guidance can shape it. */
+export type FoldOptions = {
+  family?: ModelFamily;
+  /** The positive prompt the clause will be appended to. */
+  prompt?: string;
+};
+
+const UNMARKED = "clean unmarked surfaces";
+const NO_LETTERING = "no signs, labels or lettering anywhere";
+/** Alternatives that only restate "high quality" and constrain nothing visible. */
+const QUALITY_ONLY = new Set(["sharp, cleanly resolved detail", "crisp subject detail"]);
+const QUOTED_LETTERING = /["“][^"”]+["”]/;
+
+/**
+ * The alternative a term folds to, or null where there is none to render.
+ *
+ * Krea 2's guidance is to drop redundant quality adjectives and remove
+ * contradictions, and the generic fold did neither: it appended "sharp, cleanly
+ * resolved detail" to every frame, spelled lettering out as "no signs, labels or
+ * lettering" — the negation this module documents a model drawing — and asked
+ * for unmarked surfaces in a frame whose prompt quotes the words on a sign.
+ */
+function alternativeFor(term: string, options: FoldOptions): string | null {
+  const rendered = POSITIVE_ALTERNATIVES.find(([pattern]) => pattern.test(term))?.[1] ?? null;
+  if (!rendered || options.family !== "krea") return rendered;
+  if (QUALITY_ONLY.has(rendered)) return null;
+  const lettering = rendered === NO_LETTERING || rendered === UNMARKED;
+  if (lettering && QUOTED_LETTERING.test(options.prompt ?? "")) return null;
+  return rendered === NO_LETTERING ? UNMARKED : rendered;
+}
+
 function countWord(count: number): string {
   return COUNT_WORDS[count] ?? String(count);
 }
@@ -365,7 +398,11 @@ function countWord(count: number): string {
  * Returns an empty string when there is nothing to say, so callers can append
  * it unconditionally.
  */
-export function positiveConstraintClause(raw: string, headcount: number | null = null): string {
+export function positiveConstraintClause(
+  raw: string,
+  headcount: number | null = null,
+  options: FoldOptions = {},
+): string {
   const crowded = headcount !== null && headcount >= 2;
   const alternatives: string[] = [];
   const seen = new Set<string>();
@@ -374,8 +411,7 @@ export function positiveConstraintClause(raw: string, headcount: number | null =
   for (const term of negativeTerms(raw)) {
     const lower = term.toLocaleLowerCase();
     const guard = MULTI_SUBJECT_SET.has(lower);
-    const match = POSITIVE_ALTERNATIVES.find(([pattern]) => pattern.test(lower));
-    const rendered = match?.[1] ?? null;
+    const rendered = alternativeFor(lower, options);
     if (rendered === SINGLE_SUBJECT && headcount === null) continue;
     if (rendered === SINGLE_SUBJECT && crowded) {
       guarded = true;
@@ -401,11 +437,11 @@ export function positiveConstraintClause(raw: string, headcount: number | null =
  * Exclusions a folded prompt has to drop, because there is nothing to render
  * instead and naming them would summon them.
  */
-export function unfoldableTerms(raw: string): string[] {
+export function unfoldableTerms(raw: string, options: FoldOptions = {}): string[] {
   return negativeTerms(raw).filter((term) => {
     const lower = term.toLocaleLowerCase();
     if (MULTI_SUBJECT_SET.has(lower)) return false;
-    return !POSITIVE_ALTERNATIVES.some(([pattern]) => pattern.test(lower));
+    return alternativeFor(lower, options) === null;
   });
 }
 

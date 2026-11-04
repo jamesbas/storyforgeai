@@ -9,7 +9,7 @@ import type { SheetOptions } from "@/lib/agents/cast";
 import type { SceneWardrobe } from "@/lib/schemas/wardrobe";
 import { isContinuousTake } from "@/lib/agents/continuity";
 import { isExplicitProject, isExplicitScene } from "@/lib/agents/explicitness";
-import { lookPromptSuffix } from "@/lib/agents/look";
+import { lookPromptSuffix, placeLook } from "@/lib/agents/look";
 import { normaliseNegative } from "@/lib/agents/negative-prompt";
 import {
   sceneCreativeSlice,
@@ -344,13 +344,11 @@ export function buildImagePrompts(
 
   return {
     startFramePrompt:
-      startBody +
-      lookPromptSuffix(project, startBody) +
+      placeLook(startBody, lookPromptSuffix(project, startBody, family), family) +
       castPromptSuffix(frameCast(visibility, "start", startBody, cast), wardrobe?.start, sheetOptions(scene, startBody), startBody) +
       othersWardrobeSuffix(wardrobe?.othersStart ?? {}, startBody),
     endFramePrompt:
-      endBody +
-      lookPromptSuffix(project, endBody) +
+      placeLook(endBody, lookPromptSuffix(project, endBody, family), family) +
       castPromptSuffix(frameCast(visibility, "end", endBody, cast), wardrobe?.end, sheetOptions(scene, endBody), endBody) +
       othersWardrobeSuffix(wardrobe?.othersEnd ?? {}, endBody),
     imageNegativePrompt: normaliseNegative(

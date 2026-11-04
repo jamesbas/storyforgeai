@@ -107,7 +107,8 @@ export function isFiboFamily(family: ModelFamily): boolean {
  * free. `scripts/krea-negative-ab.ts` rendered a ripe tomato twice through
  * `krea2_turbo_edit` at a fixed seed, once with `negative_prompt: "red"` and
  * once without; the tomato is red in both and the two frames are otherwise
- * indistinguishable. The checkpoint declares the field and discards it.
+ * indistinguishable. The checkpoint declares the field and discards it. That
+ * holds for Turbo; RAW is the exception, handled in `negativePromptReaches`.
  *
  * MiniMax H3 is here on direct evidence rather than documentation: a live WanGP
  * schema dump of `minimax_h3_fl2va` declares no `negative_prompt` field, so
@@ -133,7 +134,20 @@ export function supportsNegativePrompt(family: ModelFamily): boolean {
  * `declared` is undefined wherever the schema has not been read, which keeps
  * the family's answer. A schema can only ever take the negative away, never
  * grant it: FLUX declares the field and still ignores it.
+ *
+ * `modelType` matters for one family. Krea 2's RAW checkpoints sample with
+ * ordinary guidance (WanGP's presets: 3.5 for RAW, 2 for RAW Edit), and WanGP's
+ * pipeline applies negative conditioning whenever guidance is active. Turbo
+ * forces guidance off and reaches the negative only through NAG above its
+ * neutral 1.0, which is where the A/B in `scripts/krea-negative-ab.ts` measured
+ * it being discarded — so Turbo still folds and RAW now passes through.
  */
-export function negativePromptReaches(family: ModelFamily, declared?: boolean): boolean {
-  return supportsNegativePrompt(family) && declared !== false;
+export function negativePromptReaches(family: ModelFamily, declared?: boolean, modelType?: string): boolean {
+  if (declared === false) return false;
+  return supportsNegativePrompt(family) || (family === "krea" && isKreaGuided(modelType));
+}
+
+/** A Krea 2 RAW checkpoint, which samples with guidance rather than distilled. */
+export function isKreaGuided(modelType: string | undefined): boolean {
+  return /(?:^|_)raw(?:_|$)/i.test(modelType ?? "");
 }

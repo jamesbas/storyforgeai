@@ -33,7 +33,7 @@ import {
   castSystemDirective,
 } from "@/lib/agents/cast";
 import { referencesCarriedFrame, seamDirective } from "@/lib/agents/continuity";
-import { lookPromptSuffix } from "@/lib/agents/look";
+import { lookPromptSuffix, placeLook } from "@/lib/agents/look";
 import { normaliseNegative } from "@/lib/agents/negative-prompt";
 import {
   hasNativeAudio,
@@ -607,7 +607,7 @@ export async function attachScenePrompts(
       const finaliseImagePart = (part: ImagePart): ImagePart => {
         const final = withCastEnforced(
           normaliseImageResult(part, project, draft, plans, wardrobe, imageFamily),
-          sceneCast, plans, project, wardrobe, draft, sceneSetting,
+          sceneCast, plans, project, wardrobe, draft, imageFamily, sceneSetting,
         );
         return inheritedStartFramePrompt === undefined
           ? final
@@ -1336,6 +1336,7 @@ function withCastEnforced(
   project: Project,
   wardrobe: SceneWardrobe | undefined,
   draft: SceneDraft,
+  family: ModelFamily,
   setting?: string,
 ): ImagePart {
   const negative = castNegativeSuffix(cast, part.imageNegativePrompt);
@@ -1352,10 +1353,20 @@ function withCastEnforced(
     return names === undefined ? othersInFrame(framePromptBody(prompt), outfits ?? {}) :
       Object.fromEntries(Object.entries(outfits ?? {}).filter(([name]) => names.includes(name)));
   };
+  const enforced = (frame: "start" | "end", prompt: string) => {
+    const located = placeLook(
+      `${prompt}${settingSuffix(prompt, setting)}`,
+      lookPromptSuffix(project, prompt, family),
+      family,
+    );
+    const worn = frame === "start" ? wardrobe?.start : wardrobe?.end;
+    return `${located}${castPromptSuffix(selected(frame, prompt), worn, sheetFor(prompt), prompt)}` +
+      othersWardrobeSuffix(otherOutfits(frame, prompt), prompt);
+  };
   return {
     ...part,
-    startFramePrompt: `${part.startFramePrompt}${settingSuffix(part.startFramePrompt, setting)}${lookPromptSuffix(project, part.startFramePrompt)}${castPromptSuffix(selected("start", part.startFramePrompt), wardrobe?.start, sheetFor(part.startFramePrompt), part.startFramePrompt)}${othersWardrobeSuffix(otherOutfits("start", part.startFramePrompt), part.startFramePrompt)}`,
-    endFramePrompt: `${part.endFramePrompt}${settingSuffix(part.endFramePrompt, setting)}${lookPromptSuffix(project, part.endFramePrompt)}${castPromptSuffix(selected("end", part.endFramePrompt), wardrobe?.end, sheetFor(part.endFramePrompt), part.endFramePrompt)}${othersWardrobeSuffix(otherOutfits("end", part.endFramePrompt), part.endFramePrompt)}`,
+    startFramePrompt: enforced("start", part.startFramePrompt),
+    endFramePrompt: enforced("end", part.endFramePrompt),
     imageNegativePrompt: normaliseNegative(`${part.imageNegativePrompt}${negative}`),
   };
 }
