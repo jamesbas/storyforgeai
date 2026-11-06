@@ -1,5 +1,5 @@
 import { referenceImagesOf } from "@/lib/schemas/character";
-import { positiveGarments } from "@/lib/agents/wardrobe";
+import { nudeWithDetail, positiveGarments, wardrobeSentence } from "@/lib/agents/wardrobe";
 import type { Character } from "@/lib/schemas/character";
 
 /**
@@ -52,7 +52,9 @@ function stripLeadingName(description: string, name: string): string {
 const NUDE = /^(?:fully\s+|completely\s+|entirely\s+)?(?:nude|naked|undressed|bare|nothing|none|no\s+clothes|no\s+clothing)\.?$/i;
 
 function wardrobeClause(wardrobe: string): string {
-  return NUDE.test(wardrobe) ? "Fully nude, wearing nothing." : `Wearing exactly: ${wardrobe}.`;
+  if (NUDE.test(wardrobe)) return "Fully nude, wearing nothing.";
+  const detail = nudeWithDetail(wardrobe);
+  return detail ? `Nude; ${positiveGarments(detail)}.` : `Wearing exactly: ${wardrobe}.`;
 }
 
 /**
@@ -113,8 +115,10 @@ function boundAppearance(appearance: string, wardrobe: string | undefined): stri
   // "dressed in" rather than "wearing": a description trimmed to a sentence
   // boundary often already ends on one of the character's own garments, and
   // "she wears small gold hoop earrings, wearing a bra" reads as two outfits.
-  return NUDE.test(wardrobe)
-    ? `${body}, completely naked with no clothing.`
+  if (NUDE.test(wardrobe)) return `${body}, completely naked with no clothing.`;
+  const detail = nudeWithDetail(wardrobe);
+  return detail
+    ? `${body}, nude; ${positiveGarments(detail)}.`
     : `${body}, dressed in ${positiveGarments(wardrobe)}.`;
 }
 
@@ -309,15 +313,30 @@ export function describedInline(body: string, character: Character, castSize = 1
 /** Words that name a garment's role rather than the garment. */
 const WARDROBE_FILLER = new Set(["and", "with", "the", "her", "his", "matching", "plus", "except", "for", "wearing"]);
 
-/** Whether a prompt body already says what somebody is wearing, or that they are bare. */
-function wardrobeStated(body: string, wardrobe: string): boolean {
-  if (NUDE.test(wardrobe)) return /\b(?:nude|naked|topless|bare)\b/i.test(body);
+/** Share of a wardrobe's distinctive words that appear in `text`. */
+function wardrobeCoverage(text: string, wardrobe: string): number {
   const words = [...new Set(wardrobe.toLocaleLowerCase().match(/[a-z]{3,}/g) ?? [])].filter(
     (word) => !WARDROBE_FILLER.has(word),
   );
-  if (!words.length) return true;
-  const lower = body.toLocaleLowerCase();
-  return words.filter((word) => lower.includes(word)).length / words.length >= 0.5;
+  if (!words.length) return 1;
+  const lower = text.toLocaleLowerCase();
+  return words.filter((word) => lower.includes(word)).length / words.length;
+}
+
+/**
+ * Whether a prompt body already says what somebody is wearing, or that they are bare.
+ *
+ * `named` is the sentences naming the person; `body` is the whole prompt. A
+ * nude state's detail — clothes pooled on the floor, a towel — is usually its
+ * own sentence that does not repeat her name, so it is looked for anywhere.
+ */
+function wardrobeStated(named: string, wardrobe: string, body = named): boolean {
+  if (NUDE.test(wardrobe)) return /\b(?:nude|naked|topless|bare)\b/i.test(named);
+  const detail = nudeWithDetail(wardrobe);
+  if (detail) {
+    return /\b(?:nude|naked|topless|bare)\b/i.test(named) && wardrobeCoverage(body, detail) >= 0.5;
+  }
+  return wardrobeCoverage(named, wardrobe) >= 0.5;
 }
 
 /**
@@ -363,12 +382,8 @@ function unstatedWardrobe(
     .filter((c) => !missing.includes(c))
     .flatMap((c) => {
       const outfit = (wardrobeAt?.[c.id] ?? c.wardrobe)?.trim().replace(/\s+/g, " ");
-      if (!outfit || wardrobeStated(sentencesNaming(body, c.name), outfit)) return [];
-      return [
-        NUDE.test(outfit)
-          ? `${c.name} is completely naked with no clothing.`
-          : `${c.name} is dressed in ${positiveGarments(outfit)}.`,
-      ];
+      if (!outfit || wardrobeStated(sentencesNaming(body, c.name), outfit, body)) return [];
+      return [wardrobeSentence(c.name, outfit)];
     });
   return sentences.length ? ` Wardrobe continuity — ${sentences.join(" ")}` : "";
 }

@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { isUndressed, wardrobeContradictions } from "@/lib/agents/wardrobe";
+import { isNudeState, isUndressed, nudeWithDetail, wardrobeContradictions, wardrobeSentence } from "@/lib/agents/wardrobe";
+import { castPromptSuffix } from "@/lib/agents/cast";
+import { inventedGarments, wardrobeConflicts } from "@/lib/agents/prompt-gate";
 import type { Project } from "@/lib/schemas/project";
 import type { Character } from "@/lib/schemas/character";
 
@@ -120,5 +122,63 @@ describe("recognising an undressed wardrobe", () => {
   it("does not treat a partial state as nudity", () => {
     expect(isUndressed("black silk robe, open")).toBe(false);
     expect(isUndressed("topless in jeans")).toBe(false);
+  });
+});
+
+/**
+ * A model writing the wardrobe timeline says where the clothes went: "nude,
+ * black lace bra and panties pooled on marble tile behind her". Only a bare
+ * "nude" was recognised, so this read as an outfit and every render was told
+ * she "is dressed in nude, black lace bra and panties…".
+ */
+describe("a nude state with detail after it", () => {
+  const POOLED = "nude, black lace bra and panties pooled on marble tile behind her";
+  const TOWEL = "nude, white towel wrapped around shoulders and arms across her chest";
+  const SARA: Character = { ...MARA, id: "char-sara", name: "Sara" };
+
+  it("is read as nude, with the detail kept", () => {
+    expect(nudeWithDetail(POOLED)).toBe("black lace bra and panties pooled on marble tile behind her");
+    expect(isNudeState(TOWEL)).toBe(true);
+    expect(nudeWithDetail("nude")).toBeUndefined();
+    expect(isNudeState("nude slip dress, gold heels")).toBe(false);
+    expect(isNudeState("black silk robe, open")).toBe(false);
+  });
+
+  it("is never phrased as something she is dressed in", () => {
+    expect(wardrobeSentence("Sara", POOLED)).toBe(
+      "Sara is nude; black lace bra and panties pooled on marble tile behind her.",
+    );
+    expect(wardrobeSentence("Sara", "nude")).toBe("Sara is completely naked with no clothing.");
+    expect(wardrobeSentence("Sara", "white polo shirt")).toBe("Sara is dressed in white polo shirt.");
+
+    const body = "Medium shot, eye level. Sara, a woman in her fifties, stands in the shower.";
+    const suffix = castPromptSuffix([SARA], { "char-sara": TOWEL }, {}, body);
+    expect(suffix).not.toMatch(/dressed in/i);
+    expect(suffix).toContain("nude; white towel wrapped around shoulders");
+  });
+
+  it("is not appended again when the prompt already says it", () => {
+    const body =
+      "Medium shot, eye level. Sara, a woman in her fifties, stands nude by the shower. " +
+      "Her black lace bra and panties are pooled on marble tile behind her.";
+    expect(castPromptSuffix([SARA], { "char-sara": POOLED }, {}, body)).not.toContain("Wardrobe continuity");
+  });
+
+  it("is not flagged as a wardrobe conflict once phrased that way", () => {
+    const prompt = `Close-up, eye level. Sara stands nude in the shower. Wardrobe continuity — ${wardrobeSentence("Sara", POOLED)}`;
+    expect(wardrobeConflicts(prompt, { Sara: POOLED })).toEqual([]);
+  });
+});
+
+/** Clothes lying on the floor are props in the frame, not an outfit somebody wears. */
+describe("garments that are off the body", () => {
+  it("are not counted as invented clothing", () => {
+    const prompt = "Sara stands nude under the water. Her black lace bra and panties are pooled on the tile behind her.";
+    expect(inventedGarments(prompt, "nude")).toEqual([]);
+  });
+
+  it("still count when the same clause says they are worn", () => {
+    expect(inventedGarments("Sara is wearing a bra, her robe dropped on the floor.", "nude")).toContain("bra");
+    expect(inventedGarments("Sara stands in a white shirt.", "nude")).toContain("shirt");
   });
 });

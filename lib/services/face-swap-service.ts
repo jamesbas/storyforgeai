@@ -19,7 +19,7 @@ import {
   referenceImagesOf,
   wantsFaceSwap,
 } from "@/lib/schemas/character";
-import { isUndressed, positiveGarments } from "@/lib/agents/wardrobe";
+import { isUndressed, nudeWithDetail, positiveGarments } from "@/lib/agents/wardrobe";
 import { resolveReferenceImagePath } from "@/lib/db/character-store";
 import type { Character } from "@/lib/schemas/character";
 
@@ -65,7 +65,9 @@ export type FramePerson = { wardrobe?: string; description?: string };
 function wardrobePhrase(wardrobe: string | undefined): string | undefined {
   const text = wardrobe?.trim();
   if (!text) return undefined;
-  return isUndressed(text) ? "completely naked" : `dressed in ${positiveGarments(text)}`;
+  if (isUndressed(text)) return "completely naked";
+  const detail = nudeWithDetail(text);
+  return detail ? `nude, with ${positiveGarments(detail)}` : `dressed in ${positiveGarments(text)}`;
 }
 
 /** Words that sit in front of "hair" without describing it. */

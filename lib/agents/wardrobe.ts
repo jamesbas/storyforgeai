@@ -43,7 +43,7 @@ export function outfitsFromBible(
     if (OUTFIT_CHANGES.test(openingDescription)) continue;
     const worn = /\b(?:wears?|wearing|dressed in|clad in)\s+([^.;]+)/i.exec(openingDescription);
     const outfit = worn?.[1]?.trim().replace(/[,\s]+$/, "");
-    if (!outfit || isUndressed(outfit) || !GARMENT_WORD.test(outfit)) continue;
+    if (!outfit || isNudeState(outfit) || !GARMENT_WORD.test(outfit)) continue;
     // "Dressed in a gold chain" is nudity with jewellery, and "no shirt" is
     // an absence a text encoder reads as a shirt.
     if (/\b(?:bare|shirtless|topless|nothing)\b|\bno\s+(?:shirt|top|pants|trousers|clothes)\b/i.test(outfit)) {
@@ -132,7 +132,7 @@ export function wardrobeTimeline(
     // A card that says somebody is bare outranks the standing outfit, and the
     // state carries forward like any other change.
     for (const key of Object.keys(others)) {
-      if (!isUndressed(others[key]!) && cardUndresses(scene, key)) others[key] = "nude";
+      if (!isNudeState(others[key]!) && cardUndresses(scene, key)) others[key] = "nude";
     }
     const changes = (project.wardrobeChanges?.[scene.id] ?? []).filter(
       (c) => !c.characterId || byId.has(c.characterId),
@@ -245,12 +245,7 @@ export function othersWardrobeSuffix(others: Record<string, string>, body = ""):
   });
   if (entries.length === 0) return "";
   const sheet = entries
-    .map(([subject, outfit]) => {
-      const garments = positiveGarments(outfit.trim());
-      return isUndressed(outfit)
-        ? `${subject} is completely naked with no clothing.`
-        : `${subject} is dressed in ${garments}.`;
-    })
+    .map(([subject, outfit]) => wardrobeSentence(subject, outfit.trim()))
     .join(" ");
   return ` Wardrobe continuity — ${sheet}`;
 }
@@ -330,7 +325,7 @@ export function wardrobeContradictions(
     const wardrobe = timeline.get(scene.id);
     const dressed = cast.filter((c) => {
       const outfit = wardrobe?.end[c.id];
-      return Boolean(outfit) && !isUndressed(outfit!);
+      return Boolean(outfit) && !isNudeState(outfit!);
     });
     if (dressed.length === 0) return [];
 
@@ -411,7 +406,7 @@ export function inferUndressChanges(
     if (present.length !== 1) continue;
     const character = present[0]!;
     const outfit = wardrobeTimeline(working, scenes, cast).get(scene.id)?.start[character.id];
-    if (!outfit || isUndressed(outfit)) continue;
+    if (!outfit || isNudeState(outfit)) continue;
 
     working = {
       ...working,
@@ -431,6 +426,36 @@ export function isUndressed(wardrobe: string): boolean {
   return /^(?:fully\s+|completely\s+|entirely\s+)?(?:nude|naked|undressed|bare|nothing|none|no\s+clothes|no\s+clothing)\.?$/i.test(
     wardrobe.trim(),
   );
+}
+
+/**
+ * The detail after a nude state — "nude, white towel wrapped around her
+ * shoulders", "nude, black lace bra and panties pooled on the tile behind her".
+ *
+ * A model writing the wardrobe timeline states where the clothes went and what
+ * still covers her, and only a bare "nude" was recognised. Everything else read
+ * as an outfit, so the render was told she "is dressed in nude, black lace bra
+ * and panties pooled on marble tile" — an instruction to put them back on —
+ * and the prompt check flagged StoryForge's own sentence on every later scene.
+ */
+export function nudeWithDetail(wardrobe: string): string | undefined {
+  const found = wardrobe.trim().match(
+    /^(?:fully\s+|completely\s+|entirely\s+)?(?:nude|naked|undressed)\s*[,;:\u2014\u2013-]\s*(.+?)\.?$/i,
+  );
+  return found?.[1]?.trim() || undefined;
+}
+
+/** Undressed, with or without detail about what lies around or covers her. */
+export function isNudeState(wardrobe: string): boolean {
+  return isUndressed(wardrobe) || nudeWithDetail(wardrobe) !== undefined;
+}
+
+/** One render-prompt sentence binding a person to their wardrobe state. */
+export function wardrobeSentence(subject: string, wardrobe: string): string {
+  if (isUndressed(wardrobe)) return `${subject} is completely naked with no clothing.`;
+  const detail = nudeWithDetail(wardrobe);
+  if (detail) return `${subject} is nude; ${positiveGarments(detail)}.`;
+  return `${subject} is dressed in ${positiveGarments(wardrobe)}.`;
 }
 
 /** The project's wardrobe for a character, falling back to the library default. */

@@ -350,6 +350,19 @@ export function statedClothing(scene: SceneDraft): string {
 }
 
 /**
+ * A garment that is off the body — pooled on the tile, dropped at her feet,
+ * folded on a chair. Those are props in the frame, not an outfit, and treating
+ * them as worn flagged every scene after an undressing that kept the
+ * discarded lingerie in shot.
+ *
+ * Read right next to the garment, and never across a pronoun: "she lies on the
+ * bed" describes a person, "her bra and panties are pooled on the tile" does not.
+ */
+const DISCARDED_AFTER =
+  /^(?:(?!\b(?:she|he|they|her|his|their|him|them|wears?|wearing)\b)[^.;,]){0,30}?\b(?:pool(?:s|ed|ing)?|discarded|dropped|heaped|crumpled|tossed|kicked (?:aside|away|off)|folded|abandoned|cast aside|(?:is|are|lies|lie|lying|lay|left|sits?|rests?|resting) (?:on|across|over) (?:the|a) (?:floor|tiles?|ground|bath ?mat|counter|chair|hook|rail)|on the (?:floor|tiles?|ground)|at (?:her|his|their) feet)\b/i;
+const DISCARDED_BEFORE = /\b(?:discarded|crumpled|folded|abandoned|dropped|tossed|pooled|shed)\s+(?:[\w-]+\s+){0,3}$/i;
+
+/**
  * Garments the prompt puts on somebody that this scene's wardrobe never did.
  *
  * Exported because the repair is not to argue with the sentence but to put the
@@ -358,7 +371,14 @@ export function statedClothing(scene: SceneDraft): string {
  */
 export function inventedGarments(prompt: string, established: string | undefined): string[] {
   const chosen = (established ?? "").toLowerCase();
-  const found = prompt.toLowerCase().match(new RegExp(GARMENTS.source, "gi")) ?? [];
+  const text = prompt.toLowerCase();
+  const found = [...text.matchAll(new RegExp(GARMENTS.source, "gi"))]
+    .filter((match) => {
+      const at = match.index ?? 0;
+      const end = at + match[0].length;
+      return !DISCARDED_AFTER.test(text.slice(end)) && !DISCARDED_BEFORE.test(text.slice(Math.max(0, at - 60), at));
+    })
+    .map((match) => match[0]);
   return [...new Set(found)].filter((garment) => !chosen.includes(garment));
 }
 
