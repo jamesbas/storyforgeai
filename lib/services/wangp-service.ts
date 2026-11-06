@@ -411,6 +411,27 @@ function pickVideoModel(
 }
 
 /**
+ * Whether a keyframe can be rendered as an edit of a frame the scene did not
+ * inherit — its own opening — on the model the project would otherwise use.
+ *
+ * A carried frame may substitute a model that accepts no image; that trade is
+ * documented on the settings screen. An optional own-start edit may not: a pin
+ * such as Krea 2 Turbo that cannot take a source simply keeps its creation
+ * prompt, rather than being swapped for another model and losing its LoRAs.
+ */
+export async function imageModelEditsSourceFrames(
+  project: Pick<import("@/lib/schemas/project").Project, "imageModel" | "modelStrategy">,
+): Promise<boolean> {
+  const models = await getWangpClient().listModels("image");
+  const pinned = findPinned(models, project.imageModel || config.wangp.imageModel);
+  if (pinned) return supportsReferenceImages(pinned);
+  const chosen = selectImageModel(models, { modelStrategy: project.modelStrategy }, {
+    requireReferenceImages: true,
+  });
+  return chosen !== null && supportsReferenceImages(chosen);
+}
+
+/**
  * Which image model a job will actually run on, references included.
  *
  * A pinned model that cannot accept references would silently drop them:

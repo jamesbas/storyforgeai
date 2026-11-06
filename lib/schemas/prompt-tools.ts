@@ -3,7 +3,7 @@ import { z } from "zod";
 export const PROMPT_FIELD_LABELS = {
   startFramePrompt: "Start frame",
   endFramePrompt: "End frame",
-  endFrameEditPrompt: "End frame (carried-frame edit)",
+  endFrameEditPrompt: "End frame (edit of start frame)",
   videoPromptSegment: "Video",
 } as const;
 

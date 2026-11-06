@@ -4,6 +4,7 @@ import {
   normaliseImagePrompt,
   normaliseVideoPrompt,
   opensWithFraming,
+  withFramingFirst,
 } from "@/lib/agents/media-prompt-normalise";
 import type { MediaPromptSpec } from "@/lib/agents/media-prompt-spec";
 
@@ -33,6 +34,32 @@ describe("detecting a framing-first opening", () => {
   it("rejects framing buried past the opening", () => {
     const buried = `${"word ".repeat(40)}medium shot, eye level.`;
     expect(opensWithFraming(buried)).toBe(false);
+  });
+
+  /** Live prompts flagged as unframed while stating both, in these words. */
+  it("recognises camera heights written out longhand", () => {
+    expect(opensWithFraming("Medium close-up, low camera angle slightly below knee level, on her hands.")).toBe(true);
+    expect(opensWithFraming("Close-up, camera at chest height, on the collarbone.")).toBe(true);
+    expect(opensWithFraming("Wide shot, high camera angle over the bathroom.")).toBe(true);
+  });
+});
+
+describe("putting framing first without the composer", () => {
+  it("prepends framing to a prompt that led with the person", () => {
+    const result = withFramingFirst("Mara stands inside the shower. Water falls around her.", spec.framing);
+    expect(result.repaired).toBe(true);
+    expect(result.text).toBe("Close-up, low angle. Mara stands inside the shower. Water falls around her.");
+  });
+
+  it("keeps the size the model stated and moves it to the front once", () => {
+    const result = withFramingFirst("Mara, in a medium shot, stands inside the shower.", spec.framing);
+    expect(result.text.startsWith("Medium shot, low angle.")).toBe(true);
+    expect(result.text.match(/medium shot/gi)).toHaveLength(1);
+  });
+
+  it("leaves a framed prompt and an empty one alone", () => {
+    expect(withFramingFirst("Wide shot, eye level. Mara.", spec.framing).repaired).toBe(false);
+    expect(withFramingFirst("", spec.framing)).toEqual({ text: "", repaired: false });
   });
 });
 

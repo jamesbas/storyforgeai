@@ -113,6 +113,10 @@ function imageProvider(frames: () => string) {
         startFramePrompt: text,
         endFramePrompt: text,
         imageNegativePrompt: "blurry",
+        // A faithful agent answers the edit field whenever it is asked for one.
+        ...(system.includes("Also return endFrameEditPrompt")
+          ? { endFrameEditPrompt: `Edit the supplied reference frame: ${text}` }
+          : {}),
       } as unknown as T;
     },
   };

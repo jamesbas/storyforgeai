@@ -58,14 +58,14 @@ describe("prompt lint in the panel", () => {
     const edit = "Edit the supplied reference frame: seat the gear on the bench. Keep the apprentice's appearance unchanged.";
     render(<ScenePromptsPanel scene={scene({ endFrameEditPrompt: edit })} projectId="p1" />);
     open();
-    expect(screen.getByRole("textbox", { name: "End frame (carried-frame edit)" })).toHaveValue(edit);
+    expect(screen.getByRole("textbox", { name: "End frame (edit of start frame)" })).toHaveValue(edit);
     expect(screen.queryByText(/does not open with shot size/i)).toBeNull();
   });
 
   it("does not show an edit field on a creation-only scene", () => {
     render(<ScenePromptsPanel scene={scene()} projectId="p1" />);
     open();
-    expect(screen.queryByRole("textbox", { name: "End frame (carried-frame edit)" })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: "End frame (edit of start frame)" })).toBeNull();
   });
   it("says nothing about a clean set of prompts", () => {
     render(<ScenePromptsPanel scene={scene()} projectId="p1" />);

@@ -1,7 +1,7 @@
 import type { Project } from "@/lib/schemas/project";
 import type { SceneDraft } from "@/lib/schemas/storyboard";
 import type { SceneWardrobe } from "@/lib/schemas/wardrobe";
-import { shotSizeOf, type ShotSize } from "@/lib/media/seam";
+import { endShotSizeOf, shotSizeOf, type ShotSize } from "@/lib/media/seam";
 import { sceneCreativeSlice, type CreativePlans } from "@/lib/agents/creative-context";
 import type { MediaPromptSpec } from "@/lib/agents/media-prompt-spec";
 import { stillStates } from "@/lib/agents/still-frame";
@@ -31,11 +31,15 @@ export const SHOT_LABELS: Record<ShotSize, string> = {
 };
 
 const HEIGHT_PATTERNS: readonly (readonly [string, RegExp])[] = [
-  ["low angle", /\blow[-\s]angle\b|\bworm'?s[-\s]eye\b|\bfrom below\b/i],
-  ["high angle", /\bhigh[-\s]angle\b|\bbird'?s[-\s]eye\b|\bfrom above\b|\boverhead\b/i],
+  ["low angle", /\blow(?:[-\s]camera)?[-\s]angle\b|\bworm'?s[-\s]eye\b|\bfrom below\b/i],
+  ["high angle", /\bhigh(?:[-\s]camera)?[-\s]angle\b|\bbird'?s[-\s]eye\b|\bfrom above\b|\boverhead\b|\btop[-\s]down\b/i],
   ["dutch angle", /\bdutch\b|\bcanted\b/i],
   ["eye level", /\beye[-\s]level\b/i],
   ["shoulder height", /\bover[-\s]the[-\s]shoulder\b|\bOTS\b/i],
+  ["chest height", /\bchest[-\s](?:level|height)\b/i],
+  ["waist height", /\b(?:waist|hip)[-\s](?:level|height)\b/i],
+  ["knee height", /\bknee[-\s](?:level|height)\b/i],
+  ["ground level", /\b(?:ground|floor)[-\s](?:level|height)\b/i],
 ];
 
 const LENS_PATTERN = /\b(\d{2,3})\s?mm\b/i;
@@ -47,8 +51,10 @@ const FRAMING_PHRASES: readonly RegExp[] = [
   /\b(?:extreme|medium)\s+close[-\s]?ups?\b/gi,
   /\bclose[-\s]?ups?\b/gi,
   /\b(?:medium|full|cowboy|mid)\s+shots?\b/gi,
-  /\b(?:low|high|dutch|canted)[-\s]angle\b/gi,
+  /\b(?:low|high)(?:[-\s]camera)?[-\s]angle\b/gi,
+  /\b(?:dutch|canted)[-\s]angle\b/gi,
   /\beye[-\s]level\b/gi,
+  /\b(?:shoulder|chest|waist|hip|knee|ground|floor|head)[-\s](?:level|height)\b/gi,
   /\bfrom (?:above|below)\b/gi,
   /\b\d{2,3}\s?mm\b/gi,
 ];
@@ -115,6 +121,21 @@ export function deriveFraming(
     cameraHeight: cameraHeight ?? "eye level",
     ...(lens ? { lens } : {}),
   };
+}
+
+/**
+ * The same framing, at the size the shot plan says the segment ends on.
+ *
+ * `deriveFraming` reads the first size a plan names, which under
+ * "STARTS MCU → ENDS ECU" is the opening. A closing frame given that size
+ * would undo the camera move the plan asked for.
+ */
+export function deriveEndFraming(
+  framing: MediaPromptSpec["framing"],
+  shotPlan: string | undefined,
+): MediaPromptSpec["framing"] {
+  const end = endShotSizeOf(shotPlan);
+  return end ? { ...framing, shotSize: SHOT_LABELS[end] } : framing;
 }
 
 function stripTrailing(text: string | undefined): string {

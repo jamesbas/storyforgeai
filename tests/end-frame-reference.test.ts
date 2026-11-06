@@ -64,13 +64,16 @@ const sceneIdsOf = (record: ProjectRecord) => record.storyboard!.scenes.map((s) 
 const conditioned = () => client.calls.filter((call) => call.prompt.includes(REFERENCE_MARKER));
 
 describe("turning the end-frame reference off for one scene", () => {
-  it("conditions every inheriting scene by default", async () => {
+  it("conditions every scene by default, scene 1 on its own start frame", async () => {
     const record = await chained();
     await generateProjectMediaPhased(record.project.id, sceneIdsOf(record));
 
-    // Scene 1 renders its own start frame and is never shown it; the rest inherit.
-    expect(conditioned()).toHaveLength(sceneIdsOf(record).length - 1);
+    // Scene 1 edits its own opening; every later scene edits the frame it inherits.
+    expect(conditioned()).toHaveLength(sceneIdsOf(record).length);
     expect(conditioned().every((call) => call.refs.length === 1)).toBe(true);
+    const after = await getProjectRecord(record.project.id);
+    const first = after.attempts![sceneIdsOf(record)[0]!]![0]!;
+    expect(conditioned()[0]!.refs).toEqual([first.startImagePath]);
   });
 
   it("withholds the image and the instruction from the chosen scene only", async () => {
@@ -81,7 +84,7 @@ describe("turning the end-frame reference off for one scene", () => {
     client.calls.length = 0;
     await generateProjectMediaPhased(record.project.id, sceneIds);
 
-    expect(conditioned()).toHaveLength(sceneIds.length - 2);
+    expect(conditioned()).toHaveLength(sceneIds.length - 1);
     // The opted-out scene still renders — it just renders from the prompt alone.
     expect(client.calls.some((call) => call.refs.length === 0)).toBe(true);
     const after = await getProjectRecord(record.project.id);
@@ -159,6 +162,27 @@ describe("turning the end-frame reference off for one scene", () => {
     expect(keys).toHaveLength(1);
     expect(keys[0]).not.toBe(sceneId);
     expect(keys[0]).toBe(sceneIdsOf(copied)[1]);
+  });
+});
+
+/**
+ * A batch that begins partway through the storyboard used to start its chain
+ * empty, so its first scene rendered a fresh opening instead of continuing from
+ * the end frame the scene before it already has.
+ */
+describe("a batch that starts mid-project", () => {
+  it("continues from the predecessor's accepted end frame", async () => {
+    const record = await chained();
+    const sceneIds = sceneIdsOf(record);
+    await generateSceneMedia(record.project.id, sceneIds[0]!);
+    const first = (await getProjectRecord(record.project.id)).attempts![sceneIds[0]!]!.at(-1)!;
+
+    await generateProjectMediaPhased(record.project.id, sceneIds.slice(1));
+
+    const after = await getProjectRecord(record.project.id);
+    const second = after.attempts![sceneIds[1]!]!.at(-1)!;
+    expect(second.startImageInherited).toBe(true);
+    expect(second.startImagePath).toBe(first.endImagePath);
   });
 });
 

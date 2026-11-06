@@ -185,9 +185,16 @@ export function seamBreak(
   scene: SeamScene,
   options: { clipCarriesArrivals?: boolean } = {},
 ): SeamBreak | null {
+  // An opening copied verbatim from the previous closing prompt is that same
+  // frame, so its shot size cannot have changed. Falling back to the two scene
+  // cards here compared one scene's opening plan with the next one's and
+  // declared a cut that nothing planned — live, a closing prompt that forgot
+  // its shot size broke two continuous seams in a row.
+  const previousEnd = previous.prompts?.endFramePrompt?.trim();
+  const sameFrame = Boolean(previousEnd) && previousEnd === scene.prompts?.startFramePrompt?.trim();
   const from = shotSizeOf(previous.prompts?.endFramePrompt) ?? shotSizeOf(previous.visualDescription);
   const to = shotSizeOf(scene.prompts?.startFramePrompt) ?? shotSizeOf(scene.visualDescription);
-  if (from && to && from !== to) {
+  if (!sameFrame && from && to && from !== to) {
     return { reason: "shot_size_change", detail: `${label(from)} to ${label(to)}` };
   }
   if (scene.transitionIn && NEW_SHOT_TRANSITION.test(scene.transitionIn)) {
@@ -318,6 +325,16 @@ function heightOf(text: string): string | undefined {
   return text
     .match(/eye\s+level|overhead|high\s+angle|low\s+angle|\blow\b|\bhigh\b/i)?.[0]
     .toLowerCase();
+}
+
+/**
+ * Where a shot-plan entry leaves the camera. An explicit "ENDS <size>" wins over
+ * the last size named, which may be a word from the description after it.
+ */
+export function endShotSizeOf(text: string | undefined): ShotSize | undefined {
+  if (!text) return undefined;
+  const stated = text.match(/\bENDS\s+([^,.;]{1,40})/);
+  return (stated ? shotSizeOf(stated[1]) : undefined) ?? endSizeOf(text);
 }
 
 /** The last size named in a plan entry, which is where that segment leaves the camera. */

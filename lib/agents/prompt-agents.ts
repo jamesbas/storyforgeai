@@ -6,14 +6,15 @@ import {
   type ScenePrompts,
 } from "@/lib/schemas/storyboard";
 import { buildImagePrompts, buildVideoPrompts } from "@/lib/agents/mock-agents";
-import { buildMediaPromptSpec } from "@/lib/agents/media-prompt-builder";
-import { COMPOSER_VERSION, cleanPunctuation, countWords, dedupeSentences, lintDialogue, lintRendered, splitSentences, wordBudget, type BudgetContext } from "@/lib/agents/media-prompt-spec";
-import { trimToBudget } from "@/lib/agents/media-prompt-renderers";
+import { buildMediaPromptSpec, deriveEndFraming, deriveFraming } from "@/lib/agents/media-prompt-builder";
+import { COMPOSER_VERSION, cleanPunctuation, countWords, dedupeSentences, lintDialogue, lintRendered, splitSentences, wordBudget, type BudgetContext, type MediaPromptSpec } from "@/lib/agents/media-prompt-spec";
+import { framingOpening, trimToBudget } from "@/lib/agents/media-prompt-renderers";
 import { logEvent } from "@/lib/telemetry";
 import {
   missingDialogue,
   normaliseImagePrompt,
   normaliseVideoPrompt,
+  withFramingFirst,
 } from "@/lib/agents/media-prompt-normalise";
 import {
   composeExecution,
@@ -32,13 +33,14 @@ import {
   castPromptSuffix,
   castSystemDirective,
 } from "@/lib/agents/cast";
-import { referencesCarriedFrame, seamDirective } from "@/lib/agents/continuity";
+import { editsEndFrame, referencesCarriedFrame, seamDirective } from "@/lib/agents/continuity";
 import { lookPromptSuffix, placeLook } from "@/lib/agents/look";
 import { normaliseNegative } from "@/lib/agents/negative-prompt";
 import {
   hasNativeAudio,
   buildCarriedFrameEditPrompt,
   CARRIED_FRAME_EDIT_DIRECTIVE,
+  OWN_START_EDIT_DIRECTIVE,
   imagePromptDirective,
   inheritedOpeningDirective,
   videoPromptDirective,
@@ -345,6 +347,8 @@ export async function attachScenePrompts(
     // Only this scene's slice of the Director and Cinematographer plans travels
     // into the prompt. The full documents would crowd out the shot description.
     const slice = sceneCreativeSlice(plans, draft);
+    const startFraming = deriveFraming(draft, slice.shotPlan);
+    const endFraming = deriveEndFraming(startFraming, slice.shotPlan);
     const wardrobe = timeline.get(draft.id);
     // Only the people in this shot. The sheet is appended verbatim, so a
     // character carried into a scene they are absent from is a description of
@@ -450,9 +454,17 @@ export async function attachScenePrompts(
         Object.keys(wardrobe?.othersStart ?? {}), previousEndFramePrompt,
       ).start;
     }
-    const editsCarriedFrame = referencesCarriedFrame(project, draft.id, inheritsOpening) &&
+    // Every scene's closing frame is an edit of something: the frame carried
+    // in from the previous scene, or, where nothing is carried — scene 1, or
+    // the scene after a real cut — this scene's own opening, which is often a
+    // photograph the user supplies. Only the no-clip arrival safeguard and the
+    // reference opt-outs leave a scene with a creation prompt alone.
+    const editSource: "carried" | "own_start" | undefined = !editsEndFrame(project, draft.id)
+      ? undefined
+      : inheritsOpening ? "carried" : "own_start";
+    const editsCarriedFrame = editSource !== undefined &&
       (generationStages(project.generationMode).video ||
-        statedHeadcount(previousEndFramePrompt) === null ||
+        (editSource === "carried" && statedHeadcount(previousEndFramePrompt) === null) ||
         frameParticipants.end.people <= frameParticipants.start.people);
     const currentWardrobe = {
       start: frameWardrobeByName(wardrobe, "start", sceneCast, frameParticipants.start.names),
@@ -511,12 +523,30 @@ export async function attachScenePrompts(
         scene: draft,
         frameParticipants,
         previousEndFramePrompt: inheritsOpening ? previousEndFramePrompt : undefined,
-        carriedFrame: editsCarriedFrame
+        carriedFrame: editsCarriedFrame && editSource === "carried"
           ? {
               shows: previousEndFramePrompt,
               instruction: "This is the source image to edit into the scene's closing frame.",
             }
           : undefined,
+        sourceFrame: editsCarriedFrame && editSource === "own_start"
+          ? {
+              isThisScenesOpeningFrame: true,
+              instruction:
+                "The closing frame is an edit of this scene's own opening image — the picture " +
+                "your startFramePrompt describes, or a photograph supplied in its place.",
+            }
+          : undefined,
+        // The framing each frame should open with, read from the shot plan. A
+        // small planning model told only "open with the shot size" sometimes
+        // led with the person instead, and the render chose its own framing.
+        frameFraming: {
+          ...(inheritsOpening ? {} : { start: framingOpening({ framing: startFraming } as MediaPromptSpec) }),
+          end: framingOpening({ framing: endFraming } as MediaPromptSpec),
+          instruction:
+            "Open each frame's creation prompt with this shot size and camera height unless the " +
+            "shot plan or scene card clearly states a different one.",
+        },
         // Named in the payload rather than left to the system prompt, because
         // the scene card sitting beside it describes the opening the storyboard
         // intended and that is what the agent follows. A scene continuing from
@@ -640,8 +670,9 @@ export async function attachScenePrompts(
                 castSystemDirective(sceneCast, true) +
                 " Follow only this scene's action and its per-frame visibility and wardrobe contract. Do not advance to future events. " +
                 concisePromptDirective(imageFamily, "image", 0, imageBudgetContext) +
-                (editsCarriedFrame ? CARRIED_FRAME_EDIT_DIRECTIVE :
-                  " Return only creation prompts; do not return endFrameEditPrompt."),
+                (editsCarriedFrame
+                  ? editSource === "own_start" ? OWN_START_EDIT_DIRECTIVE : CARRIED_FRAME_EDIT_DIRECTIVE
+                  : " Return only creation prompts; do not return endFrameEditPrompt."),
               user,
               gate,
               gated,
@@ -658,7 +689,9 @@ export async function attachScenePrompts(
                 ...(gated.unresolved.length ? [`unresolved=${gated.unresolved.join(",")}`] : []),
                 ...(gated.trimmed ? ["trimmed=over_budget"] : []),
               ];
-              const mode = editsCarriedFrame ? "end_frame=carried_frame_edit" : undefined;
+              const mode = editsCarriedFrame
+                ? editSource === "own_start" ? "end_frame=start_frame_edit" : "end_frame=carried_frame_edit"
+                : undefined;
               if (!parts.length) return mode ? { detail: mode } : {};
               return {
                 source: "hybrid" as const,
@@ -1282,9 +1315,11 @@ function composerLint(
  * Hold a model-authored image prompt to the same contract as the deterministic
  * one, before enforcement appends the canonical suffixes.
  *
- * A no-op while the composer is off, so the LLM path changes only when the
- * deterministic path does — the two are meant to agree, and rolling one back
- * without the other would recreate the drift SPEC-003 exists to close.
+ * Framing-first is enforced whether or not the composer is on. A keyframe
+ * prompt that opens on the person rather than the shot leaves the size to the
+ * image model, and the seam check reads the size from the opening — a closing
+ * prompt without one broke two continuous seams in a row and sent both
+ * scenes' frames to be rendered from scratch instead of edited.
  */
 function normaliseImageResult(
   part: ImagePart,
@@ -1294,12 +1329,22 @@ function normaliseImageResult(
   wardrobe: SceneWardrobe | undefined,
   family: ModelFamily,
 ): ImagePart {
-  if (!config.flags.mediaPromptComposerV2) return part;
   const spec = buildMediaPromptSpec(project, draft, plans, wardrobe);
+  const endSpec = {
+    ...spec,
+    framing: deriveEndFraming(spec.framing, sceneCreativeSlice(plans, draft).shotPlan),
+  };
+  if (!config.flags.mediaPromptComposerV2) {
+    return {
+      ...part,
+      startFramePrompt: withFramingFirst(part.startFramePrompt, spec.framing).text,
+      endFramePrompt: withFramingFirst(part.endFramePrompt, endSpec.framing).text,
+    };
+  }
   return {
     ...part,
     startFramePrompt: normaliseImagePrompt(part.startFramePrompt, spec, family).text,
-    endFramePrompt: normaliseImagePrompt(part.endFramePrompt, spec, family).text,
+    endFramePrompt: normaliseImagePrompt(part.endFramePrompt, endSpec, family).text,
     ...(part.endFrameEditPrompt ? {
       endFrameEditPrompt: cleanPunctuation(dedupeSentences(part.endFrameEditPrompt)),
     } : {}),

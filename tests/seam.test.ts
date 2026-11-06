@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { seamBreak, shotPlanIssues, shotSizeOf } from "@/lib/media/seam";
+import { endShotSizeOf, seamBreak, shotPlanIssues, shotSizeOf } from "@/lib/media/seam";
 import type { Scene } from "@/lib/schemas/storyboard";
 
 /** The appended cast sheet, which is full of words a loose matcher would trip on. */
@@ -120,6 +120,41 @@ describe("deciding whether a scene can inherit the previous end frame", () => {
     const previous = scene({ end: "The trio dance." });
     const next = scene({ start: "They dance on.", transitionIn: "Continuous" });
     expect(seamBreak(previous, next)).toBeNull();
+  });
+
+  /**
+   * The live failure: a closing prompt that forgot its size was copied as the
+   * next opening, and the fallback compared the two scene cards instead —
+   * one scene's opening plan against the next one's — and declared a cut.
+   */
+  it("never reads a size change into an opening copied from the previous closing frame", () => {
+    const carried = "TLBr3f stands inside the glass shower enclosure facing the partition.";
+    const previous = scene({ end: carried, visualDescription: "Medium close-up at low angle." });
+    const next = scene({
+      start: carried,
+      visualDescription: "Extreme close-up at low angle.",
+      transitionIn: "Continuous",
+    });
+    expect(seamBreak(previous, next)).toBeNull();
+    expect(seamBreak(previous, { ...next, transitionIn: "Hard cut" })?.reason).toBe("transition");
+  });
+});
+
+describe("reading where a shot plan leaves the camera", () => {
+  it("takes the ENDS size rather than the opening one", () => {
+    expect(endShotSizeOf("STARTS MCU → ENDS ECU, 35mm, low angle, slow dolly forward")).toBe("extreme_close");
+    expect(endShotSizeOf("STARTS EWS → ENDS FS, 35mm, eye level, static")).toBe("full");
+  });
+
+  it("is not misled by a size named later in the description", () => {
+    expect(endShotSizeOf("STARTS MS → ENDS MCU, 35mm, eye level, push-in to a close-up of her hands")).toBe(
+      "medium_close",
+    );
+  });
+
+  it("falls back to the only size a plan without ENDS names", () => {
+    expect(endShotSizeOf("Medium shot, 35mm, static.")).toBe("medium");
+    expect(endShotSizeOf(undefined)).toBeUndefined();
   });
 });
 

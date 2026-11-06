@@ -11,6 +11,19 @@ export function referencesCarriedFrame(project: Project, sceneId: string, inheri
 }
 
 /**
+ * Whether this scene's closing frame is written and rendered as an edit of a
+ * source frame — the frame carried in from the previous scene, or, where
+ * nothing is carried (scene 1, or the scene after a real cut), this scene's own
+ * opening frame.
+ *
+ * Only under `reuse_end_frame`, the one mode whose settings offer the opt-out.
+ */
+export function editsEndFrame(project: Project, sceneId: string): boolean {
+  return (project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY) === "reuse_end_frame" &&
+    referencesCarriedFrame(project, sceneId, true);
+}
+
+/**
  * Tell the planning agents whether the segments are one continuous take.
  *
  * A segment boundary here is a technical join: the video model renders about

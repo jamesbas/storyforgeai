@@ -76,11 +76,13 @@ export function imagePromptDirective(family: ModelFamily): string {
   }
 }
 
-export const CARRIED_FRAME_EDIT_DIRECTIVE =
-  " This scene's closing image is an edit of the supplied carried frame, not a new image. " +
+/** The edit rules both source kinds share: what to change and what to keep. */
+const EDIT_FIELD_RULES =
   "Also return endFrameEditPrompt: a self-contained image-edit instruction beginning " +
-  "'Edit the supplied reference frame'. Compare carriedFrame.shows with the intended closing " +
-  "state and specify the concrete changes to each named person's pose, expression, contact, " +
+  "'Edit the supplied reference frame'. ";
+
+const EDIT_CONTENT_RULES =
+  "specify the concrete changes to each named person's pose, expression, contact, " +
   "placement and props. State the resulting shot size, angle and headcount; describe one final " +
   "still, never a movement sequence. Preserve faces, hair, wardrobe, setting, lighting and style " +
   "unless this scene explicitly changes them; spell out any directed wardrobe or camera change. " +
@@ -91,13 +93,36 @@ export const CARRIED_FRAME_EDIT_DIRECTIVE =
   "Focus on what changes rather than recreating the whole " +
   "image or repeating an inventory of unchanged details. The framing-first rule applies to the " +
   "creation fields, not this edit field: lead with the edit. Keep endFramePrompt as a standalone " +
-  "creation description of the same final state, for renders where no carried frame is available. " +
+  "creation description of the same final state, for renders where no source frame is available. " +
   "Full appearance and style-description rules apply to the creation fields only; for the edit, " +
   "name the affected people and preserve unchanged details from the source rather than restating " +
-  "them. Describe appearance and clothing only for an arrival or a directed change. " +
+  "them. Describe appearance and clothing only for an arrival or a directed change. ";
+
+export const CARRIED_FRAME_EDIT_DIRECTIVE =
+  " This scene's closing image is an edit of the supplied carried frame, not a new image. " +
+  EDIT_FIELD_RULES +
+  "Compare carriedFrame.shows with the intended closing state and " +
+  EDIT_CONTENT_RULES +
   "startFramePrompt remains a description of the inherited opening, not an edit. StoryForge " +
   "copies that opening from the preceding accepted closing-frame prompt automatically; do not " +
   "reset its framing, people, wardrobe or pose to match this scene's destination.";
+
+/**
+ * The same edit, sourced from this scene's own opening frame.
+ *
+ * Scene 1 and the scene after a real cut inherit nothing, so their opening is
+ * either rendered from startFramePrompt or a photograph the user supplies in
+ * its place. Writing the closing frame as an edit of that opening is what keeps
+ * a supplied first frame's person, wardrobe and set in the rest of the piece.
+ */
+export const OWN_START_EDIT_DIRECTIVE =
+  " This scene's closing image is an edit of its own opening image, not a new image: StoryForge " +
+  "renders the start frame — or uses a photograph the user supplies in its place — and then edits " +
+  "it into the closing frame. " +
+  EDIT_FIELD_RULES +
+  "Compare your startFramePrompt with the intended closing state and " +
+  EDIT_CONTENT_RULES +
+  "startFramePrompt is a full creation prompt for the opening and follows every creation rule.";
 
 /** A carried frame fixes identity, not the destination shot's geography. */
 export const CARRIED_FRAME_MATCH_INSTRUCTION = {

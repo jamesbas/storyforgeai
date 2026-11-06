@@ -8,7 +8,7 @@ import {
   generateSceneKeyframe,
   generateSceneMedia,
 } from "@/lib/services/media-service";
-import { createProject, generateStoryboard } from "@/lib/services/project-service";
+import { createProject, generateStoryboard, updateProjectModels, updateSceneFraming } from "@/lib/services/project-service";
 import { encodeMediaRef, parseMediaRef, resolveMediaPath } from "@/lib/media/refs";
 import { MockWangpClient } from "@/lib/wangp/mock-client";
 import { setWangpClient } from "@/lib/wangp/factory";
@@ -150,38 +150,61 @@ describe("rendering a single keyframe", () => {
   });
 
   /**
-   * Scene 1 has no frame to inherit, so its end frame is shown nothing. Handing
-   * it its own start frame made an edit model return that start frame back: the
-   * two stills were the same picture and the clip between them had no move to
-   * make. Wording did not shift it — withholding the image did.
+   * Scene 1 has no frame to inherit, so its end frame is an edit of its own
+   * opening — typically a photograph the user supplied. Under the old "match
+   * this frame" instruction an edit model handed its own start frame back, so
+   * the opening is shown only together with the scene's edit prompt, which
+   * names what changes.
    *
    * A preview has to make the same choice as a full render, or it stops
    * predicting the keyframe it stands in for.
    */
-  it("does not show a scene the start frame it rendered itself", async () => {
+  describe("previewing an end frame against the scene's own start", () => {
     class RequestRecordingClient extends MockWangpClient {
-      readonly prompts: string[] = [];
+      readonly calls: { prompt: string; refs: string[]; model: string }[] = [];
       async generate(settings: Record<string, unknown>) {
-        this.prompts.push(String(settings.prompt ?? ""));
+        this.calls.push({
+          prompt: String(settings.prompt ?? ""),
+          refs: Array.isArray(settings.image_refs) ? (settings.image_refs as string[]) : [],
+          model: String(settings.model_type ?? settings.model ?? ""),
+        });
         return super.generate(settings);
       }
     }
-    const seed = await seeded();
-    const scenes = seed.storyboard!.scenes;
 
-    // A banked attempt for scene 1, whose start frame it rendered itself.
-    const generated = await generateSceneMedia(seed.project.id, scenes[0]!.id);
-    const attempt = generated.attempts![scenes[0]!.id]!.at(-1)!;
-    expect(attempt.startImagePath).toBeTruthy();
-    expect(attempt.startImageInherited).toBeUndefined();
+    async function withBankedStart(options: { optOut?: boolean; imageModel?: string } = {}) {
+      const seed = await seeded();
+      const scene = seed.storyboard!.scenes[0]!;
+      if (options.optOut) await updateSceneFraming(seed.project.id, scene.id, { endFrameReference: false });
+      if (options.imageModel) await updateProjectModels(seed.project.id, { imageModel: options.imageModel });
+      const generated = await generateSceneMedia(seed.project.id, scene.id);
+      const attempt = generated.attempts![scene.id]!.at(-1)!;
+      expect(attempt.startImageInherited).toBeUndefined();
+      const client = new RequestRecordingClient();
+      setWangpClient(client);
+      await generateSceneKeyframe(seed.project.id, scene.id, "end_frame");
+      setWangpClient(new MockWangpClient());
+      return { scene, attempt, call: client.calls.at(-1)! };
+    }
 
-    const client = new RequestRecordingClient();
-    setWangpClient(client);
-    await generateSceneKeyframe(seed.project.id, scenes[0]!.id, "end_frame");
+    it("edits scene 1's own start frame with its edit prompt", async () => {
+      const { scene, attempt, call } = await withBankedStart();
+      expect(scene.prompts.endFrameEditPrompt).toMatch(/^Edit the supplied reference frame/);
+      expect(call.prompt.startsWith(scene.prompts.endFrameEditPrompt!)).toBe(true);
+      expect(call.refs).toEqual([attempt.startImagePath]);
+    });
 
-    expect(client.prompts.at(-1)!).not.toContain("supplied reference frame");
+    it("keeps the creation prompt on a model that cannot take a source frame", async () => {
+      const { call } = await withBankedStart({ imageModel: "flux_dev_image" });
+      expect(call.prompt).not.toContain("supplied reference frame");
+      expect(call.refs).toHaveLength(0);
+    });
 
-    setWangpClient(new MockWangpClient());
+    it("keeps the creation prompt when the scene opts out", async () => {
+      const { call } = await withBankedStart({ optOut: true });
+      expect(call.prompt).not.toContain("supplied reference frame");
+      expect(call.refs).toHaveLength(0);
+    });
   });
 
   it("shows a scene the frame it inherited from the one before", async () => {

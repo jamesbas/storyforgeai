@@ -288,13 +288,24 @@ export function SceneCard({
             className="h-3.5 w-3.5 rounded border-white/20 bg-canvas accent-accent"
             data-testid="scene-end-frame-reference"
           />
-          <span>
-            Match the carried-over frame
-            <span className="ml-1 text-slate-500">
-              — holds wardrobe and location across the seam, but holds props too. Turn it off when
-              the action has to change something the start frame is still showing.
+          {scene.sceneNumber === 1 ? (
+            <span>
+              Edit the end frame from the start frame
+              <span className="ml-1 text-slate-500">
+                — keeps the person, wardrobe and set of the opening, including one you import, in the
+                closing frame. Needs an image model that accepts a source image. Turn it off to draw
+                the end frame from its prompt alone.
+              </span>
             </span>
-          </span>
+          ) : (
+            <span>
+              Match the carried-over frame
+              <span className="ml-1 text-slate-500">
+                — holds wardrobe and location across the seam, but holds props too. Turn it off when
+                the action has to change something the start frame is still showing.
+              </span>
+            </span>
+          )}
         </label>
       ) : null}
       {projectId ? (

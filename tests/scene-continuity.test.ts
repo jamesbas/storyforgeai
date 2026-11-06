@@ -105,12 +105,14 @@ describe("scene continuity", () => {
   });
 
   /**
-   * An edit model shown a picture returns that picture. Scene 1 was handed its
-   * own start frame and came back with two identical stills, so nothing may be
-   * shown a frame it is meant to differ from — only one carried in from the
-   * scene before.
+   * An edit model shown a picture under "match this frame" returns that
+   * picture: scene 1 was handed its own start frame that way and came back with
+   * two identical stills. A scene's own start is therefore shown only together
+   * with an edit prompt that names what changes — never with the match
+   * instruction — while a frame carried in from the scene before is always
+   * shown.
    */
-  it("shows the end frame an inherited frame only, never the scene's own start", async () => {
+  it("shows a scene its own start only with an edit prompt, and always an inherited frame", async () => {
     class RequestRecordingClient extends MockWangpClient {
       readonly requests: Record<string, unknown>[] = [];
       async generate(settings: Record<string, unknown>) {
@@ -123,21 +125,54 @@ describe("scene continuity", () => {
 
     let record = await projectWithStoryboard("reuse_end_frame");
     record = await withContinuousSeams(record);
+    const sceneOneEdit = record.storyboard!.scenes[0]!.prompts.endFrameEditPrompt;
+    expect(sceneOneEdit).toMatch(/^Edit the supplied reference frame/);
     record = await generateAndApprove(record, 0);
     const afterFirst = client.requests.length;
     record = await generateAndApprove(record, 1);
 
-    const sceneOne = client.requests.slice(0, afterFirst).map((r) => String(r.prompt));
+    const sceneOne = client.requests.slice(0, afterFirst);
     const sceneTwo = client.requests.slice(afterFirst).map((r) => String(r.prompt));
 
-    // Scene 1 renders both its own frames and is shown neither of them.
-    expect(sceneOne.some((p) => p.includes("supplied reference frame"))).toBe(false);
+    // Scene 1 renders its opening, then edits that opening into its closing frame.
+    const sceneOneEnd = sceneOne.find((r) => String(r.prompt).startsWith(sceneOneEdit!));
+    expect(sceneOneEnd).toBeDefined();
+    expect((sceneOneEnd!.image_refs as string[] | undefined) ?? []).toHaveLength(1);
     // Scene 2 inherits scene 1's ending, which still has to carry the cast.
     const sceneTwoEnd = sceneTwo.find((p) => p.includes("supplied reference frame"));
     expect(sceneTwoEnd).toBeDefined();
     expect(sceneTwoEnd).toContain(
       "come from this scene's own description, not from the reference frame",
     );
+
+    setWangpClient(new MockWangpClient());
+  });
+
+  it("never shows a scene its own start without an edit prompt", async () => {
+    class RequestRecordingClient extends MockWangpClient {
+      readonly prompts: string[] = [];
+      async generate(settings: Record<string, unknown>) {
+        this.prompts.push(String(settings.prompt ?? ""));
+        return super.generate(settings);
+      }
+    }
+    const client = new RequestRecordingClient();
+    setWangpClient(client);
+
+    let record = await projectWithStoryboard("reuse_end_frame");
+    record = await withContinuousSeams(record);
+    const [first, ...rest] = record.storyboard!.scenes;
+    const withoutEdit = {
+      ...record,
+      storyboard: {
+        ...record.storyboard!,
+        scenes: [{ ...first!, prompts: { ...first!.prompts, endFrameEditPrompt: undefined } }, ...rest],
+      },
+    };
+    await repository.update(record.project.id, withoutEdit);
+    await generateAndApprove(withoutEdit, 0);
+
+    expect(client.prompts.some((p) => p.includes("supplied reference frame"))).toBe(false);
 
     setWangpClient(new MockWangpClient());
   });

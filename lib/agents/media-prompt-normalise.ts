@@ -25,8 +25,11 @@ import { SHOT_LABELS, stripFraming } from "@/lib/agents/media-prompt-builder";
  * append are never mistaken for the model's own repetition.
  */
 
+// "Low camera angle", "knee level" and "chest height" are camera heights as
+// much as "low angle" is. Missing them flagged correctly framed prompts with
+// "does not open with shot size and camera height".
 const HEIGHT_PATTERN =
-  /\b(eye[-\s]level|low[-\s]angle|high[-\s]angle|dutch|canted|overhead|bird'?s[-\s]eye|worm'?s[-\s]eye|from (?:above|below)|shoulder height|over[-\s]the[-\s]shoulder)\b/i;
+  /\b(eye[-\s]level|(?:low|high)(?:[-\s]camera)?[-\s]angle|(?:low|high)[-\s]camera|dutch|canted|overhead|top[-\s]down|bird'?s[-\s]eye|worm'?s[-\s]eye|from (?:above|below)|(?:shoulder|chest|waist|hip|knee|ground|floor|head)[-\s](?:level|height)|over[-\s]the[-\s]shoulder)\b/i;
 
 /** How much of the opening counts as "opens with". */
 const LEAD_CHARS = 120;
@@ -44,6 +47,34 @@ export type NormalisedPrompt = {
 };
 
 /**
+ * Put the framing first when a model-authored keyframe prompt left it out.
+ *
+ * Partial framing the model did state wins over the supplied defaults, and the
+ * phrases it is promoted from are taken out of the sentence they were in, so
+ * the size is never stated twice.
+ */
+export function withFramingFirst(
+  text: string,
+  framing: MediaPromptSpec["framing"],
+): { text: string; repaired: boolean } {
+  if (!text.trim() || opensWithFraming(text)) return { text, repaired: false };
+  const [first = "", ...rest] = splitSentences(text);
+  const shot = shotSizeOf(first);
+  const height = first.match(HEIGHT_PATTERN)?.[0];
+  const opening = framingOpening({
+    framing: {
+      ...framing,
+      ...(shot ? { shotSize: SHOT_LABELS[shot] } : {}),
+      ...(height ? { cameraHeight: height } : {}),
+    },
+  } as MediaPromptSpec);
+  return {
+    text: cleanPunctuation(`${opening} ${stripFraming(first)} ${rest.join(" ")}`),
+    repaired: true,
+  };
+}
+
+/**
  * Normalise one model-authored image prompt.
  *
  * Supply missing framing without introducing a second, incompatible shot size.
@@ -56,25 +87,12 @@ export function normaliseImagePrompt(
   budget: BudgetContext = {},
 ): NormalisedPrompt {
   const cleaned = cleanPunctuation(dedupeSentences(cleanPunctuation(text)));
-  const framingRepaired = !opensWithFraming(cleaned);
-  const [first = "", ...rest] = splitSentences(cleaned);
-  const shot = shotSizeOf(first);
-  const height = first.match(HEIGHT_PATTERN)?.[0];
-  const repaired = framingRepaired
-    ? `${framingOpening({
-        ...spec,
-        framing: {
-          ...spec.framing,
-          ...(shot ? { shotSize: SHOT_LABELS[shot] } : {}),
-          ...(height ? { cameraHeight: height } : {}),
-        },
-      })} ${stripFraming(first)} ${rest.join(" ")}`
-    : cleaned;
-  const final = cleanPunctuation(repaired);
+  const framed = withFramingFirst(cleaned, spec.framing);
+  const final = cleanPunctuation(framed.text);
   return {
     text: final,
     findings: lintRendered(final, family, "image", 0, budget),
-    framingRepaired,
+    framingRepaired: framed.repaired,
   };
 }
 

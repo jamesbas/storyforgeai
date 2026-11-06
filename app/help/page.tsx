@@ -1088,10 +1088,14 @@ export default function HelpPage() {
             outright.
           </p>
           <p className={p}>
-            The reference is only ever the frame a scene <em>carried over</em> from the one before.
-            A scene that renders its own start frame is never shown it: an edit model handed a
-            picture returns that picture, so both keyframes came back identical and the clip between
-            them had nothing to move through.
+            A frame carried over from the scene before is always the reference. A scene that renders
+            or imports its <em>own</em> start frame — scene 1, or the scene after a cut — is shown
+            it only together with that scene&apos;s edit prompt, and only on an image model that
+            accepts a source image. Shown its own start under the old &ldquo;match this frame&rdquo;
+            instruction, an edit model handed the picture straight back and both keyframes came out
+            identical; the edit prompt names what changes instead. If a pair still comes back too
+            similar, clear the scene&apos;s end-frame option and the closing frame is drawn from its
+            prompt alone.
           </p>
           <p className={p}>
             <strong>The reference outranks the prompt.</strong> It holds props as firmly as it holds
@@ -1129,14 +1133,17 @@ export default function HelpPage() {
           </p>
           <p className={p}>
             With <strong>Show it the carried frame</strong>, new or rewritten image prompts include
-            a scene-specific edit prompt for the closing frame: what changes from the carried image
-            and what stays consistent. Each inherited opening keeps the preceding accepted
-            closing-frame prompt exactly, even if this scene&apos;s card describes a different
-            shot. New framing belongs in the closing frame rather than resetting the opening.
-            The first image still uses a creation prompt. The edit is
-            sent only when the carried frame is actually supplied; disabling references, a broken
-            seam or rendering without a predecessor uses the stored creation prompt instead.
-            Existing storyboards need <strong>Rewrite all image prompts</strong> to adopt this.
+            a scene-specific edit prompt for every closing frame: what changes from the source image
+            and what stays consistent. The source is the carried image, or — for scene 1 and any
+            scene after a cut — the scene&apos;s own start frame, so a first frame you supply carries
+            its person, wardrobe and set into the rest of the piece. Each inherited opening keeps
+            the preceding accepted closing-frame prompt exactly, even if this scene&apos;s card
+            describes a different shot. New framing belongs in the closing frame rather than
+            resetting the opening. The edit is sent only when its source frame is actually
+            supplied; disabling references, the scene&apos;s own opt-out, the no-clip arrival
+            safeguard, or a pinned model that accepts no source image uses the stored creation
+            prompt instead. Existing storyboards need <strong>Rewrite all image prompts</strong> to
+            adopt this.
           </p>
           <p className={p}>
             <strong>Watch for a head cropped out of a carried frame.</strong> That frame is the only

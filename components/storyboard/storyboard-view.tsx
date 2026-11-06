@@ -2134,7 +2134,6 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   onFaceVisibleChange={(next) => void setFaceVisible(scene.id, next)}
                   endFrameReference={
                     continuity === "reuse_end_frame" &&
-                    scene.sceneNumber > 1 &&
                     record.project.endFrameReferences !== false
                       ? record.project.sceneEndFrameRefs?.[scene.id] !== false
                       : undefined

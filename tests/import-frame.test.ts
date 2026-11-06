@@ -64,6 +64,33 @@ async function chained(concept: string) {
 }
 
 describe("importing a keyframe", () => {
+  /**
+   * The workflow the edit prompt exists for: the user supplies scene 1's
+   * opening, and the closing frame is an edit of that photograph rather than a
+   * fresh picture of somebody else.
+   */
+  it("previews scene 1's end frame as an edit of an imported start frame", async () => {
+    const { media, projectId, sceneIds } = await chained("A lighthouse keeper repaints the lamp room.");
+    const { MockWangpClient } = await import("@/lib/wangp/mock-client");
+    const { setWangpClient } = await import("@/lib/wangp/factory");
+    await media.generateSceneMedia(projectId, sceneIds[0]!);
+    const imported = await media.importAttemptFrame(projectId, sceneIds[0]!, "start_frame", upload());
+    const start = imported.record.attempts![sceneIds[0]!]!.at(-1)!.startImagePath!;
+    const edit = imported.record.storyboard!.scenes[0]!.prompts.endFrameEditPrompt!;
+    expect(edit).toMatch(/^Edit the supplied reference frame/);
+
+    const calls: { prompt: string; refs: unknown }[] = [];
+    setWangpClient(new (class extends MockWangpClient {
+      async generate(settings: Record<string, unknown>) {
+        calls.push({ prompt: String(settings.prompt ?? ""), refs: settings.image_refs });
+        return super.generate(settings);
+      }
+    })());
+    await media.generateSceneKeyframe(projectId, sceneIds[0]!, "end_frame");
+
+    expect(calls.at(-1)!.prompt.startsWith(edit)).toBe(true);
+    expect(calls.at(-1)!.refs).toEqual([start]);
+  });
   it("replaces the frame on the latest attempt and copies the bytes into the project", async () => {
     const { projects, media, projectId, sceneIds } = await chained(
       "A lighthouse keeper repaints the lamp room.",

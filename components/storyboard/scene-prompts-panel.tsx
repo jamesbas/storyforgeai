@@ -12,7 +12,7 @@ import { missingDialogue, opensWithFraming, echoesInstructions, mixesStandingAnd
 const FIELDS = [
   { key: "startFramePrompt", label: "Start frame", rows: 4, kind: "image" },
   { key: "endFramePrompt", label: "End frame", rows: 4, kind: "image" },
-  { key: "endFrameEditPrompt", label: "End frame (carried-frame edit)", rows: 4, kind: "image" },
+  { key: "endFrameEditPrompt", label: "End frame (edit of start frame)", rows: 4, kind: "image" },
   { key: "imageNegativePrompt", label: "Image negative", rows: 2, kind: "image" },
   { key: "videoPromptSegment", label: "Video (motion)", rows: 5, kind: "video" },
   { key: "videoNegativePrompt", label: "Video negative", rows: 2, kind: "video" },
@@ -262,8 +262,10 @@ export function ScenePromptsPanel({
               ) : null}
               {field.key === "endFrameEditPrompt" ? (
                 <p className="text-[11px] text-slate-400">
-                  Used only with Show it the carried frame and an actual supplied frame.
-                  End frame above is the creation fallback when no carried frame is sent.
+                  Used with Show it the carried frame whenever a source frame is sent: the frame
+                  carried in from the previous scene, or — for scene 1 and any scene after a cut —
+                  this scene&apos;s own start frame, including one you imported, when the image model
+                  accepts a source image. End frame above is the creation fallback otherwise.
                   {" "}Changing that fallback clears the old edit unless both are saved together.
                 </p>
               ) : null}

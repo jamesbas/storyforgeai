@@ -4,7 +4,7 @@ import type { Project } from "@/lib/schemas/project";
 import type { SceneAttempt } from "@/lib/schemas/generation";
 import { repository } from "@/lib/db/store";
 import { getProjectRecord } from "@/lib/services/project-service";
-import { buildImageManifest, buildVideoManifest, runToCompletion } from "@/lib/services/wangp-service";
+import { buildImageManifest, buildVideoManifest, imageModelEditsSourceFrames, runToCompletion } from "@/lib/services/wangp-service";
 import type { CastReference, FrameOptions } from "@/lib/services/wangp-service";
 import type { WangpGenerationSettings } from "@/lib/schemas/wangp";
 import type { SeamBreak } from "@/lib/media/seam";
@@ -41,7 +41,7 @@ import { qcAgent } from "@/lib/agents/qc-agent";
 import { getPlanningProvider } from "@/lib/agents/llm/provider";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
-import { referencesCarriedFrame } from "@/lib/agents/continuity";
+import { editsEndFrame, referencesCarriedFrame } from "@/lib/agents/continuity";
 import { mapFiboDescription } from "@/lib/agents/fibo-prompt";
 import { CARRIED_FRAME_MATCH_INSTRUCTION as MATCH_INSTRUCTION } from "@/lib/agents/model-directives";
 import { storedSceneImageContext, videoContextFromImage } from "@/lib/agents/prompt-validation";
@@ -318,13 +318,23 @@ function changingWardrobe(record: ProjectRecord, sceneId: string): boolean {
  * Whether this scene's end frame is rendered with its start frame supplied as a
  * reference image.
  *
- * Only ever true for a *carried-over* start frame — see MATCH_INSTRUCTION for
- * why a scene is never shown the start frame it rendered itself. The per-scene
- * override can only turn it off: forcing it on where the scene rendered its own
- * start frame is the failure the exclusion exists to prevent.
+ * A *carried-over* start frame always qualifies. The scene's *own* start frame
+ * — scene 1's, a supplied photograph, or one rendered after a real cut — only
+ * with an edit prompt to go with it: shown its own opening under the old
+ * "match this frame" instruction, an edit model handed the picture straight
+ * back (see MATCH_INSTRUCTION), while an edit prompt names what changes. The
+ * per-scene override can only turn it off.
  */
-function referencesStartFrame(record: ProjectRecord, sceneId: string, inherited: boolean): boolean {
-  return referencesCarriedFrame(record.project, sceneId, inherited);
+function referencesStartFrame(
+  record: ProjectRecord,
+  scene: Scene,
+  inherited: boolean,
+  ownStartEditable = false,
+): boolean {
+  if (inherited) return referencesCarriedFrame(record.project, scene.id, true);
+  return ownStartEditable &&
+    Boolean(scene.prompts.endFrameEditPrompt?.trim()) &&
+    editsEndFrame(record.project, scene.id);
 }
 
 /**
@@ -446,9 +456,19 @@ function endFramePromptFor(record: ProjectRecord, scene: Scene, conditionOnStart
   return mapFiboDescription(body, (text) => `${text}${match}`);
 }
 
-/** Whether the end frame may be conditioned on the start frame it inherits. */
-function conditionEndOnStart(record: ProjectRecord, scene: Scene, inherited: boolean): boolean {
-  if (!referencesStartFrame(record, scene.id, inherited)) return false;
+/**
+ * Whether the end frame may be conditioned on its start frame.
+ *
+ * `ownStartEditable` says the image model can take the scene's own opening as
+ * an edit source without being substituted; see `imageModelEditsSourceFrames`.
+ */
+function conditionEndOnStart(
+  record: ProjectRecord,
+  scene: Scene,
+  inherited: boolean,
+  ownStartEditable = false,
+): boolean {
+  if (!referencesStartFrame(record, scene, inherited, ownStartEditable)) return false;
   if (clipCarriesArrivals(record) || !endFrameGainsPeople(scene)) return true;
   logEvent("scene.continuity", {
     projectId: record.project.id,
@@ -795,14 +815,21 @@ export async function generateSceneKeyframe(
     purpose === "start_frame" ? scene.prompts.startFramePrompt : scene.prompts.endFramePrompt;
 
   if (purpose === "end_frame") {
-    // Only a frame carried in from the previous scene. This scene's own start
-    // frame is the picture the end frame is supposed to differ from.
-    const inheritedStart = chosenAttempt(seeded, sceneId)?.startImageInherited
-      ? chosenAttempt(seeded, sceneId)?.startImagePath
-      : undefined;
-    const conditionOnStart =
-      inheritedStart !== undefined && referencesStartFrame(seeded, sceneId, true);
-    if (conditionOnStart) extraRefs = [inheritedStart];
+    // The start frame this scene's end frame would be edited from: whatever
+    // its attempt holds — carried in, imported, adopted or rendered — or,
+    // before there is an attempt, the frame it would inherit.
+    const attempt = chosenAttempt(seeded, sceneId);
+    const continuity = attempt?.startImagePath ? undefined : resolveContinuity(seeded, scene);
+    const source = attempt?.startImagePath
+      ? { path: attempt.startImagePath, inherited: Boolean(attempt.startImageInherited) }
+      : continuity?.startImagePath
+        ? { path: continuity.startImagePath, inherited: true }
+        : undefined;
+    const conditionOnStart = source !== undefined && conditionEndOnStart(
+      seeded, scene, source.inherited,
+      !source.inherited && await imageModelEditsSourceFrames(seeded.project),
+    );
+    if (conditionOnStart) extraRefs = [source.path];
     prompt = endFramePromptFor(seeded, scene, conditionOnStart);
   }
 
@@ -1115,10 +1142,26 @@ export async function generateProjectMediaPhased(
   let previousScene: Scene | undefined;
   let done = 0;
   let failedFrames = 0;
+  const inBatch = new Set(scenes.map((scene) => scene.id));
+  const storyboardScenes = record.storyboard?.scenes ?? [];
+  const ownStartEditable = await imageModelEditsSourceFrames(record.project);
 
   for (const scene of scenes) {
     if (hooks.shouldCancel?.()) return;
     hooks.onSceneEnterPhase?.(scene.id, "keyframes");
+
+    // A batch that starts mid-project, or skips a scene, still continues from
+    // the predecessor's accepted end frame — the same frame the scene-at-a-time
+    // path inherits. Starting the chain empty rendered a fresh opening there
+    // and broke continuity at exactly the scene the batch began on.
+    const predecessor = storyboardScenes.find((s) => s.sceneNumber === scene.sceneNumber - 1);
+    if (!predecessor) {
+      previousEnd = undefined;
+      previousScene = undefined;
+    } else if (!inBatch.has(predecessor.id)) {
+      previousEnd = chosenAttempt(record, predecessor.id)?.endImagePath;
+      previousScene = previousEnd ? predecessor : undefined;
+    }
 
     try {
       // Reusing the previous end frame is what makes a seam match exactly; it also
@@ -1158,7 +1201,8 @@ export async function generateProjectMediaPhased(
         frameWarnings.push(...(rendered.promptWarnings ?? []));
       }
 
-      const conditionOnStart = conditionEndOnStart(record, scene, Boolean(inherited));
+      const conditionOnStart = Boolean(startPath) &&
+        conditionEndOnStart(record, scene, Boolean(inherited), !inherited && ownStartEditable);
 
       const endRender = await run(() =>
         renderKeyframe(
@@ -1528,6 +1572,7 @@ export async function previewSceneRenders(projectId: string): Promise<FramePrevi
   const out: FramePreview[] = [];
   let previousEnd: string | undefined;
   let previousScene: Scene | undefined;
+  const ownStartEditable = await imageModelEditsSourceFrames(record.project);
 
   for (const scene of scenes) {
     const broken =
@@ -1564,7 +1609,9 @@ export async function previewSceneRenders(projectId: string): Promise<FramePrevi
       });
     }
 
-    const conditionOnStart = conditionEndOnStart(record, scene, Boolean(inherited));
+    const conditionOnStart = conditionEndOnStart(
+      record, scene, Boolean(inherited), !inherited && ownStartEditable,
+    );
     // The path is only ever a reference image, so the previous scene's recorded
     // frame is the honest stand-in: it is the file the last run actually used.
     const startPath = inherited ?? "<this scene's start frame>";
@@ -2014,8 +2061,11 @@ export async function generateSceneMedia(
    * corrected.
    */
   const inheritedStart = Boolean(continuity.startImagePath);
-  const conditionOnStartFrame = conditionEndOnStart(record, scene, inheritedStart);
   const referenceFrame = continuity.startImagePath ?? start?.path;
+  const conditionOnStartFrame = Boolean(referenceFrame) && conditionEndOnStart(
+    record, scene, inheritedStart,
+    !inheritedStart && await imageModelEditsSourceFrames(record.project),
+  );
 
   const endPrompt = endFramePromptFor(record, scene, conditionOnStartFrame);
   const end = await keyframe(

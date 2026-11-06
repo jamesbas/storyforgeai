@@ -18,6 +18,7 @@ import { repository } from "@/lib/db/store";
 import { seamBreak } from "@/lib/media/seam";
 import type { ArtifactExecution } from "@/lib/schemas/provenance";
 import { PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
+import type { CreativePlans } from "@/lib/agents/creative-context";
 
 const opening = "Medium shot, eye level, front. Mara sits at a wooden table in a quiet room, her right hand around a ceramic cup. Exactly one woman is in frame.";
 const closing = "Medium shot, eye level, front. Mara sits at a wooden table in a quiet room, the ceramic cup resting on the table beside her right hand. Exactly one woman is in frame.";
@@ -58,6 +59,9 @@ async function authored(endFrameReferences?: boolean, options: {
   cardShots?: readonly string[];
   responseShots?: readonly string[];
   omitEdit?: boolean;
+  /** Scene numbers whose model-authored closing prompt leaves out the framing. */
+  unframedEnd?: readonly number[];
+  shotPlans?: Record<string, string>;
 } = {}) {
   const p = await project(endFrameReferences, options.cardShots ? options.cardShots.length * 20 : 60);
   if (options.imageModel) p.imageModel = options.imageModel;
@@ -84,18 +88,24 @@ async function authored(endFrameReferences?: boolean, options: {
         throw new Error("The image request must identify its scene.");
       }
       const shot = options.responseShots?.[data.scene.sceneNumber - 1] ?? "Medium shot";
+      const closingFor = options.unframedEnd?.includes(data.scene.sceneNumber)
+        ? closing.replace(/^Medium shot, eye level, front\. /, "")
+        : closing.replace("Medium shot", shot);
       return schema.parse({
         startFramePrompt: opening.replace("Medium shot", shot),
-        endFramePrompt: closing.replace("Medium shot", shot),
+        endFramePrompt: closingFor,
         imageNegativePrompt: "watermark",
-        ...(data.carriedFrame && !options.omitEdit
+        ...((data.carriedFrame || data.sourceFrame) && !options.omitEdit
           ? { endFrameEditPrompt: edit.replace("medium shot", shot.toLowerCase()) } : {}),
       });
     },
   };
   const executions: ArtifactExecution[] = [];
+  const plans = options.shotPlans
+    ? { cinematographyPlan: { sceneShotPlans: options.shotPlans } } as unknown as CreativePlans
+    : undefined;
   const scenes = await attachScenePrompts(p, drafts, provider, {
-    visualBible: bible, onExecution: (execution) => executions.push(execution),
+    visualBible: bible, plans, onExecution: (execution) => executions.push(execution),
   });
   return { p, scenes, calls, drafts, bible, provider, executions };
 }
@@ -107,7 +117,10 @@ describe("authoring carried-frame edits", () => {
       responseShots: ["Medium shot", "Medium wide shot", "Medium close-up", "Medium wide shot", "Medium shot", "Medium wide shot", "Medium wide shot"],
     });
     expect(scenes).toHaveLength(7);
-    expect(scenes[0]!.prompts.endFrameEditPrompt).toBeUndefined();
+    expect(scenes[0]!.prompts.endFrameEditPrompt).toMatch(/^Edit the supplied reference frame/);
+    expect(executions.find((execution) => execution.artifact === `${scenes[0]!.id}.image_prompt`)).toMatchObject({
+      source: "llm", detail: "end_frame=start_frame_edit",
+    });
     expect(seamBreak(drafts[0]!, drafts[1]!)).not.toBeNull();
     for (let i = 1; i < scenes.length; i++) {
       const previous = scenes[i - 1]!;
@@ -154,6 +167,37 @@ describe("authoring carried-frame edits", () => {
     expect(executions.find((execution) => execution.artifact === `${scenes[1]!.id}.image_prompt`)).toMatchObject({
       source: "hybrid", fallbackReason: "invalid_set",
     });
+  });
+
+  /**
+   * The live failure behind scenes 7 and 8 rendering both keyframes: a closing
+   * prompt that led with the person carried no shot size, so the next seam was
+   * judged from the two scene cards and broke. The framing is now put first,
+   * at the size the shot plan ends on, and the chain stays an edit chain.
+   */
+  it("puts framing first on a closing prompt that omitted it, at the shot plan's ENDS size", async () => {
+    const { scenes, calls } = await authored(true, {
+      cardShots: ["Medium close-up", "Extreme close-up", "Medium close-up"],
+      unframedEnd: [1, 2],
+      shotPlans: {
+        "1": "STARTS MCU → ENDS ECU, 35mm, low angle, slow dolly forward",
+        "2": "STARTS ECU → ENDS MCU, 35mm, low angle, slow dolly back",
+        "3": "STARTS MCU → ENDS MS, 35mm, eye level, slow pull-out",
+      },
+    });
+    expect(scenes[0]!.prompts.endFramePrompt).toMatch(/^Extreme close-up, low angle, 35mm\./);
+    expect(scenes[1]!.prompts.endFramePrompt).toMatch(/^Medium close-up, low angle, 35mm\./);
+    for (const index of [1, 2]) {
+      expect(scenes[index]!.prompts.startFramePrompt).toBe(scenes[index - 1]!.prompts.endFramePrompt);
+      expect(scenes[index]!.prompts.endFrameEditPrompt).toMatch(/^Edit the supplied reference frame/);
+    }
+    const first = calls.find((c) => (c.user.scene as { sceneNumber?: number }).sceneNumber === 1);
+    expect(first?.user.frameFraming).toMatchObject({
+      start: "Medium close-up, low angle, 35mm.",
+      end: "Extreme close-up, low angle, 35mm.",
+    });
+    const second = calls.find((c) => (c.user.scene as { sceneNumber?: number }).sceneNumber === 2);
+    expect((second?.user.frameFraming as { start?: string }).start).toBeUndefined();
   });
 
   it("copies a kept predecessor's completed frame during a selective rewrite", async () => {
@@ -223,15 +267,19 @@ describe("authoring carried-frame edits", () => {
     expect(scenes[1]!.prompts.endFrameEditPrompt).toBeDefined();
   });
 
-  it.each([true, undefined])("authors an edit only for eligible later frames (setting %s)", async (setting) => {
+  it.each([true, undefined])("authors an edit for every frame, scene 1 against its own opening (setting %s)", async (setting) => {
     const { scenes, calls } = await authored(setting);
-    expect(scenes[0]!.prompts.endFrameEditPrompt).toBeUndefined();
+    expect(scenes[0]!.prompts.endFrameEditPrompt).toBe(edit);
     expect(scenes[1]!.prompts.endFrameEditPrompt).toBe(edit);
     expect(scenes[1]!.prompts.endFramePrompt).toContain("ceramic cup resting on the table");
     expect(calls[0]!.user.carriedFrame).toBeUndefined();
+    expect(calls[0]!.user.sourceFrame).toMatchObject({ isThisScenesOpeningFrame: true });
+    expect(calls[0]!.system).toContain("an edit of its own opening image");
+    expect(calls[0]!.system).toContain("a self-contained image-edit instruction");
     const later = calls.find((call) => call.user.carriedFrame);
     expect(later?.system).toContain("a self-contained image-edit instruction");
     expect(later?.system).toContain("not extra people");
+    expect(later?.user.sourceFrame).toBeUndefined();
     expect(later?.user.carriedFrame).toEqual({
       shows: scenes[0]!.prompts.endFramePrompt,
       instruction: "This is the source image to edit into the scene's closing frame.",
@@ -245,9 +293,19 @@ describe("authoring carried-frame edits", () => {
     expect(scenes[1]!.prompts.startFramePrompt).not.toBe(scenes[0]!.prompts.endFramePrompt);
   });
 
-  it.each([{ seam: true }, { override: true }])("skips a scene with no reference (%j)", async (options) => {
-    const { scenes } = await authored(true, options);
+  it("skips a scene that opts out of its reference", async () => {
+    const { scenes } = await authored(true, { override: true });
     expect(scenes[1]!.prompts.endFrameEditPrompt).toBeUndefined();
+  });
+
+  /** After a real cut nothing is carried, so the scene edits its own opening instead. */
+  it("edits a scene's own opening after a real cut", async () => {
+    const { scenes, calls } = await authored(true, { seam: true });
+    expect(scenes[1]!.prompts.startFramePrompt).not.toBe(scenes[0]!.prompts.endFramePrompt);
+    expect(scenes[1]!.prompts.endFrameEditPrompt).toBe(edit);
+    const call = calls.find((c) => (c.user.scene as { sceneNumber?: number }).sceneNumber === 2);
+    expect(call?.user.carriedFrame).toBeUndefined();
+    expect(call?.user.sourceFrame).toBeDefined();
   });
 
   it("respects the global reference switch", async () => {
@@ -264,7 +322,7 @@ describe("authoring carried-frame edits", () => {
   it("keeps the deterministic fallback edit-focused", async () => {
     const { p, drafts, bible } = await authored(true);
     const scenes = await attachScenePrompts(p, drafts, null, { visualBible: bible });
-    expect(scenes[0]!.prompts.endFrameEditPrompt).toBeUndefined();
+    expect(scenes[0]!.prompts.endFrameEditPrompt).toMatch(/^Edit the supplied reference frame/);
     expect(scenes[1]!.prompts.endFrameEditPrompt).toMatch(/^Edit the supplied reference frame/);
   });
 
@@ -313,9 +371,9 @@ describe("sending edits only with the carried image", () => {
     expect(client.calls.find((call) => call.prompt.startsWith(edit))?.refs).toHaveLength(1);
   });
 
-  it.each(["project", "scene", "missing predecessor", "cut"] as const)("uses creation instead with %s", async (reason) => {
+  it.each(["project", "scene", "cut"] as const)("uses creation instead with %s", async (reason) => {
     const { p, ids } = await renderable();
-    if (reason !== "missing predecessor") await generateSceneMedia(p.id, ids[0]!);
+    await generateSceneMedia(p.id, ids[0]!);
     if (reason === "project") await updateProjectModels(p.id, { endFrameReferences: false });
     if (reason === "scene") await updateSceneFraming(p.id, ids[1]!, { endFrameReference: false });
     if (reason === "cut") await updateProjectModels(p.id, { sceneContinuity: "cut" });
@@ -323,6 +381,18 @@ describe("sending edits only with the carried image", () => {
     await generateSceneMedia(p.id, ids[1]!);
     expect(client.calls.some((call) => call.prompt.startsWith(edit))).toBe(false);
     expect(client.calls.find((call) => call.prompt.startsWith(closing))?.refs).toHaveLength(0);
+  });
+
+  /** With nothing to inherit, the scene's own fresh opening is the edit source. */
+  it("edits the scene's own start frame when its predecessor is missing", async () => {
+    const { p, ids } = await renderable();
+    client.calls.length = 0;
+    await generateSceneMedia(p.id, ids[1]!);
+    const after = await getProjectRecord(p.id);
+    const attempt = after.attempts![ids[1]!]![0]!;
+    expect(attempt.startImageInherited).toBeUndefined();
+    const call = client.calls.find((c) => c.prompt.startsWith(edit));
+    expect(call?.refs).toEqual([attempt.startImagePath]);
   });
 
   it("keeps a hand edit during a video-only rewrite", async () => {

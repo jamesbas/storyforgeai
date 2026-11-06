@@ -651,9 +651,11 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
                   marked <span className="font-semibold">✓ refs</span> — a pin that accepts none
                   renders the first scene and is substituted for every scene after it, its LoRAs
                   going with it.
-                  {" "}New or rewritten image prompts describe editing that carried image into the
-                  closing frame. The first image, and scenes with no carried reference, still use
-                  creation prompts.
+                  {" "}New or rewritten image prompts describe editing a source image into the
+                  closing frame: the carried frame, or — for scene 1 and any scene after a cut —
+                  that scene&apos;s own start frame, such as a photograph you import. An own start
+                  frame is only sent when the pinned model accepts a source image, so it never
+                  causes a substitution.
                 </span>
               </span>
             </label>
