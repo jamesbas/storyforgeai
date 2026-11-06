@@ -1,3 +1,5 @@
+import { planEntryFor, planningPayload, type CreativePlans } from "@/lib/agents/creative-context";
+
 /**
  * Writing a per-segment artifact in windows, and saying so in the prompt.
  *
@@ -126,4 +128,115 @@ export function beatsForWindow(
     if (beat) entries[String(segment)] = beat;
   }
   return entries;
+}
+
+/**
+ * Words kept from an entry outside the window: enough to place it in the
+ * story, not enough to re-tell it.
+ */
+export const OUTLINE_WORDS = 16;
+
+/** An entry cut to its opening words. */
+export function condensed(entry: string): string {
+  const words = entry.trim().split(/\s+/).filter(Boolean);
+  return words.length <= OUTLINE_WORDS ? words.join(" ") : `${words.slice(0, OUTLINE_WORDS).join(" ")}…`;
+}
+
+/**
+ * The whole arc as one window's request carries it: this window's beats in
+ * full, every other segment as a condensed line.
+ *
+ * Handing every request the full arc is what made request size grow with the
+ * project: on a 50-segment piece the beats alone were about 3,500 tokens, sent
+ * to every Director and Cinematographer window, and LM Studio rejected the
+ * Director's first request outright for exceeding its context. The outline
+ * keeps the shape of the whole piece in view — where the climax is, what is
+ * still to come — at a fraction of the size.
+ */
+export function arcOutline(
+  beats: readonly string[] | undefined,
+  window: readonly number[],
+): Record<string, string> {
+  const inWindow = new Set(window);
+  const outline: Record<string, string> = {};
+  (beats ?? []).forEach((beat, index) => {
+    const segment = index + 1;
+    if (beat?.trim()) outline[String(segment)] = inWindow.has(segment) ? beat.trim() : condensed(beat);
+  });
+  return outline;
+}
+
+/** A story plan with its beats replaced by the window's outline. */
+export function storyPlanForWindow<T extends { segmentBeats: string[] }>(
+  plan: T | undefined,
+  window: readonly number[],
+): (Omit<T, "segmentBeats"> & { segmentBeatsOutline: Record<string, string> }) | undefined {
+  if (!plan) return undefined;
+  const { segmentBeats, ...rest } = plan;
+  return { ...rest, segmentBeatsOutline: arcOutline(segmentBeats, window) };
+}
+
+/**
+ * The plans for an agent writing a project-level document — the art direction,
+ * the visual bible — with every per-scene entry condensed to an outline line.
+ *
+ * Those agents need to know what happens where, not each scene's full
+ * direction, and the full maps are the part of the plans that grows with the
+ * project.
+ */
+export function planningPayloadOutline(plans: CreativePlans | undefined): CreativePlans | undefined {
+  const payload = planningPayload(plans);
+  if (!payload) return payload;
+  const outline = (map: Record<string, string> | undefined) =>
+    Object.fromEntries(Object.entries(map ?? {}).map(([key, entry]) => [key, condensed(entry)]));
+  return {
+    ...payload,
+    ...(payload.directorialPlan
+      ? { directorialPlan: { ...payload.directorialPlan, sceneIntent: outline(payload.directorialPlan.sceneIntent) } }
+      : {}),
+    ...(payload.cinematographyPlan
+      ? {
+          cinematographyPlan: {
+            ...payload.cinematographyPlan,
+            sceneShotPlans: outline(payload.cinematographyPlan.sceneShotPlans),
+          },
+        }
+      : {}),
+  };
+}
+
+/** How many entries before a window are repeated in full for continuity. */
+export const RECENT_ENTRIES = 3;
+
+/**
+ * What a continuation needs of the entries already written: the few just before
+ * its window in full — the shot it must pick the camera up from, the register
+ * it must not repeat — and, optionally, a condensed line for the rest.
+ *
+ * Sending every entry written so far grew each follow-up with the project; by
+ * the last window of a 50-segment plan that was forty-two full entries the
+ * window could not use.
+ */
+export function writtenBefore(
+  map: Record<string, string>,
+  window: readonly number[],
+  options: { outlineEarlier?: boolean } = {},
+): { alreadyWritten: Record<string, string>; earlierOutline?: Record<string, string> } {
+  const first = window[0] ?? 1;
+  const before: [number, string][] = [];
+  for (let n = 1; n < first; n += 1) {
+    const entry = planEntryFor(map, n);
+    if (entry) before.push([n, entry]);
+  }
+  const recent = new Set(before.slice(-RECENT_ENTRIES).map(([n]) => n));
+  const alreadyWritten: Record<string, string> = {};
+  const earlierOutline: Record<string, string> = {};
+  for (const [n, entry] of before) {
+    if (recent.has(n)) alreadyWritten[String(n)] = entry;
+    else if (options.outlineEarlier) earlierOutline[String(n)] = condensed(entry);
+  }
+  return {
+    alreadyWritten,
+    ...(options.outlineEarlier && Object.keys(earlierOutline).length ? { earlierOutline } : {}),
+  };
 }

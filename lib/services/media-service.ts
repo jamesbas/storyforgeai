@@ -42,6 +42,7 @@ import { getPlanningProvider } from "@/lib/agents/llm/provider";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
 import { editsEndFrame, referencesCarriedFrame } from "@/lib/agents/continuity";
+import { withCastNamed } from "@/lib/agents/cast";
 import { mapFiboDescription } from "@/lib/agents/fibo-prompt";
 import { CARRIED_FRAME_MATCH_INSTRUCTION as MATCH_INSTRUCTION } from "@/lib/agents/model-directives";
 import { storedSceneImageContext, videoContextFromImage } from "@/lib/agents/prompt-validation";
@@ -438,9 +439,15 @@ function endFrameIsCarried(record: ProjectRecord, scene: Scene): boolean {
  * Shared so a preview and the generation it stands in for compose identically.
  */
 function endFramePromptFor(record: ProjectRecord, scene: Scene, conditionOnStart: boolean): string {
-  const edit = conditionOnStart &&
+  const stored = conditionOnStart &&
     (record.project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY) === "reuse_end_frame"
     ? scene.prompts.endFrameEditPrompt
+    : undefined;
+  // Library characters in the closing frame, named in the edit even when the
+  // stored text leaves them out: it is the only text the end-frame render reads.
+  const cast = scene.charactersPresent ?? [];
+  const edit = stored
+    ? withCastNamed(stored, (scene.frameVisibility?.end ?? cast).filter((name) => cast.includes(name)))
     : undefined;
   const prompt = edit || scene.prompts.endFramePrompt;
   const match = !conditionOnStart || edit

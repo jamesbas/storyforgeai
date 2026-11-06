@@ -32,13 +32,18 @@ import {
   dontRestateDirective,
   firstWindow,
   firstWindowDirective,
+  planningPayloadOutline,
+  storyPlanForWindow,
   windowBeatsDirective,
   windowPlacementDirective,
+  writtenBefore,
 } from "@/lib/agents/segment-windows";
 import { echoedEntries } from "@/lib/agents/arc-repetition";
 import {
   planEntryFor,
   planningPayload,
+  planningPayloadForSegments,
+  planningProject,
   precedenceDirective,
   segmentsMissingFrom,
   type CreativePlans,
@@ -296,7 +301,7 @@ export async function worldBuilderAgent(
 ): Promise<WorldBible> {
   const conceptVisuals = conceptVisualsPayload(ctx.conceptVisuals);
   const user = JSON.stringify({
-    project,
+    project: planningProject(project),
     selectedDirection: directionOf(ctx.selectedVariant),
     cast: ctx.cast ?? [],
     storyPlan: ctx.storyPlan,
@@ -379,15 +384,19 @@ export async function directorAgent(
   provider: PlanningProvider | null,
   ctx: CanvasContext = {},
 ): Promise<DirectorialPlan> {
-  const payload = {
-    project,
+  // Built per window rather than once: the whole arc, and any per-scene plan
+  // from an earlier run, grew every request with the project until LM Studio
+  // rejected the first one for a 50-segment piece.
+  const payloadFor = (window: readonly number[]) => ({
+    project: planningProject(project),
     selectedDirection: directionOf(ctx.selectedVariant),
     cast: ctx.cast ?? [],
-    storyPlan: ctx.storyPlan,
-    plans: planningPayload(ctx.plans),
-  };
+    storyPlan: storyPlanForWindow(ctx.storyPlan, window),
+    plans: planningPayloadForSegments(ctx.plans, window),
+  });
   const beats = ctx.storyPlan?.segmentBeats;
   const opening = firstWindow(project.segmentCount);
+  const payload = payloadFor(opening);
   const base =
     DIRECTOR_SYSTEM +
     explicitnessDirective(project, "plan") +
@@ -435,8 +444,10 @@ export async function directorAgent(
             systemPromptScope: "agentic_canvas",
             read: (plan) => plan.sceneIntent,
             write: (plan, sceneIntent) => ({ ...plan, sceneIntent }),
-            // The whole arc is in the payload, which tells the model how the
-            // piece is paced and nothing about which beat segment 19 is.
+            payloadFor,
+            writtenFor: (map, _companion, window) => writtenBefore(map, window),
+            // The payload carries an outline of the arc, which tells the model how
+            // the piece is paced and nothing about which beat segment 19 is.
             continuationDirective: (window, segmentCount) =>
               windowPlacementDirective(window, segmentCount) +
               windowBeatsDirective(window, beats),
@@ -457,14 +468,17 @@ export async function cinematographerAgent(
   provider: PlanningProvider | null,
   ctx: CanvasContext = {},
 ): Promise<CinematographyPlan> {
-  const payload = {
-    project,
+  // Per window, like the Director's: the Director's intents for every scene
+  // rode on every request here as well, on top of the whole arc.
+  const payloadFor = (window: readonly number[]) => ({
+    project: planningProject(project),
     selectedDirection: directionOf(ctx.selectedVariant),
-    storyPlan: ctx.storyPlan,
-    plans: planningPayload(ctx.plans),
-  };
+    storyPlan: storyPlanForWindow(ctx.storyPlan, window),
+    plans: planningPayloadForSegments(ctx.plans, window),
+  });
   const beats = ctx.storyPlan?.segmentBeats;
   const opening = firstWindow(project.segmentCount);
+  const payload = payloadFor(opening);
   const base =
     CINEMATOGRAPHER_SYSTEM +
     cameraContinuityDirective(project) +
@@ -497,6 +511,10 @@ export async function cinematographerAgent(
             systemPromptScope: "agentic_canvas",
             read: (plan) => plan.sceneShotPlans,
             write: (plan, sceneShotPlans) => ({ ...plan, sceneShotPlans }),
+            payloadFor,
+            // The last few in full: a window has to start on the size the
+            // previous segment ended on, and that is all it needs from before.
+            writtenFor: (map, _companion, window) => writtenBefore(map, window),
             continuationDirective: (window, segmentCount) =>
               windowPlacementDirective(window, segmentCount) +
               windowBeatsDirective(window, beats),
@@ -518,11 +536,11 @@ export async function artDirectorAgent(
 ): Promise<ArtDirectionPlan> {
   const conceptVisuals = conceptVisualsPayload(ctx.conceptVisuals);
   const user = JSON.stringify({
-    project,
+    project: planningProject(project),
     selectedDirection: directionOf(ctx.selectedVariant),
     cast: ctx.cast ?? [],
     storyPlan: ctx.storyPlan,
-    plans: planningPayload(ctx.plans),
+    plans: planningPayloadOutline(ctx.plans),
     ...(conceptVisuals ? { conceptVisuals } : {}),
   });
 

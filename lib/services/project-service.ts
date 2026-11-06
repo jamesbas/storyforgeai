@@ -37,6 +37,7 @@ import { storyboardExportSchema } from "@/lib/schemas/exports";
 import type { SceneAttempt } from "@/lib/schemas/generation";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { Scene } from "@/lib/schemas/storyboard";
+import { carryEndFramesForward } from "@/lib/agents/continuity";
 import type { StoryboardSnapshot } from "@/lib/schemas/storyboard";
 import type {
   ArtDirectionPlan,
@@ -858,26 +859,41 @@ export async function updateScenePrompts(
 
   const scene = record.storyboard.scenes.find((s) => s.id === sceneId);
   if (!scene) throw new NotFoundError(`Scene ${sceneId} not found`);
-  const patched = { ...scene, prompts: applyScenePromptsPatch(scene.prompts, patch) };
-  patched.prompts.promptWarnings = storedPromptWarnings(patched, storedSceneImageContext(
-    record.project, patched, await resolveProjectCast(record.project), record.storyboard.visualBible,
+  const cast = await resolveProjectCast(record.project);
+  const withWarnings = (s: Scene): Scene => ({
+    ...s,
+    prompts: {
+      ...s.prompts,
+      promptWarnings: storedPromptWarnings(s, storedSceneImageContext(
+        record.project, s, cast, record.storyboard!.visualBible, record.storyboard!.scenes,
+      )),
+    },
+  });
+  const patched = withWarnings({ ...scene, prompts: applyScenePromptsPatch(scene.prompts, patch) });
+  // The next scene opens on this one's end frame, so its opening follows an edit.
+  const { scenes, carried } = carryEndFramesForward(
+    record.project,
     record.storyboard.scenes,
-  ));
+    record.storyboard.scenes.map((s) => (s.id === sceneId ? patched : s)),
+  );
+  const carriedTo = scenes.filter((s) => carried.includes(s.id));
 
   const updated: ProjectRecord = {
     ...record,
     storyboard: {
       ...record.storyboard,
-      scenes: record.storyboard.scenes.map((s) =>
-        s.id === sceneId ? patched : s,
-      ),
+      scenes: scenes.map((s) => (carried.includes(s.id) ? withWarnings(s) : s)),
     },
     project: { ...record.project, updatedAt: new Date().toISOString() },
-    history: appendHistory(record, "scene.prompts_edited", `Scene ${scene.sceneNumber}`),
+    history: appendHistory(
+      record,
+      "scene.prompts_edited",
+      `Scene ${scene.sceneNumber}${carriedTo.length ? `; opening of scene ${carriedTo[0]!.sceneNumber} follows it` : ""}`,
+    ),
   };
 
   await repository.update(id, updated);
-  logEvent("project.updated", { id, change: "scene_prompts", sceneId });
+  logEvent("project.updated", { id, change: "scene_prompts", sceneId, carriedTo: carried });
   return updated;
 }
 
@@ -1199,12 +1215,27 @@ export async function regenerateScenesPrompts(
       correlationId: run.correlationId,
     });
 
+    // A kept scene opening on a rewritten one would otherwise keep describing
+    // the ending that was just replaced.
+    const carriedForward = carryEndFramesForward(record.project, record.storyboard.scenes, rebuilt);
+    const scenes = carriedForward.scenes.map((s) => carriedForward.carried.includes(s.id)
+      ? {
+          ...s,
+          prompts: {
+            ...s.prompts,
+            promptWarnings: storedPromptWarnings(s, storedSceneImageContext(
+              record.project, s, cast, record.storyboard!.visualBible, carriedForward.scenes,
+            )),
+          },
+        }
+      : s);
+
     const detail = `${passLabel(options.passes)} — ${targets
       .map((s) => `Scene ${s.sceneNumber}`)
       .join(", ")}`;
     const updated: ProjectRecord = {
       ...record,
-      storyboard: { ...record.storyboard, scenes: rebuilt },
+      storyboard: { ...record.storyboard, scenes },
       executions: withExecutions(record.executions, run.executions),
       project: { ...record.project, updatedAt: new Date().toISOString() },
       history: appendHistory(record, "scene.prompts_rewritten", detail),

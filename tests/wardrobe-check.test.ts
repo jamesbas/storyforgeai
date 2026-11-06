@@ -175,10 +175,13 @@ describe("garments that are off the body", () => {
   it("are not counted as invented clothing", () => {
     const prompt = "Sara stands nude under the water. Her black lace bra and panties are pooled on the tile behind her.";
     expect(inventedGarments(prompt, "nude")).toEqual([]);
+    expect(inventedGarments("Black lace bra and panties lie in a dark heap lower-left on marble tile.", "nude")).toEqual([]);
   });
 
   it("still count when the same clause says they are worn", () => {
     expect(inventedGarments("Sara is wearing a bra, her robe dropped on the floor.", "nude")).toContain("bra");
     expect(inventedGarments("Sara stands in a white shirt.", "nude")).toContain("shirt");
+    expect(inventedGarments("A white shirt is buttoned to his throat.", "nude")).toContain("shirt");
+    expect(inventedGarments("She lies on the bed in silk shorts.", "nude")).toContain("shorts");
   });
 });

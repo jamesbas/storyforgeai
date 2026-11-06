@@ -2,6 +2,7 @@ import { creativeBriefSchema, type CreativeBrief } from "@/lib/schemas/agents";
 import { buildCreativeBrief } from "@/lib/agents/mock-agents";
 import { conceptVisualsDirective, conceptVisualsPayload } from "@/lib/agents/concept-visuals";
 import { executeArtifact, providerCall } from "@/lib/agents/provenance";
+import { planningProject } from "@/lib/agents/creative-context";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import type { AgentContext } from "@/lib/agents/types";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
@@ -18,7 +19,7 @@ export async function intakeAgent(
 ): Promise<CreativeBrief> {
   const conceptVisuals = conceptVisualsPayload(ctx.conceptVisuals);
   const user = JSON.stringify({
-    project: ctx.project,
+    project: planningProject(ctx.project),
     ...(conceptVisuals ? { conceptVisuals } : {}),
   });
 

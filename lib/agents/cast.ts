@@ -389,6 +389,37 @@ function unstatedWardrobe(
 }
 
 /**
+ * Name every library character an edit prompt leaves unnamed.
+ *
+ * An edit prompt carries no appended character sheet — it describes what
+ * changes, not who everyone is — so a person is named only if the model wrote
+ * the name. Scene 1's came back as "a middle-aged blonde woman", and with the
+ * character LoRA keyed to the name and no trigger words configured, nothing
+ * else in the end-frame render would have named her. The name is stated right
+ * after the edit's opening sentence, where it also gives "the named
+ * characters" in the template someone to refer to.
+ */
+export function withCastNamed(prompt: string, names: readonly string[]): string {
+  const text = prompt.trim();
+  if (!text || text.startsWith("{")) return prompt;
+  const missing = [...new Set(names.map((name) => name.trim()).filter(Boolean))].filter((name) => {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return !new RegExp(`(?<![\\p{L}\\p{N}])${escaped}(?![\\p{L}\\p{N}])`, "iu").test(text);
+  });
+  if (!missing.length) return prompt;
+  const list = missing.length === 1
+    ? missing[0]
+    : `${missing.slice(0, -1).join(", ")} and ${missing.at(-1)}`;
+  const sentence = names.length === 1
+    ? `The person in this frame is ${list}.`
+    : `The people in this frame include ${list}.`;
+  const firstEnd = text.search(/[.!?](?:\s|$)/);
+  return firstEnd < 0
+    ? `${text} ${sentence}`
+    : `${text.slice(0, firstEnd + 1)} ${sentence}${text.slice(firstEnd + 1)}`;
+}
+
+/**
  * The video-prompt equivalent: names and one preservation instruction.
  *
  * A clip is rendered from its start frame, which already fixes every face,

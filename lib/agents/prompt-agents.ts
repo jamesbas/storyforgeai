@@ -32,8 +32,10 @@ import {
   castNegativeSuffix,
   castPromptSuffix,
   castSystemDirective,
+  withCastNamed,
 } from "@/lib/agents/cast";
 import { editsEndFrame, referencesCarriedFrame, seamDirective } from "@/lib/agents/continuity";
+import { revealUnstated, VISIBLE_RESULT_DIRECTIVE } from "@/lib/agents/clothing-wording";
 import { lookPromptSuffix, placeLook } from "@/lib/agents/look";
 import { normaliseNegative } from "@/lib/agents/negative-prompt";
 import {
@@ -270,6 +272,24 @@ function wardrobeChangeDirective(wardrobe: SceneWardrobe | undefined): string {
   );
 }
 
+/**
+ * Name the frames whose approved wardrobe moves clothing without saying what is
+ * bare, so the prompt states the visible result instead of copying the garment.
+ */
+function revealDirective(byFrame: { start: Record<string, string>; end: Record<string, string> }): string {
+  const vague = (["start", "end"] as const).flatMap((frame) =>
+    Object.entries(byFrame[frame])
+      .filter(([, outfit]) => revealUnstated(outfit))
+      .map(([name, outfit]) => `${name} in the ${frame} frame ("${outfit}")`));
+  if (!vague.length) return "";
+  return (
+    ` The approved wardrobe for ${vague.join(" and ")} says where a garment has moved but not ` +
+    "what that leaves bare. Read the scene's action for what is now uncovered and write it " +
+    "plainly — for example 'topless' or 'her breasts bare' — instead of repeating the garment's " +
+    "position."
+  );
+}
+
 function videoFamilyFor(project: Project) {
   return familyOf(project.videoModel || config.wangp.videoModel);
 }
@@ -478,10 +498,15 @@ export async function attachScenePrompts(
         cast.find((person) => person.id === change.characterId)?.name ?? change.subject ?? ""),
       startFrame: imagePart.startFramePrompt, endFrame: imagePart.endFramePrompt,
     };
+    // Library characters in the closing frame: an edit prompt must name each
+    // one, since a character LoRA keyed to the name has nothing else to fire on.
+    const endCastNames = sceneCast
+      .map((person) => person.name)
+      .filter((name) => frameParticipants.end.names.includes(name));
     if (!skipImage && editsCarriedFrame) {
-      imagePart.endFrameEditPrompt = buildCarriedFrameEditPrompt(
+      imagePart.endFrameEditPrompt = withCastNamed(buildCarriedFrameEditPrompt(
         imagePart.endFramePrompt, Boolean(wardrobe?.within.length),
-      );
+      ), endCastNames);
     }
 
     if (!provider) {
@@ -635,10 +660,13 @@ export async function attachScenePrompts(
       };
       const gatedVideo: ClipSalvage = { initial: [], salvaged: [], unresolved: [] };
       const finaliseImagePart = (part: ImagePart): ImagePart => {
-        const final = withCastEnforced(
+        const enforced = withCastEnforced(
           normaliseImageResult(part, project, draft, plans, wardrobe, imageFamily),
           sceneCast, plans, project, wardrobe, draft, imageFamily, sceneSetting,
         );
+        const final = enforced.endFrameEditPrompt
+          ? { ...enforced, endFrameEditPrompt: withCastNamed(enforced.endFrameEditPrompt, endCastNames) }
+          : enforced;
         return inheritedStartFramePrompt === undefined
           ? final
           : { ...final, startFramePrompt: inheritedStartFramePrompt };
@@ -665,6 +693,8 @@ export async function attachScenePrompts(
               IMAGE_PROMPT_SYSTEM +
                 " Depict only the current scene's stated action. Audience and tone do not authorize extra events, people or wardrobe changes. " +
                 wardrobeChangeDirective(wardrobe) +
+                VISIBLE_RESULT_DIRECTIVE +
+                revealDirective(currentWardrobe) +
                 imagePromptDirective(imageFamily) +
                 seamDirective(project) +
                 castSystemDirective(sceneCast, true) +

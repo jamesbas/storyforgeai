@@ -1139,7 +1139,10 @@ export default function HelpPage() {
             its person, wardrobe and set into the rest of the piece. Each inherited opening keeps
             the preceding accepted closing-frame prompt exactly, even if this scene&apos;s card
             describes a different shot. New framing belongs in the closing frame rather than
-            resetting the opening. The edit is sent only when its source frame is actually
+            resetting the opening. Editing a closing-frame prompt by hand — in the scene&apos;s
+            prompt panel, with the prompt tools, or by rewriting just that scene — updates the
+            next scene&apos;s opening to match, so there is nothing to copy across; a planned cut
+            keeps its own opening. The edit is sent only when its source frame is actually
             supplied; disabling references, the scene&apos;s own opt-out, the no-clip arrival
             safeguard, or a pinned model that accepts no source image uses the stored creation
             prompt instead. Existing storyboards need <strong>Rewrite all image prompts</strong> to

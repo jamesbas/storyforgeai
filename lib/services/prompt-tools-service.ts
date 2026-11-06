@@ -19,6 +19,7 @@ import { activeTask } from "@/lib/tasks/task-service";
 import { logEvent } from "@/lib/telemetry";
 import { fiboTextPreserved, mapFiboDescription } from "@/lib/agents/fibo-prompt";
 import { storedSceneImageContext, storedPromptWarnings } from "@/lib/agents/prompt-validation";
+import { carryEndFramesForward } from "@/lib/agents/continuity";
 import { resolveProjectCast } from "@/lib/services/character-service";
 
 async function assertIdle(projectId: string): Promise<void> {
@@ -58,15 +59,24 @@ async function savePrompts(
   change: string,
 ): Promise<ProjectRecord> {
   const cast = await resolveProjectCast(record.project);
-  const updatedScenes = record.storyboard!.scenes.map((scene) => {
-    const patch = patches.get(scene.id);
-    if (!patch) return scene;
-    const updated = { ...scene, prompts: applyScenePromptsPatch(scene.prompts, patch) };
-    updated.prompts.promptWarnings = storedPromptWarnings(updated, storedSceneImageContext(
-      record.project, updated, cast, record.storyboard!.visualBible, record.storyboard!.scenes,
-    ));
-    return updated;
+  const withWarnings = (scene: Scene): Scene => ({
+    ...scene,
+    prompts: {
+      ...scene.prompts,
+      promptWarnings: storedPromptWarnings(scene, storedSceneImageContext(
+        record.project, scene, cast, record.storyboard!.visualBible, record.storyboard!.scenes,
+      )),
+    },
   });
+  const patchedScenes = record.storyboard!.scenes.map((scene) => {
+    const patch = patches.get(scene.id);
+    return patch ? { ...scene, prompts: applyScenePromptsPatch(scene.prompts, patch) } : scene;
+  });
+  // An edited ending carries into the opening of the scene that inherits it.
+  const { scenes: carriedScenes, carried } =
+    carryEndFramesForward(record.project, record.storyboard!.scenes, patchedScenes);
+  const updatedScenes = carriedScenes.map((scene) =>
+    patches.has(scene.id) || carried.includes(scene.id) ? withWarnings(scene) : scene);
   let historyRecord = record;
   for (const scene of record.storyboard!.scenes) {
     if (patches.has(scene.id)) {

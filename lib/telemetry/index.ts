@@ -50,6 +50,7 @@ export type TelemetryEvent =
   | "wangp.discovery"
   | "agent.segment_gap_filled"
   | "agent.arc_climax_early"
+  | "storyboard.wardrobe_reveal_unstated"
   | "wangp.discovery.unpaged"
   | "wangp.discovery.warm_failed"
   | "wangp.model.selected"

@@ -11,15 +11,21 @@ export const PROMPT_VERSIONS = {
   // every window reports its continued segments and the climax.
   // v3: a climax the user named is quoted and declared not the model's to
   // change, and a chosen aftermath count replaces the automatic budget.
-  storyArchitect: "story-architect-v3",
+  // v4: beats say what a lowered or removed garment leaves visible, and keep
+  // garments where the pose allows.
+  storyArchitect: "story-architect-v4",
   visualBible: "visual-bible-v2",
   // v2: each batch is handed the wardrobe as it stands after the changes
   // declared so far, and the undressing case is stated as a requirement.
-  storyboard: "storyboard-v4",
+  // v5: wardrobe states say what is now bare, not only where the garment went.
+  storyboard: "storyboard-v5",
   // v10: Krea 2 is told its published prompting rules — natural-language
   // paragraph, bound attributes, concrete light and materials, quoted lettering,
   // no quality tags or weighting syntax, and a short task-specific negative.
-  imagePrompt: "image-prompt-v10",
+  // v11: every scene's closing frame is an edit (its own opening where nothing
+  // is carried), each frame is given its target framing, and a vague wardrobe
+  // state is named so the visible result is written out.
+  imagePrompt: "image-prompt-v11",
   // v4: a scene continuing from the one before it is handed its actual opening
   // frame in the payload, not just told about it in the system prompt.
   videoPrompt: "video-prompt-v7",

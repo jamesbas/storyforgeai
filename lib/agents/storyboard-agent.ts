@@ -6,8 +6,9 @@ import { castSystemDirective } from "@/lib/agents/cast";
 import { seamDirective } from "@/lib/agents/continuity";
 import { creativeModeDirective } from "@/lib/agents/look";
 import { explicitnessDirective } from "@/lib/agents/explicitness";
-import { planningPayloadForSegments, precedenceDirective } from "@/lib/agents/creative-context";
+import { planningPayloadForSegments, planningProject, precedenceDirective } from "@/lib/agents/creative-context";
 import { castWardrobeAfter } from "@/lib/agents/wardrobe";
+import { revealUnstated, VISIBLE_RESULT_DIRECTIVE } from "@/lib/agents/clothing-wording";
 import { composeExecution, executeArtifact, providerCall } from "@/lib/agents/provenance";
 import { countWords, dialogueWordTargets, lintDialogue } from "@/lib/agents/media-prompt-spec";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
@@ -107,7 +108,12 @@ export const storyboardSystem = (segmentSeconds: number) =>
   "Whenever a scene reaches the point where someone is no longer dressed, record it: \"nude\" " +
   "when they are wearing nothing, or the specific remaining garments when they are partly " +
   "dressed, with depictedOnScreen true if the undressing itself is what the scene shows. Never " +
-  "describe an intimate act and leave the outfit standing. " +
+  "describe an intimate act and leave the outfit standing." +
+  // The wardrobe state is appended to every render prompt, so a state that
+  // only says where the garment went renders the garment where it was.
+  VISIBLE_RESULT_DIRECTIVE +
+  " That applies to newWardrobe above all: write 'topless, black lace bra hanging from her " +
+  "wrists, black lace panties' rather than 'bra hanging loose from her arms'. " +
   "Do not write image prompts or video prompts yet. " +
   "Return only valid JSON.";
 
@@ -398,7 +404,7 @@ export async function storyboardAgent(
     // wearing now rather than what the project started them in.
     const now = castWardrobeAfter(cast, scenes);
     const user = JSON.stringify({
-      project: ctx.project,
+      project: planningProject(ctx.project),
       brief,
       visualBible,
       cast: now.cast,
@@ -475,6 +481,15 @@ export async function storyboardAgent(
   const dialogueWarnings = scenes.flatMap((card, index) =>
     lintDialogue(card.dialogue ?? [], sceneSeconds(ctx.project, index + 1)).length ? [index + 1] : [],
   );
+  // Reported, not rewritten: whether a lowered bra leaves her topless is the
+  // story's call. Surfacing it is what lets someone fix the card before the
+  // wardrobe is appended to every render prompt that follows it.
+  const vagueWardrobe = scenes.flatMap((card, index) =>
+    (card.wardrobeChanges ?? []).some((change) => revealUnstated(change.newWardrobe)) ? [index + 1] : [],
+  );
+  if (vagueWardrobe.length) {
+    logEvent("storyboard.wardrobe_reveal_unstated", { projectId: ctx.project.id, scenes: vagueWardrobe });
+  }
   ctx.onExecution?.(
     composeExecution({
       artifact: "storyboard",
@@ -484,12 +499,17 @@ export async function storyboardAgent(
       builderVersion: BUILDER_VERSION,
       provider: provider.name,
       ...(modelsUsed.size ? { model: [...modelsUsed].join(", ") } : {}),
-      source: fromLlm === 0 ? "deterministic" : builderFilled || dialogueWarnings.length ? "hybrid" : "llm",
-      fallbackReason: builderFilled ? batchReason ?? "unknown" : dialogueWarnings.length ? "invalid_set" : undefined,
+      source: fromLlm === 0 ? "deterministic" : builderFilled || dialogueWarnings.length || vagueWardrobe.length ? "hybrid" : "llm",
+      fallbackReason: builderFilled
+        ? batchReason ?? "unknown"
+        : dialogueWarnings.length || vagueWardrobe.length ? "invalid_set" : undefined,
       detail: [
         ...(builderFilled ? [`${fromLlm} of ${wanted} scene cards written by the model`] : []),
         ...(dialogueWarnings.length
           ? [`Dialogue length needs review in scenes ${dialogueWarnings.join(", ")}; original lines kept.`]
+          : []),
+        ...(vagueWardrobe.length
+          ? [`Wardrobe in scenes ${vagueWardrobe.join(", ")} moves clothing without saying what is bare; review the costume change.`]
           : []),
       ].join("; ") || undefined,
       attempted: { total: wanted, fromLlm },

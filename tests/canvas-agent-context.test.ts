@@ -202,8 +202,14 @@ describe("what each canvas agent is shown", () => {
       const { calls, provider } = recorder();
       await agent(project, provider, { ...ctx, storyPlan });
 
-      const payload = JSON.parse(calls[0]!.user) as { storyPlan?: { segmentBeats: string[] } };
-      expect(payload.storyPlan?.segmentBeats).toHaveLength(3);
+      const payload = JSON.parse(calls[0]!.user) as {
+        storyPlan?: { segmentBeats?: string[]; segmentBeatsOutline: Record<string, string> };
+      };
+      // A short piece fits one window, so every beat arrives in full.
+      expect(payload.storyPlan?.segmentBeatsOutline).toEqual({
+        "1": "She locks the door.", "2": "The mural shifts.", "3": "She sits down to watch.",
+      });
+      expect(payload.storyPlan?.segmentBeats).toBeUndefined();
     }
   });
 

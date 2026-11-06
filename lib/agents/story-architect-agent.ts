@@ -20,7 +20,10 @@ import {
   firstWindowDirective,
   needsWindowing,
   windowPlacementDirective,
+  writtenBefore,
 } from "@/lib/agents/segment-windows";
+import { planningProject } from "@/lib/agents/creative-context";
+import { VISIBLE_RESULT_DIRECTIVE } from "@/lib/agents/clothing-wording";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import { logEvent } from "@/lib/telemetry";
 import { SEGMENT_SECONDS } from "@/lib/types";
@@ -170,6 +173,9 @@ export const storyArchitectSystem = (
   "then later make up\" cannot be rendered. Name the subject, what they are doing, and where. " +
   "A beat marks a change rather than a description of a state: each one must leave the situation " +
   "different from how it started, and the difference must be something an audience could see. " +
+  // The arc is where scene 1's "cups falling loose into her lap" began: every
+  // later agent copied a standing woman's lap and a bra that never came off.
+  VISIBLE_RESULT_DIRECTIVE +
   sustainedActionDirective(segmentSeconds) +
   denouementDirective(segmentCount, climax) +
   climaxDirective(segmentCount, climax) +
@@ -337,7 +343,7 @@ export async function storyArchitectAgent(
   ctx: AgentContext,
   provider: PlanningProvider | null,
 ): Promise<StoryPlan> {
-  const payload = { project: ctx.project, brief: ctx.brief };
+  const payload = { project: planningProject(ctx.project), brief: ctx.brief };
   const user = JSON.stringify(payload);
   const climax = climaxPlanOf(ctx.project);
   const base =
@@ -390,6 +396,13 @@ export async function storyArchitectAgent(
             write: (plan, map) => ({
               ...plan,
               segmentBeats: asSegmentMap.write(map, ctx.project.segmentCount),
+            }),
+            // The arc so far as an outline with the last few beats in full: the
+            // story is carried on from where it stands, without every beat
+            // written so far riding on each window.
+            writtenFor: (map, emotions, window) => ({
+              ...writtenBefore(map, window, { outlineEarlier: true }),
+              alreadyWritten_emotions: emotions,
             }),
             // Written with the beat it belongs to. Filled separately from the
             // deterministic template, it contradicted it.

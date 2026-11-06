@@ -3,7 +3,8 @@ import { buildVisualBible } from "@/lib/agents/mock-agents";
 import { castSystemDirective } from "@/lib/agents/cast";
 import { plainClothing } from "@/lib/agents/clothing-wording";
 import { conceptVisualsDirective, conceptVisualsPayload } from "@/lib/agents/concept-visuals";
-import { planningPayload, precedenceDirective } from "@/lib/agents/creative-context";
+import { planningProject, precedenceDirective } from "@/lib/agents/creative-context";
+import { planningPayloadOutline } from "@/lib/agents/segment-windows";
 import { executeArtifact, providerCall } from "@/lib/agents/provenance";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import type { Character } from "@/lib/schemas/character";
@@ -30,14 +31,14 @@ export async function visualBibleAgent(
 ): Promise<VisualBible> {
   const cast = ctx.cast ?? [];
 
-  // The planning agents get the plan documents whole: they run once and emit
-  // prose, so context budget is not the constraint it is for render prompts.
+  // The plan documents are handed over with their per-scene entries condensed:
+  // this writes one project-level bible, and the full maps grow with the piece.
   const conceptVisuals = conceptVisualsPayload(ctx.conceptVisuals);
   const user = JSON.stringify({
-    project: ctx.project,
+    project: planningProject(ctx.project),
     brief: ctx.brief,
     cast,
-    plans: planningPayload(ctx.plans),
+    plans: planningPayloadOutline(ctx.plans),
     ...(conceptVisuals ? { conceptVisuals } : {}),
   });
 

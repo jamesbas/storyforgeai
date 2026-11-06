@@ -1,6 +1,8 @@
-import { DEFAULT_SCENE_CONTINUITY } from "@/lib/types";
+import { DEFAULT_SCENE_CONTINUITY, generationStages } from "@/lib/types";
 import type { Project } from "@/lib/schemas/project";
+import type { Scene } from "@/lib/schemas/storyboard";
 import { config } from "@/lib/config";
+import { seamBreak } from "@/lib/media/seam";
 
 /** Shared by prompt authorship and rendering; a scene may only opt out. */
 export function referencesCarriedFrame(project: Project, sceneId: string, inherited: boolean): boolean {
@@ -21,6 +23,55 @@ export function referencesCarriedFrame(project: Project, sceneId: string, inheri
 export function editsEndFrame(project: Project, sceneId: string): boolean {
   return (project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY) === "reuse_end_frame" &&
     referencesCarriedFrame(project, sceneId, true);
+}
+
+/**
+ * Carry a changed closing-frame prompt into the opening of the scene after it.
+ *
+ * Under `reuse_end_frame` the next scene opens on this scene's end frame, so its
+ * start prompt has to describe that same picture. It was kept in step only when
+ * the prompts were written together: a hand edit, a bulk prompt tool, or a
+ * rewrite of one scene left the next scene's opening describing the old ending
+ * and had to be copied across by hand.
+ *
+ * Only where the next scene was going to open on this frame — its opening is
+ * a copy of the old ending, or the seam between them continues — and only
+ * when the same change did not set that opening itself. A planned cut keeps
+ * the opening it was written with.
+ */
+export function carryEndFramesForward(
+  project: Project,
+  before: readonly Scene[],
+  after: readonly Scene[],
+): { scenes: Scene[]; carried: string[] } {
+  if ((project.sceneContinuity ?? DEFAULT_SCENE_CONTINUITY) !== "reuse_end_frame") {
+    return { scenes: [...after], carried: [] };
+  }
+  const options = { clipCarriesArrivals: generationStages(project.generationMode).video };
+  const old = new Map(before.map((scene) => [scene.id, scene] as const));
+  const scenes = [...after];
+  const order = scenes
+    .map((scene, index) => ({ scene, index }))
+    .sort((a, b) => a.scene.sceneNumber - b.scene.sceneNumber);
+  const carried: string[] = [];
+  for (let i = 0; i + 1 < order.length; i += 1) {
+    const current = scenes[order[i]!.index]!;
+    const nextIndex = order[i + 1]!.index;
+    const next = scenes[nextIndex]!;
+    if (next.sceneNumber !== current.sceneNumber + 1) continue;
+    const wasCurrent = old.get(current.id);
+    const wasNext = old.get(next.id);
+    if (!wasCurrent || !wasNext) continue;
+    const newEnd = current.prompts.endFramePrompt;
+    if (newEnd === wasCurrent.prompts.endFramePrompt) continue;
+    if (next.prompts.startFramePrompt !== wasNext.prompts.startFramePrompt) continue;
+    const opensOnIt = wasNext.prompts.startFramePrompt === wasCurrent.prompts.endFramePrompt ||
+      !seamBreak(wasCurrent, wasNext, options);
+    if (!opensOnIt || next.prompts.startFramePrompt === newEnd) continue;
+    scenes[nextIndex] = { ...next, prompts: { ...next.prompts, startFramePrompt: newEnd } };
+    carried.push(next.id);
+  }
+  return { scenes, carried };
 }
 
 /**

@@ -129,6 +129,21 @@ export function withSegmentGapsFilled<T>(
     continuationDirective?: (window: readonly number[], segmentCount: number | undefined) => string;
     /** Extra payload for this window, merged into the follow-up's JSON. */
     windowContext?: (window: readonly number[]) => Record<string, unknown>;
+    /**
+     * The payload for one window, replacing `payload`. Lets a caller send only
+     * the part of the arc a window covers, so a request stays the same size
+     * however long the project is.
+     */
+    payloadFor?: (window: readonly number[]) => Record<string, unknown>;
+    /**
+     * What of the entries already written goes with a window, replacing the
+     * whole map. The whole map grew every follow-up with the project.
+     */
+    writtenFor?: (
+      map: Record<string, string>,
+      companionMap: Record<string, string>,
+      window: readonly number[],
+    ) => Record<string, unknown>;
     extras?: FollowUpExtras<T>;
   },
 ): () => Promise<ProviderResult<T>> {
@@ -163,9 +178,13 @@ export function withSegmentGapsFilled<T>(
           `rather than restarting it, summarising it, or repeating what it already says.` +
           (options.continuationDirective?.(window, options.segmentCount) ?? ""),
         JSON.stringify({
-          ...options.payload,
-          alreadyWritten: map,
-          ...(companion ? { [`alreadyWritten_${companion.key}`]: companionMap } : {}),
+          ...(options.payloadFor?.(window) ?? options.payload),
+          ...(options.writtenFor
+            ? options.writtenFor(map, companionMap, window)
+            : {
+                alreadyWritten: map,
+                ...(companion ? { [`alreadyWritten_${companion.key}`]: companionMap } : {}),
+              }),
           ...(extras?.payload?.(current) ?? {}),
           ...(options.windowContext?.(window) ?? {}),
           writeOnlyTheseSegments: window,

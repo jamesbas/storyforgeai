@@ -28,6 +28,33 @@ export type CreativePlans = {
   artDirectionPlan?: ArtDirectionPlan;
 };
 
+/**
+ * Project fields a planning agent has no use for: render settings, and the
+ * per-scene bookkeeping that grows with the storyboard.
+ */
+const RENDER_ONLY_PROJECT_FIELDS = [
+  "resolutionPreset", "videoResolutionPreset", "modelStrategy", "imageModel", "videoModel",
+  "videoTier", "imageSteps", "videoSteps", "qcEnabled", "characterIds",
+  "useCharacterReferenceImages", "videoCharacterReferences", "videoReferencesPerCharacter",
+  "endFrameReferences", "conceptImages", "wardrobeChanges", "loras", "sceneLoras",
+  "sceneSeeds", "sceneEndFrameRefs", "openingFrame", "status", "createdAt", "updatedAt",
+] as const;
+
+/**
+ * The project as a planning agent needs it: the creative brief and the shape of
+ * the piece, without its render settings.
+ *
+ * The whole record rode on every planning request, and part of it grows with
+ * the storyboard — a seed and wardrobe entry per scene. On a 50-scene project it
+ * came to about 4,000 tokens per request, half of it those two maps, on requests
+ * LM Studio was already rejecting for exceeding the context window.
+ */
+export function planningProject<T extends object>(project: T): Partial<T> {
+  const kept: Record<string, unknown> = { ...(project as Record<string, unknown>) };
+  for (const field of RENDER_ONLY_PROJECT_FIELDS) delete kept[field];
+  return kept as Partial<T>;
+}
+
 export function hasCreativePlans(plans: CreativePlans | undefined): boolean {
   if (!plans) return false;
   return Boolean(

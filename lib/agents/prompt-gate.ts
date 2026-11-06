@@ -359,7 +359,7 @@ export function statedClothing(scene: SceneDraft): string {
  * bed" describes a person, "her bra and panties are pooled on the tile" does not.
  */
 const DISCARDED_AFTER =
-  /^(?:(?!\b(?:she|he|they|her|his|their|him|them|wears?|wearing)\b)[^.;,]){0,30}?\b(?:pool(?:s|ed|ing)?|discarded|dropped|heaped|crumpled|tossed|kicked (?:aside|away|off)|folded|abandoned|cast aside|(?:is|are|lies|lie|lying|lay|left|sits?|rests?|resting) (?:on|across|over) (?:the|a) (?:floor|tiles?|ground|bath ?mat|counter|chair|hook|rail)|on the (?:floor|tiles?|ground)|at (?:her|his|their) feet)\b/i;
+  /^(?:(?!\b(?:she|he|they|her|his|their|him|them|wears?|wearing)\b)[^.;,]){0,30}?\b(?:pool(?:s|ed|ing)?|discarded|dropped|heap(?:s|ed)?|piled?|crumpled|tossed|kicked (?:aside|away|off)|folded|abandoned|cast aside|(?:lies|lie|lying|lay|left)\b|on (?:the |a )?(?:[\w-]+ ){0,2}(?:floor|tiles?|ground|bath ?mat|counter|chair|hook|rail)|at (?:her|his|their) feet)\b/i;
 const DISCARDED_BEFORE = /\b(?:discarded|crumpled|folded|abandoned|dropped|tossed|pooled|shed)\s+(?:[\w-]+\s+){0,3}$/i;
 
 /**
