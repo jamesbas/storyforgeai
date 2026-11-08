@@ -484,7 +484,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
               </span>
             </label>
             <p className="text-[11px] text-slate-500">
-              Times measured on {ESTIMATE_HARDWARE} at 848×480, without step skipping. Yours will
+              Times measured on {ESTIMATE_HARDWARE} at 832×480, without step skipping. Yours will
               differ — the ratio between the two options is the part that travels. Selecting{" "}
               <em>Spectrum</em> step skipping for this model in the WanGP UI took reference mode to
               about {ref2vaAcceleratedMinutes(castSize)} min with no visible cost, and StoryForgeAI
@@ -694,10 +694,10 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
 
           {(
             [
-              ["Keyframes", project.resolutionPreset, undefined] as const,
-              ["Clips", videoPreset, videoCeiling] as const,
+              ["Keyframes", project.resolutionPreset, undefined, undefined] as const,
+              ["Clips", videoPreset, videoCeiling, videoFamily] as const,
             ]
-          ).map(([label, current, ceiling]) => (
+          ).map(([label, current, ceiling, family]) => (
             <div key={label} className="space-y-1">
               <span className="text-xs text-slate-400">{label}</span>
               <div className="flex flex-wrap gap-2">
@@ -730,6 +730,7 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
                           aspectRatio: project.aspectRatio,
                           preset,
                           fallback: "model default",
+                          family,
                         })}
                       </span>
                     </button>
@@ -744,6 +745,15 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
               This video model is held at <strong>{videoCeiling}</strong> for clips however this is
               set: it is slow enough at larger sizes that its own developers recommend rendering
               small and upscaling afterwards, which is what happens here.
+            </p>
+          ) : null}
+
+          {isMinimaxFamily(videoFamily) ? (
+            <p className="text-xs text-slate-400" data-testid="video-resolution-h3">
+              MiniMax H3 renders clips natively at every size offered here, on a 32-pixel grid —
+              hence 1280×704 rather than 1280×720. The H3 render times on this screen were measured
+              at draft; standard is a little over twice the pixels and high four to five times, and
+              the time grows at least as fast.
             </p>
           ) : null}
         </div>

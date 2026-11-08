@@ -1078,7 +1078,16 @@ are what fix identity, wardrobe and set — have no reason to be small.
 raised to a model's ceiling, the same one-directional rule the per-scene end-frame
 override follows. A clamp emits `wangp.resolution.clamped`, because a render that
 quietly came out at a different size than the settings screen shows is invisible
-otherwise.
+otherwise. No family is currently capped. MiniMax H3 was held at `draft` until
+2.96, when it was confirmed that WanGP declares a 2048x2048 one-pass budget for every H3
+variant, so all three presets are sizes it accepts; it now renders the chosen
+preset natively and has `spatial_upsampling` cleared, so an upscaler left in
+WanGP's saved state by a capped render is not inherited.
+
+H3's `vae_block_size` is 32, and WanGP floors each dimension onto it, so
+`resolveResolution` does the same for the minimax families: 16:9 renders at
+832x480, 1280x704 and 1920x1088. The settings screen and the
+`wangp.resolution.resolved` event therefore show the size the clip really has.
 
 Scene prompts are hand-editable via `PATCH /scenes/:sceneId/prompts`, which writes
 into the storyboard snapshot rather than beside it. That preserves the invariant

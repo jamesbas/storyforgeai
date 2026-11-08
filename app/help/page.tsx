@@ -314,10 +314,11 @@ export default function HelpPage() {
             Keyframes and clips are set separately on the project settings screen. They are different
             budgets: a video model can be slow enough that large clips are impractical, while the
             keyframes — which are what fix identity, wardrobe and set — have no reason to be rendered
-            small. Some video models are held at a maximum whatever you pick, because their own
-            developers recommend rendering small and upscaling afterwards rather than generating
-            large; where that applies, StoryForgeAI also asks WanGP for the upscale rather than
-            leaving it to whatever was last selected there.
+            small. A video model can be held at a maximum whatever you pick if it is impractical
+            above it; where that applies, StoryForgeAI also asks WanGP for the upscale rather than
+            leaving it to whatever was last selected there. No model is currently held: MiniMax H3
+            renders at all three sizes, snapped to its 32-pixel grid (832×480, 1280×704,
+            1920×1088 at 16:9), and is much slower at the larger two.
           </p>
           <p className={p}>
             The floor exists because WanGP reports whatever was last set in its own UI as a

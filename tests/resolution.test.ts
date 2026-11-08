@@ -46,6 +46,42 @@ describe("frame size from aspect ratio", () => {
   });
 });
 
+/**
+ * H3's `vae_block_size` is 32 and WanGP floors every dimension onto it, which
+ * is why its own UI lists 1280x704. These are the sizes Wan2GP renders.
+ */
+describe("MiniMax H3's 32-pixel grid", () => {
+  it.each([
+    ["16:9", "draft", "832x480"],
+    ["16:9", "standard", "1280x704"],
+    ["16:9", "high", "1920x1088"],
+    ["9:16", "standard", "704x1280"],
+    ["1:1", "high", "1024x1024"],
+  ] as const)("renders %s %s at %s", (aspectRatio, preset, expected) => {
+    for (const family of ["minimax", "minimax_ref2va"] as const) {
+      expect(resolveResolution({ ...base, aspectRatio, preset, family })).toBe(expected);
+    }
+  });
+
+  it("stays within WanGP's 2048x2048 budget for H3 at every preset", () => {
+    for (const aspectRatio of ["16:9", "9:16", "1:1"] as const) {
+      for (const preset of ["draft", "standard", "high"] as const) {
+        const [w, h] = resolveResolution({ ...base, aspectRatio, preset, family: "minimax" })
+          .split("x")
+          .map(Number);
+        expect(w! % 32).toBe(0);
+        expect(h! % 32).toBe(0);
+        expect(w! * h!).toBeLessThanOrEqual(2048 * 2048);
+      }
+    }
+  });
+
+  it("leaves other families on the table's 16-pixel sizes", () => {
+    expect(resolveResolution({ ...base, aspectRatio: "16:9", preset: "standard", family: "wan" }))
+      .toBe("1280x720");
+  });
+});
+
 describe("snapping to what the model offers", () => {
   it("keeps an exact match", () => {
     expect(

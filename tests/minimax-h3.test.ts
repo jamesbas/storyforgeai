@@ -264,10 +264,16 @@ describe("a video model that cannot take keyframes", () => {
 });
 
 describe("video resolution ceiling", () => {
-  it("holds MiniMax down to draft", () => {
-    expect(videoResolutionCeiling("minimax")).toBe("draft");
-    expect(clampPreset("high", videoResolutionCeiling("minimax"))).toBe("draft");
-    expect(clampPreset("standard", videoResolutionCeiling("minimax"))).toBe("draft");
+  /**
+   * WanGP declares a 2048x2048 one-pass budget for every H3 variant, so the
+   * old draft cap was StoryForge's policy rather than the model's limit.
+   */
+  it("lets MiniMax render at every preset", () => {
+    for (const family of ["minimax", "minimax_ref2va"] as const) {
+      expect(videoResolutionCeiling(family)).toBeUndefined();
+      expect(clampPreset("high", videoResolutionCeiling(family))).toBe("high");
+      expect(clampPreset("standard", videoResolutionCeiling(family))).toBe("standard");
+    }
   });
 
   it("never raises a preset the project deliberately lowered", () => {

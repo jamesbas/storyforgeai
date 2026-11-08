@@ -55,6 +55,8 @@ class TwoModelClient extends MockWangpClient {
         sliding_window_size: 362,
         image_prompt_type: "",
         multi_prompts_gen_type: "PG",
+        // Left over from a run that upscaled, as earlier H3 renders did.
+        spatial_upsampling: "flashvsr2",
         model_type: modelType,
       },
       fields: [
@@ -203,20 +205,25 @@ describe("with the flag off", () => {
 });
 
 /**
- * H3 at 720p is slow enough that MiniMax recommend rendering at 480p and
- * upscaling, so the family is held at the draft preset. The clamp used to be
- * computed, logged, and then dropped whenever the caller passed no frame
- * options — the telemetry said "clamped to draft" and the job rendered 720p.
+ * H3 used to be held at draft and upscaled. WanGP accepts every StoryForge
+ * preset for it, so the cap is gone: the request is honoured, snapped onto
+ * H3's 32-pixel grid the way WanGP itself snaps it.
  */
-describe("the resolution ceiling", () => {
-  it("holds H3 at 480p even when the caller supplies no frame options", async () => {
+describe("H3 clip resolution", () => {
+  it("renders the standard preset natively, on H3's grid", async () => {
     const manifest = await manifestFor({ flag: false, modelType: "minimax_h3_fl2va" });
-    expect(manifest.settings.resolution).toBe("848x480");
+    expect(manifest.settings.resolution).toBe("1280x704");
   });
 
-  it("leaves an uncapped family at the standard preset", async () => {
+  it("clears an upscaler WanGP kept from an earlier run", async () => {
+    const manifest = await manifestFor({ flag: false, modelType: "minimax_h3_fl2va" });
+    expect(manifest.settings.spatial_upsampling).toBe("");
+  });
+
+  it("leaves another family at the standard preset with its upscaler inherited", async () => {
     const manifest = await manifestFor({ flag: false, modelType: "wan_i2v_14b" });
     expect(manifest.settings.resolution).toBe("1280x720");
+    expect(manifest.settings.spatial_upsampling).toBe("flashvsr2");
   });
 });
 

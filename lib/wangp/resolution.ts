@@ -1,6 +1,6 @@
 import type { AspectRatio, ResolutionPreset } from "@/lib/types";
 import type { ModelFamily } from "@/lib/wangp/family";
-import { isFiboFamily } from "@/lib/wangp/family";
+import { isFiboFamily, isMinimaxFamily } from "@/lib/wangp/family";
 
 /**
  * The frame size a job should render at.
@@ -33,6 +33,24 @@ const orientation = (size: { width: number; height: number }) =>
   size.width === size.height ? "square" : size.width > size.height ? "landscape" : "portrait";
 
 /**
+ * The pixel grid a family renders on, where it is coarser than the table's 16.
+ *
+ * WanGP floors every requested dimension onto the model's `vae_block_size`, so
+ * H3 asked for 1280x720 renders 1280x704. Snapping here makes the size shown on
+ * the settings screen and logged for the job the size the clip actually has.
+ */
+function blockSizeFor(family: ModelFamily | undefined): number | undefined {
+  return family && isMinimaxFamily(family) ? 32 : undefined;
+}
+
+function alignToBlock(size: string, block: number): string {
+  const parsed = parse(size);
+  if (!parsed) return size;
+  const floor = (value: number) => Math.max(block, Math.floor(value / block) * block);
+  return `${floor(parsed.width)}x${floor(parsed.height)}`;
+}
+
+/**
  * Pick the frame size for a job.
  *
  * `allowed` is the model's declared list when it publishes one. Sending a size
@@ -62,6 +80,8 @@ export function resolveResolution(args: {
       }
     }
   }
+  const block = blockSizeFor(args.family);
+  if (block) target = alignToBlock(target, block);
 
   if (!args.allowed?.length) return target;
   if (args.allowed.includes(target)) return target;
@@ -123,14 +143,11 @@ export function clampPreset(
 /**
  * The highest video preset a family renders in practical time.
  *
- * MiniMax H3 at 720p or 1080p is slow enough that its own developers recommend
- * generating at 480p and upscaling instead. Nothing else is capped: a family
- * absent from here is unconstrained.
+ * Empty: a family absent from here is unconstrained. MiniMax H3 used to be held
+ * at draft, but WanGP declares a 2048x2048 one-pass budget for every H3 variant,
+ * so 720p and 1080p are both sizes it accepts — slower, but the user's call.
  */
-const VIDEO_CEILINGS: Partial<Record<ModelFamily, ResolutionPreset>> = {
-  minimax: "draft",
-  minimax_ref2va: "draft",
-};
+const VIDEO_CEILINGS: Partial<Record<ModelFamily, ResolutionPreset>> = {};
 
 export function videoResolutionCeiling(family: ModelFamily): ResolutionPreset | undefined {
   return VIDEO_CEILINGS[family];

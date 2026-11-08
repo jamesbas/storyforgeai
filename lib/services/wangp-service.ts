@@ -666,11 +666,15 @@ export async function buildVideoManifest(args: {
     // A hard stop only for a variant that genuinely publishes one. Current H3
     // variants use Wan2GP sliding windows, so their guidance leaves this unset.
     maxFrames: clipLengthGuidance(family)?.maxFrames,
-    resolution: resolutionFor(schema, frame, { ...context, modelType: model.modelType }),
+    resolution: resolutionFor(schema, frame, { ...context, modelType: model.modelType }, family),
     // Rendering small is only half of the low-resolution strategy; without the
     // upscale it is just a small clip. WanGP holds this as saved UI state, so
-    // it is written rather than inherited.
-    spatialUpsampling: clamped ? config.media.videoSpatialUpsampling : undefined,
+    // it is written rather than inherited. H3 is cleared explicitly: earlier
+    // builds held it at 480p and wrote an upscaler, and a 1080p clip inheriting
+    // that would be upscaled again to a size nobody asked for.
+    spatialUpsampling: clamped
+      ? config.media.videoSpatialUpsampling
+      : isMinimaxFamily(family) ? "" : undefined,
     steps: stepsFor(
       model.modelType,
       schema,
