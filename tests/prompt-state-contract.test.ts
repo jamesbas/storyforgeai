@@ -88,7 +88,9 @@ describe("authoritative frame state", () => {
     const payload = JSON.parse(calls[0]!.user);
     expect(payload.project.wardrobeChanges).toBeUndefined();
     expect(payload.wardrobe.start.Ana).toBe("a blue cotton dress");
-    expect(result!.prompts.endFramePrompt).not.toContain("Character continuity");
+    // Only the people in this frame: James, whom the bible describes and the
+    // prompt only names, gets his fallback; Ana is not in it at all.
+    expect(result!.prompts.endFramePrompt).toContain("Character continuity — James: A white-haired man.");
     expect(result!.prompts.endFramePrompt).not.toContain("Ana");
   });
 

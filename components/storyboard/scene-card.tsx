@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { SceneLoraPanel } from "@/components/storyboard/scene-lora-panel";
 import { OpeningFramePanel } from "@/components/storyboard/opening-frame-panel";
 import { ScenePromptsPanel } from "@/components/storyboard/scene-prompts-panel";
@@ -112,6 +113,8 @@ type SceneCardProps = {
    * card never claims a scene changed that did not.
    */
   endFrameCarriedToScene?: number;
+  /** The scene-check panel, supplied by a parent that owns the check state. */
+  checkPanel?: ReactNode;
 };
 
 /** Render a player for media that exists on disk; fall back to the path. */
@@ -186,6 +189,7 @@ export function SceneCard({
   onPinOpeningFrame,
   onUnpinOpeningFrame,
   endFrameCarriedToScene,
+  checkPanel,
   isFirst = false,
   isLast = false,
   queueActive = false,
@@ -342,6 +346,7 @@ export function SceneCard({
           </div>
         </details>
       )}
+      {checkPanel}
       {projectId ? (
         <SceneWardrobePanel
           scene={scene}

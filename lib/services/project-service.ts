@@ -284,6 +284,8 @@ export async function updateProjectModels(id: string, raw: unknown): Promise<Pro
       videoSteps: resolveSteps(patch.videoSteps, record.project.videoSteps),
       generationMode: patch.generationMode ?? record.project.generationMode,
       qcEnabled: patch.qcEnabled ?? record.project.qcEnabled,
+      sceneCheckDepth: patch.sceneCheckDepth ?? record.project.sceneCheckDepth,
+      checkFirst: patch.checkFirst ?? record.project.checkFirst,
       resolutionPreset: patch.resolutionPreset ?? record.project.resolutionPreset,
       videoResolutionPreset: patch.videoResolutionPreset ?? record.project.videoResolutionPreset,
       videoTier: patch.videoTier ?? record.project.videoTier,
@@ -930,6 +932,7 @@ export async function repairNegativePrompts(id: string): Promise<{
       scene,
       cast,
       wardrobe,
+      record.storyboard!.visualBible,
     );
 
     const negativesStale =

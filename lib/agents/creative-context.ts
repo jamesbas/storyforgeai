@@ -34,7 +34,7 @@ export type CreativePlans = {
  */
 const RENDER_ONLY_PROJECT_FIELDS = [
   "resolutionPreset", "videoResolutionPreset", "modelStrategy", "imageModel", "videoModel",
-  "videoTier", "imageSteps", "videoSteps", "qcEnabled", "characterIds",
+  "videoTier", "imageSteps", "videoSteps", "qcEnabled", "sceneCheckDepth", "checkFirst", "characterIds",
   "useCharacterReferenceImages", "videoCharacterReferences", "videoReferencesPerCharacter",
   "endFrameReferences", "conceptImages", "wardrobeChanges", "loras", "sceneLoras",
   "sceneSeeds", "sceneEndFrameRefs", "openingFrame", "status", "createdAt", "updatedAt",

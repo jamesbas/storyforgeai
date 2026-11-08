@@ -10,6 +10,7 @@ import {
 import { focalSide, sideVisibleIn } from "@/lib/media/viewpoint";
 import type { SceneDraft } from "@/lib/schemas/storyboard";
 import { mentionsParticipant, physicalContradictions, type FrameParticipantPair } from "@/lib/agents/frame-contract";
+import type { IdentityAnchor } from "@/lib/agents/identity";
 
 /**
  * The acceptance gate between "the agent was instructed correctly" and "this
@@ -103,6 +104,15 @@ export type ImageGateContext = {
    * costs more in false rejections than it saves.
    */
   clipCarriesArrivals?: boolean;
+  /**
+   * People whose description states a skin tone or ethnicity.
+   *
+   * Read only for stored-prompt warnings, never by the gate that drives the
+   * model's retry: the composer adds a missing complexion deterministically,
+   * so a retry would spend a model call on something already handled. What is
+   * left to report is a prompt someone edited it out of.
+   */
+  identities?: readonly IdentityAnchor[];
 };
 
 /**

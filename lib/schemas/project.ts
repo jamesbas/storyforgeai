@@ -109,6 +109,13 @@ export const projectSchema = z.object({
    * cannot see anything unless a vision model is configured.
    */
   qcEnabled: z.boolean().optional(),
+  /** Default depth of an on-demand scene check. Absent means quick. */
+  sceneCheckDepth: z.enum(["quick", "deep"]).optional(),
+  /**
+   * Whether a keyframe or clip rerun checks its scenes first and holds the ones
+   * with an error. Absent means off: renders behave exactly as they always did.
+   */
+  checkFirst: z.enum(["off", "quick", "deep"]).optional(),
   /**
    * Opt-in to the global character library. When true, `characterIds` names the
    * cast whose locked descriptions are threaded through planning and into every

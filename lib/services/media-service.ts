@@ -24,6 +24,7 @@ import type { ImageSize, SavedFrame } from "@/lib/media/imported-frames";
 import { resolveResolution } from "@/lib/wangp/resolution";
 import { DEFAULT_SCENE_CONTINUITY, generationStages } from "@/lib/types";
 import { resolveProjectCast } from "@/lib/services/character-service";
+import { neighboursOf, peopleInScene } from "@/lib/agents/review-context";
 import { frameCast, charactersInScene } from "@/lib/agents/scene-cast";
 import { othersInFrame, wardrobeTimeline } from "@/lib/agents/wardrobe";
 import {
@@ -1841,7 +1842,15 @@ async function scoreAttempt(
   attempt: SceneAttempt,
   expectVideo: boolean,
 ): Promise<ProjectRecord> {
-  const qcResult = await qcAgent(scene, attempt, getPlanningProvider(), { expectVideo });
+  const current = await getProjectRecord(projectId);
+  const cast = await resolveProjectCast(current.project);
+  const scenes = current.storyboard?.scenes ?? [];
+  const qcResult = await qcAgent(scene, attempt, getPlanningProvider(), { expectVideo }, {
+    review: {
+      people: peopleInScene(scene, cast, current.storyboard?.visualBible),
+      previousScene: neighboursOf(scenes, scene.id).previous,
+    },
+  });
 
   // Re-read: the QC call is long enough for the record to have moved on.
   const latest = await getProjectRecord(projectId);

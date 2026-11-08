@@ -42,7 +42,7 @@ export function NegativePromptRepair({
   // with what pressing the button would do.
   const timeline = wardrobeTimeline(record.project, scenes, cast, record.storyboard?.visualBible);
   const staleCast = scenes.filter((scene) =>
-    sheetIsStale(scene, cast, timeline.get(scene.id)),
+    sheetIsStale(scene, cast, timeline.get(scene.id), record.storyboard?.visualBible),
   ).length;
 
   if (staleNegatives === 0 && staleCast === 0) return null;
@@ -71,8 +71,10 @@ export function NegativePromptRepair({
         <p className="mt-1 text-sm text-slate-300">
           {staleCast} {staleCast === 1 ? "scene has" : "scenes have"} an appended character
           description that no longer matches the scene &mdash; someone described who is not in the
-          shot, or a costume change set after the prompts were written. The description is the last
-          thing the image model reads, so a wardrobe left behind there renders the old clothes.
+          shot, a costume change set after the prompts were written, or a person the visual bible
+          gives a skin tone or ethnicity to whom the prompt names without it. The description is
+          the last thing the image model reads, so a wardrobe left behind there renders the old
+          clothes, and a skin tone left out is filled with the model&apos;s own default.
           Rebuilding uses the characters each scene names and the wardrobe as it stands.
         </p>
       ) : null}
@@ -85,7 +87,8 @@ export function NegativePromptRepair({
         </p>
       ) : null}
       <p className="mt-1 text-xs text-slate-500">
-        Mechanical: no model runs, and nothing the agent wrote is reworded.
+        Mechanical: no model runs, and nothing the agent wrote is reworded &mdash; a missing skin
+        tone is added beside the person&apos;s name, and nothing is taken out.
       </p>
       <button
         type="button"

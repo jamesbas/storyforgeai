@@ -39,11 +39,11 @@ recent updates are kept below — every release ever made is in
 
 | Version | Date | What changed |
 | --- | --- | --- |
+| **2.97** | 2026-11-08 | **People the story introduces keep their skin tone, and any scene can be checked on demand.** A character the planning agents added - not one from your library - had nothing holding their appearance in place: prompts described a Black lead by build and age alone and he rendered white until the prompts were fixed by hand. Story characters now get the same appended description library characters do when a frame names them without describing them, and a stated skin tone or ethnicity is required for everyone: left out, it is added beside the person's name ("Leroy (a Black man with dark espresso-brown skin)"). The prompt writers are told the same, the clip writer for MiniMax H3 Ref2VA now identifies story characters too, and a frame still missing it after a hand edit is flagged `identity_missing`; **Repair prompts** on the Storyboard screen fixes older projects without a model call. New **Scene check**, run only on the scenes you choose - from a scene card or **Check selected scenes** - and never by storyboard, canvas or render runs: **Quick** reviews the prompts against the card and the people in it; **Deep** adds the story beat, the neighbouring scenes, staging and, with a vision model, the rendered keyframes. Findings quote what they rest on, can be accepted as intentional, or fixed with **Preview fix** - a one-field change shown before it is applied like a hand edit. An optional **Check first** on keyframe and clip reruns holds scenes with an error (off by default; set on the project settings screen). QC is now given the appearance of everyone in the scene and the scene before it, which it was already being asked to judge against. To use the new identity rules on existing scenes, press **Repair prompts** or rewrite their prompts. |
 | **2.96** | 2026-11-08 | **MiniMax H3 clips can now render at 720p and 1080p.** StoryForge used to hold every H3 clip at 480p whatever the Clips resolution was set to, crossing out Standard and High. Wan2GP accepts H3 at every size StoryForge offers (its budget for H3 is about 4.2 MP, well above 1080p), so the cap is gone and the Clips setting is honoured: Draft, Standard and High now render H3 natively at 832x480, 1280x704 and 1920x1088 for 16:9 - the same sizes Wan2GP's own UI lists, since H3 works on a 32-pixel grid - and the settings screen shows those exact sizes. Larger clips are much slower: Standard is a little over twice the pixels of Draft and High four to five times. Because earlier H3 renders asked Wan2GP for an upscale, H3 clips now explicitly switch Wan2GP's upscaler off, so a 1080p clip is not upscaled again by a setting left over from before. Choose Standard or High under Resolution > Clips in project settings and re-render a scene to use it. |
 | **2.95** | 2026-11-06 | **Long projects plan without overflowing the language model's context.** The story arc, the Director's scene intents and the Cinematographer's shot plans are written eight scenes at a time, and each request now carries only its own scenes' beats in full, a one-line outline of the rest of the story, and the last few entries already written - instead of the whole arc, every scene's plan and everything written so far. Planning requests also leave out render settings and per-scene bookkeeping such as seeds and wardrobe changes. On a 50-scene project the largest planning request is about 40-45% smaller, and each extra scene now adds roughly one short line instead of a full beat and plan entry. A 50-scene project that LM Studio had rejected as too large now fits a 32k context. The art direction and visual bible see condensed per-scene plans. Clothes described as lying in a heap or left on a floor or tile are also no longer read as worn. Edit prompts now always name the library characters in the closing frame - added when the model wrote "a middle-aged blonde woman" instead of the name - so a character LoRA keyed to the name still fires on edited end frames; saved edit prompts are named at render time without a rewrite. The story arc, storyboard and image-prompt writers are now told to say what a lowered or removed garment leaves visible ("topless, bra hanging from her wrists") rather than only where the garment went, and to keep garments where the pose allows; a storyboard whose costume change leaves that unstated says so on its card, and the image prompt writer is told which frame's wardrobe needs the visible result written out. With scenes continuing from the last frame, editing a scene's end-frame prompt - in its prompt panel, with the prompt tools, or by rewriting just that scene - now updates the next scene's start-frame prompt to match, so it no longer has to be copied across by hand; a planned cut keeps its own opening. No settings change is needed; rerun the planning agents on long projects to benefit. |
 | **2.94** | 2026-11-06 | **A nude wardrobe with detail no longer tells the image model to dress her.** When the storyboard writes a wardrobe state such as "nude, black lace bra and panties pooled on the tile" or "nude, white towel around her shoulders", keyframe prompts now say she is nude and keep the detail, instead of appending "is dressed in nude, black lace bra and panties...". The same applies to the cast sheet, unnamed people's wardrobe and the face-swap description. Clothes described as pooled, dropped or folded on the floor are no longer counted as clothing someone is wearing, so those scenes stop being flagged for wardrobe conflicts they do not have. Restart and rewrite image prompts for affected scenes; existing media is unchanged. |
 | **2.93** | 2026-11-06 | **Every scene's end frame can now be an edit, scene 1 included, and continuous seams no longer break by mistake.** With Show it the carried frame, new or rewritten image prompts include an edit prompt for every scene. Scene 1, and any scene after a real cut, edit their own start frame - including one you import - so a first frame you supply carries its person, wardrobe and set into the closing frame. Previews, single-scene renders and batches send that start frame with the edit only when the pinned image model accepts a source image (Krea 2 General Edit does; Krea 2 Turbo keeps its creation prompt and is never swapped out). Scene 1's card now has the same per-scene switch as later scenes. A closing prompt that left out its shot size no longer makes the next seam look like a planned cut: an opening copied from the previous closing frame is never treated as a size change, so scenes stop rendering a fresh start frame mid-project and skipping the edit. A batch that starts partway through the storyboard now continues from the previous scene's accepted end frame. Keyframe prompts that lead with the person instead of the shot now get the framing put first automatically, at the size the shot plan says the segment ends on, the prompt writer is given each frame's target framing, and the shot-size warning recognises heights such as "low camera angle" and "knee level". Restart and use Rewrite all image prompts to add the new edit prompts and framing; existing media is unchanged. |
-| **2.92** | 2026-11-04 | **Krea 2 image prompts follow Krea's own prompting guidance.** The image prompt writer is now told Krea 2's rules: one natural-language description of the visible result, attributes tied to the person or object they belong to, light described by source, direction and effect, quoted lettering on a named surface, no quality tags or weighting syntax, no contradictions, and a short task-specific negative. On Krea the project style now sits right after the framing instead of trailing the prompt, and a non-explicit audience line is left off because it is not something the model can draw. When exclusions are folded into a Turbo prompt, generic "sharp detail" filler is dropped, lettering is no longer spelled out as an absence, and nothing contradicts lettering the prompt quotes. Krea 2 RAW and RAW Edit, which sample with guidance, now receive their negative prompt directly instead of having it folded. Other model families are unchanged. Restart and rewrite image prompts to pick up the new wording; folding and RAW routing apply on the next render. |
 
 ---
 
@@ -308,8 +308,8 @@ values in the `Dockerfile`, and the port mapping in `docker-compose.yml`.
 
    ![The generation console: resolved WanGP models, job status and queue state](public/screenshots/generation-console.png)
 
-6. Per scene — **Generate media** (start/end frame + the scene's clip), run **QC**, and
-   **Approve**.
+6. Per scene — **Generate media** (start/end frame + the scene's clip), run **QC** or a
+   **Scene check** on the scenes you are unsure of, and **Approve**.
 7. **Assembly** — assemble a rough cut and export the package.
 
    ![Assembly: approval state, the assembled rough cut, its source clips and the export package](public/screenshots/assembly.png)
@@ -939,12 +939,36 @@ faithfully, **passes QC** — correctly, because the render matches the card. Th
 concept is the only place the original intent survives, and nothing else in the
 pipeline looks back at it.
 
-QC also only ever sees one scene, so it cannot notice that scene 1 has three men
-and scene 3 has four. Those frames are never in the same call. The fidelity
-check receives them together.
+QC also only ever sees one scene's frames, so it cannot notice that scene 1 has three
+men and scene 3 has four. It is told what the previous scene's closing frame was meant
+to show, but never shown it. The fidelity check receives the frames together.
 
 Use QC to catch bad execution. Use the fidelity check to catch a plan that
 drifted before rendering started.
+
+## Scene check
+
+An on-demand review of the scenes you pick — from a scene card's **Scene check**
+panel, or **Check selected scenes** above the scene list. Nothing runs it on its own:
+not storyboard generation, not the agentic canvas, not a render batch.
+
+- **Quick** reads the start, end, edit and clip prompts against the scene card, the
+  appearance of each person in the scene and their wardrobe: a skin tone left out, an
+  action dropped or given to the wrong person, someone appearing with no entrance, a
+  hand doing two things in one still frame.
+- **Deep** adds the story beat, the director's intent and shot plan, the scenes either
+  side, a closer look at staging, and — with `OPENAI_VISION_MODEL` set — the rendered
+  keyframes, or a keyframe preview waiting to be kept.
+
+Every finding quotes the text it rests on, and one whose quotation is not in the scene
+is discarded. Each can be **accepted as intentional** or fixed with **Preview fix**: the
+smallest change to the one field involved, shown as a before-and-after and applied only
+when you say so, like a hand edit. A scene reads *Out of date* the moment its card,
+prompts, cast or frames change.
+
+**Check first**, beside the keyframe and clip reruns for selected scenes, checks those
+scenes before rendering and holds any with an error. It is off by default; the project
+settings screen sets the default.
 
 ## Regenerating only the clips
 
@@ -1059,6 +1083,14 @@ clip is rendered *from* that frame, which already fixes the face, wardrobe and
 lighting — so the clip prompt gets the character's name and one instruction to hold
 them steady. Repeating the description there spends the prompt on appearance the
 model can already see, at the cost of the motion it cannot.
+
+**People the story introduces get the same fallback, and skin tone is never
+optional.** A person the Visual Bible describes but the library does not — a lover, a
+stranger — has their unchanging traits appended when a frame names them without
+describing them. A stated skin tone or ethnicity is required for everyone: a prompt
+that describes someone by build and age alone has it placed beside the name, because
+an image model fills an unstated skin tone with its own default. A frame still missing
+it is flagged `identity_missing`, and **Repair prompts** fixes older projects.
 
 **Face swap.** Optional per character. After each keyframe renders, an image-edit
 pass replaces the head in the generated frame with the head from the character's

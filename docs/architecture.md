@@ -185,7 +185,8 @@ subject of §3.2.
 | 10 | **Image Prompt Engineer** | `prompt-agents.ts` | `Project` + scene draft + **previous end-frame prompt** + visual bible + **this scene's cast** + plan slices + wardrobe state | Start/end frame prompts + negative | subset of `scenePromptsSchema` | Orchestrator, step 5 |
 | 11 | **Video Prompt Engineer** | `prompt-agents.ts` | as above, but the cast arrives as **names only** — the start frame already carries the likeness | Motion prompt + negative + checklist | subset of `scenePromptsSchema` | Orchestrator, step 5 |
 | 12 | **Audio Director** | `audio-agents.ts` | `Project` + scene refs | Audio plan, music/SFX cues | `audioPlanSchema` | `POST /generate-audio-plan` |
-| 13 | **Creative Critic (QC)** | `qc-agent.ts` | `Scene` + `SceneAttempt` (+ keyframes when `OPENAI_VISION_MODEL` is set) | Pass/fail, severity, regen notes | `qcResultSchema` | `media-service`, only when `project.qcEnabled` |
+| 13 | **Creative Critic (QC)** | `qc-agent.ts` | `Scene` + `SceneAttempt` + the people in the scene and the previous scene (`review-context.ts`) (+ keyframes when `OPENAI_VISION_MODEL` is set) | Pass/fail, severity, regen notes | `qcResultSchema` | `media-service`, only when `project.qcEnabled` |
+| 13a | **Scene Check** | `scene-check.ts`, `scene-check-fix.ts` | Card, prompts, people, wardrobe, rule findings (+ deep: story beat, intent, shot plan, neighbouring frames, rendered keyframes) | Quoted findings; a single-field fix on request | `sceneCheckSchema`, `modelCheckSchema` | `POST /scene-checks`, on demand only — see [4.2b](#42b-scene-check) |
 | 14 | **Concept Reader** | `concept-reader.ts` | `Project` + uploaded **reference** images | Written description of the look | `conceptVisualsSchema` | `POST /read-concept-images`, and automatically by `resolveConceptVisuals` when stale |
 | 15 | **Concept Fidelity Check** | `concept-fidelity.ts` | `Project.concept` + uploaded **render** frames | Findings only, no description | `conceptFidelitySchema` | `POST /concept-fidelity`, on demand |
 | — | **Concept Expander** | `concept-enhancer.ts` | `Project.concept` as typed, plus running time, style, tone, audience, creative mode | A fuller concept, returned as a suggestion — never written back on its own | `{ concept: string }` | `POST /api/concept/enhance`, from the New Project form |
@@ -1253,6 +1254,72 @@ unless the seam is a planned cut, in which case it renders its own start frame
 Face swap corrects keyframes only. The clip between them is model-interpolated, so
 identity can drift mid-motion even when every keyframe is exact.
 
+### 4.2a Story characters and complexion
+
+People the planning agents introduce — in the Visual Bible but not the library —
+had no deterministic identity channel. The cast sheet is library-only, and
+`charactersPresent` is library-only by design (it decides references and face
+swap), so a story character's appearance reached a frame only if the prompt writer
+chose to repeat it. A live project's lead, a Black man introduced by the story, was
+described by build and age alone in scene after scene and rendered white.
+
+`composeFrameCast` (`cast-sheet.ts`) is now the single composer of everything
+appended to a keyframe prompt, used by the prompt writer, the stored-prompt rebuild
+(`rebuiltPrompts`, and so the *Repair prompts* offer) and the deterministic
+builder:
+
+- **Story characters** (`storyCharacters` / `storyIdentity` in `cast.ts`) get the
+  library fallback: when a frame that shows them, per `frameVisibility`, names them
+  without describing them, their Visual Bible identity is appended — clauses about
+  clothing, nudity, segments and future states removed, a skin clause cut back to
+  the skin itself.
+- **Complexion is required** for everyone (`identity.ts`). A description's stated
+  ethnicity and skin tone are extracted in its own words; a frame that describes a
+  person without them gets them in parentheses beside the first plain mention of
+  the name, or, where every mention is possessive, as a one-line sheet entry. A
+  trimmed library sheet keeps the complexion even when the trim would cut it.
+- Body-part colour counts as stating it ("Leroy's espresso-brown hands").
+
+`identity_missing` is reported in stored-prompt warnings only — never by the gate
+that drives the writer's retry, since the composer fixes it without a model call.
+Edit prompts are exempt: an edit keeps the faces of the frame it edits.
+
+### 4.2b Scene check
+
+An on-demand review of the scenes a person picks; nothing runs it automatically.
+`scene-check.ts` builds the input (`buildSceneCheckInput`), which is hashed
+(`sceneCheckInputHash`, pure FNV-style) so a stored result is **out of date** the
+moment its card, prompts, cast, wardrobe — or, for a deep check, its neighbours,
+story slice or rendered frames — change. Status is computed server-side
+(`summariseSceneChecks`) and never by the model: `not_checked`, `passed`, `issues`,
+`incomplete` (coverage partial or failed), `out_of_date`.
+
+- **Quick**: one text call (`QUICK_SYSTEM`) plus the stored-prompt warnings as
+  `rule` findings.
+- **Deep**: `DEEP_SYSTEM` adds story beat, intent, shot plan and the neighbouring
+  frames; a separate vision call (`VISION_SYSTEM`) looks at the scene's frames —
+  a keyframe preview where one exists, otherwise the chosen attempt. Coverage is
+  `partial` when one half fails.
+- `verifiedFindings` drops any finding whose quoted evidence is not in the input,
+  relabels a quotation found under a different source, and caps `underspecified`
+  at `info`.
+- **Fixes** (`scene-check-fix.ts`) rewrite one field: the model edits the written
+  body only and the appended sheets go back unchanged; `readsAsRewrite` rejects a
+  rewrite; a rule `identity_missing` is fixed by `rebuiltPrompts` without a model.
+  A candidate that raises a new stored-prompt warning is not offered. Apply checks
+  a SHA-256 of the replaced text and goes through `updateScenePrompts` /
+  `updateSceneCard`, so carry-forward, warnings and history behave as for a hand
+  edit.
+- **Check first** (`checkThenRender`): checks run while the planning model is
+  loaded, then scenes without an open error go to `enqueueKeyframeRerun` /
+  `enqueueVideoRerun` (which evict the model before GPU work); the rest are held
+  and reported on the follow-up.
+
+The queue is in-process and sequential (`scene-check-service.ts`), the same shape
+as the scene queue. QC itself was not folded in: it grades attempts and stores
+`qcResult` on them, but now receives the same `review-context.ts` people and
+previous scene.
+
 ### 4.3 The prompt acceptance gate
 
 Everything upstream of here is *instruction*. The image agent is told to name the
@@ -1714,6 +1781,7 @@ flowchart LR
         s4["POST repair-prompts · POST undressed-scenes"]
         s5["POST scenes/insert · POST scenes/:sceneId/move"]
         s6["DELETE scenes/:sceneId/delete"]
+        s7["GET · POST · DELETE scene-checks · PATCH scene-checks/:sceneId<br/>POST · PUT scene-checks/:sceneId/fix"]
     end
     subgraph gen["Generation & media"]
         g1["POST scenes/:sceneId/generate"]
@@ -1751,8 +1819,8 @@ flowchart LR
 Three things the shape encodes. **The character library is project-independent** —
 it lives at `/api/characters`, and a project references entries by id, which is
 why a wardrobe change is stored per project rather than on the character.
-**Long-running work is polled, not awaited**: `canvas-run`, `queue` and `tasks`
-are each a queue surface, because an agent or a render is minutes of local GPU or
+**Long-running work is polled, not awaited**: `canvas-run`, `queue`, `tasks` and
+`scene-checks` are each a queue surface, because an agent or a render is minutes of local GPU or
 CPU and an HTTP request that waits for it is one navigation away from being
 abandoned. **Scene authoring is structural as well as textual**: `insert`, `move`
 and `delete` edit the running order in place, which exists so that fixing one

@@ -1,5 +1,6 @@
 import { referenceImagesOf } from "@/lib/schemas/character";
 import { nudeWithDetail, positiveGarments, wardrobeSentence } from "@/lib/agents/wardrobe";
+import { complexionOf, complexionPhrase, conveysComplexion, hasComplexion } from "@/lib/agents/identity";
 import type { Character } from "@/lib/schemas/character";
 
 /**
@@ -101,6 +102,25 @@ function compactForRender(text: string, budget: number): string {
 }
 
 /**
+ * A trimmed description that still says what colour the person's skin is.
+ *
+ * Trimming keeps the front of a description, and skin tone is often stated
+ * last — after build, age and hair. A sheet that cut it rendered a dark-skinned
+ * man light, with every other detail correct.
+ */
+function keepComplexion(compacted: string, full: string): string {
+  const complexion = complexionOf(full);
+  if (!hasComplexion(complexion) || conveysComplexion(compacted, complexion)) return compacted;
+  const missing = complexion.skin ?? complexionPhrase(complexion);
+  if (!missing) return compacted;
+  return `${compacted.replace(/[.,;\s]+$/, "")}, ${missing}`;
+}
+
+function compactAppearance(text: string, budget: number): string {
+  return keepComplexion(compactForRender(text, budget), text);
+}
+
+/**
  * Attach the wardrobe to the person rather than stating it afterwards.
  *
  * `Wearing exactly: <outfit>` as its own sentence is an attribute with nothing
@@ -170,7 +190,7 @@ export function castSheet(
         const clause = wardrobe ? ` ${wardrobeClause(wardrobe)}` : "";
         return `${c.name}: ${appearance}${clause}`;
       }
-      return `${c.name}: ${boundAppearance(compactForRender(appearance, budget), wardrobe)}`;
+      return `${c.name}: ${boundAppearance(compactAppearance(appearance, budget), wardrobe)}`;
     })
     .join(" ");
 }
@@ -204,11 +224,19 @@ export function castSystemDirective(cast: readonly Character[], forRender = fals
   // a pair of hands.
   const describeOthers =
     " Any person in the shot who is not in the pinned cast must be described in your own " +
-    "prompt, because nothing is appended for them: age, build, hair, skin and specific named " +
-    "garments with colours, in one compact clause of roughly twenty-five words rather than a " +
-    "paragraph. An undescribed person is reinvented on every render, or dressed in whatever " +
-    "clothing a carried-over reference frame happens to show, which is how a new character " +
-    "arrives wearing another character's outfit. Length is not safety: a model divides its " +
+    "prompt: age, build, hair, skin and specific named garments with colours, in one compact " +
+    "clause of roughly twenty-five words rather than a paragraph. A fallback description is " +
+    "appended only for people the visual bible names, and only when you leave them " +
+    "undescribed; everyone else you leave undescribed is reinvented on every render, or " +
+    "dressed in whatever clothing a carried-over reference frame happens to show, which is " +
+    "how a new character arrives wearing another character's outfit. " +
+    // A Black lead described by build, age and gut — and nothing else — was
+    // rendered white in scene after scene; the model fills an unstated skin
+    // tone with its own default.
+    "Where a description states someone's skin tone or ethnicity, it is never optional: " +
+    "write it beside their name in every frame they appear in, however tight the shot, " +
+    "because an image model fills an unstated skin tone with its own default. " +
+    "Length is not safety: a model divides its " +
     "attention by how much is written about each person, so describing one at four times the " +
     "length of another renders that one twice and drops the other. Keep every person in a shot " +
     "described to roughly the same length, and state each one's clothing in the same clause as " +
@@ -302,12 +330,112 @@ function sentencesNaming(body: string, name: string): string {
  * red-haired stranger. Two distinguishing words are required, not one.
  */
 export function describedInline(body: string, character: Character, castSize = 1): boolean {
-  const appearance = appearanceFor(character, true, true);
+  return describesAppearance(body, character.name, appearanceFor(character, true, true), castSize);
+}
+
+/**
+ * The same test for anyone, given the appearance text their sheet would carry.
+ *
+ * A description that omits a stated complexion is not a description of this
+ * person: "a heavyset man in his fifties with a thick gut" shares enough words
+ * with a Black man's description to clear the bar while drawing a white one.
+ * Those prompts are then caught by `withComplexionInline` rather than by a
+ * second, full description — the second mention is what makes a model draw
+ * the person twice.
+ */
+export function describesAppearance(
+  body: string,
+  name: string,
+  appearance: string,
+  castSize = 1,
+  options: { complexionSuffices?: boolean } = {},
+): boolean {
   const words = identityWords(compactForRender(appearance, appearanceBudgetFor(castSize)));
   if (words.length < 3) return false;
-  const lower = sentencesNaming(body, character.name).toLocaleLowerCase();
+  const named = sentencesNaming(body, name);
+  const lower = named.toLocaleLowerCase();
   const hits = words.filter((word) => lower.includes(word)).length;
-  return hits >= 2 && hits / words.length >= 0.25;
+  if (hits >= 2 && hits / words.length >= 0.25) return true;
+  // A visual-bible entry runs long, so a quarter of it is a high bar; a prompt
+  // that states the person's complexion and something else about them has said
+  // the part a viewer reads first, and a second full description would only
+  // render him twice.
+  if (!options.complexionSuffices || hits < 2) return false;
+  const complexion = complexionOf(appearance);
+  return hasComplexion(complexion) && conveysComplexion(named, complexion);
+}
+
+/** A person the story introduced, as opposed to one pinned from the library. */
+export type StoryCharacter = {
+  name: string;
+  /** Stable identity only: what does not change from scene to scene. */
+  identity: string;
+};
+
+/** Wording that marks a state that changes over the piece, not a trait. */
+const CHANGING_STATE =
+  /\b(?:initially|at first|then|before|after|until|later|by segment|which (?:he|she|they) (?:later )?(?:strips?|removes?|takes? off))\b/i;
+/** Clothing and nudity: carried by the wardrobe timeline, not by identity. */
+const NOT_IDENTITY =
+  /\b(?:wears?|wearing|dressed|clad|naked|nude|undressed|clothing|clothes|garments?|outfit|throughout|segments?|scenes?|at (?:the )?(?:start|finish|end|beginning))\b/i;
+
+/**
+ * The part of a visual-bible description that identifies the person.
+ *
+ * A bible entry mixes identity with the story's progress — "uncut cock (soft at
+ * start, hard by the spooning phase)", "wears nothing throughout segments
+ * 1–50". Only the identity belongs on every frame; the rest is either a
+ * wardrobe state, which the wardrobe timeline carries, or a future event a
+ * frame must not anticipate. A clause stating skin tone is cut back to the skin
+ * itself — "dark espresso-brown skin reads thick and soft under hard light" is
+ * lighting direction after the first four words.
+ */
+export function storyIdentity(description: string): string {
+  const text = description.replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim();
+  const clauses = text
+    // An en dash inside "segments 1–50" is a range, not a clause break.
+    .split(/\s*(?:;|\u2014|\s\u2013\s|\.\s+|\.$)\s*/)
+    .map((clause) => clause.trim())
+    .filter((clause) => /\p{L}/u.test(clause) && !NOT_IDENTITY.test(clause) && !CHANGING_STATE.test(clause))
+    .map((clause) => {
+      const skin = complexionOf(clause).skin;
+      if (!skin) return clause;
+      const at = clause.indexOf(skin);
+      return at >= 0 ? clause.slice(0, at + skin.length) : clause;
+    });
+  const identity = clauses.join(", ").replace(/\s*,\s*/g, ", ").replace(/^[,\s]+|[,\s]+$/g, "");
+  return keepComplexion(identity, text);
+}
+
+/** Visual-bible characters who are not pinned from the library. */
+export function storyCharacters(
+  bible: { characters: readonly { name: string; description: string }[] } | undefined,
+  cast: readonly Pick<Character, "name">[],
+): StoryCharacter[] {
+  const pinned = new Set(cast.map((c) => c.name.trim().toLocaleLowerCase()));
+  return (bible?.characters ?? []).flatMap((person) => {
+    const name = person.name.trim();
+    if (!name || pinned.has(name.toLocaleLowerCase())) return [];
+    const identity = storyIdentity(person.description);
+    return identity ? [{ name, identity }] : [];
+  });
+}
+
+/**
+ * The sheet entry for a story character the prompt names but does not describe.
+ *
+ * Library characters have always had this fallback; a person the story
+ * introduced had none, so when the prompt writer described him by name alone
+ * the render invented him. Bound to the wardrobe in the same clause, for the
+ * same reason the library sheet is.
+ */
+export function storySheetEntry(
+  person: StoryCharacter,
+  outfit: string | undefined,
+  castSize: number,
+): string {
+  const appearance = compactAppearance(person.identity, appearanceBudgetFor(castSize));
+  return `${person.name}: ${boundAppearance(appearance, outfit?.trim() || undefined)}`;
 }
 
 /** Words that name a garment's role rather than the garment. */

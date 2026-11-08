@@ -33,7 +33,7 @@ const TOC: Section[] = [
   { id: "agents", title: "9. The creative team (agents)" },
   { id: "systemprompts", title: "10. Custom system prompts" },
   { id: "wangp", title: "11. WanGP & generation" },
-  { id: "qc", title: "12. QC, attempts & approval" },
+  { id: "qc", title: "12. QC, scene check, attempts & approval" },
   { id: "assembly", title: "13. Assembly & exports" },
   { id: "deepy", title: "14. Deepy assist" },
   { id: "flags", title: "15. Modes & feature flags" },
@@ -1633,6 +1633,7 @@ export default function HelpPage() {
             <li className={li}><strong>Audio Director</strong> — the project audio plan: music and SFX beds anchored to a scene with an offset, duration and prompt. Dialogue and narration are performed by the video model from the scene prompt, not synthesised separately.</li>
             <li className={li}><strong>WanGP Producer</strong> — selects models and builds valid generation settings.</li>
             <li className={li}><strong>Creative Critic / QC</strong> — reviews generated media and flags issues with regeneration notes.</li>
+            <li className={li}><strong>Scene Check</strong> — on demand only, for the scenes you pick: reviews prompts against the card, the cast and (deep) the story beat, neighbouring scenes and rendered frames, and proposes fixes you approve.</li>
           </ul>
           <p className={p}>
             The World Builder, Director, Cinematographer and Art Director run on demand from the
@@ -2074,12 +2075,31 @@ export default function HelpPage() {
             motion it cannot, and a second written description of a subject already in the image is
             one way a clip ends up rendering that subject twice.
           </p>
+
+          <h3 className={h3}>People the story introduces</h3>
+          <p className={p}>
+            The planning agents often add people who are not in your character library — a lover,
+            a stranger, a waiter. The Visual Bible records what they look like, and the prompt
+            agents are told to describe them in every frame. When a frame names one of them without
+            describing them, their Visual Bible appearance is appended the same way a library
+            character&apos;s is — the traits that do not change, never their clothing or anything
+            the story does to them later.
+          </p>
+          <p className={p}>
+            A stated skin tone or ethnicity is treated as required, for library and story
+            characters alike. A prompt that describes someone by build and age but leaves it out
+            has it placed beside the person&apos;s name — &ldquo;Leroy (a Black man with dark
+            espresso-brown skin)&rdquo; — because an image model fills an unstated skin tone with
+            its own default. A frame that still lacks it, after a hand edit say, is flagged{" "}
+            <code>identity_missing</code>, and the <em>Repair prompts</em> offer on the Storyboard
+            screen adds it to older projects without a model call.
+          </p>
         </section>
 
         {/* 8. QC */}
         <section className={card}>
           <Anchor id="qc" />
-          <h2 className={h2}>12. QC, attempts &amp; approval</h2>
+          <h2 className={h2}>12. QC, scene check, attempts &amp; approval</h2>
           <p className={p}>
             Generating media for a scene creates an <strong>attempt</strong> — a start frame, an end
             frame, and a video clip.
@@ -2100,12 +2120,59 @@ export default function HelpPage() {
           <p className={p}>
             Either way the verdict is pass/fail with a severity, and any issues appear on the scene
             card with regeneration notes. A flagged scene is marked <em>needs review</em>; it is
-            never regenerated automatically.
+            never regenerated automatically. QC is given the appearance of everyone in the scene and
+            the scene before it, so it can tell a man rendered with the wrong skin tone from one who
+            merely looks different from the card&apos;s wording.
           </p>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             <li className={li}><strong>Regenerate</strong> to create a new attempt (attempt numbers increment; history is kept).</li>
             <li className={li}><strong>Approve</strong> the attempt you want to use — this marks the scene approved and selects that clip for assembly.</li>
           </ul>
+
+          <h3 className={h3} id="scene-check">Scene check</h3>
+          <p className={p}>
+            QC grades what was rendered. <strong>Scene check</strong> reviews a scene whenever you
+            ask — before rendering, after, or after an edit — and only the scenes you choose. It is
+            never run across the storyboard by storyboard generation, the agentic canvas or a
+            render batch. Use the <strong>Scene check</strong> panel on a scene card, or{" "}
+            <strong>Check selected scenes</strong> above the scene list to pick several.
+          </p>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li className={li}>
+              <strong>Quick</strong> — one model call. Reads the start, end, edit and clip prompts
+              against the scene card, the appearance of each person in the scene and their wardrobe:
+              a skin tone or age left out, an action dropped or given to the wrong person, someone
+              who appears with no entrance, a hand doing two things in one still frame.
+            </li>
+            <li className={li}>
+              <strong>Deep</strong> — adds the scene&apos;s story beat, the director&apos;s intent
+              and the shot plan, the closing frame of the scene before and the opening of the one
+              after, a closer look at staging (what each hand holds, what carries each person&apos;s
+              weight), and — with <code>OPENAI_VISION_MODEL</code> set — the rendered keyframes, or
+              a keyframe preview if one is waiting to be kept.
+            </li>
+          </ul>
+          <p className={p}>
+            Every finding quotes the text it rests on; one whose quotation is not in the scene is
+            discarded before you see it. Each can be <strong>accepted as intentional</strong>, or
+            fixed with <strong>Preview fix</strong>, which proposes the smallest change to the one
+            field involved and shows it as a before-and-after. Nothing is written until you apply
+            it, and it is applied like a hand edit — the next scene&apos;s carried opening follows.
+            A missing skin tone is fixed mechanically, with no model call. A fix that would raise a
+            new warning is not offered.
+          </p>
+          <p className={p}>
+            Each scene shows <em>Not checked</em>, <em>Passed</em>, <em>Issues</em>,{" "}
+            <em>Incomplete</em> (the review did not finish, or the frames could not be looked at) or{" "}
+            <em>Out of date</em> — any change to the card, prompts, cast or, for a deep check, the
+            rendered frames, after which the old result says nothing about the scene.
+          </p>
+          <p className={p}>
+            <strong>Check first</strong>, beside <em>Regenerate keyframes</em> and{" "}
+            <em>Regenerate video</em> for selected scenes, checks those scenes before rendering,
+            queues the ones that pass, and holds any with an error until you fix it or choose to
+            render it anyway. The default is set on the project settings screen and is off.
+          </p>
         </section>
 
         {/* 9. Assembly */}

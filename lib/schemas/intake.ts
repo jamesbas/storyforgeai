@@ -132,6 +132,9 @@ export const updateProjectModelsSchema = z.object({
   segmentSeconds: z.number().int().min(MIN_SEGMENT_SECONDS).max(MAX_SEGMENT_SECONDS).optional(),
   /** Whether finished scenes are graded by the QC agent. */
   qcEnabled: z.boolean().optional(),
+  /** Default scene-check depth, and whether reruns check their scenes first. */
+  sceneCheckDepth: z.enum(["quick", "deep"]).optional(),
+  checkFirst: z.enum(["off", "quick", "deep"]).optional(),
   /**
    * Continuity affects only scenes generated from here on, so like the model
    * pins it stays editable for the life of the project.

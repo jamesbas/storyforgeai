@@ -2,8 +2,9 @@ import type { Project } from "@/lib/schemas/project";
 import type { CreativeBrief, StoryPlan, VisualBible } from "@/lib/schemas/agents";
 import type { ScenePrompts, SceneDraft } from "@/lib/schemas/storyboard";
 import type { Character } from "@/lib/schemas/character";
-import { castContinuityClause, castNegativeSuffix, castPromptSuffix } from "@/lib/agents/cast";
-import { wardrobeChangeClause, othersWardrobeSuffix } from "@/lib/agents/wardrobe";
+import { castContinuityClause, castNegativeSuffix, type StoryCharacter } from "@/lib/agents/cast";
+import { wardrobeChangeClause } from "@/lib/agents/wardrobe";
+import { composeFrameCast } from "@/lib/agents/cast-sheet";
 import { isTightShot } from "@/lib/media/seam";
 import type { SheetOptions } from "@/lib/agents/cast";
 import type { SceneWardrobe } from "@/lib/schemas/wardrobe";
@@ -295,6 +296,7 @@ export function buildImagePrompts(
   wardrobe?: SceneWardrobe,
   family: ModelFamily = "unknown",
   budget: BudgetContext = {},
+  story: readonly StoryCharacter[] = [],
 ): Pick<ScenePrompts, "startFramePrompt" | "endFramePrompt" | "imageNegativePrompt"> {
   const spec = buildMediaPromptSpec(project, scene, plans, wardrobe);
   const frameBudget = { people: cast.length, ...budget };
@@ -343,14 +345,24 @@ export function buildImagePrompts(
       sentence(spec.lighting);
 
   return {
-    startFramePrompt:
-      placeLook(startBody, lookPromptSuffix(project, startBody, family), family) +
-      castPromptSuffix(frameCast(visibility, "start", startBody, cast), wardrobe?.start, sheetOptions(scene, startBody), startBody) +
-      othersWardrobeSuffix(wardrobe?.othersStart ?? {}, startBody),
-    endFramePrompt:
-      placeLook(endBody, lookPromptSuffix(project, endBody, family), family) +
-      castPromptSuffix(frameCast(visibility, "end", endBody, cast), wardrobe?.end, sheetOptions(scene, endBody), endBody) +
-      othersWardrobeSuffix(wardrobe?.othersEnd ?? {}, endBody),
+    startFramePrompt: composeFrameCast({
+      body: placeLook(startBody, lookPromptSuffix(project, startBody, family), family),
+      cast: frameCast(visibility, "start", startBody, cast),
+      wardrobeAt: wardrobe?.start,
+      options: sheetOptions(scene, startBody),
+      story,
+      visible: visibility.frameVisibility?.start,
+      others: wardrobe?.othersStart ?? {},
+    }),
+    endFramePrompt: composeFrameCast({
+      body: placeLook(endBody, lookPromptSuffix(project, endBody, family), family),
+      cast: frameCast(visibility, "end", endBody, cast),
+      wardrobeAt: wardrobe?.end,
+      options: sheetOptions(scene, endBody),
+      story,
+      visible: visibility.frameVisibility?.end,
+      others: wardrobe?.othersEnd ?? {},
+    }),
     imageNegativePrompt: normaliseNegative(
       "watermark, distorted anatomy, text artifacts, low quality" +
         castNegativeSuffix(cast),

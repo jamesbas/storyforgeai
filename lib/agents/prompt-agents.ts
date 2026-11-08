@@ -30,10 +30,13 @@ import type { ProgressReporter } from "@/lib/agents/types";
 import {
   castContinuityClause,
   castNegativeSuffix,
-  castPromptSuffix,
   castSystemDirective,
+  storyCharacters,
   withCastNamed,
+  type StoryCharacter,
 } from "@/lib/agents/cast";
+import { composeFrameCast } from "@/lib/agents/cast-sheet";
+import { identityAnchors } from "@/lib/agents/identity";
 import { editsEndFrame, referencesCarriedFrame, seamDirective } from "@/lib/agents/continuity";
 import { revealUnstated, VISIBLE_RESULT_DIRECTIVE } from "@/lib/agents/clothing-wording";
 import { lookPromptSuffix, placeLook } from "@/lib/agents/look";
@@ -337,6 +340,12 @@ export async function attachScenePrompts(
   const imageFamily = imageFamilyFor(project);
   const videoFamily = videoFamilyFor(project);
   const timeline = wardrobeTimeline(project, drafts, cast, context.visualBible);
+  // People the visual bible introduced, who have no library entry to append.
+  const story = storyCharacters(context.visualBible, cast);
+  const identities = identityAnchors([
+    ...cast,
+    ...story.map((person) => ({ name: person.name, description: person.identity })),
+  ]);
   const budgets = context.budgets ?? (await resolvePromptBudgetSettings());
   // The world bible's own statement of where the story happens, carried into
   // frames that do not already name it. Absent when the bible states none.
@@ -426,7 +435,7 @@ export async function attachScenePrompts(
           endFrameEditPrompt: carried.endFrameEditPrompt,
           imageNegativePrompt: carried.imageNegativePrompt,
         }
-      : buildImagePrompts(project, draft, sceneCast, plans, wardrobe, imageFamily, imageBudgetContext);
+      : buildImagePrompts(project, draft, sceneCast, plans, wardrobe, imageFamily, imageBudgetContext, story);
     let videoPart: VideoPart = skipVideo
       ? {
           videoPromptSegment: carried.videoPromptSegment,
@@ -662,7 +671,7 @@ export async function attachScenePrompts(
       const finaliseImagePart = (part: ImagePart): ImagePart => {
         const enforced = withCastEnforced(
           normaliseImageResult(part, project, draft, plans, wardrobe, imageFamily),
-          sceneCast, plans, project, wardrobe, draft, imageFamily, sceneSetting,
+          sceneCast, plans, project, wardrobe, draft, imageFamily, sceneSetting, story,
         );
         const final = enforced.endFrameEditPrompt
           ? { ...enforced, endFrameEditPrompt: withCastNamed(enforced.endFrameEditPrompt, endCastNames) }
@@ -776,7 +785,12 @@ export async function attachScenePrompts(
                   nativeAudio: hasNativeAudio(videoFamily),
                 }) +
                 (inheritsOpening ? inheritedOpeningDirective(previousEndFramePrompt) : "") +
-                videoCastDirective(sceneCast, videoFamily) +
+                videoCastDirective(
+                  sceneCast,
+                  videoFamily,
+                  story.map((person) => person.name).filter((name) =>
+                    [...frameParticipants.start.names, ...frameParticipants.end.names].includes(name)),
+                ) +
                 " Current scene action, frame visibility and wardrobe override stylistic suggestions. " +
                 concisePromptDirective(videoFamily, "video", project.segmentSeconds, videoBudget),
               JSON.stringify({
@@ -865,13 +879,13 @@ export async function attachScenePrompts(
     const validation: ImageGateContext = {
       scene: draft, participants: sceneCast.map((person) => person.name),
       frameParticipants, knownParticipants: knownNames, wardrobeByPerson: currentWardrobe,
-      explicit: false, inheritsOpening,
+      explicit: false, inheritsOpening, identities,
     };
     const warnings = skipImage ? [] : [
       ...imagePromptWarnings(imagePart.startFramePrompt, "start", validation),
       ...imagePromptWarnings(imagePart.endFramePrompt, "end", validation),
       ...(imagePart.endFrameEditPrompt
-        ? imagePromptWarnings(imagePart.endFrameEditPrompt, "end", validation).map((message) => `edit: ${message}`) : []),
+        ? imagePromptWarnings(imagePart.endFrameEditPrompt, "end", validation, "edit").map((message) => `edit: ${message}`) : []),
     ];
     const videoWarnings = noVideoCall ? [] :
       gateVideoPrompt(videoPart.videoPromptSegment, {
@@ -1163,12 +1177,26 @@ function gatedImageCall(
   };
 }
 
-function videoCastDirective(cast: readonly Character[], family: ModelFamily): string {
-  const names = cast.map((c) => c.name).join(", ");
+/**
+ * Who the clip is about, and how much of their appearance to restate.
+ *
+ * Story characters are named alongside the library cast: Ref2VA binds each
+ * person by name and an identifying phrase, and pointing it only at "the
+ * supplied cast" left a visual-bible character — the lead of a live project —
+ * with no phrase at all, so his skin tone reached the clip prompt by chance.
+ */
+function videoCastDirective(
+  cast: readonly Character[],
+  family: ModelFamily,
+  storyNames: readonly string[] = [],
+): string {
+  const names = [...cast.map((c) => c.name), ...storyNames].join(", ");
   return (
     (names ? ` The established cast is ${names}. Keep these names and roles unchanged.` : "") +
     (family === "minimax_ref2va"
-      ? " Bind each referenced character by name and one short identifying phrase from the supplied cast."
+      ? " Bind each referenced character by name and one short identifying phrase from the " +
+        "supplied cast or their visualBible entry, including their skin tone or ethnicity " +
+        "where it is given."
       : " The start frame already establishes appearance: do not repeat full physical or wardrobe descriptions.") +
     " Describe a newly arriving person only as needed to distinguish them from people already in frame."
   );
@@ -1413,6 +1441,7 @@ function withCastEnforced(
   draft: SceneDraft,
   family: ModelFamily,
   setting?: string,
+  story: readonly StoryCharacter[] = [],
 ): ImagePart {
   const negative = castNegativeSuffix(cast, part.imageNegativePrompt);
   // Each frame is read for its own shot size: a scene can push from a medium
@@ -1435,8 +1464,15 @@ function withCastEnforced(
       family,
     );
     const worn = frame === "start" ? wardrobe?.start : wardrobe?.end;
-    return `${located}${castPromptSuffix(selected(frame, prompt), worn, sheetFor(prompt), prompt)}` +
-      othersWardrobeSuffix(otherOutfits(frame, prompt), prompt);
+    return composeFrameCast({
+      body: located,
+      cast: selected(frame, prompt),
+      wardrobeAt: worn,
+      options: sheetFor(prompt),
+      story,
+      visible: draft.frameVisibility?.[frame],
+      others: otherOutfits(frame, prompt),
+    });
   };
   return {
     ...part,

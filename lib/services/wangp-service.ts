@@ -1066,8 +1066,10 @@ export async function buildImageManifest(args: {
     });
   }
   if (args.validation) {
+    const prompt = String(manifest.settings.prompt ?? "");
     manifest.promptWarnings = imagePromptWarnings(
-      String(manifest.settings.prompt ?? ""), args.validation.frame, args.validation.context,
+      prompt, args.validation.frame, args.validation.context,
+      /^Edit the supplied reference frame\b/i.test(prompt.trim()) ? "edit" : "frame",
     );
     if (manifest.promptWarnings.length) logEvent("prompt.validation", {
       sceneId: args.sceneId, kind: "image", warningCount: manifest.promptWarnings.length,

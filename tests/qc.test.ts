@@ -151,6 +151,34 @@ describe("what the QC agent is actually shown", () => {
     expect(result.passed).toBe(true);
     expect(result.severity).toBe("none");
   });
+
+  /**
+   * It was asked about subject drift and the previous scene while being handed
+   * neither, so a render of the wrong man could pass against a card that only
+   * named him.
+   */
+  it("is shown who is in the scene and the scene before it", async () => {
+    const { qcAgent } = await loadAgent("");
+    const { calls, provider } = recorder();
+
+    await qcAgent(scene, attempt({ startImagePath: "s.png" }), provider, { expectVideo: false }, {
+      review: {
+        people: [{
+          name: "Leroy", description: "Heavyset Black man, dark espresso-brown skin",
+          source: "visual_bible", frames: ["start", "end"],
+        }],
+        previousScene: {
+          sceneNumber: 3, title: "Before", actionDescription: "He kneels.",
+          touchingFramePrompt: "Leroy kneels at the foot of the bed.",
+        },
+      },
+    });
+
+    const payload = JSON.parse(calls[0]!.user);
+    expect(payload.people[0].description).toContain("Black man");
+    expect(payload.previousScene.touchingFramePrompt).toContain("kneels");
+    expect(calls[0]!.system).toMatch(/skin tone or ethnicity/i);
+  });
 });
 
 describe("reading keyframes for a vision model", () => {

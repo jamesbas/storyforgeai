@@ -161,6 +161,8 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
       videoResolutionPreset?: ResolutionPreset;
       segmentSeconds?: number;
       qcEnabled?: boolean;
+      sceneCheckDepth?: "quick" | "deep";
+      checkFirst?: "off" | "quick" | "deep";
       characterWardrobe?: Record<string, string>;
       useCharacterReferenceImages?: boolean;
       videoCharacterReferences?: boolean;
@@ -894,6 +896,49 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
               it reviews prompt text only and cannot comment on how anything looks.
             </p>
           ) : null}
+        </div>
+
+        <div className="space-y-2 border-t border-white/10 pt-4" data-testid="scene-check-settings">
+          <h3 className="text-sm font-semibold">Scene check</h3>
+          <p className="text-xs text-slate-500">
+            Reviews the scenes you choose — never the whole storyboard on its own — from each scene
+            card&apos;s <strong>Scene check</strong> panel, or <strong>Check selected scenes</strong>{" "}
+            on the storyboard. <strong>Quick</strong> reads the prompts against the card and the
+            people in it; <strong>Deep</strong> adds the story beat, the neighbouring scenes, the
+            staging and, with a vision model, the rendered keyframes. These only set the defaults.
+          </p>
+          <div className="flex flex-wrap gap-6">
+            <label className="text-xs text-slate-400">
+              Default depth
+              <select
+                value={project.sceneCheckDepth ?? "quick"}
+                disabled={busy}
+                onChange={(e) => void save({ sceneCheckDepth: e.target.value as "quick" | "deep" })}
+                className="mt-1 block rounded-md border border-white/10 bg-canvas px-2 py-1.5 text-sm text-slate-200"
+              >
+                <option value="quick">Quick</option>
+                <option value="deep">Deep</option>
+              </select>
+            </label>
+            <label className="text-xs text-slate-400">
+              Check before keyframe and clip reruns
+              <select
+                value={project.checkFirst ?? "off"}
+                disabled={busy}
+                onChange={(e) => void save({ checkFirst: e.target.value as "off" | "quick" | "deep" })}
+                className="mt-1 block rounded-md border border-white/10 bg-canvas px-2 py-1.5 text-sm text-slate-200"
+              >
+                <option value="off">Off — render as chosen</option>
+                <option value="quick">Quick check first</option>
+                <option value="deep">Deep check first</option>
+              </select>
+            </label>
+          </div>
+          <p className="text-xs text-slate-500">
+            With a check first, a rerun of selected scenes checks them, renders the ones that pass,
+            and holds any with an error until you fix it or choose to render it anyway. Full
+            generation and agentic runs are never held.
+          </p>
         </div>
 
         {saved ? <p className="text-xs text-emerald-400">Saved.</p> : null}

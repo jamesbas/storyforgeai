@@ -7,6 +7,7 @@ import { dialogueLineSchema, audioPlanSchema, animaticPlanSchema } from "@/lib/s
 import { sceneAttemptSchema, scenePreviewSchema } from "@/lib/schemas/generation";
 import { assemblySchema } from "@/lib/schemas/assembly";
 import { artifactExecutionSchema } from "@/lib/schemas/provenance";
+import { sceneChecksSchema } from "@/lib/schemas/scene-check";
 import {
   artDirectionPlanSchema,
   cinematographyPlanSchema,
@@ -318,6 +319,8 @@ export const projectRecordSchema = z.object({
    * model output.
    */
   executions: z.array(artifactExecutionSchema).optional(),
+  /** On-demand scene checks, keyed by scene id. Never run automatically. */
+  sceneChecks: sceneChecksSchema.optional(),
   history: z.array(historyEntrySchema).optional(),
 });
 export type ProjectRecord = z.infer<typeof projectRecordSchema>;

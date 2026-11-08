@@ -6,6 +6,14 @@ import { useLoadEffect } from "@/components/shared/use-load-effect";
 import Link from "next/link";
 import { SceneCard } from "@/components/storyboard/scene-card";
 import { ScenePicker } from "@/components/storyboard/scene-picker";
+import { SceneCheckPanel } from "@/components/storyboard/scene-check-panel";
+import {
+  CheckedRerunNotice,
+  CheckFirstControl,
+  SceneCheckTools,
+  type CheckFirst,
+} from "@/components/storyboard/scene-check-tools";
+import { useSceneChecks } from "@/components/storyboard/use-scene-checks";
 import { BulkPromptTools } from "@/components/storyboard/bulk-prompt-tools";
 import { CreativePlansPanel, planStates } from "@/components/storyboard/creative-plans-panel";
 import { NegativePromptRepair } from "@/components/storyboard/negative-prompt-repair";
@@ -694,6 +702,20 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   );
 
   useLoadEffect(loadQueue);
+
+  /**
+   * On-demand scene checks. Re-read whenever the project changes, because an
+   * edit can put a result out of date; a checked rerun that queues renders
+   * hands over to the render queue's own polling.
+   */
+  const sceneChecks = useSceneChecks(projectId, record?.project.updatedAt, {
+    onRendersQueued: () => {
+      void loadQueue();
+      void load();
+    },
+  });
+  const [checkFirstChoice, setCheckFirstChoice] = useState<CheckFirst | null>(null);
+  const checkFirst: CheckFirst = checkFirstChoice ?? record?.project.checkFirst ?? "off";
 
   // Poll only while work is outstanding, and refresh the record as scenes land.
   useEffect(() => {
@@ -1866,6 +1888,15 @@ export function StoryboardView({ projectId }: { projectId: string }) {
               </details>
             ) : null}
 
+            {storyboard.scenes.length > 0 ? (
+              <SceneCheckTools
+                scenes={storyboard.scenes}
+                checks={sceneChecks}
+                defaultDepth={record.project.sceneCheckDepth ?? "quick"}
+                renderActive={Boolean(queue?.active)}
+              />
+            ) : null}
+
             {stages.video && storyboard.scenes.length > 0 ? (
               <details className="mt-3 rounded-md border border-white/10 bg-black/20">
                 <summary className="cursor-pointer px-3 py-2 text-xs text-slate-400 hover:text-slate-200">
@@ -1882,13 +1913,20 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                     onChange={setVideoPicks}
                     testId="video-scene-picker"
                   />
-                  <button
-                    onClick={() => void regenerateVideo(videoPicks)}
-                    disabled={queueBusy || queue?.active || promptToolsBusy || videoPicks.length === 0}
-                    className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:border-accent disabled:opacity-50"
-                  >
-                    Regenerate {videoPicks.length} clip{videoPicks.length === 1 ? "" : "s"}
-                  </button>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      onClick={() =>
+                        void (checkFirst === "off"
+                          ? regenerateVideo(videoPicks)
+                          : sceneChecks.run(videoPicks, checkFirst, "video"))
+                      }
+                      disabled={queueBusy || queue?.active || promptToolsBusy || videoPicks.length === 0}
+                      className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:border-accent disabled:opacity-50"
+                    >
+                      {checkFirst === "off" ? "Regenerate" : "Check, then regenerate"} {videoPicks.length} clip{videoPicks.length === 1 ? "" : "s"}
+                    </button>
+                    <CheckFirstControl value={checkFirst} onChange={setCheckFirstChoice} testId="video-check-first" />
+                  </div>
                 </div>
               </details>
             ) : null}
@@ -1964,17 +2002,34 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                     onChange={setKeyframePicks}
                     testId="keyframe-scene-picker"
                   />
-                  <button
-                    onClick={() => void regenerateKeyframes(keyframePicks)}
-                    data-testid="regenerate-selected-keyframes"
-                    disabled={queueBusy || queue?.active || promptToolsBusy || keyframePicks.length === 0}
-                    className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:border-accent disabled:opacity-50"
-                  >
-                    Regenerate {keyframePicks.length} scene
-                    {keyframePicks.length === 1 ? "" : "s"}&apos; keyframes
-                  </button>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <button
+                      onClick={() =>
+                        void (checkFirst === "off"
+                          ? regenerateKeyframes(keyframePicks)
+                          : sceneChecks.run(keyframePicks, checkFirst, "keyframes"))
+                      }
+                      data-testid="regenerate-selected-keyframes"
+                      disabled={queueBusy || queue?.active || promptToolsBusy || keyframePicks.length === 0}
+                      className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:border-accent disabled:opacity-50"
+                    >
+                      {checkFirst === "off" ? "Regenerate" : "Check, then regenerate"} {keyframePicks.length} scene
+                      {keyframePicks.length === 1 ? "" : "s"}&apos; keyframes
+                    </button>
+                    <CheckFirstControl value={checkFirst} onChange={setCheckFirstChoice} testId="keyframe-check-first" />
+                  </div>
                 </div>
               </details>
+            ) : null}
+
+            {storyboard.scenes.length > 0 ? (
+              <CheckedRerunNotice
+                checks={sceneChecks}
+                scenes={storyboard.scenes}
+                onRenderAnyway={(scope, sceneIds) =>
+                  void (scope === "keyframes" ? regenerateKeyframes(sceneIds) : regenerateVideo(sceneIds))
+                }
+              />
             ) : null}
 
             {queue?.entries.length ? (
@@ -2173,6 +2228,26 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   }
                   onUnpinOpeningFrame={() => void setOpeningFrame(null)}
                   endFrameCarriedToScene={endFrameCarriedToScene}
+                  checkPanel={
+                    <SceneCheckPanel
+                      projectId={projectId}
+                      sceneId={scene.id}
+                      checks={sceneChecks.data?.checks[scene.id]}
+                      status={sceneChecks.data?.status[scene.id]}
+                      running={(() => {
+                        const entry = sceneChecks.data?.progress.entries.find((candidate) =>
+                          candidate.sceneId === scene.id &&
+                          (candidate.state === "pending" || candidate.state === "running"));
+                        return entry ? { depth: entry.depth, state: entry.state as "pending" | "running" } : undefined;
+                      })()}
+                      busy={sceneBusy === scene.id || promptToolsBusy}
+                      onRun={(depth) => void sceneChecks.run([scene.id], depth)}
+                      onAccept={(depth, findingId, accepted) =>
+                        void sceneChecks.accept(scene.id, depth, findingId, accepted)
+                      }
+                      onApplied={(next) => setRecord(next)}
+                    />
+                  }
                 />
               );
             })}

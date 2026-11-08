@@ -1,6 +1,7 @@
 import { qcResultSchema, type QCResult, type SceneAttempt } from "@/lib/schemas/generation";
 import type { Scene } from "@/lib/schemas/storyboard";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
+import type { NeighbourScene, ReviewPerson } from "@/lib/agents/review-context";
 import { loadImagesAsDataUrls } from "@/lib/media/data-url";
 import { executeArtifact, providerCall, type ExecutionCollector } from "@/lib/agents/provenance";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
@@ -25,7 +26,12 @@ const VISUAL_SYSTEM =
   "You are the QC Agent. The attached images are the generated keyframes for this scene. " +
   "Judge what you can actually see in them against the scene card and prompts: continuity " +
   "breaks, subject drift, anatomical errors, visual artifacts, incorrect framing, garbled text, " +
-  "missing actions. Report only defects visible in the images. The `expectations` field states " +
+  "missing actions. `people` gives the appearance each person in this scene must keep: compare " +
+  "every visible person against it — skin tone, ethnicity, age, build and hair first, because " +
+  "those are what a viewer reads — and report anyone who does not match as subject drift, " +
+  "naming the person and the trait. `previousScene` is the scene this one follows; report a " +
+  "break with it only where this scene's card does not explain the change. Report only defects " +
+  "visible in the images. The `expectations` field states " +
   "what this project's generation mode asked for; do not report media as missing when it was " +
   "never requested. Return pass/fail, severity, and specific regeneration instructions.";
 
@@ -34,14 +40,22 @@ const TEXT_SYSTEM =
   "cannot see the generated media. Do not speculate about how the render looks. Judge only " +
   "whether the prompts are internally consistent and faithful to the scene card: contradictory " +
   "wardrobe or appearance between the start-frame, end-frame and video prompts, actions or " +
-  "camera moves named in the scene card but missing from the prompts, continuity conflicts with " +
-  "the previous scene. Return pass/fail, severity, and specific prompt corrections.";
+  "camera moves named in the scene card but missing from the prompts, a person in `people` " +
+  "whose stated skin tone or ethnicity a frame prompt that names them leaves out, and " +
+  "continuity conflicts with `previousScene`. Return pass/fail, severity, and specific prompt " +
+  "corrections.";
 
 /** Kept for callers that assert on the prompt; visual grading is the default. */
 export const QC_SYSTEM = VISUAL_SYSTEM;
 
 /** What the project's generation mode asked for, so QC judges against that. */
 export type QcExpectations = { expectVideo: boolean };
+
+/** Who is in the scene and what came before it — the evidence drift and continuity are judged by. */
+export type QcReviewContext = {
+  people?: readonly ReviewPerson[];
+  previousScene?: NeighbourScene;
+};
 
 /** Read keyframes as data URLs, skipping any that cannot be sent. */
 export const loadQcImages = (paths: readonly (string | undefined)[]): Promise<string[]> =>
@@ -80,7 +94,7 @@ export async function qcAgent(
   attempt: SceneAttempt,
   provider: PlanningProvider | null,
   expectations: QcExpectations = { expectVideo: true },
-  options: { onExecution?: ExecutionCollector; correlationId?: string } = {},
+  options: { onExecution?: ExecutionCollector; correlationId?: string; review?: QcReviewContext } = {},
 ): Promise<QCResult> {
   const images =
     provider && config.openai.visionModel
@@ -103,6 +117,8 @@ export async function qcAgent(
     scene,
     attempt: visual ? rest : { ...rest, note: "Media not attached. Review prompts only." },
     expectations,
+    people: options.review?.people ?? [],
+    ...(options.review?.previousScene ? { previousScene: options.review.previousScene } : {}),
   });
 
   const { value } = await executeArtifact<QCResult>({
