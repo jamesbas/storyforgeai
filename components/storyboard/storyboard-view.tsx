@@ -2153,6 +2153,8 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                   onLoraSave={(next) => void saveSceneLoras(scene.id, next)}
                   triggerWords={{ image: triggerWordsFor("image"), video: triggerWordsFor("video") }}
                   videoFamily={videoFamily}
+                  rendersVideo={stages.video}
+                  onFeedbackBusyChange={setPromptToolsBusy}
                   promptExecution={latestExecution(record.executions, `${scene.id}.image_prompt`)}
                   previewWarnings={record.previews?.[scene.id]?.promptWarnings}
                   onPromptsSaved={(next) => setRecord(next)}

@@ -78,6 +78,8 @@ export type TelemetryEvent =
   | "scene_check.fix_previewed"
   | "scene_check.fix_applied"
   | "scene_check.held"
+  | "scene_feedback.previewed"
+  | "scene_feedback.applied"
   | "qc.mode"
   | "qc.image_skipped"
   | "image.skipped"

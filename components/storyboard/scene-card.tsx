@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { SceneLoraPanel } from "@/components/storyboard/scene-lora-panel";
 import { OpeningFramePanel } from "@/components/storyboard/opening-frame-panel";
 import { ScenePromptsPanel } from "@/components/storyboard/scene-prompts-panel";
+import { SceneFeedbackPanel } from "@/components/storyboard/scene-feedback-panel";
 import { SceneOrderControls } from "@/components/storyboard/scene-order-controls";
 import { SceneCardEditor } from "@/components/storyboard/scene-card-editor";
 import { SceneWardrobePanel } from "@/components/storyboard/scene-wardrobe-panel";
@@ -49,6 +50,8 @@ type SceneCardProps = {
   orderNotice?: string;
   /** Pinned video family, so the prompts panel can say what generation adds. */
   videoFamily?: string;
+  rendersVideo?: boolean;
+  onFeedbackBusyChange?: (busy: boolean) => void;
   /**
    * The attempt everything downstream uses, when it is not the one shown.
    *
@@ -165,6 +168,8 @@ export function SceneCard({
   previewWarnings,
   onPromptsSaved,
   videoFamily,
+  rendersVideo,
+  onFeedbackBusyChange,
   supersededBy,
   cast = [],
   wardrobeChanges = [],
@@ -346,6 +351,16 @@ export function SceneCard({
           </div>
         </details>
       )}
+      {projectId ? (
+        <SceneFeedbackPanel
+          scene={scene}
+          projectId={projectId}
+          rendersVideo={rendersVideo}
+          busy={busy || queueActive}
+          onSaved={onPromptsSaved}
+          onBusyChange={onFeedbackBusyChange}
+        />
+      ) : null}
       {checkPanel}
       {projectId ? (
         <SceneWardrobePanel

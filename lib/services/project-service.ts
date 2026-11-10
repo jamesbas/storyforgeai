@@ -851,6 +851,8 @@ export async function updateScenePrompts(
   id: string,
   sceneId: string,
   raw: unknown,
+  /** Optional preview guard, checked against the latest record immediately before saving. */
+  assertCurrent?: (record: ProjectRecord, cast: readonly Character[]) => void,
 ): Promise<ProjectRecord> {
   const patch = scenePromptsPatchSchema.parse(raw);
   for (const field of ["startFramePrompt", "endFramePrompt", "endFrameEditPrompt"] as const) {
@@ -862,6 +864,7 @@ export async function updateScenePrompts(
   const scene = record.storyboard.scenes.find((s) => s.id === sceneId);
   if (!scene) throw new NotFoundError(`Scene ${sceneId} not found`);
   const cast = await resolveProjectCast(record.project);
+  if (assertCurrent) assertCurrent(await getProjectRecord(id), cast);
   const withWarnings = (s: Scene): Scene => ({
     ...s,
     prompts: {

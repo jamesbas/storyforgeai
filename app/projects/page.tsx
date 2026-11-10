@@ -5,20 +5,30 @@ import Link from "next/link";
 import { AppShell } from "@/components/shell/app-shell";
 import { ImportProject } from "@/components/intake/import-project";
 import { ProjectList, useProjects } from "@/components/intake/project-list";
+import {
+  countByStatus,
+  filterProjects,
+  projectStatusLabel,
+  type ProjectStatusFilter,
+} from "@/components/intake/project-filter";
+import { PROJECT_STATUSES } from "@/lib/types";
 
 export default function ProjectsPage() {
   const { projects, loading, forget, reload } = useProjects();
   const [query, setQuery] = useState("");
+  const [status, setStatus] = useState<ProjectStatusFilter>("all");
 
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase();
-    if (!needle) return projects;
-    return projects.filter(
-      (project) =>
-        project.title.toLowerCase().includes(needle) ||
-        project.concept.toLowerCase().includes(needle),
-    );
-  }, [projects, query]);
+  const counts = useMemo(() => countByStatus(projects), [projects]);
+  const filtered = useMemo(
+    () => filterProjects(projects, query, status),
+    [projects, query, status],
+  );
+
+  const emptyMessage = (() => {
+    const inStatus = status === "all" ? "" : ` in ${projectStatusLabel(status)}`;
+    const needle = query.trim();
+    return needle ? `No project${inStatus} matches “${needle}”.` : `No project is${inStatus}.`;
+  })();
 
   return (
     <AppShell>
@@ -53,6 +63,22 @@ export default function ProjectsPage() {
               placeholder="Search by title or concept"
               className="w-full max-w-sm rounded-md border border-white/10 bg-panel/40 px-3 py-2 text-sm placeholder:text-slate-600 focus:border-accent focus:outline-none"
             />
+            <label htmlFor="project-status" className="sr-only">
+              Filter by status
+            </label>
+            <select
+              id="project-status"
+              value={status}
+              onChange={(event) => setStatus(event.target.value as ProjectStatusFilter)}
+              className="rounded-md border border-white/10 bg-panel/40 px-3 py-2 text-sm focus:border-accent focus:outline-none"
+            >
+              <option value="all">All statuses</option>
+              {PROJECT_STATUSES.map((s) => (
+                <option key={s} value={s} disabled={counts[s] === 0 && s !== status}>
+                  {projectStatusLabel(s)} ({counts[s]})
+                </option>
+              ))}
+            </select>
             <span className="text-xs text-slate-500">
               {filtered.length} of {projects.length}
             </span>
@@ -76,7 +102,7 @@ export default function ProjectsPage() {
             </Link>
           </div>
         ) : filtered.length === 0 ? (
-          <p className="text-sm text-slate-500">No project matches &ldquo;{query}&rdquo;.</p>
+          <p className="text-sm text-slate-500">{emptyMessage}</p>
         ) : (
           <ProjectList
             projects={filtered}
