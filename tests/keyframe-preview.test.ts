@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, beforeEach, describe, it, expect, vi } from "vitest";
 import path from "node:path";
 import {
   adoptScenePreview,
@@ -14,6 +14,19 @@ import { MockWangpClient } from "@/lib/wangp/mock-client";
 import { setWangpClient } from "@/lib/wangp/factory";
 import { config } from "@/lib/config";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
+import type { WangpClient } from "@/lib/wangp/client";
+import { unloadPlanningModelForGeneration } from "@/lib/services/llm-runtime-service";
+
+vi.mock("@/lib/services/llm-runtime-service", async (original) => ({
+  ...await original<typeof import("@/lib/services/llm-runtime-service")>(),
+  unloadPlanningModelForGeneration: vi.fn(async () => []),
+}));
+
+beforeEach(() => {
+  vi.mocked(unloadPlanningModelForGeneration).mockReset().mockResolvedValue([]);
+});
+
+afterEach(() => setWangpClient(new MockWangpClient()));
 
 /**
  * Keyframe previews.
@@ -35,6 +48,67 @@ async function seeded() {
 function sceneOf(record: ProjectRecord) {
   return record.storyboard!.scenes[0]!;
 }
+
+describe("releasing the planning model before keyframe previews", () => {
+  function liveClient() {
+    const backend = new MockWangpClient();
+    const generate = vi.fn(async (settings: Record<string, unknown>) => {
+      const submitted = await backend.generate(settings);
+      await backend.getJob(submitted.id);
+      return backend.getJob(submitted.id);
+    });
+    const client: WangpClient = {
+      mode: "live",
+      listModels: backend.listModels.bind(backend),
+      getModelSchema: backend.getModelSchema.bind(backend),
+      generate,
+      getJob: backend.getJob.bind(backend),
+      cancelJob: backend.cancelJob.bind(backend),
+      health: backend.health.bind(backend),
+    };
+    setWangpClient(client);
+    return generate;
+  }
+
+  it.each(["start_frame", "end_frame"] as const)("waits for unloading before submitting a %s preview", async (purpose) => {
+    const record = await seeded();
+    const generate = liveClient();
+    let release!: () => void;
+    vi.mocked(unloadPlanningModelForGeneration).mockImplementation(() =>
+      new Promise<string[]>((resolve) => { release = () => resolve(["feedback-model"]); }));
+
+    const pending = generateSceneKeyframe(record.project.id, sceneOf(record).id, purpose);
+    await vi.waitFor(() => expect(unloadPlanningModelForGeneration).toHaveBeenCalledOnce());
+    expect(generate).not.toHaveBeenCalled();
+
+    release();
+    const rendered = await pending;
+    expect(generate).toHaveBeenCalledOnce();
+    const preview = rendered.previews![sceneOf(record).id]!;
+    expect(purpose === "start_frame" ? preview.startFramePath : preview.endFramePath).toBeTruthy();
+  });
+
+  it("does not submit a render on unload failure, and a later preview can retry", async () => {
+    const record = await seeded();
+    const sceneId = sceneOf(record).id;
+    const generate = liveClient();
+    vi.mocked(unloadPlanningModelForGeneration).mockRejectedValueOnce(new Error("Could not unload LM Studio."));
+    await expect(generateSceneKeyframe(record.project.id, sceneId, "start_frame"))
+      .rejects.toThrow("Could not unload LM Studio.");
+    expect(generate).not.toHaveBeenCalled();
+
+    const retried = await generateSceneKeyframe(record.project.id, sceneId, "start_frame");
+    expect(retried.previews![sceneId]!.startFramePath).toBeTruthy();
+    expect(generate).toHaveBeenCalledOnce();
+  });
+
+  it("leaves LM Studio untouched for demo previews", async () => {
+    const record = await seeded();
+    setWangpClient(new MockWangpClient());
+    await generateSceneKeyframe(record.project.id, sceneOf(record).id, "start_frame");
+    expect(unloadPlanningModelForGeneration).not.toHaveBeenCalled();
+  });
+});
 
 describe("pinned scene seeds", () => {
   it("reuses one seed across previews so a preview predicts the keyframe", async () => {

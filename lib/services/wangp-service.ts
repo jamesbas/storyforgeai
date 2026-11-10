@@ -50,6 +50,7 @@ import { config } from "@/lib/config";
 import { ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
 import { APP_VERSION } from "@/lib/version";
+import { unloadPlanningModelForGeneration } from "@/lib/services/llm-runtime-service";
 import { qwen21ImageOverrides } from "@/lib/wangp/qwen21";
 import { imagePromptWarnings } from "@/lib/agents/prompt-validation";
 import type { ImageGateContext } from "@/lib/agents/prompt-gate";
@@ -836,6 +837,7 @@ export async function runToCompletion(
   const intervalMs = live ? config.wangp.pollIntervalMs : 0;
 
   return enqueue(async () => {
+    if (live) await unloadPlanningModelForGeneration();
     let job: WangpJob;
     try {
       job = await client.generate(settings);

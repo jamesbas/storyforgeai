@@ -8,7 +8,7 @@ import {
 } from "@/lib/services/media-service";
 import type { PhaseName } from "@/lib/services/media-service";
 import { getProjectRecord } from "@/lib/services/project-service";
-import { getLlmRuntimeStatus, unloadPlanningModel } from "@/lib/services/llm-runtime-service";
+import { unloadPlanningModelForGeneration } from "@/lib/services/llm-runtime-service";
 import { generationStages, DEFAULT_SCENE_CONTINUITY } from "@/lib/types";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import { config } from "@/lib/config";
@@ -423,15 +423,15 @@ export async function enqueueKeyframeRerun(
  * unattended batch survive.
  */
 async function freeGpuForGeneration(): Promise<void> {
-  if (!config.llmRuntime.unloadBeforeBatch) return;
   try {
-    const status = await getLlmRuntimeStatus();
-    if (!status.enabled || !status.reachable || status.loadedModels.length === 0) return;
-    await unloadPlanningModel();
-    logEvent("scene_queue.gpu_freed", { unloaded: status.loadedModels });
-  } catch {
-    // Best effort. If LM Studio cannot be reached the batch still runs; it may
-    // simply be slower or fail on memory, which the retry then covers.
+    const unloaded = await unloadPlanningModelForGeneration();
+    if (unloaded.length) logEvent("scene_queue.gpu_freed", { unloaded });
+  } catch (error) {
+    // Keep the queue drainable; the live-job handoff retries and surfaces a failure before submission.
+    logEvent("llm.runtime", {
+      action: "auto_unload_failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
 }
 

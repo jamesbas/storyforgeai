@@ -198,9 +198,9 @@ export const config = {
     /** Loading a large model off disk is slow; give it room before giving up. */
     timeoutMs: int(process.env.LMSTUDIO_CLI_TIMEOUT_MS, 600_000),
     /**
-     * Evict the planning model before a batch run. Generating a whole project
-     * is many minutes of GPU work, and starting it while an LLM holds the card
-     * produces CUDA faults partway through rather than a clean refusal.
+     * Evict loaded LM Studio models before live generation, including single
+     * keyframe previews. Starting WanGP while an LLM holds the card produces
+     * CUDA faults partway through rather than a clean refusal.
      */
     unloadBeforeBatch: bool(process.env.LLM_UNLOAD_BEFORE_BATCH, true),
   },

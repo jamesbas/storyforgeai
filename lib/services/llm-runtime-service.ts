@@ -143,6 +143,26 @@ export async function unloadPlanningModel(): Promise<LlmRuntimeStatus> {
   return getLlmRuntimeStatus();
 }
 
+/** Shared automatic handoff for batches and individual live renders. */
+export async function unloadPlanningModelForGeneration(): Promise<string[]> {
+  if (!config.llmRuntime.enabled || !config.llmRuntime.unloadBeforeBatch) return [];
+  const before = await getLlmRuntimeStatus();
+  if (!before.reachable || before.loadedModels.length === 0) return [];
+
+  const after = await unloadPlanningModel();
+  if (!after.reachable) {
+    throw new ValidationError(
+      "Could not verify that LM Studio unloaded its models. Check LM Studio and retry generation.",
+    );
+  }
+  if (after.loadedModels.length > 0) {
+    throw new ValidationError(
+      "LM Studio still reports loaded models after unloading. Unload them in LM Studio and retry generation.",
+    );
+  }
+  return before.loadedModels;
+}
+
 /**
  * Load the configured planning model.
  *
