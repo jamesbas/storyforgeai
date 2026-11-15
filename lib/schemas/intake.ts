@@ -83,8 +83,18 @@ export const createProjectSchema = z.object({
  * the running time or the tone reads as someone else's idea — a 30-second piece
  * described as a three-act story is worse than the sentence it replaced.
  */
+/**
+ * The concept may be blank here, unlike on a project: with reference images
+ * attached, a blank note asks for a concept written from the pictures alone.
+ * The route refuses a blank note with nothing to read.
+ */
 export const enhanceConceptSchema = z.object({
-  concept: conceptField,
+  concept: z
+    .string()
+    .max(
+      MAX_CONCEPT_CHARACTERS,
+      `concept is limited to ${MAX_CONCEPT_CHARACTERS.toLocaleString("en-GB")} characters`,
+    ),
   requestedDurationSeconds: z.number().int().positive().max(3600),
   style: z.string().min(1).default("cinematic"),
   tone: z.string().min(1).default("neutral"),

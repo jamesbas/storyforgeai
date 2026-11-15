@@ -89,4 +89,67 @@ describe("NewProjectForm", () => {
       expect(screen.getByRole("button", { name: /expand with ai/i })).toBeDisabled();
     });
   });
+
+  /**
+   * A blank concept used to disable the helper outright, so pictures alone
+   * could never become a story. With images attached it now offers to write one.
+   */
+  describe("writing a concept from images", () => {
+    it("offers it only once images are attached to a blank concept", async () => {
+      const user = userEvent.setup();
+      render(<NewProjectForm onSubmit={vi.fn()} />);
+
+      expect(screen.getByRole("button", { name: /expand with ai/i })).toBeDisabled();
+
+      await user.upload(
+        screen.getByLabelText(/reference images/i),
+        new File(["x"], "pier.png", { type: "image/png" }),
+      );
+      expect(screen.getByRole("button", { name: /write from images/i })).toBeEnabled();
+
+      await user.type(screen.getByLabelText(/concept/i), "A pier at night.");
+      expect(screen.getByRole("button", { name: /expand with ai/i })).toBeEnabled();
+    });
+
+    it("sends the images with a blank concept and says what the suggestion came from", async () => {
+      const fetchMock = vi.fn(async (url: string, _init?: RequestInit) =>
+        url === "/api/concept/enhance"
+          ? new Response(
+              JSON.stringify({
+                concept: "A story found in the pictures.",
+                imagesRead: 1,
+                imagesSupplied: 1,
+                visionAvailable: true,
+                fromImagesOnly: true,
+              }),
+              { status: 200 },
+            )
+          : new Response("{}", { status: 404 }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      try {
+        const user = userEvent.setup();
+        render(<NewProjectForm onSubmit={vi.fn()} />);
+
+        await user.upload(
+          screen.getByLabelText(/reference images/i),
+          new File(["x"], "pier.png", { type: "image/png" }),
+        );
+        await user.click(screen.getByRole("button", { name: /write from images/i }));
+
+        const call = fetchMock.mock.calls.find(([url]) => url === "/api/concept/enhance")!;
+        const body = call[1]!.body as FormData;
+        expect(body.get("concept")).toBe("");
+        expect(body.getAll("images")).toHaveLength(1);
+        expect(await screen.findByTestId("concept-suggestion")).toHaveTextContent(
+          "A story found in the pictures.",
+        );
+        expect(screen.getByTestId("concept-enhance-status")).toHaveTextContent(
+          /from 1 reference image alone/,
+        );
+      } finally {
+        vi.unstubAllGlobals();
+      }
+    });
+  });
 });

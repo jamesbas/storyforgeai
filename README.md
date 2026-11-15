@@ -39,11 +39,11 @@ recent updates are kept below — every release ever made is in
 
 | Version | Date | What changed |
 | --- | --- | --- |
+| **3.01** | 2026-11-15 | **Start a project from pictures alone.** Expand with AI used to need typed concept text, so a few reference images could shape a story but never start one. Now, leave the concept box empty, attach one or more reference images, and the button becomes **Write from images**: the planning model finds a premise, characters and an arc in the pictures, connecting several into one film, sized to the duration, style, tone and format you have set. It arrives as a suggestion you accept with **Use this**, edit, or discard, exactly like an expansion. It needs a vision model (`OPENAI_VISION_MODEL`); without one, or if no image can be read, it says so rather than inventing a story. Typing a concept works as before. **Your planning model now writes the story even when it cannot see.** If `OPENAI_VISION_MODEL` is a different model from your planning model, both **Write from images** and **Expand with AI** with images attached now have the vision model only describe the pictures, and the planning model writes the concept from that description - so a small, fast vision model no longer ends up writing your story. When one model does both, it still sees the pictures directly. The status line says which happened. |
 | **3.00** | 2026-11-10 | **Keyframe previews release LM Studio before rendering.** After a scene-feedback reply, a single-frame preview used to leave the language model on the GPU because only batch renders ran the unload step. Every live WanGP job now checks the same automatic-unload policy immediately before submission, so start/end previews and direct scene renders free the GPU too. A failed unload or a model still reported as loaded is shown as an error instead of starting the render. Demo mode is unchanged, and the existing runtime-control and auto-unload opt-outs are honoured. |
 | **2.99** | 2026-11-10 | **Tell a scene what looks wrong instead of rewriting its prompts yourself.** Open **Refine with feedback** on a Storyboard scene, choose both keyframes, the start, the end, or video, and describe the correction in plain English. The planning model proposes complete replacements and explains the video impact of a keyframe change; existing end-frame edits are kept in step too. Review the current and proposed wording, including a next scene's carried opening, then accept the coordinated changes or discard them. Changed project inputs make a preview stale. This is text-only, uses the configured planning connection such as LM Studio, and never regenerates media automatically. |
 | **2.98** | 2026-11-10 | **Filter the Projects screen by status.** A new status menu beside the search box narrows the list to projects that are, for example, **Assembled** or **Needs review**, and works together with the title/concept search. Each status shows how many projects are in it, and statuses with none are greyed out. No settings change is needed. |
 | **2.97** | 2026-11-08 | **People the story introduces keep their skin tone, and any scene can be checked on demand.** A character the planning agents added - not one from your library - had nothing holding their appearance in place: prompts described a Black lead by build and age alone and he rendered white until the prompts were fixed by hand. Story characters now get the same appended description library characters do when a frame names them without describing them, and a stated skin tone or ethnicity is required for everyone: left out, it is added beside the person's name ("Leroy (a Black man with dark espresso-brown skin)"). The prompt writers are told the same, the clip writer for MiniMax H3 Ref2VA now identifies story characters too, and a frame still missing it after a hand edit is flagged `identity_missing`; **Repair prompts** on the Storyboard screen fixes older projects without a model call. New **Scene check**, run only on the scenes you choose - from a scene card or **Check selected scenes** - and never by storyboard, canvas or render runs: **Quick** reviews the prompts against the card and the people in it; **Deep** adds the story beat, the neighbouring scenes, staging and, with a vision model, the rendered keyframes. Findings quote what they rest on, can be accepted as intentional, or fixed with **Preview fix** - a one-field change shown before it is applied like a hand edit. An optional **Check first** on keyframe and clip reruns holds scenes with an error (off by default; set on the project settings screen). QC is now given the appearance of everyone in the scene and the scene before it, which it was already being asked to judge against. To use the new identity rules on existing scenes, press **Repair prompts** or rewrite their prompts. |
-| **2.96** | 2026-11-08 | **MiniMax H3 clips can now render at 720p and 1080p.** StoryForge used to hold every H3 clip at 480p whatever the Clips resolution was set to, crossing out Standard and High. Wan2GP accepts H3 at every size StoryForge offers (its budget for H3 is about 4.2 MP, well above 1080p), so the cap is gone and the Clips setting is honoured: Draft, Standard and High now render H3 natively at 832x480, 1280x704 and 1920x1088 for 16:9 - the same sizes Wan2GP's own UI lists, since H3 works on a 32-pixel grid - and the settings screen shows those exact sizes. Larger clips are much slower: Standard is a little over twice the pixels of Draft and High four to five times. Because earlier H3 renders asked Wan2GP for an upscale, H3 clips now explicitly switch Wan2GP's upscaler off, so a 1080p clip is not upscaled again by a setting left over from before. Choose Standard or High under Resolution > Clips in project settings and re-render a scene to use it. |
 
 ---
 
@@ -294,7 +294,8 @@ values in the `Dockerfile`, and the port mapping in `docker-compose.yml`.
 ## Typical workflow
 
 1. **New Project** — enter a concept, duration, style, tone, and toggles.
-   Optionally attach reference images, and name the **climax** your story builds
+   Optionally attach reference images (with the concept left empty, **Write
+   from images** drafts one from them), and name the **climax** your story builds
    to and how many scenes follow it — otherwise the Story Architect decides.
 
    ![The new project form: concept, duration, style, tone and generation toggles](public/screenshots/new-project.png)
@@ -862,7 +863,7 @@ attention.
 lighting, palette, wardrobe and mood, and has no field for an event — the
 Concept Reader is explicitly forbidden from guessing at what happens. So a
 reference steers how the film looks, not what occurs in it. The one place that
-is not true is **Expand with AI**, below.
+is not true is **Expand with AI** (and its **Write from images** mode), below.
 
 **There is no order to remember.** Generating a storyboard, exploring directions,
 or running any canvas agent reads the references first if they have not been read
@@ -882,12 +883,29 @@ because of *when* it runs: the concept is still being written, so a photograph
 can suggest a place, a period, weather or a situation you had not yet decided,
 and the result lands in the concept box as ordinary text you edit or reject.
 
-The pictures are encoded for that one call and never stored — the project they
+The pictures are encoded for that one request and never stored — the project they
 would belong to does not exist yet. Your typed note still leads: where an image
 suggests something the note rules out, the note wins. The status line reports how
 many images were actually read, and says so plainly when none were because no
 vision model is configured, rather than handing back prose that reads as though
 they had been.
+
+**You can also start from the pictures alone.** Leave the concept box empty,
+attach reference images, and the button becomes **Write from images**. The
+model finds a premise, characters and an arc in the pictures — several images
+are connected into one film rather than one being picked — sized to the running
+time, style, tone and format you have set. It is a suggestion like any other:
+nothing changes until you press **Use this**. This mode needs a vision model;
+without one it refuses rather than inventing a story from nothing.
+
+**Which model writes it.** If `OPENAI_VISION_MODEL` names a different model from
+your planning model (Settings → Planning model, or `OPENAI_MODEL`), the work is
+split, for both **Write from images** and **Expand with AI** with images: the
+vision model only describes the pictures — people, action, setting, period,
+light, mood — and the planning model writes the concept from that description.
+A small, fast vision model therefore never writes your story. When one model
+does both, it sees the pictures directly, which keeps detail a description would
+lose. The status line says which happened.
 
 ### When a reference disagrees with your concept
 

@@ -222,6 +222,26 @@ export default function HelpPage() {
             afterwards says how many images were actually read, and tells you plainly when none were
             because no vision model is configured.
           </p>
+          <p className={p}>
+            <strong>Or start from the pictures alone.</strong> Leave the concept box empty, attach one
+            or more reference images, and the button becomes <em>Write from images</em>. The model
+            then finds a story in the pictures: it draws the premise, the people and the world from
+            what they show, connects several pictures into one film rather than picking one, and
+            gives it an opening, a turn and an ending sized to the running time and format you have
+            set. It will not name anyone it thinks it recognises. The result is a suggestion like any
+            other, so <em>Use this</em> puts it in the box to edit. This needs a vision model —
+            without one there is nothing to write from, so the button says so instead of inventing
+            a story.
+          </p>
+          <p className={p}>
+            <strong>Which model writes it.</strong> When <code>OPENAI_VISION_MODEL</code> names a
+            different model from your planning model, both buttons split the work: the vision model
+            only describes the pictures — people, action, setting, period, light and mood — and the
+            planning model writes the concept from that description. A small, fast vision model
+            therefore never writes the story. When one model does both, it sees the pictures
+            directly, which keeps detail a description would lose. The status line says which
+            happened.
+          </p>
 
           <h3 className={h3}>Duration &amp; clip length</h3>
           <p className={p}>

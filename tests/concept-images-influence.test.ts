@@ -2,6 +2,9 @@ import { describe, expect, it } from "vitest";
 import {
   CONCEPT_ENHANCER_SYSTEM,
   CONCEPT_ENHANCER_VISUAL,
+  CONCEPT_FROM_IMAGES_SYSTEM,
+  CONCEPT_READING_NOTE,
+  REFERENCE_READER_SYSTEM,
   enhanceConcept,
 } from "@/lib/agents/concept-enhancer";
 import { conceptVisualsPayload } from "@/lib/agents/concept-visuals";
@@ -30,14 +33,15 @@ const input: EnhanceConceptInput = {
   creativeMode: "film_short",
 };
 
-type Seen = { system?: string; options?: GenerateOptions };
+type Seen = { system?: string; user?: string; options?: GenerateOptions };
 
 function recordingProvider(concept: string, seen: Seen) {
   return {
     name: "fake",
     generateJson: async () => null,
-    generate: async (system: string, _user: string, _schema: unknown, options?: GenerateOptions) => {
+    generate: async (system: string, user: string, _schema: unknown, options?: GenerateOptions) => {
       seen.system = system;
+      seen.user = user;
       seen.options = options;
       return { ok: true as const, value: { concept }, provider: "fake" };
     },
@@ -99,6 +103,100 @@ describe("the concept helper reading reference images", () => {
       "data:image/png;base64,AAAA",
     ]);
     expect(result).toEqual({ ok: true, concept: EXPANDED });
+  });
+});
+
+/**
+ * A blank concept with pictures attached asks for a story found in them. The
+ * text prompt cannot do that: it guards a typed premise and lets it overrule the
+ * pictures, so with no note it is guarding nothing.
+ */
+describe("writing a concept from reference images alone", () => {
+  const blank: EnhanceConceptInput = { ...input, concept: "  " };
+  const images = ["data:image/png;base64,AAAA", "data:image/png;base64,BBBB"];
+
+  it("uses the images-only prompt, sends the pictures and no empty note", async () => {
+    const seen: Seen = {};
+    const result = await enhanceConcept(blank, recordingProvider(EXPANDED, seen), images);
+
+    expect(result).toEqual({ ok: true, concept: EXPANDED });
+    expect(seen.system).toBe(CONCEPT_FROM_IMAGES_SYSTEM);
+    expect(seen.system).not.toContain("The typed note still leads");
+    expect(seen.options?.images).toEqual(images);
+    expect(JSON.parse(seen.user!)).not.toHaveProperty("concept");
+  });
+
+  it("refuses without calling the model when there is nothing to read", async () => {
+    const seen: Seen = {};
+    const result = await enhanceConcept(blank, recordingProvider(EXPANDED, seen));
+
+    expect(result.ok).toBe(false);
+    expect(seen.system).toBeUndefined();
+  });
+
+  it("rejects an answer too short to stage", async () => {
+    const result = await enhanceConcept(
+      blank,
+      recordingProvider("A keeper watches a storm.", {}),
+      images,
+    );
+    expect(result.ok === false && result.reason).toMatch(/too little/);
+  });
+});
+
+/**
+ * A separate vision model is often the small one. With `readFirst` it only
+ * describes the pictures, and the planning model writes from that description.
+ */
+describe("reading images with one model and writing with another", () => {
+  const images = ["data:image/png;base64,AAAA", "data:image/png;base64,BBBB"];
+  const READING = "Picture 1: a woman in oilskins on a rain-lashed jetty at dusk.";
+
+  type Call = { system: string; user: string; options?: GenerateOptions };
+
+  function twoModelProvider(calls: Call[], readerFails = false) {
+    return {
+      name: "fake",
+      generateJson: async () => null,
+      generate: async (system: string, user: string, _schema: unknown, options?: GenerateOptions) => {
+        calls.push({ system, user, options });
+        if (system === REFERENCE_READER_SYSTEM) {
+          return readerFails
+            ? { ok: false as const, reason: "timeout", provider: "fake" }
+            : { ok: true as const, value: { reading: READING }, provider: "fake" };
+        }
+        return { ok: true as const, value: { concept: EXPANDED }, provider: "fake" };
+      },
+    } as unknown as PlanningProvider;
+  }
+
+  it.each([
+    ["a blank concept", "", CONCEPT_FROM_IMAGES_SYSTEM],
+    ["a typed concept", input.concept, CONCEPT_ENHANCER_VISUAL],
+  ])("sends only the pictures to the reader and only text to the writer, for %s", async (_, concept, prompt) => {
+    const calls: Call[] = [];
+    const result = await enhanceConcept({ ...input, concept }, twoModelProvider(calls), images, {
+      readFirst: true,
+    });
+
+    expect(result).toEqual({ ok: true, concept: EXPANDED });
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.system).toBe(REFERENCE_READER_SYSTEM);
+    expect(calls[0]!.options?.images).toEqual(images);
+    expect(calls[1]!.options).toBeUndefined();
+    expect(calls[1]!.system).toContain(prompt);
+    expect(calls[1]!.system).toContain(CONCEPT_READING_NOTE);
+    expect(JSON.parse(calls[1]!.user).referenceReading).toBe(READING);
+  });
+
+  it("blames the vision model, and writes nothing, when the reading fails", async () => {
+    const calls: Call[] = [];
+    const result = await enhanceConcept({ ...input, concept: "" }, twoModelProvider(calls, true), images, {
+      readFirst: true,
+    });
+
+    expect(result.ok === false && result.reason).toMatch(/vision model timed out/);
+    expect(calls).toHaveLength(1);
   });
 });
 

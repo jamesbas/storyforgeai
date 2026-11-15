@@ -74,6 +74,18 @@ export function visionAvailable(): boolean {
 }
 
 /**
+ * Whether the vision model is a different model from the one planning calls use.
+ *
+ * When it is, it is often the smaller of the two — chosen because it can see,
+ * not because it writes well — so callers that need prose can have it read the
+ * images and leave the writing to the planning model.
+ */
+export async function visionIsSeparateModel(): Promise<boolean> {
+  const vision = config.openai.visionModel;
+  return Boolean(vision) && vision !== (await getPlanningModel());
+}
+
+/**
  * OpenAI-compatible provider. Works against the OpenAI API or any compatible
  * local server (LM Studio, Ollama, llama.cpp) by pointing OPENAI_BASE_URL at it.
  *

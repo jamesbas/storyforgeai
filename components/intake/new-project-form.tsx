@@ -48,6 +48,8 @@ function suggestionStatus(result: {
   imagesRead?: number;
   imagesSupplied?: number;
   visionAvailable?: boolean;
+  fromImagesOnly?: boolean;
+  readFirst?: boolean;
 }): string {
   const supplied = result.imagesSupplied ?? 0;
   if (supplied === 0) return "Suggestion ready. Review it below.";
@@ -63,7 +65,12 @@ function suggestionStatus(result: {
   }
   const skipped = supplied - read;
   const tail = skipped > 0 ? ` ${skipped} could not be read.` : "";
-  return `Suggestion ready, written from your concept and ${read} reference image${read === 1 ? "" : "s"}.${tail} Review it below.`;
+  const how = result.readFirst ? " The vision model read the images; the planning model wrote it." : "";
+  const images = `${read} reference image${read === 1 ? "" : "s"}`;
+  if (result.fromImagesOnly) {
+    return `Suggestion ready, written from ${images} alone.${tail}${how} Review it below.`;
+  }
+  return `Suggestion ready, written from your concept and ${images}.${tail}${how} Review it below.`;
 }
 
 /**
@@ -111,6 +118,8 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
   const [suggestion, setSuggestion] = useState<string | null>(null);
   const [enhanceStatus, setEnhanceStatus] = useState<string | null>(null);
   const [enhanceFailed, setEnhanceFailed] = useState(false);
+  // A blank box with pictures attached asks for a concept written from them.
+  const fromImagesOnly = concept.trim() === "" && references.length > 0;
 
   useEffect(() => {
     void (async () => {
@@ -155,9 +164,11 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
     setEnhanceFailed(false);
     setSuggestion(null);
     setEnhanceStatus(
-      references.length > 0
-        ? `Expanding your concept, reading ${references.length} reference image${references.length === 1 ? "" : "s"}\u2026`
-        : "Expanding your concept\u2026",
+      fromImagesOnly
+        ? `Writing a concept from ${references.length} reference image${references.length === 1 ? "" : "s"}\u2026`
+        : references.length > 0
+          ? `Expanding your concept, reading ${references.length} reference image${references.length === 1 ? "" : "s"}\u2026`
+          : "Expanding your concept\u2026",
     );
     try {
       // Multipart only when there are pictures to send; the route still takes
@@ -192,6 +203,8 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
         imagesRead?: number;
         imagesSupplied?: number;
         visionAvailable?: boolean;
+        fromImagesOnly?: boolean;
+        readFirst?: boolean;
       };
       setSuggestion(result.concept);
       setEnhanceStatus(suggestionStatus(result));
@@ -201,7 +214,7 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
     } finally {
       setEnhancing(false);
     }
-  }, [concept, duration, style, tone, audience, creativeMode, references]);
+  }, [concept, duration, style, tone, audience, creativeMode, references, fromImagesOnly]);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
@@ -312,10 +325,23 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
           <button
             type="button"
             onClick={() => void requestSuggestion()}
-            disabled={enhancing || concept.trim().length === 0 || conceptTooLong}
+            disabled={
+              enhancing || conceptTooLong || (concept.trim().length === 0 && references.length === 0)
+            }
+            title={
+              concept.trim().length === 0 && references.length === 0
+                ? "Type a concept, or attach reference images to write one from them"
+                : undefined
+            }
             className="text-xs text-accent underline underline-offset-2 disabled:no-underline disabled:opacity-40"
           >
-            {enhancing ? "Expanding…" : "Expand with AI"}
+            {enhancing
+              ? fromImagesOnly
+                ? "Writing…"
+                : "Expanding…"
+              : fromImagesOnly
+                ? "Write from images"
+                : "Expand with AI"}
           </button>
         </div>
         <textarea
@@ -342,6 +368,8 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
           Every agent downstream reads this and nothing else describes your idea, so a fuller
           concept produces a fuller film. Expand with AI develops the opening, causal progression,
           escalation and ending while preserving your premise, or write the whole thing yourself.
+          Or leave it empty, attach reference images below, and press{" "}
+          <strong>Write from images</strong> for a concept drawn from the pictures alone.
         </p>
         <AsyncStatus
           message={enhanceStatus}
@@ -394,7 +422,9 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
           Pictures whose look you want, from outside this project. They are read into a written
           description the planning agents use; the concept above still leads. Add none and nothing
           changes. Add some before pressing <strong>Expand with AI</strong> and they are read into
-          the expansion too, so a picture can shape the story rather than only the look.
+          the expansion too, so a picture can shape the story rather than only the look. Leave the
+          concept empty and the button becomes <strong>Write from images</strong>, which writes a
+          concept from the pictures alone for you to review.
         </p>
         <input
           id="references"
@@ -407,7 +437,8 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
         {references.length > 0 ? (
           <p className="mt-1 text-xs text-slate-400" data-testid="reference-count">
             {references.length} image{references.length === 1 ? "" : "s"} will be uploaded once the
-            project is created, and read now if you press <strong>Expand with AI</strong>.
+            project is created, and read now if you press{" "}
+            <strong>{fromImagesOnly ? "Write from images" : "Expand with AI"}</strong>.
           </p>
         ) : null}
       </div>

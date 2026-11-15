@@ -1,5 +1,5 @@
-import { z } from "zod";
-import type { PlanningProvider } from "@/lib/agents/llm/provider";
+import { z, type ZodType, type ZodTypeDef } from "zod";
+import type { GenerateOptions, PlanningProvider } from "@/lib/agents/llm/provider";
 import type { EnhanceConceptInput } from "@/lib/schemas/intake";
 import { CREATIVE_MODE_DOCS } from "@/lib/presets";
 
@@ -29,6 +29,23 @@ export type ConceptEnhancement =
   | { ok: true; concept: string }
   | { ok: false; reason: string };
 
+/** Shared by both prompts, so the two modes cannot drift apart on format or craft. */
+const ENVELOPE = [
+  'Return JSON: { "concept": "<the expanded note>" }.',
+  "",
+  "The note is cohesive prose. Follow the targetWords range in the user payload. No headings,",
+  "bullet points, preamble, title, analysis, or commentary about the concept.",
+];
+
+const FIT_AND_CRAFT = [
+  "Fit the running time and creativeModeGuidance in the user payload. A 30-second piece can carry",
+  "one compact progression; a minute needs a clear turn and payoff; several minutes need multiple",
+  "causal developments. Do not write a scene list or more story than the duration can hold.",
+  "",
+  "Leave the craft alone. No shot lists, camera moves, lens or lighting notes, scene numbers or",
+  "edit directions — later stages decide those, and naming them here overrides them.",
+];
+
 /**
  * The concept is the only thing every downstream agent reads, so a thin one
  * produces a thin film. This expands it without taking the decisions the writer
@@ -40,10 +57,7 @@ export const CONCEPT_ENHANCER_SYSTEM = [
   "agents concrete story information they can stage. Do not merely paraphrase or decorate the",
   "writer's sentences.",
   "",
-  'Return JSON: { "concept": "<the expanded note>" }.',
-  "",
-  "The note is cohesive prose. Follow the targetWords range in the user payload. No headings,",
-  "bullet points, preamble, title, analysis, or commentary about the concept.",
+  ...ENVELOPE,
   "",
   "Preserve the writer's story:",
   "- Every concrete thing already in the note is a decision, not a suggestion: subjects, setting,",
@@ -68,12 +82,7 @@ export const CONCEPT_ENHANCER_SYSTEM = [
   "- Every sentence must add new usable information. Do not retell one event several ways to reach",
   "  the word target.",
   "",
-  "Fit the running time and creativeModeGuidance in the user payload. A 30-second piece can carry",
-  "one compact progression; a minute needs a clear turn and payoff; several minutes need multiple",
-  "causal developments. Do not write a scene list or more story than the duration can hold.",
-  "",
-  "Leave the craft alone. No shot lists, camera moves, lens or lighting notes, scene numbers or",
-  "edit directions — later stages decide those, and naming them here overrides them.",
+  ...FIT_AND_CRAFT,
   "",
   "If the input already meets the requested depth, improve causal clarity and specificity instead",
   "of padding it. The result must still be meaningfully different and more actionable.",
@@ -108,14 +117,127 @@ export const CONCEPT_ENHANCER_VISUAL = [
   "  invented one.",
 ].join("\n");
 
+/**
+ * Used instead of the text prompt when the concept box is blank and pictures
+ * are attached.
+ *
+ * Not the text prompt plus the visual block: that pair is built around
+ * preserving a typed note and lets it overrule the pictures, and with no note
+ * the model is left guarding a premise that does not exist. Here the pictures
+ * are the whole brief, so the model is allowed to find the premise in them — and
+ * held to what they show instead, which is the same discipline aimed at a
+ * different source.
+ */
+export const CONCEPT_FROM_IMAGES_SYSTEM = [
+  "You are a development editor. The filmmaker has written nothing yet. They have attached",
+  "reference pictures and want a film found in them. Write an original story concept those",
+  "pictures suggest. A storyboarding system reads only this prose, so it must give later agents",
+  "concrete story information they can stage.",
+  "",
+  ...ENVELOPE,
+  "",
+  "Find the story in the pictures:",
+  "- The people, creatures, places, objects, period, weather and atmosphere they show are the",
+  "  world of the film. Draw the premise from a situation, tension or possibility latent in them.",
+  "- Treat several pictures as one film. Connect them through a shared cast, place, journey or",
+  "  chain of events rather than choosing one and ignoring the rest. Only where they cannot",
+  "  plausibly share a world, build from what they have in common.",
+  "- Do not contradict what the pictures plainly show: who is there, where, when, and in what",
+  "  conditions. Do not add a lead character or a setting the pictures give no basis for.",
+  "- Write the film, not the photographs. Do not describe the images back, do not refer to them,",
+  "  and do not narrate a tour of what is in them.",
+  "- Do not name anyone, even someone you think you recognise, and do not name brands. Refer to",
+  "  people by role and appearance.",
+  "- Match the supplied style, tone and audience directly. Do not sanitize or moralize.",
+  "",
+  "Give it a shape:",
+  "- Establish the opening situation and what puts it in motion.",
+  "- Add a chronological chain of actions, reactions, pressures or complications in which each",
+  "  beat causes or motivates the next. Scale the number of beats to the running time.",
+  "- Include a meaningful turn, escalation or reveal, then state the concrete end condition: what",
+  "  is visibly different when the film finishes.",
+  "- For informational, commercial or presenter-led work, use question or need, development, proof",
+  "  and payoff instead of forcing fictional conflict.",
+  "- No dialogue, separate subplot or moral.",
+  "- Prefer actions, choices, sensory details and consequences a camera or microphone can capture.",
+  "- Every sentence must add new usable information.",
+  "",
+  ...FIT_AND_CRAFT,
+].join("\n");
+
+/** Fewer words than this is not a concept anything downstream can stage. */
+const MIN_FROM_IMAGES_WORDS = 30;
+
+const referenceReadingSchema = z.object({ reading: z.string() });
+
+/**
+ * The vision model's half when it is not the planning model: describe, do not
+ * write. It is often the smaller model, so the story is left to the other one.
+ */
+export const REFERENCE_READER_SYSTEM = [
+  "You are reading reference pictures for a filmmaker. A writer who cannot see them will build a",
+  "story from your description alone, so describe them factually and concretely.",
+  "",
+  'Return JSON: { "reading": "<the description>" }.',
+  "",
+  "Write one paragraph per picture, in the order attached, starting with its label from the user",
+  "payload. In each, cover:",
+  "- Who or what is there: people (apparent age, build, skin tone, hair, clothing, expression,",
+  "  posture), animals, vehicles and any object that stands out.",
+  "- What is happening or about to happen: actions, gestures, interactions, anything in motion or",
+  "  under tension.",
+  "- Where and when: setting, landscape or architecture, apparent period, season, weather, time of",
+  "  day and light.",
+  "- The atmosphere it gives off.",
+  "Finish with a sentence or two on what the pictures share or how they might connect: recurring",
+  "people, places, objects, palette or mood.",
+  "",
+  "Describe only what is visible, and say so when something is unclear. Do not invent a story,",
+  "motives, names or backstory — that is the writer's job. Do not identify anyone, even someone you",
+  "think you recognise, and do not name brands. About 60 to 150 words per picture. No headings or",
+  "bullet points.",
+].join("\n");
+
+/**
+ * Appended when the planning model is working from the reader's text rather
+ * than the pictures, so the prompts that talk about pictures still apply.
+ */
+export const CONCEPT_READING_NOTE = [
+  "",
+  "REFERENCE READING. The pictures are not attached. `referenceReading` in the user payload is a",
+  "factual description of them by a reader who saw them. Wherever these instructions refer to the",
+  "pictures, use that description: treat it as what they show and add nothing it does not support.",
+  "Do not mention the description or its picture labels in your output.",
+].join("\n");
+
 export async function enhanceConcept(
   input: EnhanceConceptInput,
   provider: PlanningProvider,
   images: readonly string[] = [],
+  options: {
+    /** Have the vision model describe the images and the planning model write from that. */
+    readFirst?: boolean;
+  } = {},
 ): Promise<ConceptEnhancement> {
+  const fromImages = input.concept.trim() === "";
+  if (fromImages && images.length === 0) {
+    return { ok: false, reason: "There is no concept to expand and no reference image to write one from." };
+  }
+
   const targetWords = conceptWordTarget(input.requestedDurationSeconds);
+
+  // The vision model only reads; the planning model writes from what it read.
+  let reading: string | undefined;
+  if (options.readFirst && images.length > 0) {
+    const read = await readReferenceImages(images, provider);
+    if (!read.ok) return read;
+    reading = read.reading;
+  }
+
   const user = JSON.stringify({
-    concept: input.concept,
+    // A blank field sent as "" reads as a note that says nothing, not as no note.
+    ...(fromImages ? {} : { concept: input.concept }),
+    ...(reading ? { referenceReading: reading } : {}),
     runningTimeSeconds: input.requestedDurationSeconds,
     targetWords,
     style: input.style,
@@ -125,26 +247,27 @@ export async function enhanceConcept(
     creativeModeGuidance: CREATIVE_MODE_DOCS[input.creativeMode],
   });
 
-  const system = images.length
-    ? CONCEPT_ENHANCER_SYSTEM + "\n" + CONCEPT_ENHANCER_VISUAL
-    : CONCEPT_ENHANCER_SYSTEM;
-  const options = images.length ? { images } : undefined;
+  const base = fromImages
+    ? CONCEPT_FROM_IMAGES_SYSTEM
+    : images.length
+      ? CONCEPT_ENHANCER_SYSTEM + "\n" + CONCEPT_ENHANCER_VISUAL
+      : CONCEPT_ENHANCER_SYSTEM;
+  const system = reading ? base + "\n" + CONCEPT_READING_NOTE : base;
+  const callOptions = images.length && !reading ? { images } : undefined;
 
-  // `generate` carries the failure reason; `generateJson` collapses it to null,
-  // which left the screen able to say only that nothing came back.
-  let raw: string | undefined;
-  if (provider.generate) {
-    const result = await provider.generate(system, user, enhancedConceptSchema, options);
-    if (!result.ok) return { ok: false, reason: describe(result.reason, result.detail) };
-    raw = result.value.concept;
-  } else {
-    raw = (await provider.generateJson(system, user, enhancedConceptSchema, options))?.concept;
-  }
+  const result = await run(provider, system, user, enhancedConceptSchema, callOptions, "planning model");
+  if (!result.ok) return result;
 
-  const concept = raw?.trim();
+  const concept = result.value.concept.trim();
   if (!concept) return { ok: false, reason: "The planning model returned an empty answer." };
   if (concept.length > MAX_CONCEPT_CHARS) {
     return { ok: false, reason: "The planning model returned more text than the concept field holds." };
+  }
+  if (fromImages) {
+    if (countWords(concept) < MIN_FROM_IMAGES_WORDS) {
+      return { ok: false, reason: "The planning model returned too little to build a film from." };
+    }
+    return { ok: true, concept };
   }
   // Offering the writer their own sentence back invites them to accept a no-op.
   if (concept === input.concept.trim()) {
@@ -169,18 +292,63 @@ function countWords(value: string): number {
   return value.trim().split(/\s+/).filter(Boolean).length;
 }
 
-function describe(reason: string, detail?: string): string {
+/**
+ * Read the pictures into text for a writer who cannot see them.
+ *
+ * Facts only. The story is the planning model's job, and a reader allowed to
+ * speculate hands it a plot the pictures never suggested, presented as what
+ * they show.
+ */
+export async function readReferenceImages(
+  images: readonly string[],
+  provider: PlanningProvider,
+): Promise<{ ok: true; reading: string } | { ok: false; reason: string }> {
+  const user = JSON.stringify({
+    pictures: images.map((_, index) => `Picture ${index + 1}`),
+  });
+  const result = await run(provider, REFERENCE_READER_SYSTEM, user, referenceReadingSchema, { images }, "vision model");
+  if (!result.ok) return result;
+  const reading = result.value.reading.trim();
+  if (!reading) return { ok: false, reason: "The vision model returned an empty reading of the images." };
+  return { ok: true, reading };
+}
+
+/**
+ * One structured call, with the failure named after the model that made it —
+ * the screen otherwise blames the planning model for the vision model's error.
+ */
+async function run<T>(
+  provider: PlanningProvider,
+  system: string,
+  user: string,
+  schema: ZodType<T, ZodTypeDef, unknown>,
+  options: GenerateOptions | undefined,
+  who: string,
+): Promise<{ ok: true; value: T } | { ok: false; reason: string }> {
+  // `generate` carries the failure reason; `generateJson` collapses it to null,
+  // which left the screen able to say only that nothing came back.
+  if (provider.generate) {
+    const result = await provider.generate(system, user, schema, options);
+    return result.ok
+      ? { ok: true, value: result.value }
+      : { ok: false, reason: describe(result.reason, who, result.detail) };
+  }
+  const value = await provider.generateJson(system, user, schema, options);
+  return value === null ? { ok: false, reason: `The ${who} returned an empty answer.` } : { ok: true, value };
+}
+
+function describe(reason: string, who: string, detail?: string): string {
   switch (reason) {
     case "timeout":
-      return "The planning model timed out. It may still be loading.";
+      return `The ${who} timed out. It may still be loading.`;
     case "request_failed":
-      return `The planning model rejected the request${detail ? `: ${detail.slice(0, 200)}` : "."}`;
+      return `The ${who} rejected the request${detail ? `: ${detail.slice(0, 200)}` : "."}`;
     case "unparseable_json":
     case "schema_mismatch":
-      return "The planning model's answer did not match the expected shape.";
+      return `The ${who}'s answer did not match the expected shape.`;
     case "format_unsupported":
-      return "The planning model could not be asked for structured output.";
+      return `The ${who} could not be asked for structured output.`;
     default:
-      return `The planning model failed (${reason}).`;
+      return `The ${who} failed (${reason}).`;
   }
 }
