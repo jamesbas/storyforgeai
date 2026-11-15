@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/http";
-import { listServerModels } from "@/lib/services/llm-runtime-service";
+import { listServerModels, listServerVisionModels } from "@/lib/services/llm-runtime-service";
 import {
   getPlanningModelSettings,
   savePlanningModelSettings,
@@ -10,12 +10,13 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
-    const [settings, available] = await Promise.all([
+    const [settings, available, availableVision] = await Promise.all([
       getPlanningModelSettings(),
       listServerModels(),
+      listServerVisionModels(),
     ]);
     return NextResponse.json(
-      { settings, available },
+      { settings, available, availableVision },
       { headers: { "Cache-Control": "no-store" } },
     );
   } catch (error) {

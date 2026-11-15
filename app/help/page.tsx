@@ -234,7 +234,8 @@ export default function HelpPage() {
             a story.
           </p>
           <p className={p}>
-            <strong>Which model writes it.</strong> When <code>OPENAI_VISION_MODEL</code> names a
+            <strong>Which model writes it.</strong> When the vision model (Settings → AI planning
+            models → Vision model, or <code>OPENAI_VISION_MODEL</code>) is a
             different model from your planning model, both buttons split the work: the vision model
             only describes the pictures — people, action, setting, period, light and mood — and the
             planning model writes the concept from that description. A small, fast vision model
@@ -1233,11 +1234,11 @@ export default function HelpPage() {
             Agentic Canvas, so nothing is withheld silently.
           </p>
           <p className={p}>
-            Needs <code>OPENAI_VISION_MODEL</code>. Without it the reader works from your typed
+            Needs a vision model (<code>OPENAI_VISION_MODEL</code> or Settings → AI planning models). Without it the reader works from your typed
             concept alone and says so in an amber banner, rather than pretending it looked.
           </p>
           <p className={p}>
-            Needs <code>OPENAI_VISION_MODEL</code>. Without it the reader works from your typed
+            Needs a vision model (<code>OPENAI_VISION_MODEL</code> or Settings → AI planning models). Without it the reader works from your typed
             concept alone and says so in an amber banner, rather than pretending it looked.
           </p>
 
@@ -2131,7 +2132,7 @@ export default function HelpPage() {
             second opinion; leave it off when you are reviewing the frames yourself.
           </p>
           <p className={p}>
-            What it can tell you depends on <code>OPENAI_VISION_MODEL</code>. With one set, the
+            What it can tell you depends on the vision model (<code>OPENAI_VISION_MODEL</code> or Settings → AI planning models). With one set, the
             rendered keyframes are attached to the request and QC grades what it can actually see —
             continuity breaks, subject drift, anatomy, artifacts, framing. Without one it says so
             and reviews the prompt text alone, checking the start-frame, end-frame and video prompts

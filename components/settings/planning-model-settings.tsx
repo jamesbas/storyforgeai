@@ -12,7 +12,7 @@ import {
   type PlanningStage,
 } from "@/lib/schemas/planning-model-settings";
 
-type Key = "model" | PlanningStage;
+type Key = "model" | PlanningStage | "vision";
 type Fields = Record<Key, string>;
 
 /** The select value that reveals the free-text box. */
@@ -23,6 +23,7 @@ const toFields = (settings: PlanningModelSettingsView): Fields => ({
   storyboard: settings.stages.storyboard ?? "",
   agentic_canvas: settings.stages.agentic_canvas ?? "",
   render_prompts: settings.stages.render_prompts ?? "",
+  vision: settings.visionModel ?? "",
 });
 
 /** An empty value means "follow the default"; anything else is a model id. */
@@ -37,6 +38,7 @@ export function PlanningModelSettingsForm() {
   // Boxes the user opened to type an id, whatever the id currently is.
   const [typing, setTyping] = useState<Partial<Record<Key, boolean>>>({});
   const [available, setAvailable] = useState<string[]>([]);
+  const [availableVision, setAvailableVision] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const [status, setStatus] = useState<string | null>("Loading planning models...");
@@ -47,6 +49,7 @@ export function PlanningModelSettingsForm() {
       const body = (await res.json()) as {
         settings: PlanningModelSettingsView;
         available?: string[];
+        availableVision?: string[];
         error?: string;
       };
       if (!res.ok) throw new Error(body.error ?? "Could not load planning model settings.");
@@ -54,6 +57,7 @@ export function PlanningModelSettingsForm() {
       setSettings(body.settings);
       setFields(toFields(body.settings));
       setAvailable(body.available ?? []);
+      setAvailableVision(body.availableVision ?? []);
       setStatus(null);
     } catch (error) {
       if (!isCurrent()) return;
@@ -75,6 +79,7 @@ export function PlanningModelSettingsForm() {
         body: JSON.stringify({
           model: orNull(next.model),
           stages: Object.fromEntries(PLANNING_STAGES.map((stage) => [stage, orNull(next[stage])])),
+          visionModel: orNull(next.vision),
         }),
       });
       const body = (await res.json()) as { settings: PlanningModelSettingsView; error?: string };
@@ -93,10 +98,21 @@ export function PlanningModelSettingsForm() {
 
   const serverModels = available;
   const presets = PLANNING_MODELS.filter((model) => !available.includes(model));
-  const listed = new Set<string>([...serverModels, ...presets]);
 
-  const picker = (key: Key, id: string, label: string, followLabel: string, detail?: string) => {
+  const picker = (
+    key: Key,
+    id: string,
+    label: string,
+    followLabel: string,
+    detail?: string,
+    lists: { server: string[]; serverLabel: string; presets: readonly string[] } = {
+      server: serverModels,
+      serverLabel: "On the LM Studio server",
+      presets,
+    },
+  ) => {
     const value = fields![key];
+    const listed = new Set<string>([...lists.server, ...lists.presets]);
     // A saved id that is in neither list is shown as typed, not silently dropped.
     const custom = typing[key] === true || (value !== "" && !listed.has(value));
     return (
@@ -120,16 +136,16 @@ export function PlanningModelSettingsForm() {
           }}
         >
           <option value="">{followLabel}</option>
-          {serverModels.length ? (
-            <optgroup label="On the LM Studio server">
-              {serverModels.map((model) => (
+          {lists.server.length ? (
+            <optgroup label={lists.serverLabel}>
+              {lists.server.map((model) => (
                 <option key={model} value={model}>{model}</option>
               ))}
             </optgroup>
           ) : null}
-          {presets.length ? (
+          {lists.presets.length ? (
             <optgroup label="Presets">
-              {presets.map((model) => (
+              {lists.presets.map((model) => (
                 <option key={model} value={model}>{model}</option>
               ))}
             </optgroup>
@@ -157,7 +173,7 @@ export function PlanningModelSettingsForm() {
     <CollapsibleSection
       testId="planning-model-section"
       title="AI planning models"
-      description="Choose the text model for AI planning calls in every project, and optionally a different one for each stage. Saved across restarts without editing .env.local. Existing artifacts and in-flight requests are unchanged."
+      description="Choose the text model for AI planning calls in every project, optionally a different one for each stage, and the vision model that reads images. Saved across restarts without editing .env.local. Existing artifacts and in-flight requests are unchanged."
     >
       {settings && fields ? (
         <form
@@ -184,6 +200,28 @@ export function PlanningModelSettingsForm() {
               ),
             )}
           </div>
+          {picker(
+            "vision",
+            "vision-model",
+            "Vision model",
+            settings.defaultVisionModel
+              ? `Use environment default (${settings.defaultVisionModel})`
+              : "None — OPENAI_VISION_MODEL is not set",
+            "Reads reference images, keyframes for QC and Deep scene checks. When it differs from the planning model, reference images are described by this model and the story is written by the planning model.",
+            { server: availableVision, serverLabel: "Vision models on the LM Studio server", presets: [] },
+          )}
+          {(() => {
+            const vision = fields.vision.trim() || settings.defaultVisionModel;
+            // Only when the server answered: an empty list may just mean LM Studio is shut.
+            if (!vision || available.length === 0 || available.includes(vision)) return null;
+            return (
+              <p role="note" data-testid="vision-model-missing" className="text-xs text-amber-300">
+                LM Studio has no model named {vision}. Anything that sends images will fail
+                (LM Studio answers &quot;No models loaded&quot;) until this matches a model on the
+                server.
+              </p>
+            );
+          })()}
           <p id="planning-model-help" className="text-xs text-slate-400">
             The lists show the text models LM Studio reports plus a few presets; pick{" "}
             <em>Other model id…</em> for one that is not listed, such as a model released after
@@ -193,7 +231,8 @@ export function PlanningModelSettingsForm() {
             one for the many short prompt calls — but LM Studio has to load each model as its
             stage begins, which takes time and VRAM. Saving does not install or load anything.
             The storyboard&apos;s Load for planning button loads the planning model. AI planning
-            must be enabled; OPENAI_VISION_MODEL stays separate.
+            must be enabled. The vision model follows OPENAI_VISION_MODEL when left on the
+            default; its list shows the models LM Studio marks as vision-capable.
           </p>
           <button
             type="submit"

@@ -101,7 +101,8 @@ export async function conceptReaderAgent(
   const supplied = images.map((image) => image.name);
   if (!provider) return buildConceptVisuals(project, supplied);
 
-  const loaded = visionAvailable()
+  const vision = await visionAvailable();
+  const loaded = vision
     ? await loadImagesAsDataUrls(
         images.map((image) => image.path),
         "concept",
@@ -118,7 +119,7 @@ export async function conceptReaderAgent(
     mode: visual ? "visual" : "text_only",
     supplied: images.length,
     images: loaded.length,
-    visionModel: visionAvailable(),
+    visionModel: vision,
   });
 
   const user = JSON.stringify({

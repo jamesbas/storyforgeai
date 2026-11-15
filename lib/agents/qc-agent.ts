@@ -1,11 +1,10 @@
 import { qcResultSchema, type QCResult, type SceneAttempt } from "@/lib/schemas/generation";
 import type { Scene } from "@/lib/schemas/storyboard";
-import type { PlanningProvider } from "@/lib/agents/llm/provider";
+import { visionAvailable, type PlanningProvider } from "@/lib/agents/llm/provider";
 import type { NeighbourScene, ReviewPerson } from "@/lib/agents/review-context";
 import { loadImagesAsDataUrls } from "@/lib/media/data-url";
 import { executeArtifact, providerCall, type ExecutionCollector } from "@/lib/agents/provenance";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
-import { config } from "@/lib/config";
 import { logEvent } from "@/lib/telemetry";
 
 /**
@@ -97,7 +96,7 @@ export async function qcAgent(
   options: { onExecution?: ExecutionCollector; correlationId?: string; review?: QcReviewContext } = {},
 ): Promise<QCResult> {
   const images =
-    provider && config.openai.visionModel
+    provider && (await visionAvailable())
       ? await loadQcImages([attempt.startImagePath, attempt.endImagePath])
       : [];
   const visual = images.length > 0;

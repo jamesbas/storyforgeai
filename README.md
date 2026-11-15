@@ -39,11 +39,11 @@ recent updates are kept below — every release ever made is in
 
 | Version | Date | What changed |
 | --- | --- | --- |
+| **3.02** | 2026-11-15 | **Choose the vision model in Settings, and see when it is wrong.** The model that reads images (reference images, QC keyframes, Deep scene checks) could only be set with `OPENAI_VISION_MODEL` in `.env.local`, so a mistyped id showed up only as LM Studio answering "No models loaded" when you pressed **Write from images** or **Expand with AI**. **Settings → AI planning models** now has a **Vision model** dropdown listing the models LM Studio marks as vision-capable; it is saved without a restart, and *Use environment default* still follows `OPENAI_VISION_MODEL`. If the vision model in use - saved or from the environment - is not a model LM Studio has, the section warns you. Existing setups keep working unchanged. |
 | **3.01** | 2026-11-15 | **Start a project from pictures alone.** Expand with AI used to need typed concept text, so a few reference images could shape a story but never start one. Now, leave the concept box empty, attach one or more reference images, and the button becomes **Write from images**: the planning model finds a premise, characters and an arc in the pictures, connecting several into one film, sized to the duration, style, tone and format you have set. It arrives as a suggestion you accept with **Use this**, edit, or discard, exactly like an expansion. It needs a vision model (`OPENAI_VISION_MODEL`); without one, or if no image can be read, it says so rather than inventing a story. Typing a concept works as before. **Your planning model now writes the story even when it cannot see.** If `OPENAI_VISION_MODEL` is a different model from your planning model, both **Write from images** and **Expand with AI** with images attached now have the vision model only describe the pictures, and the planning model writes the concept from that description - so a small, fast vision model no longer ends up writing your story. When one model does both, it still sees the pictures directly. The status line says which happened. |
 | **3.00** | 2026-11-10 | **Keyframe previews release LM Studio before rendering.** After a scene-feedback reply, a single-frame preview used to leave the language model on the GPU because only batch renders ran the unload step. Every live WanGP job now checks the same automatic-unload policy immediately before submission, so start/end previews and direct scene renders free the GPU too. A failed unload or a model still reported as loaded is shown as an error instead of starting the render. Demo mode is unchanged, and the existing runtime-control and auto-unload opt-outs are honoured. |
 | **2.99** | 2026-11-10 | **Tell a scene what looks wrong instead of rewriting its prompts yourself.** Open **Refine with feedback** on a Storyboard scene, choose both keyframes, the start, the end, or video, and describe the correction in plain English. The planning model proposes complete replacements and explains the video impact of a keyframe change; existing end-frame edits are kept in step too. Review the current and proposed wording, including a next scene's carried opening, then accept the coordinated changes or discard them. Changed project inputs make a preview stale. This is text-only, uses the configured planning connection such as LM Studio, and never regenerates media automatically. |
 | **2.98** | 2026-11-10 | **Filter the Projects screen by status.** A new status menu beside the search box narrows the list to projects that are, for example, **Assembled** or **Needs review**, and works together with the title/concept search. Each status shows how many projects are in it, and statuses with none are greyed out. No settings change is needed. |
-| **2.97** | 2026-11-08 | **People the story introduces keep their skin tone, and any scene can be checked on demand.** A character the planning agents added - not one from your library - had nothing holding their appearance in place: prompts described a Black lead by build and age alone and he rendered white until the prompts were fixed by hand. Story characters now get the same appended description library characters do when a frame names them without describing them, and a stated skin tone or ethnicity is required for everyone: left out, it is added beside the person's name ("Leroy (a Black man with dark espresso-brown skin)"). The prompt writers are told the same, the clip writer for MiniMax H3 Ref2VA now identifies story characters too, and a frame still missing it after a hand edit is flagged `identity_missing`; **Repair prompts** on the Storyboard screen fixes older projects without a model call. New **Scene check**, run only on the scenes you choose - from a scene card or **Check selected scenes** - and never by storyboard, canvas or render runs: **Quick** reviews the prompts against the card and the people in it; **Deep** adds the story beat, the neighbouring scenes, staging and, with a vision model, the rendered keyframes. Findings quote what they rest on, can be accepted as intentional, or fixed with **Preview fix** - a one-field change shown before it is applied like a hand edit. An optional **Check first** on keyframe and clip reruns holds scenes with an error (off by default; set on the project settings screen). QC is now given the appearance of everyone in the scene and the scene before it, which it was already being asked to judge against. To use the new identity rules on existing scenes, press **Repair prompts** or rewrite their prompts. |
 
 ---
 
@@ -699,9 +699,18 @@ The choices are saved in
 planning calls in every project, including subsequent calls in a running batch. Saving
 does not install or load weights, and existing artifacts and in-flight requests are not
 changed. The storyboard's **Load for planning** button loads the planning model, not a
-stage's. `AI_PLANNING_ENABLED` still controls live planning, and `OPENAI_VISION_MODEL`
-remains separate. Environment defaults are read at startup, so changing the environment
-itself still requires a restart.
+stage's. `AI_PLANNING_ENABLED` still controls live planning. Environment defaults are
+read at startup, so changing the environment itself still requires a restart.
+
+**Vision model**, in the same section, picks the model that is sent images: reference
+images (the Concept Reader, **Expand with AI** and **Write from images**), keyframes
+for QC, and Deep scene checks. Leave it on *Use environment default* to follow
+`OPENAI_VISION_MODEL`. Its list shows only the models LM Studio marks as
+vision-capable, and if the model in use — saved or from the environment — is not on
+the server, the section says so. That is the usual cause of LM Studio answering "No
+models loaded" to an image request: the id names a model it does not have. When the
+vision model differs from the planning model, reference images are described by the
+vision model and the story is written by the planning model.
 
 **Settings → Prompt length limits** sets the word ceilings for the prompts the
 planner writes, for every project, saved in
@@ -898,8 +907,9 @@ time, style, tone and format you have set. It is a suggestion like any other:
 nothing changes until you press **Use this**. This mode needs a vision model;
 without one it refuses rather than inventing a story from nothing.
 
-**Which model writes it.** If `OPENAI_VISION_MODEL` names a different model from
-your planning model (Settings → Planning model, or `OPENAI_MODEL`), the work is
+**Which model writes it.** If the vision model (Settings → AI planning models →
+**Vision model**, or `OPENAI_VISION_MODEL`) is a different model from
+your planning model (Settings → AI planning models, or `OPENAI_MODEL`), the work is
 split, for both **Write from images** and **Expand with AI** with images: the
 vision model only describes the pictures — people, action, setting, period,
 light, mood — and the planning model writes the concept from that description.
@@ -919,7 +929,7 @@ the judgement it should not be making. Contradictions are shown on the settings
 screen and again on the Agentic Canvas, so a silent withholding is never a
 surprise.
 
-Requires `OPENAI_VISION_MODEL`. Without it the reader falls back to the typed
+Requires a vision model (`OPENAI_VISION_MODEL` or Settings → AI planning models). Without it the reader falls back to the typed
 concept and says so in an amber banner rather than pretending it looked.
 
 ### Concept fidelity check

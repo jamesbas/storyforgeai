@@ -10,13 +10,17 @@ import {
 
 function view(settings: PlanningModelSettings): PlanningModelSettingsView {
   const effectiveModel = settings.model ?? config.openai.model;
+  const defaultVisionModel = config.openai.visionModel ?? "";
   return {
     ...settings,
+    visionModel: settings.visionModel ?? null,
     defaultModel: config.openai.model,
     effectiveModel,
     effectiveStages: Object.fromEntries(
       PLANNING_STAGES.map((stage) => [stage, settings.stages[stage] ?? effectiveModel]),
     ) as Record<PlanningStage, string>,
+    defaultVisionModel,
+    effectiveVisionModel: settings.visionModel ?? defaultVisionModel,
   };
 }
 
@@ -34,6 +38,11 @@ export async function getPlanningModel(stage?: PlanningStage): Promise<string> {
   return stage ? settings.effectiveStages[stage] : settings.effectiveModel;
 }
 
+/** The model images are sent to: the saved choice, else OPENAI_VISION_MODEL. "" means none. */
+export async function getVisionModel(): Promise<string> {
+  return (await getPlanningModelSettings()).effectiveVisionModel;
+}
+
 export async function savePlanningModelSettings(raw: unknown): Promise<PlanningModelSettingsView> {
   const input = updatePlanningModelSettingsSchema.parse(raw);
   return view(
@@ -41,6 +50,7 @@ export async function savePlanningModelSettings(raw: unknown): Promise<PlanningM
       version: 2,
       model: input.model,
       stages: { ...current.stages, ...input.stages },
+      visionModel: input.visionModel === undefined ? (current.visionModel ?? null) : input.visionModel,
     })),
   );
 }

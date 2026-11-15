@@ -298,15 +298,18 @@ export async function checkSceneNow(
   const previous = record.sceneChecks?.[sceneId]?.[depth];
   const check = depth === "quick"
     ? await runQuickCheck({ input, rules, provider, previous, sceneId })
-    : await runDeepCheck({
-        input,
-        rules,
-        provider,
-        previous,
-        sceneId,
-        visionConfigured: visionAvailable(),
-        images: visionAvailable() ? await loadQcImages([sources.frames?.start, sources.frames?.end]) : [],
-      });
+    : await (async () => {
+        const vision = await visionAvailable();
+        return runDeepCheck({
+          input,
+          rules,
+          provider,
+          previous,
+          sceneId,
+          visionConfigured: vision,
+          images: vision ? await loadQcImages([sources.frames?.start, sources.frames?.end]) : [],
+        });
+      })();
 
   await saveCheck(projectId, sceneId, check);
   logEvent("scene_check.finished", {

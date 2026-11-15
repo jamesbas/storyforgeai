@@ -62,7 +62,7 @@ export async function conceptFidelityAgent(
 ): Promise<ConceptFidelityReport> {
   const checkedAt = new Date().toISOString();
   const empty: ConceptFidelityReport = { projectId: project.id, findings: [], images: [], checkedAt };
-  if (!provider || !visionAvailable()) return empty;
+  if (!provider || !(await visionAvailable())) return empty;
 
   const loaded = await loadImagesAsDataUrls(imagePaths, "concept_fidelity");
   if (loaded.length === 0) return empty;

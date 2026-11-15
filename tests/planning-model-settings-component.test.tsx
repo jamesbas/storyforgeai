@@ -101,6 +101,7 @@ describe("PlanningModelSettingsForm", () => {
       body: JSON.stringify({
         model: null,
         stages: { storyboard: PLANNING_MODELS[5], agentic_canvas: null, render_prompts: null },
+        visionModel: null,
       }),
     });
     expect(await screen.findByRole("status")).toHaveTextContent("Saved");
@@ -123,6 +124,7 @@ describe("PlanningModelSettingsForm", () => {
       body: JSON.stringify({
         model: null,
         stages: { storyboard: "next-year-model", agentic_canvas: null, render_prompts: null },
+        visionModel: null,
       }),
     }));
     // A saved id that is in neither list stays visible as typed text.
@@ -154,6 +156,7 @@ describe("PlanningModelSettingsForm", () => {
       body: JSON.stringify({
         model: null,
         stages: { storyboard: null, agentic_canvas: null, render_prompts: null },
+        visionModel: null,
       }),
     });
   });
@@ -169,6 +172,48 @@ describe("PlanningModelSettingsForm", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Not a valid model id");
     expect(screen.getByRole("textbox", { name: "Planning model, model id" })).toHaveValue("bad id");
     expect(picker("Planning model")).not.toBeDisabled();
+  });
+
+  describe("vision model", () => {
+    const withVision = { ...settings, visionModel: null, defaultVisionModel: "env-vlm", effectiveVisionModel: "env-vlm" };
+
+    it("lists only the server's vision models and saves the one picked", async () => {
+      vi.mocked(fetch)
+        .mockResolvedValueOnce(response({
+          settings: withVision,
+          available: ["env-vlm", "installed-vlm", "installed-llm"],
+          availableVision: ["env-vlm", "installed-vlm"],
+        }))
+        .mockResolvedValueOnce(response({ settings: { ...withVision, visionModel: "installed-vlm" } }));
+      await openForm();
+
+      const options = within(picker("Vision model")).getAllByRole("option").map((o) => o.textContent);
+      expect(options).toEqual([
+        "Use environment default (env-vlm)", "env-vlm", "installed-vlm", "Other model id…",
+      ]);
+      expect(screen.queryByTestId("vision-model-missing")).not.toBeInTheDocument();
+
+      await userEvent.selectOptions(picker("Vision model"), "installed-vlm");
+      await userEvent.click(screen.getByRole("button", { name: "Save models" }));
+      expect(JSON.parse(vi.mocked(fetch).mock.calls[1]![1]!.body as string).visionModel).toBe("installed-vlm");
+    });
+
+    /** The mistake this picker exists to catch: an id LM Studio does not have. */
+    it("warns when the vision model in use is not on the server", async () => {
+      vi.mocked(fetch).mockResolvedValue(response({
+        settings: { ...withVision, defaultVisionModel: "typo-vlm", effectiveVisionModel: "typo-vlm" },
+        available: ["installed-vlm"],
+        availableVision: ["installed-vlm"],
+      }));
+      await openForm();
+      expect(screen.getByTestId("vision-model-missing")).toHaveTextContent("no model named typo-vlm");
+    });
+
+    it("does not warn when LM Studio could not be reached", async () => {
+      vi.mocked(fetch).mockResolvedValue(response({ settings: withVision, available: [], availableVision: [] }));
+      await openForm();
+      expect(screen.queryByTestId("vision-model-missing")).not.toBeInTheDocument();
+    });
   });
 
   it("reports load failures without presenting a success-shaped default", async () => {

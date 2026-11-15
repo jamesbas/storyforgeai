@@ -65,12 +65,16 @@ export const updatePlanningModelSettingsSchema = z.object({
   model: modelIdSchema.nullable(),
   /** Per-stage models. A stage left out keeps its saved value; null clears it. */
   stages: z.object(stageModelsShape).partial().strict().optional(),
+  /** The model sent images. Left out keeps the saved value; null follows OPENAI_VISION_MODEL. */
+  visionModel: modelIdSchema.nullable().optional(),
 }).strict();
 
 export const planningModelSettingsSchema = z.object({
   version: z.literal(2),
   model: modelIdSchema.nullable(),
   stages: z.object(stageModelsShape).strict(),
+  // Optional so a file saved before the vision choice existed still reads.
+  visionModel: modelIdSchema.nullable().optional(),
 }).strict();
 
 /** The first release: one model for everything, chosen from six presets. */
@@ -93,4 +97,8 @@ export type PlanningModelSettingsView = PlanningModelSettings & {
   effectiveModel: string;
   /** What each stage will actually use. */
   effectiveStages: Record<PlanningStage, string>;
+  /** OPENAI_VISION_MODEL, or "" when unset. */
+  defaultVisionModel: string;
+  /** The model images are sent to, or "" when there is none and images are not read. */
+  effectiveVisionModel: string;
 };

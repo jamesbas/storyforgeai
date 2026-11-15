@@ -93,6 +93,15 @@ export async function getLlmRuntimeStatus(): Promise<LlmRuntimeStatus> {
  * they cannot plan.
  */
 export async function listServerModels(): Promise<string[]> {
+  return (await serverModels()).filter((m) => m.type !== "embeddings").map((m) => m.id);
+}
+
+/** The models LM Studio reports as able to see (`vlm`), for the vision model picker. */
+export async function listServerVisionModels(): Promise<string[]> {
+  return (await serverModels()).filter((m) => m.type === "vlm").map((m) => m.id);
+}
+
+async function serverModels(): Promise<{ id: string; type: unknown }[]> {
   const base = restBase();
   if (!base) return [];
   try {
@@ -103,8 +112,8 @@ export async function listServerModels(): Promise<string[]> {
     if (!res.ok) return [];
     const body = (await res.json()) as { data?: (LmStudioModel & { type?: unknown })[] };
     return (body.data ?? [])
-      .filter((m) => typeof m.id === "string" && m.id && m.type !== "embeddings")
-      .map((m) => m.id as string);
+      .filter((m) => typeof m.id === "string" && m.id)
+      .map((m) => ({ id: m.id as string, type: m.type }));
   } catch {
     return [];
   }

@@ -13,7 +13,7 @@ import { CONCEPT_FROM_IMAGES_SYSTEM, REFERENCE_READER_SYSTEM } from "@/lib/agent
 vi.mock("@/lib/agents/llm/provider", async (original) => ({
   ...(await original<typeof import("@/lib/agents/llm/provider")>()),
   getPlanningProvider: vi.fn(() => null),
-  visionAvailable: vi.fn(() => true),
+  visionAvailable: vi.fn(async () => true),
   visionIsSeparateModel: vi.fn(async () => false),
 }));
 
@@ -53,7 +53,7 @@ describe("POST /api/concept/enhance with a blank concept", () => {
   beforeEach(() => {
     seen = {};
     vi.mocked(getPlanningProvider).mockReturnValue(provider(seen));
-    vi.mocked(visionAvailable).mockReturnValue(true);
+    vi.mocked(visionAvailable).mockResolvedValue(true);
     vi.mocked(visionIsSeparateModel).mockResolvedValue(false);
   });
 
@@ -107,7 +107,7 @@ describe("POST /api/concept/enhance with a blank concept", () => {
 
   /** Answering from nothing would read as though the pictures had been seen. */
   it("refuses rather than inventing when no vision model can read the images", async () => {
-    vi.mocked(visionAvailable).mockReturnValue(false);
+    vi.mocked(visionAvailable).mockResolvedValue(false);
     const res = await POST(request("", 2));
 
     expect(res.status).toBe(400);

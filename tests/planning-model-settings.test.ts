@@ -97,6 +97,9 @@ describe("app-wide planning model settings", () => {
       effectiveStages: {
         storyboard: DEFAULT_MODEL, agentic_canvas: DEFAULT_MODEL, render_prompts: DEFAULT_MODEL,
       },
+      visionModel: null,
+      defaultVisionModel: "vision-planner",
+      effectiveVisionModel: "vision-planner",
     });
     vi.stubEnv("OPENAI_MODEL", "");
     vi.resetModules();
@@ -161,8 +164,12 @@ describe("app-wide planning model settings", () => {
         effectiveStages: {
           storyboard: DEFAULT_MODEL, agentic_canvas: DEFAULT_MODEL, render_prompts: DEFAULT_MODEL,
         },
+        visionModel: null,
+        defaultVisionModel: "vision-planner",
+        effectiveVisionModel: "vision-planner",
       },
       available: [],
+      availableVision: [],
     });
     const request = (model: unknown) => new Request("http://localhost/api/settings/planning-model", {
       method: "PUT",
@@ -197,6 +204,32 @@ describe("planning model consumers", () => {
     expect(requests.map((request) => request.model)).toEqual([
       DEFAULT_MODEL, MODEL_A, MODEL_B, DEFAULT_MODEL,
     ]);
+  });
+
+  /**
+   * A mistyped OPENAI_VISION_MODEL used to be fixable only by editing
+   * .env.local and restarting. The saved choice now wins, and null restores it.
+   */
+  it("sends images to the saved vision model, keeps it when a save leaves it out, and can restore the default", async () => {
+    const requests = await endpoint();
+    const service = await import("@/lib/services/planning-model-settings-service");
+    const { getPlanningProvider, visionIsSeparateModel } = await import("@/lib/agents/llm/provider");
+    const look = () => getPlanningProvider()!.generate!(
+      "Vision agent", "Inspect image", z.object({ ok: z.boolean() }),
+      { images: ["data:image/png;base64,test"] },
+    );
+
+    await service.savePlanningModelSettings({ model: null, visionModel: MODEL_A });
+    expect(await look()).toMatchObject({ ok: true, model: MODEL_A });
+    // A planning-only save from an older client must not erase the vision choice.
+    await service.savePlanningModelSettings({ model: MODEL_B });
+    expect(await look()).toMatchObject({ ok: true, model: MODEL_A });
+    await service.savePlanningModelSettings({ model: MODEL_A });
+    expect(await visionIsSeparateModel()).toBe(false);
+    await service.savePlanningModelSettings({ model: null, visionModel: null });
+    expect(await look()).toMatchObject({ ok: true, model: "vision-planner" });
+    expect(requests.map((request) => request.model)).toEqual([MODEL_A, MODEL_A, "vision-planner"]);
+    await expect(service.savePlanningModelSettings({ model: null, visionModel: "--all" })).rejects.toThrow();
   });
 
   it("keeps the separate vision model and its image attachments unchanged", async () => {

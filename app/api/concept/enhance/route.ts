@@ -70,7 +70,7 @@ export async function POST(request: Request) {
     // Without a vision model the provider drops images and answers from the text
     // alone, so they are not loaded at all and the caller is told plainly rather
     // than left reading an answer that sounds like the pictures were seen.
-    const vision = visionAvailable();
+    const vision = await visionAvailable();
     const images = vision ? await uploadsAsDataUrls(files, "concept_enhance") : [];
 
     if (files.length > 0) {

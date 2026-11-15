@@ -4,7 +4,7 @@ import { logEvent } from "@/lib/telemetry";
 import { withSchemaHint } from "@/lib/agents/llm/schema-hint";
 import { resolveSystemPrompt, type SystemPromptScope } from "@/lib/agents/llm/system-prompt";
 import type { FailureReason } from "@/lib/schemas/provenance";
-import { getPlanningModel } from "@/lib/services/planning-model-settings-service";
+import { getPlanningModel, getVisionModel } from "@/lib/services/planning-model-settings-service";
 
 /**
  * The outcome of one generation, with the metadata provenance needs.
@@ -56,7 +56,7 @@ export interface PlanningProvider {
 }
 
 export type GenerateOptions = {
-  /** Data URLs to send alongside the text. Requires OPENAI_VISION_MODEL. */
+  /** Data URLs to send alongside the text. Requires a vision model (Settings or OPENAI_VISION_MODEL). */
   images?: readonly string[];
   /** App-wide custom prompt policy to apply to this workflow. */
   systemPromptScope?: SystemPromptScope;
@@ -69,8 +69,8 @@ export type GenerateOptions = {
  * images and answers from the text alone. Callers ask here rather than
  * discovering it from output that reads as though the pictures were seen.
  */
-export function visionAvailable(): boolean {
-  return Boolean(config.openai.visionModel);
+export async function visionAvailable(): Promise<boolean> {
+  return Boolean(await getVisionModel());
 }
 
 /**
@@ -81,7 +81,7 @@ export function visionAvailable(): boolean {
  * images and leave the writing to the planning model.
  */
 export async function visionIsSeparateModel(): Promise<boolean> {
-  const vision = config.openai.visionModel;
+  const vision = await getVisionModel();
   return Boolean(vision) && vision !== (await getPlanningModel());
 }
 
@@ -265,9 +265,10 @@ function createOpenAiProvider(): PlanningProvider {
 
         // A vision model is a separate deployment, so images decide the model.
         const images = options.images ?? [];
-        const useVision = images.length > 0 && Boolean(config.openai.visionModel);
+        const visionModel = images.length > 0 ? await getVisionModel() : "";
+        const useVision = Boolean(visionModel);
         const activeModel = useVision
-          ? config.openai.visionModel!
+          ? visionModel
           : await getPlanningModel(options.systemPromptScope);
         model = activeModel;
         const unsupported = unsupportedFormats(activeModel);
