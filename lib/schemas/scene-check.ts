@@ -66,6 +66,8 @@ export const sceneFindingSchema = z.object({
   suggestedFix: z.string().max(1200).optional(),
   /** Marked intentional. Bound to the inputs it was accepted against. */
   accepted: z.object({ at: z.string(), inputHash: z.string() }).optional(),
+  /** A fix for it was applied after the check. Only a fresh check confirms it worked. */
+  fixed: z.object({ at: z.string(), summary: z.string().max(400).optional() }).optional(),
 });
 export type SceneFinding = z.infer<typeof sceneFindingSchema>;
 
@@ -74,6 +76,13 @@ export const sceneCheckSchema = z.object({
   checkedAt: z.string(),
   /** Hash of exactly what the check read; a different current hash means out of date. */
   inputHash: z.string(),
+  /**
+   * The scene's inputs after the fixes applied from this check's findings.
+   * While the scene still hashes to this, nothing but those fixes has touched
+   * it, so the remaining findings can still be fixed — though the check itself
+   * stays out of date until it is run again.
+   */
+  fixedInputHash: z.string().optional(),
   /** `text+vision` only when frames were actually sent to a vision model. */
   mode: z.enum(["text", "text+vision"]),
   /**
@@ -113,6 +122,11 @@ export function sceneCheckStatus(check: SceneCheck | undefined, currentHash: str
   return "passed";
 }
 
+/** Out of date only because fixes from its own findings were applied, so the rest can still be fixed. */
+export function changedOnlyByFixes(check: SceneCheck | undefined, currentHash: string): boolean {
+  return Boolean(check && check.inputHash !== currentHash && check.fixedInputHash === currentHash);
+}
+
 /** What the model returns: findings only, each citing where it read them. */
 export const modelFindingSchema = z.object({
   code: z.string().max(60),
@@ -148,7 +162,15 @@ export const sceneCheckFixPreviewSchema = z.object({
   findingId: z.string().min(1),
 });
 
-/** Applying a previewed fix: the text and the hash of what it replaces. */
+/**
+ * Applying a previewed fix: the text and the hash of what it replaces, and —
+ * optionally — the finding it was for, so that finding can be marked fixed.
+ */
+const fixedFindingRef = {
+  depth: sceneCheckDepthSchema.optional(),
+  findingId: z.string().min(1).optional(),
+  summary: z.string().max(400).optional(),
+};
 export const sceneCheckFixApplySchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("prompt"),
@@ -156,6 +178,7 @@ export const sceneCheckFixApplySchema = z.discriminatedUnion("kind", [
     field: z.enum(FIXABLE_FIELDS),
     after: z.string().min(1).max(8000),
     sourceHash: z.string().min(1),
+    ...fixedFindingRef,
   }),
   z.object({
     kind: z.literal("card"),
@@ -163,5 +186,6 @@ export const sceneCheckFixApplySchema = z.discriminatedUnion("kind", [
     field: z.enum(["sceneObjective", "storyBeat", "visualDescription", "actionDescription", "cameraMovement"]),
     after: z.string().min(1).max(4000),
     sourceHash: z.string().min(1),
+    ...fixedFindingRef,
   }),
 ]);

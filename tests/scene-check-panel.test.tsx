@@ -89,7 +89,66 @@ describe("a scene's check panel", () => {
     const put = fetchMock.mock.calls.find(([, init]) => init?.method === "PUT")!;
     expect(JSON.parse(String(put[1]!.body))).toEqual({
       kind: "prompt", field: "startFramePrompt", after, sourceHash: "abc",
+      depth: "quick", findingId: check.findings[0]!.id, summary: "Stated his skin tone.",
     });
+  });
+
+  const twoFindings: SceneCheck = {
+    ...check,
+    findings: [
+      { ...check.findings[0]!, fixed: { at: "2026-11-08T12:05:00.000Z", summary: "Stated his skin tone." } },
+      { ...check.findings[0]!, id: "model:endFramePrompt:action_missing", code: "action_missing", origin: "model",
+        field: "endFramePrompt", explanation: "The kneel is missing." },
+      { ...check.findings[0]!, id: "model:videoPromptSegment:event_invented", code: "event_invented", origin: "model",
+        field: "videoPromptSegment", severity: "warning", explanation: "Nothing on the card says this." },
+    ],
+  };
+
+  it("keeps the other findings fixable when only its own fixes have changed the scene", () => {
+    panel({
+      checks: { quick: twoFindings },
+      status: { quick: "out_of_date", deep: "not_checked", fixesApplied: { quick: true, deep: false } },
+    });
+    expect(screen.getByTestId("scene-check-fixes-applied")).toHaveTextContent("1 fix has been applied");
+    expect(screen.queryByText(/no longer says anything/i)).toBeNull();
+    expect(screen.getByTestId("scene-check-finding-fixed")).toBeInTheDocument();
+    // The fixed one is done; the other two can still be fixed, but not accepted against a stale check.
+    expect(screen.getAllByTestId("scene-check-preview-fix")).toHaveLength(2);
+    expect(screen.queryByText("Accept as intentional")).toBeNull();
+  });
+
+  it("fixes the selected findings one at a time, each previewed after the one before is applied", async () => {
+    const order: string[] = [];
+    const fetchMock = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body)) as { findingId: string };
+      order.push(`${init?.method}:${body.findingId}`);
+      return new Response(JSON.stringify(init?.method === "PUT"
+        ? { project: { id: "p1" } }
+        : { kind: "prompt", field: "endFramePrompt", before: "kneels.", after: "kneels low.", summary: `Fixed ${body.findingId}.`,
+            sourceHash: "abc", method: "model", sceneId: "s1", findingId: body.findingId, depth: "quick" }),
+      { status: 200, headers: { "content-type": "application/json" } });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const [, second, third] = twoFindings.findings;
+    const props = panel({
+      checks: { quick: { ...twoFindings, findings: twoFindings.findings.map(({ fixed: _f, ...f }) => f) } },
+    });
+
+    fireEvent.click(screen.getByText("Select all"));
+    fireEvent.click(screen.getByTestId("scene-check-fix-selected"));
+    expect(await screen.findByTestId("scene-check-fix-progress")).toHaveTextContent("Fix 1 of 3");
+    fireEvent.click(screen.getByText("Apply"));
+    await waitFor(() => expect(screen.getByTestId("scene-check-fix-progress")).toHaveTextContent("Fix 2 of 3"));
+    fireEvent.click(screen.getByText("Skip"));
+    await waitFor(() => expect(screen.getByTestId("scene-check-fix-progress")).toHaveTextContent("Fix 3 of 3"));
+    fireEvent.click(screen.getByText("Apply"));
+    await waitFor(() => expect(props.onApplied).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByTestId("scene-check-fix-preview")).toBeNull());
+
+    const first = check.findings[0]!.id;
+    expect(order).toEqual([
+      `POST:${first}`, `PUT:${first}`, `POST:${second!.id}`, `POST:${third!.id}`, `PUT:${third!.id}`,
+    ]);
   });
 });
 

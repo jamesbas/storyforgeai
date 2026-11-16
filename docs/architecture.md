@@ -1309,7 +1309,13 @@ story slice or rendered frames — change. Status is computed server-side
   A candidate that raises a new stored-prompt warning is not offered. Apply checks
   a SHA-256 of the replaced text and goes through `updateScenePrompts` /
   `updateSceneCard`, so carry-forward, warnings and history behave as for a hand
-  edit.
+  edit. When the check was current — or changed only by earlier fixes — apply
+  marks the finding `fixed` and stores the post-fix hash as `fixedInputHash`;
+  the summary's `fixesApplied` (`changedOnlyByFixes`) then keeps the other
+  findings fixable while the status stays `out_of_date`. Any other edit breaks
+  the chain, and preview refuses a finding from a check that is stale otherwise.
+  The panel's **Fix selected** previews queued findings one at a time, so each
+  diff is against the text the previous fix left.
 - **Check first** (`checkThenRender`): checks run while the planning model is
   loaded, then scenes without an open error go to `enqueueKeyframeRerun` /
   `enqueueVideoRerun` (which evict the model before GPU work); the rest are held

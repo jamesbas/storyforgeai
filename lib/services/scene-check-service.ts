@@ -30,7 +30,9 @@ import { repository } from "@/lib/db/store";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
 import {
+  changedOnlyByFixes,
   openFindings,
+  SCENE_CHECK_DEPTHS,
   sceneCheckFixApplySchema,
   sceneCheckStatus,
   type FixableField,
@@ -354,7 +356,13 @@ async function saveCheck(projectId: string, sceneId: string, check: SceneCheck):
 
 export type SceneCheckSummary = Record<
   string,
-  { quick: SceneCheckStatus; deep: SceneCheckStatus; currentHash: { quick: string; deep: string } }
+  {
+    quick: SceneCheckStatus;
+    deep: SceneCheckStatus;
+    currentHash: { quick: string; deep: string };
+    /** Out of date only through fixes applied from that check, so its other findings can still be fixed. */
+    fixesApplied: { quick: boolean; deep: boolean };
+  }
 >;
 
 /** Every scene's check status against its current inputs. Computed here so nothing stale reads as passed. */
@@ -371,6 +379,10 @@ export async function summariseSceneChecks(record: ProjectRecord): Promise<Scene
       quick: sceneCheckStatus(checks?.quick, quickHash),
       deep: sceneCheckStatus(checks?.deep, deepHash),
       currentHash: { quick: quickHash, deep: deepHash },
+      fixesApplied: {
+        quick: changedOnlyByFixes(checks?.quick, quickHash),
+        deep: changedOnlyByFixes(checks?.deep, deepHash),
+      },
     };
   }
   return summary;
@@ -455,7 +467,11 @@ export async function previewSceneCheckFix(
   const sources = sceneCheckSources(record, sceneId, cast);
   if (!sources) throw new NotFoundError(`Scene ${sceneId} not found`);
   const { scene, scenes, project, visualBible } = sources;
-
+  const check = record.sceneChecks![sceneId]![depth]!;
+  const currentHash = sceneCheckInputHash(buildSceneCheckInput(sources, depth));
+  if (check.inputHash !== currentHash && !changedOnlyByFixes(check, currentHash)) {
+    throw new ValidationError("The scene has changed since this check, so its findings may no longer apply. Run the check again.");
+  }
   let proposal: FixProposal | { error: string } | undefined;
   let method: FixPreview["method"] = "model";
   // The identity rule has a mechanical answer; the model is not needed for it.
@@ -509,6 +525,11 @@ export async function previewSceneCheckFix(
  * Goes through the same services as a hand edit, so the next scene's carried
  * opening follows, warnings are recomputed and history records it — and the
  * scene's check then reads as out of date, which is the prompt to re-check it.
+ *
+ * A check whose only changes since it ran are its own fixes stays usable: the
+ * finding is marked fixed and the post-fix hash is recorded, so the other
+ * findings can still be previewed and applied without paying for a re-check
+ * after each one. Any other edit breaks that chain, as it always did.
  */
 export async function applySceneCheckFix(projectId: string, raw: unknown): Promise<ProjectRecord> {
   const body = sceneCheckFixApplySchema.parse(raw);
@@ -521,9 +542,60 @@ export async function applySceneCheckFix(projectId: string, raw: unknown): Promi
   if (textHash(current) !== body.sourceHash) {
     throw new ValidationError("This scene changed after the fix was previewed. Preview the fix again.");
   }
+  const cast = await resolveProjectCast(record.project);
+  const hashesBefore = currentInputHashes(record, body.sceneId, cast);
   const updated = body.kind === "prompt"
     ? await updateScenePrompts(projectId, body.sceneId, { [body.field]: body.after })
     : await updateSceneCard(projectId, body.sceneId, { [body.field]: body.after });
   logEvent("scene_check.fix_applied", { projectId, sceneId: body.sceneId, field: body.field });
+  return (await recordFixOnChecks(projectId, body, hashesBefore, cast)) ?? updated;
+}
+
+function currentInputHashes(
+  record: ProjectRecord,
+  sceneId: string,
+  cast: Awaited<ReturnType<typeof resolveProjectCast>>,
+): Record<SceneCheckDepth, string> | undefined {
+  const sources = sceneCheckSources(record, sceneId, cast);
+  if (!sources) return undefined;
+  return {
+    quick: sceneCheckInputHash(buildSceneCheckInput(sources, "quick")),
+    deep: sceneCheckInputHash(buildSceneCheckInput(sources, "deep")),
+  };
+}
+
+/** Carry each still-usable check of the scene past the fix just applied. */
+async function recordFixOnChecks(
+  projectId: string,
+  body: { sceneId: string; depth?: SceneCheckDepth; findingId?: string; summary?: string },
+  hashesBefore: Record<SceneCheckDepth, string> | undefined,
+  cast: Awaited<ReturnType<typeof resolveProjectCast>>,
+): Promise<ProjectRecord | undefined> {
+  const latest = await getProjectRecord(projectId);
+  const checks = latest.sceneChecks?.[body.sceneId];
+  const hashesAfter = currentInputHashes(latest, body.sceneId, cast);
+  if (!checks || !hashesBefore || !hashesAfter) return undefined;
+  const next = { ...checks };
+  let changed = false;
+  for (const depth of SCENE_CHECK_DEPTHS) {
+    const check = checks[depth];
+    if (!check) continue;
+    const usable = check.inputHash === hashesBefore[depth] || check.fixedInputHash === hashesBefore[depth];
+    if (!usable) continue;
+    const at = new Date().toISOString();
+    next[depth] = {
+      ...check,
+      fixedInputHash: hashesAfter[depth],
+      findings: depth === body.depth && body.findingId
+        ? check.findings.map((finding) => finding.id === body.findingId
+          ? { ...finding, fixed: { at, ...(body.summary ? { summary: body.summary } : {}) } }
+          : finding)
+        : check.findings,
+    };
+    changed = true;
+  }
+  if (!changed) return undefined;
+  const updated: ProjectRecord = { ...latest, sceneChecks: { ...(latest.sceneChecks ?? {}), [body.sceneId]: next } };
+  await repository.update(projectId, updated);
   return updated;
 }

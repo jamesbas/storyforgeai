@@ -74,17 +74,27 @@ function changedSpan(before: string, after: string): { prefix: string; removed: 
 function FixPreviewBox({
   preview,
   busy,
+  progress,
   onApply,
   onDiscard,
+  onStop,
 }: {
   preview: FixPreview;
   busy: boolean;
+  /** Where this preview sits in a "Fix selected" run, if it is part of one. */
+  progress?: { position: number; total: number };
   onApply: () => void;
   onDiscard: () => void;
+  onStop?: () => void;
 }) {
   const span = changedSpan(preview.before, preview.after);
   return (
     <div className="mt-2 rounded border border-sky-400/30 bg-sky-400/5 p-2" data-testid="scene-check-fix-preview">
+      {progress ? (
+        <p className="text-[10px] uppercase tracking-wide text-sky-300/80" data-testid="scene-check-fix-progress">
+          Fix {progress.position} of {progress.total}
+        </p>
+      ) : null}
       <p className="text-[11px] text-sky-200">
         {preview.summary} <span className="text-slate-500">({preview.kind === "card" ? `card: ${preview.field}` : FIELD_LABEL[preview.field]})</span>
       </p>
@@ -109,8 +119,18 @@ function FixPreviewBox({
           disabled={busy}
           className="rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-slate-400 hover:border-white/25 disabled:opacity-50"
         >
-          Discard
+          {progress ? "Skip" : "Discard"}
         </button>
+        {progress && onStop ? (
+          <button
+            type="button"
+            onClick={onStop}
+            disabled={busy}
+            className="rounded-md border border-white/10 px-2.5 py-1 text-[11px] text-slate-400 hover:border-white/25 disabled:opacity-50"
+          >
+            Stop
+          </button>
+        ) : null}
       </div>
     </div>
   );
@@ -136,7 +156,12 @@ export function SceneCheckPanel({
   projectId: string;
   sceneId: string;
   checks?: { quick?: SceneCheck; deep?: SceneCheck };
-  status?: { quick: SceneCheckStatus; deep: SceneCheckStatus };
+  status?: {
+    quick: SceneCheckStatus;
+    deep: SceneCheckStatus;
+    /** Out of date only through fixes applied from that check; its other findings stay fixable. */
+    fixesApplied?: { quick: boolean; deep: boolean };
+  };
   /** This scene's place in a running batch, if it has one. */
   running?: { depth: SceneCheckDepth; state: "pending" | "running" };
   busy?: boolean;
@@ -151,54 +176,116 @@ export function SceneCheckPanel({
   const depth = shown && checks?.[shown] ? shown : latest;
   const check = depth ? checks?.[depth] : undefined;
   const current = depth && status ? status[depth] : undefined;
+  const fixesApplied = Boolean(depth && current === "out_of_date" && status?.fixesApplied?.[depth]);
+  /** Findings can be fixed: the check is current, or nothing but its own fixes has changed the scene. */
+  const actionable = current !== "out_of_date" || fixesApplied;
 
   const [preview, setPreview] = useState<{ findingId: string; value: FixPreview } | null>(null);
   const [fixBusy, setFixBusy] = useState<string | null>(null);
-  const [fixError, setFixError] = useState<{ findingId: string; message: string } | null>(null);
+  const [fixErrors, setFixErrors] = useState<Record<string, string>>({});
+  // Selection belongs to one result; a re-run reuses finding ids, so it is keyed by when it ran.
+  const selectionKey = check && depth ? `${depth}:${check.checkedAt}` : "";
+  const [selection, setSelection] = useState<{ key: string; ids: string[] }>({ key: "", ids: [] });
+  const selected = selection.key === selectionKey ? selection.ids : [];
+  /** A "Fix selected" run: the findings still to preview after the current one. */
+  const [queue, setQueue] = useState<{ depth: SceneCheckDepth; remaining: string[]; total: number } | null>(null);
 
-  const requestFix = async (finding: SceneFinding) => {
-    if (!depth) return;
-    setFixBusy(finding.id);
-    setFixError(null);
+  const fixable = (finding: SceneFinding) =>
+    !finding.fixed && finding.accepted?.inputHash !== check?.inputHash;
+
+  const toggleSelected = (findingId: string) =>
+    setSelection({
+      key: selectionKey,
+      ids: selected.includes(findingId) ? selected.filter((id) => id !== findingId) : [...selected, findingId],
+    });
+
+  /** Ask for a preview against the scene as it is now. False when none could be offered. */
+  const requestFix = async (findingId: string, forDepth: SceneCheckDepth): Promise<boolean> => {
+    setFixBusy(findingId);
+    setFixErrors(({ [findingId]: _gone, ...rest }) => rest);
     setPreview(null);
     try {
       const res = await fetch(`/api/projects/${projectId}/scene-checks/${sceneId}/fix`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ depth, findingId: finding.id }),
+        body: JSON.stringify({ depth: forDepth, findingId }),
       });
       const body = (await res.json().catch(() => null)) as (FixPreview & { error?: string }) | null;
       if (!res.ok || !body) throw new Error(body?.error ?? `Could not propose a fix (HTTP ${res.status})`);
-      setPreview({ findingId: finding.id, value: body });
+      setPreview({ findingId, value: body });
+      return true;
     } catch (e) {
-      setFixError({ findingId: finding.id, message: e instanceof Error ? e.message : "Could not propose a fix" });
+      setFixErrors((errors) => ({ ...errors, [findingId]: e instanceof Error ? e.message : "Could not propose a fix" }));
+      return false;
     } finally {
       setFixBusy(null);
     }
+  };
+
+  /**
+   * Preview the queued findings one at a time. Each is proposed only after the
+   * one before it was applied or skipped, so every diff is against the text as
+   * it now stands and two fixes to one prompt never collide.
+   */
+  const runQueue = async (forDepth: SceneCheckDepth, ids: string[], total: number) => {
+    for (let i = 0; i < ids.length; i++) {
+      setQueue({ depth: forDepth, remaining: ids.slice(i + 1), total });
+      if (await requestFix(ids[i]!, forDepth)) return;
+    }
+    setQueue(null);
+  };
+
+  const continueQueue = () => {
+    if (queue?.remaining.length) void runQueue(queue.depth, queue.remaining, queue.total);
+    else setQueue(null);
+  };
+
+  const fixSelected = () => {
+    if (!depth || !check) return;
+    // In the order they are listed, not the order they were ticked.
+    const ids = check.findings.filter((finding) => selected.includes(finding.id) && fixable(finding)).map((f) => f.id);
+    if (!ids.length) return;
+    setSelection({ key: selectionKey, ids: [] });
+    void runQueue(depth, ids, ids.length);
   };
 
   const applyFix = async () => {
     if (!preview) return;
     setFixBusy(preview.findingId);
     try {
-      const { kind, field, after, sourceHash } = preview.value;
+      const { kind, field, after, sourceHash, depth: fixDepth, findingId, summary } = preview.value;
       const res = await fetch(`/api/projects/${projectId}/scene-checks/${sceneId}/fix`, {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ kind, field, after, sourceHash }),
+        body: JSON.stringify({ kind, field, after, sourceHash, depth: fixDepth, findingId, summary }),
       });
       const body = (await res.json().catch(() => null)) as (ProjectRecord & { error?: string }) | null;
       if (!res.ok || !body) throw new Error(body?.error ?? `Could not apply the fix (HTTP ${res.status})`);
       setPreview(null);
       onApplied(body);
+      setFixBusy(null);
+      continueQueue();
     } catch (e) {
-      setFixError({ findingId: preview.findingId, message: e instanceof Error ? e.message : "Could not apply the fix" });
-    } finally {
+      setFixErrors((errors) => ({
+        ...errors,
+        [preview.findingId]: e instanceof Error ? e.message : "Could not apply the fix",
+      }));
       setFixBusy(null);
     }
   };
 
-  const hasIssues = status?.quick === "issues" || status?.deep === "issues";
+  const discardFix = () => {
+    setPreview(null);
+    continueQueue();
+  };
+
+  const stopQueue = () => {
+    setPreview(null);
+    setQueue(null);
+  };
+
+  const hasIssues = status?.quick === "issues" || status?.deep === "issues" ||
+    Boolean(status?.fixesApplied?.quick || status?.fixesApplied?.deep) || Boolean(preview || queue);
 
   return (
     <details className="mt-3 rounded-md border border-white/10 bg-black/20" open={hasIssues || undefined} data-testid="scene-check-panel">
@@ -243,7 +330,8 @@ export function SceneCheckPanel({
                   key={option}
                   type="button"
                   onClick={() => setShown(option)}
-                  className={`rounded px-2 py-1 ${depth === option ? "bg-white/10 text-slate-200" : "text-slate-500 hover:text-slate-300"}`}
+                  disabled={Boolean(queue)}
+                  className={`rounded px-2 py-1 disabled:opacity-50 ${depth === option ? "bg-white/10 text-slate-200" : "text-slate-500 hover:text-slate-300"}`}
                 >
                   {option === "quick" ? "Quick result" : "Deep result"}
                 </button>
@@ -260,12 +348,48 @@ export function SceneCheckPanel({
               {check.model ? ` · ${check.model}` : ""}
               {check.coverage !== "complete" ? ` · ${check.coverage}` : ""}
             </p>
-            {current === "out_of_date" ? (
+            {current === "out_of_date" && !fixesApplied ? (
               <p className="text-[11px] text-slate-300">
                 The scene has changed since this check, so it no longer says anything about it. Run it again.
               </p>
             ) : null}
+            {fixesApplied ? (
+              <p className="text-[11px] text-sky-200/90" data-testid="scene-check-fixes-applied">
+                {(() => {
+                  const n = check.findings.filter((finding) => finding.fixed).length;
+                  return `${n} ${n === 1 ? "fix has" : "fixes have"} been applied since this check, and nothing else has changed. `;
+                })()}
+                The other findings are still from the original review: each fix is proposed against the
+                scene as it is now, but an earlier fix may already have resolved one. Run the check again
+                when you are done to confirm — accepting a finding as intentional waits for that fresh check.
+              </p>
+            ) : null}
             {check.detail ? <p className="text-[11px] text-sky-200/80">{check.detail}</p> : null}
+            {actionable && check.findings.filter(fixable).length > 1 ? (
+              <div className="flex flex-wrap items-center gap-2 text-[11px]">
+                <button
+                  type="button"
+                  onClick={fixSelected}
+                  disabled={!selected.length || busy || Boolean(running) || fixBusy !== null || Boolean(preview) || Boolean(queue)}
+                  data-testid="scene-check-fix-selected"
+                  className="rounded-md border border-white/15 px-2.5 py-1 hover:border-accent disabled:opacity-50"
+                >
+                  Fix selected{selected.length ? ` (${selected.length})` : ""}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelection({
+                    key: selectionKey,
+                    ids: selected.length ? [] : check.findings.filter(fixable).map((finding) => finding.id),
+                  })}
+                  disabled={Boolean(queue)}
+                  className="text-slate-400 hover:text-slate-200 disabled:opacity-50"
+                >
+                  {selected.length ? "Clear selection" : "Select all"}
+                </button>
+                <span className="text-slate-500">Previews each in turn, against the text as the fix before it left it.</span>
+              </div>
+            ) : null}
             {check.findings.length === 0 ? (
               <p className="text-[11px] text-green-300/90">
                 {check.coverage === "complete" ? "No problems found." : "Nothing found, but the review did not complete."}
@@ -274,13 +398,24 @@ export function SceneCheckPanel({
               <ul className="space-y-2">
                 {check.findings.map((finding) => {
                   const accepted = finding.accepted?.inputHash === check.inputHash;
+                  const canFix = actionable && fixable(finding);
                   return (
                     <li
                       key={finding.id}
-                      className={`rounded border p-2 text-[11px] ${SEVERITY_STYLE[finding.severity]} ${accepted ? "opacity-50" : ""}`}
+                      className={`rounded border p-2 text-[11px] ${SEVERITY_STYLE[finding.severity]} ${accepted || finding.fixed ? "opacity-50" : ""}`}
                       data-testid="scene-check-finding"
                     >
                       <div className="flex flex-wrap items-center gap-2">
+                        {canFix ? (
+                          <input
+                            type="checkbox"
+                            checked={selected.includes(finding.id)}
+                            onChange={() => toggleSelected(finding.id)}
+                            disabled={Boolean(queue)}
+                            aria-label={`Select ${finding.code} to fix`}
+                            data-testid="scene-check-select-finding"
+                          />
+                        ) : null}
                         <strong className="uppercase">{finding.severity}</strong>
                         <span>{FIELD_LABEL[finding.field]}</span>
                         <code className="text-slate-400">{finding.code}</code>
@@ -289,8 +424,14 @@ export function SceneCheckPanel({
                           {finding.certainty === "underspecified" ? " · underspecified" : ""}
                         </span>
                         {accepted ? <span className="text-slate-400">accepted as intentional</span> : null}
+                        {finding.fixed ? (
+                          <span className="text-green-300" data-testid="scene-check-finding-fixed">fix applied · re-check to confirm</span>
+                        ) : null}
                       </div>
                       <p className="mt-1 text-slate-200">{finding.explanation}</p>
+                      {finding.fixed?.summary ? (
+                        <p className="mt-1 text-green-200/80"><span className="text-slate-500">Applied:</span> {finding.fixed.summary}</p>
+                      ) : null}
                       {finding.evidence.length ? (
                         <ul className="mt-1 space-y-0.5 text-slate-400">
                           {finding.evidence.map((item) => (
@@ -303,38 +444,42 @@ export function SceneCheckPanel({
                       {finding.suggestedFix ? (
                         <p className="mt-1 text-slate-300"><span className="text-slate-500">Suggested:</span> {finding.suggestedFix}</p>
                       ) : null}
-                      {current !== "out_of_date" ? (
+                      {actionable && !finding.fixed ? (
                         <div className="mt-2 flex flex-wrap gap-2">
-                          {!accepted ? (
+                          {canFix ? (
                             <button
                               type="button"
-                              onClick={() => void requestFix(finding)}
-                              disabled={busy || fixBusy !== null}
+                              onClick={() => depth && void requestFix(finding.id, depth)}
+                              disabled={busy || Boolean(running) || fixBusy !== null || Boolean(queue)}
                               data-testid="scene-check-preview-fix"
                               className="rounded-md border border-white/15 px-2.5 py-1 hover:border-accent disabled:opacity-50"
                             >
                               {fixBusy === finding.id && !preview ? "Proposing…" : "Preview fix"}
                             </button>
                           ) : null}
-                          <button
-                            type="button"
-                            onClick={() => depth && onAccept(depth, finding.id, !accepted)}
-                            disabled={busy || Boolean(running)}
-                            className="rounded-md border border-white/10 px-2.5 py-1 text-slate-400 hover:border-white/25 disabled:opacity-50"
-                          >
-                            {accepted ? "Undo acceptance" : "Accept as intentional"}
-                          </button>
+                          {current !== "out_of_date" ? (
+                            <button
+                              type="button"
+                              onClick={() => depth && onAccept(depth, finding.id, !accepted)}
+                              disabled={busy || Boolean(running)}
+                              className="rounded-md border border-white/10 px-2.5 py-1 text-slate-400 hover:border-white/25 disabled:opacity-50"
+                            >
+                              {accepted ? "Undo acceptance" : "Accept as intentional"}
+                            </button>
+                          ) : null}
                         </div>
                       ) : null}
-                      {fixError?.findingId === finding.id ? (
-                        <p className="mt-1 text-red-300">{fixError.message}</p>
+                      {fixErrors[finding.id] ? (
+                        <p className="mt-1 text-red-300">{fixErrors[finding.id]}</p>
                       ) : null}
                       {preview?.findingId === finding.id ? (
                         <FixPreviewBox
                           preview={preview.value}
                           busy={fixBusy !== null}
+                          progress={queue ? { position: queue.total - queue.remaining.length, total: queue.total } : undefined}
                           onApply={() => void applyFix()}
-                          onDiscard={() => setPreview(null)}
+                          onDiscard={discardFix}
+                          onStop={stopQueue}
                         />
                       ) : null}
                     </li>

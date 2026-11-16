@@ -2183,6 +2183,16 @@ export default function HelpPage() {
             new warning is not offered.
           </p>
           <p className={p}>
+            To fix several findings, tick them and press <strong>Fix selected</strong>. Each is
+            previewed in turn, against the text the fix before it left, and you{" "}
+            <strong>Apply</strong>, <strong>Skip</strong> or <strong>Stop</strong> as you go. Applying
+            a fix puts the check out of date — it has not read the new text — but while the only
+            changes are fixes applied from its own findings, the others stay fixable and the fixed
+            ones are marked <em>fix applied · re-check to confirm</em>. Run the check again once you
+            are done. Any other edit to the scene ends this, since the old findings no longer
+            describe it.
+          </p>
+          <p className={p}>
             Each scene shows <em>Not checked</em>, <em>Passed</em>, <em>Issues</em>,{" "}
             <em>Incomplete</em> (the review did not finish, or the frames could not be looked at) or{" "}
             <em>Out of date</em> — any change to the card, prompts, cast or, for a deep check, the

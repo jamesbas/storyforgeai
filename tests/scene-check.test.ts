@@ -5,14 +5,16 @@ import type { ZodType, ZodTypeDef } from "zod";
  * The service reads its model through `getPlanningProvider`; this stands in for
  * it. `null` answers model nothing (the reviewer returned nothing usable).
  */
-const reviewer = vi.hoisted(() => ({ answer: null as unknown }));
+const reviewer = vi.hoisted(() => ({ answer: null as unknown, fix: null as unknown }));
 vi.mock("@/lib/agents/llm/provider", async (original) => ({
   ...(await original<typeof import("@/lib/agents/llm/provider")>()),
   getPlanningProvider: () => ({
     name: "fake-reviewer",
-    // Only the scene check is answered; anything else the render queue asks is declined.
+    // Only the scene check and its fixes are answered; anything else the render queue asks is declined.
     generateJson: async (system: string) =>
-      system.startsWith("You are the Scene Check reviewer") ? reviewer.answer : null,
+      system.startsWith("You are the Scene Check reviewer") ? reviewer.answer
+        : system.startsWith("You repair one field") ? reviewer.fix
+          : null,
   }),
 }));
 import {
@@ -59,6 +61,7 @@ const LEROY =
 beforeEach(() => {
   setWangpClient(new MockWangpClient());
   reviewer.answer = null;
+  reviewer.fix = null;
 });
 
 async function project(): Promise<ProjectRecord> {
@@ -316,6 +319,50 @@ describe("the service", () => {
     const after = await getProjectRecord(record.project.id);
     expect(after.storyboard!.scenes[0]!.prompts.startFramePrompt).toContain("(a Black man");
     expect((await summariseSceneChecks(after))[sceneId]!.quick).toBe("out_of_date");
+  });
+
+  it("keeps the other findings fixable after a fix, until something else changes the scene", async () => {
+    reviewer.answer = { findings: [finding({ code: "pose_unclear", explanation: "How he kneels is unclear." })] };
+    const record = await project();
+    const projectId = record.project.id;
+    const sceneId = record.storyboard!.scenes[0]!.id;
+    const check = await checkSceneNow(projectId, sceneId, "quick");
+    const identity = check.findings.find((f) => f.code === "identity_missing")!;
+    const pose = check.findings.find((f) => f.code === "pose_unclear")!;
+
+    const first = await previewSceneCheckFix(projectId, sceneId, "quick", identity.id);
+    const applied = await applySceneCheckFix(projectId, {
+      kind: first.kind, sceneId, field: first.field, after: first.after, sourceHash: first.sourceHash,
+      depth: "quick", findingId: identity.id, summary: first.summary,
+    });
+    const stored = applied.sceneChecks![sceneId]!.quick!;
+    expect(stored.findings.find((f) => f.id === identity.id)!.fixed?.summary).toBe(first.summary);
+    expect(stored.findings.find((f) => f.id === pose.id)!.fixed).toBeUndefined();
+    const status = (await summariseSceneChecks(applied))[sceneId]!;
+    // Still honest about the check — it did not read the fixed text — but the rest stays fixable.
+    expect(status.quick).toBe("out_of_date");
+    expect(status.fixesApplied.quick).toBe(true);
+
+    // The second fix is proposed against the text the first one left, and chains on.
+    reviewer.fix = {
+      revised: "Medium shot. Leroy, a heavyset Black man in his fifties, kneels low at the foot of the bed.",
+      summary: "Lowered him.",
+    };
+    const second = await previewSceneCheckFix(projectId, sceneId, "quick", pose.id);
+    const both = await applySceneCheckFix(projectId, {
+      kind: second.kind, sceneId, field: second.field, after: second.after, sourceHash: second.sourceHash,
+      depth: "quick", findingId: pose.id,
+    });
+    expect(both.storyboard!.scenes[0]!.prompts.startFramePrompt).toContain("(a Black man");
+    expect(both.storyboard!.scenes[0]!.prompts.endFramePrompt).toContain("kneels low");
+    expect((await summariseSceneChecks(both))[sceneId]!.fixesApplied.quick).toBe(true);
+
+    // Any other edit breaks the chain: the old findings say nothing about a hand-edited scene.
+    await updateScenePrompts(projectId, sceneId, { startFramePrompt: "Someone edited this by hand." });
+    const edited = await getProjectRecord(projectId);
+    expect((await summariseSceneChecks(edited))[sceneId]!.fixesApplied.quick).toBe(false);
+    await expect(previewSceneCheckFix(projectId, sceneId, "quick", pose.id))
+      .rejects.toThrow(/changed since this check/);
   });
 
   it("refuses a fix previewed against text that has since changed", async () => {
