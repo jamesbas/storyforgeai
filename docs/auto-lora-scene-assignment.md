@@ -92,13 +92,13 @@ Measured across the 77 sidecars for the two pinned families:
 | Field | Coverage | Example values |
 |---|---|---|
 | `name` (currently used as the label) | 77/77, but **48 are version strings** | `"v1.0"`, `"V2"`, `"V1 4.2K Steps (Reccomend)"` |
-| `model.name` (**not read today**) | 77/77, descriptive | `"Doggy Style - Side View LTX"`, `"NSFW Body Physics Fluid Motion Enhancer \| Lora \| LTX2.3"` |
+| `model.name` (**not read today**) | 77/77, descriptive | `"<pose name> - Side View LTX"`, `"<style> Body Physics Fluid Motion Enhancer \| Lora \| LTX2.3"` |
 | `trainedWords` | 42/77 | see §4 |
 | `description` | 35/77 | free prose, HTML-tagged |
 | `model.nsfw` | 77/77 | boolean |
 | `model.tags` | 0/77 | absent here — do not design around it |
 
-The picker currently labels `beej.safetensors` as **"v1.0"** rather than **"BEEJ"**. Standalone UX
+The picker currently labels `example.safetensors` as **"v1.0"** rather than **"EXAMPLE"**. Standalone UX
 bug, and the richest matching signal is being discarded.
 
 ### 3.2 No provenance on a scene's LoRA selection
@@ -164,13 +164,13 @@ two active families:
 
 | Class | Count | Example |
 |---|---|---|
-| **Token** (≤24 chars, ≤3 words) | 34 | `BEEJ`, `DREAM_CUNI`, `cha1rt1ed`, `upskirt` |
-| **Phrase** (≤60 chars, ≤8 words) | 22 | `locked in a wooden pillory`, `breast_grabbing` |
+| **Token** (≤24 chars, ≤3 words) | 34 | `EXAMPLE`, `cha1rt1ed`, short uppercase activators, single-word pose names |
+| **Phrase** (≤60 chars, ≤8 words) | 22 | short pose or action descriptions (`locked in a wooden pillory`, snake_case action names) |
 | **Prose** (longer) | **32** | 257 chars: `"restore the image quality, remove any compression artefacts, remove any haze and soft edges, en…"` |
 
 Roughly **a third of all "trigger words" are prose**, and some are not prompt text at all — one is
 the author's commentary (`"you can probably add a bit of angles and stuff… Trainingsdata is only
-from behind"`), another is usage instructions (`"POV from above. | Viewpoint from side | (Or use no
+from one angle"`, paraphrased), another is usage instructions (`"POV from above. | Viewpoint from side | (Or use no
 viewpoint, works too)"`).
 
 **This is a live problem, not a hypothetical one.** Of the 29 LoRAs with exactly one trigger word,
@@ -199,10 +199,10 @@ makes automated trigger selection a contained problem rather than a sweeping one
 
 Two distinct semantics hide behind "more than one":
 
-- **Exclusive selectors** — `DR34ML4Y` offers `m15510n4ry | bl0wj0b | d0ubl3_bj | d0gg1e | c0wg1rl`.
-  Mutually exclusive positions; pick exactly one. This is the case a matcher can genuinely solve.
-- **Additive modifiers** — `FLUX_NSFW_Fix` offers `Breast Size Shape Descriptions | Vulva | Anus |
-  Pubic Hair | Hair Around Anus`. These compose; picking one would be wrong.
+- **Exclusive selectors** — one pose LoRA offers five leetspeak-encoded pose tokens.
+  Mutually exclusive poses; pick exactly one. This is the case a matcher can genuinely solve.
+- **Additive modifiers** — an anatomy-detail LoRA offers five independent body-detail modifiers.
+  These compose; picking one would be wrong.
 
 The catalog cannot distinguish them, which is exactly why the current code refuses to guess. A
 matcher must therefore be allowed to answer **"I don't know"** and leave the choice pending, rather
@@ -210,7 +210,7 @@ than being forced to emit a selection.
 
 ### 4.5 Leetspeak
 
-10 tokens substitute digits for letters (`m15510n4ry`, `cunn1l1ngu5`, `FU11N31S0N`, `g@n`). A
+10 tokens substitute digits for letters (`FU11N31S0N`, `g@n` and similar). A
 lexical matcher needs a de-leet normalisation pass (`1→i/l`, `0→o`, `5→s`, `3→e`, `4→a`, `@→a`)
 before comparing against scene text, or it will match none of them. Cheap, and it makes the
 deterministic path genuinely useful on the exclusive-selector case.
@@ -225,7 +225,7 @@ Score catalog entries against scene prompts using `model.name`, token/phrase tri
 `description`, after de-leet normalisation.
 
 - **Pros:** deterministic, instant, zero GPU, fixture-testable, works with AI planning disabled.
-- **Cons:** no synonym handling — "she rides him facing away" will not match a LoRA named "Cowgirl".
+- **Cons:** no synonym handling — a scene describing a pose in plain words will not match a LoRA named with that pose's jargon term.
   Weak on abstract names like "Body Physics Fluid Motion Enhancer".
 - **Verdict:** the baseline and the fallback. Not sufficient alone.
 
@@ -363,7 +363,7 @@ keyword score at no extra cost.
 ### Phase 3 — Judgement and polish
 
 - **Audience gating:** `model.nsfw` is present on every sidecar. A project whose audience is
-  `children` or `families` should not have an NSFW LoRA auto-attached. Gate auto-assign only, never
+  `children` or `families` should not have a mature-flagged LoRA auto-attached. Gate auto-assign only, never
   manual selection.
 - **Strength:** default `1`; allow a lower proposed weight for stacked enhancer LoRAs, clamped.
 - **Prompt-impact preview:** show the scene prompt with auto-appended trigger words highlighted, so

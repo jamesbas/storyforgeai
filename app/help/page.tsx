@@ -315,7 +315,7 @@ export default function HelpPage() {
             Who the piece is for. Shapes vocabulary, pacing and content limits in the creative brief
             and the story arc, and is appended to each render prompt as{" "}
             <code>&quot;Intended audience: …&quot;</code> — except on Krea 2 image prompts, where
-            only an explicit-content audience is stated, since nothing else is visible in a frame.
+            only an adult audience is stated, since nothing else is visible in a frame.
           </p>
           <p className={p}>
             StoryForgeAI applies no content filtering of its own — there is no moderation step, no
@@ -508,7 +508,7 @@ export default function HelpPage() {
           </p>
           <p className={p}>
             <strong>To cut, say so in the concept.</strong> Write it into the project description —
-            &ldquo;cut to the husband watching from his table&rdquo; — and the agents will plan the
+            &ldquo;cut to her friend watching from across the room&rdquo; — and the agents will plan the
             change of framing. Choosing <strong>Cut between scenes</strong> switches the whole piece
             to separate shots, and the Cinematographer is then told to vary shot sizes deliberately,
             because contrast between framings is what signals which moments matter in an edit.
@@ -866,8 +866,8 @@ export default function HelpPage() {
             a white polo and faced the camera while she lay in profile — the pass took his head and
             gave him her face. StoryForgeAI now appends a sentence built from the frame itself,
             naming the target by what separates them from the other people actually in it: wardrobe
-            first, since that settles nearly every shot, falling through to hair colour where two
-            people are undressed. That sentence also tells the pass to leave everyone else alone,
+            first, since that settles nearly every shot, falling through to hair colour where
+            wardrobe does not tell two people apart. That sentence also tells the pass to leave everyone else alone,
             which matters because the passes chain and a later one could otherwise undo an earlier
             correction. A shot holding one person gets no such sentence and uses your template
             exactly as written.
@@ -955,8 +955,8 @@ export default function HelpPage() {
             invented shirt then moved onto a different character. Absences are rewritten to the skin
             for you (&quot;no shirt&quot; becomes &quot;bare chest&quot;, &quot;no other
             garments&quot; becomes &quot;and nothing else&quot;), but the shortest path to a reliable
-            render is to write it that way yourself. Nudity is the exception: &quot;nude&quot; is
-            recognised and rendered as an explicit statement of bare skin rather than an outfit.
+            render is to write it that way yourself. The one exception is <code>nude</code>, which
+            is recognised as a wardrobe state rather than an outfit.
           </p>
           <p className={p}>
             That wardrobe is a <em>starting</em> outfit, not a fixed one. It is repeated into every
@@ -1034,35 +1034,34 @@ export default function HelpPage() {
             regenerating the storyboard picks up the new wording.
           </p>
 
-          <h3 className={h3}>Explicit work</h3>
+          <h3 className={h3}>Mature content</h3>
           <p className={p}>
-            When the audience is <strong>Adults only (explicit)</strong> or the tone is erotic or
-            raw/carnal, the Image and Video Prompt agents are told so directly, using the same
-            wording the settings screen showed you. Without it they wrote euphemism — &quot;the point
-            of contact&quot;, &quot;drives into her&quot; — because the only signal was a style label
-            stapled on after they had finished writing. An image model has nothing to draw from an
-            implication; it renders nouns, so the agents are now instructed to name the anatomy and
-            say what is in contact and what is visible.
+            When the project&apos;s audience or tone is set for adult viewers, the Image and Video
+            Prompt agents are told so directly, using the same wording the settings screen showed
+            you. Without it they wrote euphemism, because the only signal was a style label added
+            after they had finished writing. An image model has nothing to draw from an
+            implication, so the agents are instructed to describe the staging directly: who is
+            where, what is in contact and what is visible.
           </p>
           <p className={p}>
             The <strong>Director</strong> and <strong>Storyboard Artist</strong> get the same
-            instruction in a form suited to planning: say plainly what happens, and do not end a
-            scene at the moment it becomes explicit. They write the card the render prompt is built
-            from, so an act described obliquely there cannot be recovered later — a prompt agent can
-            only make explicit what the card says happened.
+            instruction in a form suited to planning: say plainly what happens rather than cutting
+            away from it. They write the card the render prompt is built from, so an action
+            described obliquely there cannot be recovered later — a prompt agent can only describe
+            what the card says happened.
           </p>
           <p className={p}>
-            <strong>Nudity is a wardrobe state.</strong> Set a wardrobe change to{" "}
-            <code>nude</code> (there is a shortcut on the panel) and the prompt says so plainly
+            <strong>Being unclothed is a wardrobe state.</strong> Set a wardrobe change to{" "}
+            <code>nude</code> (there is a shortcut on the panel) and the prompt states it plainly
             rather than ending with an instruction to keep the clothes on — which is what a stated
             outfit is, and it sits in the last and strongest position in the prompt. Partial states
-            still read as outfits: &quot;black silk robe, open&quot; works as written.
+            still read as outfits: &quot;robe, worn open&quot; works as written.
           </p>
           <p className={p}>
-            You should rarely have to set that by hand. The Storyboard Artist is told that
-            undressing is a wardrobe change and records it on the scene where it happens. For
+            You should rarely have to set that by hand. The Storyboard Artist is told that a change
+            out of clothing is a wardrobe change and records it on the scene where it happens. For
             storyboards written before that, the Storyboard screen reads the scene cards and lists
-            any whose action is only possible undressed while the wardrobe still says otherwise,
+            any whose action implies a wardrobe change the wardrobe does not yet record,
             with one click to set them. It reports rather than decides — which scenes those are is a
             judgement, and the list shows exactly what will change before you press it.
           </p>
@@ -1123,7 +1122,7 @@ export default function HelpPage() {
             <strong>The reference outranks the prompt.</strong> It holds props as firmly as it holds
             wardrobe, so a glass that the scene&apos;s own action should set down stays in the
             character&apos;s hand — and it holds the <em>location</em> just as firmly. Asked for a
-            medium shot of two characters walking away from a doorway toward a bed, a conditioned end
+            medium shot of two characters walking away from a doorway toward the far side of the room, a conditioned end
             frame returned the doorway, unchanged; the same prompt at the same seed with the
             reference withheld obeyed it. So clear <strong>Match the carried-over frame</strong> on
             any scene whose end frame has to show something the reference does not already
@@ -1251,8 +1250,8 @@ export default function HelpPage() {
           </p>
           <p className={p}>
             Nothing written about these frames is ever fed back into the pipeline. A render records
-            what the pipeline <em>settled for</em>, not what was asked for — a scene written as
-            explicit and rendered as coy reads back as &ldquo;intimate&rdquo;. Describing one back
+            what the pipeline <em>settled for</em>, not what was asked for — a scene written with a
+            strong mature tone and rendered cautiously reads back as milder. Describing one back
             into the Visual Bible would teach the next generation the last one&apos;s compromises,
             with the drift always in the direction of less. The report has no palette, wardrobe,
             mood or lighting field, so there is nothing to leak.
@@ -1829,9 +1828,9 @@ export default function HelpPage() {
           <ul className="mt-2 list-disc space-y-1 pl-5">
             <li className={li}>&quot;Return only valid JSON&quot;, plus the expected keys.</li>
             <li className={li}>
-              On explicit projects: that the work is adult and the act must be shown rather than
-              implied, and that each body part is named in both a colloquial and a clinical
-              register, because any given checkpoint was trained on one vocabulary or the other.
+              On adult-rated projects: that the material should be described directly rather than
+              implied, using both everyday and clinical vocabulary, because any given checkpoint
+              was trained on one vocabulary or the other.
             </li>
             <li className={li}>
               For keyframes: open with shot size and camera height, state an explicit headcount,
@@ -2099,7 +2098,7 @@ export default function HelpPage() {
 
           <h3 className={h3}>People the story introduces</h3>
           <p className={p}>
-            The planning agents often add people who are not in your character library — a lover,
+            The planning agents often add people who are not in your character library — a friend,
             a stranger, a waiter. The Visual Bible records what they look like, and the prompt
             agents are told to describe them in every frame. When a frame names one of them without
             describing them, their Visual Bible appearance is appended the same way a library

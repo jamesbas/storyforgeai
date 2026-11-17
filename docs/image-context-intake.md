@@ -59,9 +59,9 @@ re-deriving it.
 ### Two kinds of image, and only one of them informs anything
 
 Testing against real output changed this design. Pointed at frames the pipeline
-had itself produced, the reader wrote back `mood: "Intimate"` for a concept that
-asks for something considerably stronger, and `wardrobe: "short black silk robe
-or dress"` for a robe the concept says barely covers anything.
+had itself produced, the reader wrote back a `mood` noticeably softer than the
+concept asks for, and a `wardrobe` reading that describes more coverage than
+the concept specifies.
 
 Both were accurate. That is the problem. A render records what the pipeline
 settled for, not what was asked for, so feeding a description of one into the

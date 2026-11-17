@@ -242,9 +242,9 @@ contradiction that cannot be attributed (`field: "other"`, which is what legacy
 prose parses to) scrubs nothing, because guessing would withhold the wrong one.
 
 The distinction was not in the original design. It was added after pointing the
-Concept Reader at the project's own frames and reading what came back: `mood:
-"Intimate"` for a concept that asks for a good deal more, and `wardrobe: "short
-black silk robe or dress"` for a robe the concept says barely covers anything.
+Concept Reader at the project's own frames and reading what came back: a `mood`
+noticeably softer than the concept asks for, and a `wardrobe` reading that
+describes more coverage than the concept specifies.
 
 Both readings were accurate. That is the problem. **A render records what the
 pipeline settled for, not what was asked for.** Feeding a description of one into
@@ -1193,8 +1193,8 @@ than a constant: the effective outfit for a scene is the last change at or befor
 it. A `within` change splits the scene's two frames, which is the one place they are
 meant to differ in clothing and lifts the identical-clothing rule for that scene
 alone. The clause is appended **last**, the strongest position in the prompt, which
-is why nudity had to become a state rather than an outfit — a stated garment there
-overrides an explicit act. Non-cast subjects are tracked by free-text label and
+is why an unclothed state had to become a wardrobe state rather than an outfit — a
+stated garment there overrides the scene's action. Non-cast subjects are tracked by free-text label and
 delivered by `othersWardrobeSuffix`.
 
 **Face swap** (`lib/services/face-swap-service.ts`, `lib/wangp/face-swap-preset.ts`)
@@ -1271,7 +1271,7 @@ builder:
 - **Story characters** (`storyCharacters` / `storyIdentity` in `cast.ts`) get the
   library fallback: when a frame that shows them, per `frameVisibility`, names them
   without describing them, their Visual Bible identity is appended — clauses about
-  clothing, nudity, segments and future states removed, a skin clause cut back to
+  clothing, unclothed states, segments and future states removed, a skin clause cut back to
   the skin itself.
 - **Complexion is required** for everyone (`identity.ts`). A description's stated
   ethnicity and skin tone are extracted in its own words; a frame that describes a
@@ -1353,9 +1353,9 @@ flowchart TD
 
 The codes are **sufficiency checks, asked separately**, because a prompt can
 satisfy one and none of the rest. The first version asked only whether the prompt
-contained *any* explicit word, and "performs oral sex on Mara; his mouth is
-pressed against her soft skin between her thighs" passed it clean: the act was
-labelled and nothing an image model can draw was described.
+contained *any* mature-content keyword, and a prompt that named the scene's act
+in a single label passed it clean: the act was labelled and nothing an image
+model can draw was described.
 
 | Code | What it catches | Repairable from the card |
 |---|---|---|
@@ -1374,13 +1374,13 @@ labelled and nothing an image model can draw was described.
 
 Four properties worth stating:
 
-1. **Explicit checks are gated on the card, not the project.** `depictsSexAct`
-   reads the euphemisms too, because a card saying "he engages her from behind"
-   is a sex scene whose author was coy and the prompt written from it must not
-   be. Nudity is deliberately *not* an act: asking an undressing frame to name
-   genital anatomy is a demand the scene cannot meet.
-2. **Three checks run for every project, explicit or not.** `motion_in_still`
-   spent its first three releases switched off for non-explicit work, which is
+1. **Mature-scene checks are gated on the card, not the project.** `depictsSexAct`
+   reads euphemistic phrasing too, because a card that describes a mature scene
+   indirectly still needs a prompt that describes it directly. An unclothed state
+   is deliberately *not* treated as a mature scene: asking a frame where someone
+   is changing to name anatomy is a demand the scene cannot meet.
+2. **Three checks run for every project, mature-rated or not.** `motion_in_still`
+   spent its first three releases switched off for general-audience work, which is
    exactly wrong — a keyframe is one held instant whatever it contains. So do
    `framing_too_tight` and `focal_point_hidden`: a hand on a shoulder blade is as
    invisible from the front as anything else.
@@ -1389,7 +1389,7 @@ Four properties worth stating:
    difference between a second attempt and the same attempt again.
 4. **The deterministic repair never restates.** It guarantees the concrete text
    the card already holds reaches the render rather than being lost. An early
-   version appended the whole action and then appended its explicit sentences
+   version appended the whole action and then appended its direct sentences
    individually, so a repaired prompt carried the act three times — twice
    verbatim — and a sampler weights a repeated sentence twice.
 
@@ -1402,14 +1402,14 @@ repair could only flag is findable afterwards rather than discovered at the GPU.
 height and movement were all specified per scene and all describe how high the
 camera is or how much of the frame it fills; nothing said where it stood *around*
 the subject, which decides whether a given side of a body faces the lens. Live, a
-frame whose whole content was a hand gripping a backside named the anatomy, the
-contact and the position, opened "Medium close-up, eye level" with the pair
-staged facing each other, and rendered the hand on her **hip** — the only place
-the camera could see one. `lib/media/viewpoint.ts` adds the axis;
+frame whose whole content was a hand placed on the far side of another person's
+body named the contact point and the pose, opened "Medium close-up, eye level"
+with the pair staged facing each other, and rendered the hand on her **hip** —
+the only place the camera could see one. `lib/media/viewpoint.ts` adds the axis;
 `focalSide()` reads what the frame is about from the card while `sideVisibleIn()`
 reads where the camera is from the prompt. It is rear-only on purpose: one body's
 front against another's back is plainly visible from behind, and a symmetric rule
-fired on six correct frames in one project, including a doggy-style frame shot
+fired on six correct frames in one project, including a rear-facing pose shot
 from a rear camera.
 
 ### Scene continuity and the seam

@@ -205,12 +205,12 @@ over-the-shoulder. Height is the vertical axis; nothing described the horizontal
 the axis which decides whether a given side of a body faces the lens.
 
 It does not matter for most shots and decides the shot completely when the frame is about one point
-of contact. Live, on a scene whose whole content was a man's hand gripping a woman's backside: the
-prompt named the anatomy, the contact and the position, passed every gate check, and opened
+of contact. Live, on a scene whose whole content was one character's hand placed on the far side of
+another's body: the prompt named the contact point and the pose, passed every gate check, and opened
 "Medium close-up, eye level" with the pair staged facing each other. Both bodies were side-on with
-her backside away from the lens, and the render put his hand on her hip — the only place it could
+the contact point away from the lens, and the render put the hand on her hip — the only place it could
 put a hand it was able to see. A second scene in the same project opened "Medium close-up, low
-angle" on a frame about her exposed backside; low angle is height again. Swept across that
+angle" on a frame about a detail on the far side of the body; low angle is height again. Swept across that
 project, 7 of the 10 frames whose beat turned on a rear point of contact never said where the
 camera was.
 
@@ -219,7 +219,7 @@ that thing is visible, and `focal_point_hidden` in the acceptance gate checks it
 reads what the beat is about from the scene card, `sideVisibleIn()` reads where the camera is from
 the prompt. Deliberately rear-only — one body's front against another's back is plainly visible
 from behind, so the mirror rule fired on six correct frames in that same project, including a
-doggy-style frame shot from a rear camera.
+rear-facing pose shot from a rear camera.
 
 ### 3.6 Video Prompt Agent — **B−**
 

@@ -253,7 +253,7 @@ Three things follow:
    the one case where the two disagree.
 
 **Open question 3 is also settled.** Both LoRAs currently active on the video model —
-`LTX-2-Image2Vid-Adapter.safetensors` and an NSFW helper LoRA — exist as files in `loras/ltx2`.
+`LTX-2-Image2Vid-Adapter.safetensors` and a mature-content helper LoRA — exist as files in `loras/ltx2`.
 WanGP therefore takes **bare filenames resolved relative to the family directory**, exactly as
 EasyMedia assumed. No paths.
 
@@ -314,7 +314,7 @@ step information. If we ever read existing settings back, preserve the raw strin
 ### 4.7 `.lset` files are LoRA presets — exclude them from the picker
 
 The `loras/ltx2` directory contains `.lset` files paired with many `.safetensors` (e.g.
-`beej.lset` / `beej.safetensors`), plus a stray `.json`. These are WanGP **LoRA preset** files —
+`example.lset` / `example.safetensors`), plus a stray `.json`. These are WanGP **LoRA preset** files —
 which is what the unimplemented `wangp_list_lora_presets` tool name refers to.
 
 They must **not** appear as selectable LoRAs. EasyMedia's `.safetensors` / `.sft` extension
@@ -661,7 +661,7 @@ of EasyMedia's four.
 ```
 flux2_klein_9b          -> loras/flux2_klein_9b   43 installed, 36 labelled, 26 with triggers
 ltx2_22B_distilled_1_1  -> loras/ltx2             52 installed, 39 labelled, 16 with triggers
-video manifest, 1 selected at 0.8  -> activated_loras ["beej.safetensors"], multipliers "0.8"
+video manifest, 1 selected at 0.8  -> activated_loras ["example.safetensors"], multipliers "0.8"
 video manifest, none selected      -> activated_loras [], multipliers ""   (determinism fix)
 ```
 

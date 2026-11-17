@@ -82,8 +82,8 @@ recent updates are kept below — every release ever made is in
   frame uses the model's Control Image input when available, separate from the
   character-photo references; reference-only models receive it as their first reference.
 - **Wardrobe timeline** — costume is a starting outfit rather than a constant.
-  Changes are declared at the scene where they happen and carry forward, nudity is
-  a wardrobe state rather than an outfit, and people who were never pinned to the
+  Changes are declared at the scene where they happen and carry forward, having no
+  outfit is a wardrobe state rather than an outfit itself, and people who were never pinned to the
   library can be dressed by name ("the two men").
 - **Scene continuity you can override** — a scene can start from the previous scene's
   end frame, and that frame is handed to the end-frame render as a reference so
@@ -93,7 +93,7 @@ recent updates are kept below — every release ever made is in
   prompt, though, so **Match the carried-over frame** should be cleared on any scene
   whose end frame has to show something the reference does not already contain — a
   different part of the set, or a person who is not in it. Asked to walk two
-  characters from a doorway to a bed, a conditioned end frame returned the doorway;
+  characters from a doorway to the far side of the room, a conditioned end frame returned the doorway;
   the same prompt and seed with the reference withheld obeyed it.
 - **Live batch progress** — keyframes are written to the storyboard as each scene
   renders them rather than at the end of the phase, so a long run visibly fills in,
@@ -103,9 +103,9 @@ recent updates are kept below — every release ever made is in
   them (FLUX, Qwen, Krea, Wan, LTX, MiniMax H3 FL2VA/Ref2VA). Exclusions are routed at render time, so a
   model with no negative prompt gets them folded into the positive prompt instead
   of silently discarding them.
-- **Adult-content directives** — when the audience or tone calls for it, the
-  planning and prompt agents are told so plainly, using the same wording the
-  settings screen shows.
+- **Audience-aware directives** — the planning and prompt agents are told the
+  project's audience rating and tone plainly, using the same wording the settings
+  screen shows.
 - **LoRA selection** — pick LoRAs for the whole storyboard or override them per
   scene, filtered to those installed for the pinned image/video model, with
   per-LoRA strengths. Search either catalog by label, filename or trigger word.
@@ -628,18 +628,14 @@ Prompts are stored as plain term lists — `watermark, distorted anatomy, low
 quality` — and character negative terms are stripped the same way. Projects written
 before this can be repaired in place from the Storyboard screen.
 
-### Adult content
+### Mature content
 
-When the audience is *Adults only (explicit)* or the tone is erotic or raw/carnal,
-the Director, Storyboard Artist and both prompt agents are told so directly, using
-the same wording the settings screen showed. Without it they write euphemism, and
-an image model has nothing to draw from an implication — it renders nouns. The app
-applies no content filtering of its own. **Adult projects require an uncensored
-planning model in LM Studio that will follow explicit-content instructions; a
-censored or safety-aligned model may refuse, sanitize, or omit the required adult
-prompts.** The image/video checkpoints used by WanGP must likewise support the
-intended content. You are responsible for using lawful content and for checking
-the licence and acceptable-use terms of every model and checkpoint.
+For adult-rated projects, the planning and prompt agents receive the audience
+rating and tone directly, so they write direct descriptions an image model can
+render rather than euphemisms. The app applies no content filtering of its own,
+and some planning models or WanGP checkpoints may refuse or soften such prompts.
+You are responsible for using lawful content and for the licence and
+acceptable-use terms of every model you run.
 
 ### One take or an edit
 
@@ -743,8 +739,8 @@ are text safeguards, not a complete anatomy or physics validator.
 Use an instruction-tuned model with enough context for the project and support for
 structured output. StoryForgeAI defaults to a 12,000-token completion budget and a
 240-second timeout; smaller/slower models may need the corresponding
-`OPENAI_MAX_TOKENS` and `OPENAI_TIMEOUT_MS` settings adjusted. For adult projects,
-the loaded model must be uncensored and willing to generate explicit prompts.
+`OPENAI_MAX_TOKENS` and `OPENAI_TIMEOUT_MS` settings adjusted. For adult-rated
+projects, the loaded model must be willing to follow mature-content instructions.
 
 The response format is negotiated at runtime down a ladder — `json_schema`,
 then `json_object`, then plain text — and a rung is abandoned only when the
@@ -943,8 +939,8 @@ enforced by the schema rather than by a rule: `conceptFidelitySchema` has no
 palette, wardrobe, mood or lighting field to leak. A render records what the
 pipeline *settled for*, not what was asked for. Describing one back into the
 Visual Bible would teach each generation the last one's compromises — a scene
-written as explicit and rendered as coy reads back as "intimate", and the drift
-is always in the direction of less.
+written with a strong mature tone and rendered cautiously reads back as milder,
+and the drift is always in the direction of less.
 
 Because nothing in the pixels distinguishes a reference from a render, the kind
 is chosen at upload and never guessed.
@@ -1239,7 +1235,7 @@ pass took his head and gave him her face.
 So the discriminator comes from the scene rather than the template. Each pass
 carries a sentence built from that frame, naming the target by what separates them
 from the other people actually in it — wardrobe first, since that settles nearly
-every shot, falling through to hair colour where two people are undressed. That
+every shot, falling through to hair colour where wardrobe does not tell two people apart. That
 sentence is phrased for the engine running the pass, since "Picture 1" means
 nothing to Krea. It also
 tells the pass to leave everyone else alone, which matters because the passes
