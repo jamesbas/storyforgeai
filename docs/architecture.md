@@ -1165,6 +1165,30 @@ two. The extra pictures are declared as *"the same person from different angles"
 because an unexplained second photograph of a character reads as a second
 character.
 
+**A character's voice, on Ref2VA only** (SPEC-012). A character may store one voice
+recording (`voiceSample`, under `library/character-voices`, WAV/FLAC/MP3/OGG — the
+formats the H3 pipeline's `soundfile` reads; M4A/AAC is refused at upload).
+`resolveCastSubjects` attaches it as `CastReference.voicePath` only when the
+character is a photographed subject of the clip **and** has a non-empty line in
+`scene.dialogue` (`speaksInScene`). `composeRef2vaReferences` sends it only when the
+resolved model advertises `mediaInputs.audio.reference` and declares `audio_guide`.
+Recordings follow subject order — the Nth voiced subject is `<Audio N>` and
+`audio_guide` / `audio_guide2` / `audio_guide3`, with `audio_prompt_type` `A` / `AB` /
+`ABD`. Every Ref2VA job writes `audio_prompt_type` explicitly, as `""` when it has no
+voices, because a saved `AS` would turn a recording into a kept soundtrack.
+
+WanGP counts only `image_refs` against audio references, and keyframes sent through
+native start/end inputs are not among them, so a voice without a photograph cannot be
+sent; requiring the photograph is also what gives the voice a `<Subject N>` to bind
+to. The prompt binds it three times: an `<Audio N> is the voice of <Subject K>` line
+directly after the subject's definition, an audio-marker `reference` line in
+`retention_analysis`, and `in the voice from <Audio N>` beside each of that subject's
+speech verbs, outside `<d>` so the storyboard's words are still what is said. A line
+whose speaker cannot be found keeps the definition and logs
+`wangp.ref2va.voice_unbound`; a withheld recording logs `wangp.ref2va.voice_skipped`
+with its reason. Trimming is left to WanGP, which reads each reference from its start
+and caps the total at 15 s split evenly.
+
 **Withholding the written face** (`lib/agents/cast.ts`).
 `castSheet(cast, forRender, wardrobeAt, options)` takes a flag distinguishing render
 prompts from planning payloads, this scene's point on the wardrobe timeline, and

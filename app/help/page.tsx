@@ -426,6 +426,19 @@ export default function HelpPage() {
             speed and quality tradeoff.
           </p>
           <p className={p}>
+            <strong>Character voices.</strong> Reference mode can also hold a character&apos;s{" "}
+            <em>voice</em>. Upload a voice sample for the character in the character library, and
+            every reference-mode clip in which that character has a line sends the recording to H3
+            as a voice reference. The words still come from the storyboard; the recording supplies
+            only how they sound, which is what keeps a character from sounding different in every
+            clip. It is sent only when the character also has a reference photo in that clip and
+            only for scenes where they speak, and at most three voices fit in one scene. H3 keeps
+            at most 15 seconds of reference audio per clip, read from the start of each recording
+            and split evenly: 15 seconds for one speaker, 7.5 each for two, 5 each for three — so
+            put the cleanest speech first. First-and-last-frame mode has no voice input and ignores
+            the recording. Lip sync and voice likeness are not guaranteed; listen to the result.
+          </p>
+          <p className={p}>
             Every time quoted above was measured on {ESTIMATE_HARDWARE} at 848×480, and yours will
             differ — a faster card moves all of them together. What travels between machines is the
             ratio: reference mode costs roughly three times first-and-last-frame, and each extra

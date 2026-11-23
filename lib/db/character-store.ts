@@ -17,6 +17,7 @@ import { characterLibrarySchema, type Character } from "@/lib/schemas/character"
 const LIBRARY_DIRNAME = "library";
 const LIBRARY_FILENAME = "characters.json";
 const REFERENCE_DIRNAME = "character-images";
+const VOICE_DIRNAME = "character-voices";
 
 export function libraryDir(): string {
   return path.resolve(/*turbopackIgnore: true*/ process.cwd(), config.dataDir, LIBRARY_DIRNAME);
@@ -33,7 +34,19 @@ export function referenceImageDir(): string {
  * arbitrary-file-read primitive.
  */
 export function resolveReferenceImagePath(filename: string): string | null {
-  const root = referenceImageDir();
+  return resolveWithin(referenceImageDir(), filename);
+}
+
+export function voiceSampleDir(): string {
+  return path.join(libraryDir(), VOICE_DIRNAME);
+}
+
+/** The voice-recording counterpart of `resolveReferenceImagePath`, with the same escape check. */
+export function resolveVoiceSamplePath(filename: string): string | null {
+  return resolveWithin(voiceSampleDir(), filename);
+}
+
+function resolveWithin(root: string, filename: string): string | null {
   const resolved = path.resolve(root, filename);
   const rel = path.relative(root, resolved);
   if (rel.startsWith("..") || path.isAbsolute(rel)) return null;
@@ -123,6 +136,19 @@ export const characterStore = {
 
   async deleteReferenceImage(filename: string): Promise<void> {
     const target = resolveReferenceImagePath(filename);
+    if (!target) return;
+    await fs.rm(target, { force: true });
+  },
+
+  async writeVoiceSample(filename: string, bytes: Buffer): Promise<void> {
+    const target = resolveVoiceSamplePath(filename);
+    if (!target) throw new Error("Invalid voice sample filename");
+    await fs.mkdir(voiceSampleDir(), { recursive: true });
+    await fs.writeFile(target, bytes);
+  },
+
+  async deleteVoiceSample(filename: string): Promise<void> {
+    const target = resolveVoiceSamplePath(filename);
     if (!target) return;
     await fs.rm(target, { force: true });
   },

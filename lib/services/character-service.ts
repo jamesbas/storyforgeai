@@ -1,13 +1,16 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
 import path from "node:path";
 import {
   createCharacterSchema,
   updateCharacterSchema,
   referenceImagesOf,
   MAX_REFERENCE_IMAGES,
+  MIN_VOICE_SECONDS,
   type Character,
 } from "@/lib/schemas/character";
 import { characterStore } from "@/lib/db/character-store";
+import { probeDurationSeconds, tempPath } from "@/lib/media/ffmpeg";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { logEvent } from "@/lib/telemetry";
 
@@ -26,6 +29,25 @@ const IMAGE_TYPES: Readonly<Record<string, string>> = {
 };
 
 const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Voice-recording allowlist: the formats WanGP's H3 pipeline can read. It
+ * opens references with `soundfile`, and the installed libsndfile reads WAV,
+ * FLAC, MP3 and OGG but not M4A/AAC, which would fail at render time.
+ */
+const VOICE_TYPES: Readonly<Record<string, string>> = {
+  "audio/wav": ".wav",
+  "audio/x-wav": ".wav",
+  "audio/wave": ".wav",
+  "audio/vnd.wave": ".wav",
+  "audio/flac": ".flac",
+  "audio/x-flac": ".flac",
+  "audio/mpeg": ".mp3",
+  "audio/mp3": ".mp3",
+  "audio/ogg": ".ogg",
+};
+
+const MAX_VOICE_BYTES = 20 * 1024 * 1024;
 
 /** Drop blank sides so an untouched box reads as "use the default", not "". */
 function cleanPrompts(
@@ -123,6 +145,7 @@ export async function deleteCharacter(id: string): Promise<void> {
   for (const filename of referenceImagesOf(existing)) {
     await characterStore.deleteReferenceImage(filename);
   }
+  if (existing.voiceSample) await characterStore.deleteVoiceSample(existing.voiceSample);
   await characterStore.remove(id);
   logEvent("character.deleted", { id });
 }
@@ -208,6 +231,87 @@ export async function clearReferenceImage(id: string, filename?: string): Promis
 export function referenceImageContentType(filename: string): string {
   const ext = path.extname(filename).toLowerCase();
   const match = Object.entries(IMAGE_TYPES).find(([, value]) => value === ext);
+  return match?.[0] ?? "application/octet-stream";
+}
+
+/**
+ * Store a character's voice recording, replacing any previous one.
+ *
+ * The filename is generated from the character id, never from the upload. The
+ * length is measured with ffprobe where it is installed: a recording under two
+ * seconds is refused here rather than hours into a batch, where WanGP would
+ * refuse it. One whose length cannot be measured is kept, and WanGP's own check
+ * is the backstop.
+ */
+export async function setVoiceSample(id: string, file: File): Promise<Character> {
+  const existing = await getCharacter(id);
+
+  const extension = VOICE_TYPES[file.type];
+  if (!extension) {
+    throw new ValidationError("Voice sample must be a WAV, FLAC, MP3 or OGG file");
+  }
+  if (file.size > MAX_VOICE_BYTES) {
+    throw new ValidationError("Voice sample must be 20 MB or smaller");
+  }
+
+  const bytes = Buffer.from(await file.arrayBuffer());
+  if (bytes.byteLength === 0) throw new ValidationError("Voice sample is empty");
+
+  // Measured from a scratch copy, so refusing a short recording never touches
+  // the one already stored.
+  const scratch = tempPath(extension);
+  let seconds: number | null;
+  try {
+    await fs.writeFile(scratch, bytes);
+    seconds = await probeDurationSeconds(scratch);
+  } finally {
+    await fs.rm(scratch, { force: true });
+  }
+  if (seconds !== null && seconds < MIN_VOICE_SECONDS) {
+    throw new ValidationError(
+      `Voice sample must be at least ${MIN_VOICE_SECONDS} seconds long (this one is ` +
+        `${seconds.toFixed(1)}s). MiniMax H3 refuses shorter references.`,
+    );
+  }
+
+  const filename = `${existing.id}-voice${extension}`;
+  await characterStore.writeVoiceSample(filename, bytes);
+
+  // A different format leaves the previous file behind under another extension.
+  if (existing.voiceSample && existing.voiceSample !== filename) {
+    await characterStore.deleteVoiceSample(existing.voiceSample);
+  }
+
+  const updated: Character = {
+    ...existing,
+    voiceSample: filename,
+    voiceSampleSeconds: seconds ?? undefined,
+    updatedAt: new Date().toISOString(),
+  };
+  await characterStore.save(updated);
+  logEvent("character.voice_sample_set", { id, bytes: bytes.byteLength, seconds });
+  return updated;
+}
+
+/** Remove a character's voice recording. */
+export async function clearVoiceSample(id: string): Promise<Character> {
+  const existing = await getCharacter(id);
+  if (existing.voiceSample) await characterStore.deleteVoiceSample(existing.voiceSample);
+  const updated: Character = {
+    ...existing,
+    voiceSample: undefined,
+    voiceSampleSeconds: undefined,
+    updatedAt: new Date().toISOString(),
+  };
+  await characterStore.save(updated);
+  logEvent("character.voice_sample_cleared", { id });
+  return updated;
+}
+
+/** Content type for a stored voice recording, derived from its extension. */
+export function voiceSampleContentType(filename: string): string {
+  const ext = path.extname(filename).toLowerCase();
+  const match = Object.entries(VOICE_TYPES).find(([, value]) => value === ext);
   return match?.[0] ?? "application/octet-stream";
 }
 

@@ -29,6 +29,7 @@ import {
   renderH3ReferencePrompt,
   stripH3ReferencePrompt,
   usesH3ReferenceFormat,
+  voiceClause,
   type H3ReferenceSubject,
 } from "@/lib/agents/h3-reference-prompt";
 import { clipLengthGuidance } from "@/lib/wangp/clip-length";
@@ -293,6 +294,8 @@ function routeH3Format(
  * A character whose face this clip has to hold, and the photographs that fix it.
  */
 export type CastReference = {
+  /** Library id, for telemetry. */
+  characterId?: string;
   name: string;
   description?: string;
   /**
@@ -303,6 +306,11 @@ export type CastReference = {
    * Usually one: extra references are opt-in and cost render time.
    */
   imagePaths: string[];
+  /**
+   * The character's voice recording, set only when they speak in this shot.
+   * Used only by a model that accepts audio references (H3 Ref2VA).
+   */
+  voicePath?: string;
 };
 
 /**
@@ -333,7 +341,13 @@ function composeRef2vaReferences(
   },
   context: { sceneId: string; purpose: string },
   keyframesAsReferences: boolean,
-): { imageRefs: string[]; subjects: H3ReferenceSubject[]; keyframesAsReferences: boolean } {
+  acceptsVoices = false,
+): {
+  imageRefs: string[];
+  audioRefs: string[];
+  subjects: H3ReferenceSubject[];
+  keyframesAsReferences: boolean;
+} {
   // An anchored generation needs both ends. Ref2VA has no positional first
   // frame — the role is asserted in prose — and a live run with only a start
   // frame lost the composition entirely. Continuation is the exception: its
@@ -363,9 +377,26 @@ function composeRef2vaReferences(
   // number, which is why this was `index + anchors.length + 1` and stayed
   // correct until a character could contribute two.
   const imageRefs = [...(keyframesAsReferences ? anchors : [])];
+  const audioRefs: string[] = [];
+  const voicedCharacters: string[] = [];
   const subjects: H3ReferenceSubject[] = [];
+  let photographs = 0;
   for (const member of cast) {
     if (!member.imagePaths.length) continue;
+    // Voices follow the subjects' order, so `<Audio N>` is the Nth voiced
+    // subject and lands in the Nth audio guide (SPEC-012 FR-6).
+    let audioIndex: number | undefined;
+    if (member.voicePath && acceptsVoices) {
+      audioRefs.push(member.voicePath);
+      audioIndex = audioRefs.length;
+      if (member.characterId) voicedCharacters.push(member.characterId);
+    } else if (member.voicePath) {
+      logEvent("wangp.ref2va.voice_skipped", {
+        ...context,
+        characterId: member.characterId,
+        reason: "unsupported_model",
+      });
+    }
     subjects.push({
       name: member.name,
       description: member.description,
@@ -374,8 +405,21 @@ function composeRef2vaReferences(
       ...(member.imagePaths.length > 1
         ? { additionalPictureIndices: member.imagePaths.slice(1).map((_, i) => imageRefs.length + 2 + i) }
         : {}),
+      ...(audioIndex ? { audioIndex } : {}),
     });
     imageRefs.push(...member.imagePaths);
+    photographs += member.imagePaths.length;
+  }
+
+  // WanGP counts only `image_refs` against audio references, and keyframes sent
+  // through native start/end inputs are not among them — so the photographs are
+  // the count that has to cover the voices (FR-7). Every voiced subject brings
+  // at least one, so this is unreachable unless that invariant breaks.
+  if (audioRefs.length > photographs) {
+    throw new ValidationError(
+      `Reference mode needs at least as many character photographs as voice recordings, and this ` +
+        `scene has ${photographs} photographs for ${audioRefs.length} voices.`,
+    );
   }
 
   logEvent("wangp.ref2va.composed", {
@@ -383,9 +427,11 @@ function composeRef2vaReferences(
     referenceCount: imageRefs.length,
     characterCount: cast.length,
     photosPerCharacter: cast.map((member) => member.imagePaths.length),
+    voiceCount: audioRefs.length,
+    voicedCharacters,
   });
 
-  return { imageRefs, subjects, keyframesAsReferences };
+  return { imageRefs, audioRefs, subjects, keyframesAsReferences };
 }
 
 /**
@@ -604,8 +650,13 @@ export async function buildVideoManifest(args: {
   const ref2vaHasKeyframeInputs = schema.fields.some(
     (field) => field.name === "image_start" || field.name === "image_end",
   );
+  // Voices need the model to say it reuses reference audio *and* to expose the
+  // guide it would be read from; either alone would drop them silently.
+  const acceptsVoices =
+    Boolean(model.metadata.mediaInputs?.audio?.reference) &&
+    schema.fields.some((field) => field.name === "audio_guide");
   const reference = usesH3ReferenceFormat(family)
-    ? composeRef2vaReferences(args, context, !ref2vaHasKeyframeInputs)
+    ? composeRef2vaReferences(args, context, !ref2vaHasKeyframeInputs, acceptsVoices)
     : undefined;
 
   const prompt = reference
@@ -621,6 +672,17 @@ export async function buildVideoManifest(args: {
         score: args.score,
       })
     : routeH3Format(model, routed.prompt, args, context);
+
+  // A voice whose line could not be found keeps its binding in the subject
+  // definitions; the miss is recorded so a drifting voice can be traced to it.
+  reference?.subjects.forEach((subject) => {
+    if (subject.audioIndex && !prompt.includes(voiceClause(subject.audioIndex))) {
+      logEvent("wangp.ref2va.voice_unbound", {
+        ...context,
+        characterId: args.cast?.find((member) => member.name === subject.name)?.characterId,
+      });
+    }
+  });
 
   // A heavy model can make its own quality preset impractical, so the request
   // is held at the model's ceiling. Only ever downward — see `clampPreset`.
@@ -652,6 +714,7 @@ export async function buildVideoManifest(args: {
     imageStart: reference?.keyframesAsReferences ? undefined : args.imageStart,
     imageEnd: reference?.keyframesAsReferences ? undefined : args.imageEnd,
     imageRefs: reference?.imageRefs,
+    audioRefs: reference?.audioRefs,
     // "I" — references are people and objects. Taken from the metadata WanGP
     // wrote beside a hand-made Ref2VA render that came out correct, on this
     // same checkpoint. "KI" moved which picture the model read as the opening

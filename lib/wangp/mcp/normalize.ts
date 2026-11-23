@@ -99,6 +99,14 @@ export function knownKeys(
   const video = mediaInputs.video;
   if (hasMediaRole(video, "continue")) keys.add("video_source");
 
+  // Voice references. Like `image_refs`, the guides are media inputs and never
+  // appear in the published defaults.
+  if (hasMediaRole(mediaInputs.audio, "reference")) {
+    for (const key of ["audio_guide", "audio_guide2", "audio_guide3", "audio_prompt_type"]) {
+      keys.add(key);
+    }
+  }
+
   return keys;
 }
 
@@ -335,6 +343,7 @@ export function normalizeModel(
 
   const audioOutput = hasMediaRole(audio, "output") || outputs.includes("audio");
   const audioPrompt = hasMediaRole(audio, "prompt");
+  const audioReference = hasMediaRole(audio, "reference");
 
   // WanGP reports availability either as a bare string or as { status, reason }.
   const rawAvailability = read("availability");
@@ -367,8 +376,14 @@ export function normalizeModel(
                     },
                   }
                 : {}),
-              ...(audioOutput || audioPrompt
-                ? { audio: { prompt: audioPrompt, output: audioOutput } }
+              ...(audioOutput || audioPrompt || audioReference
+                ? {
+                    audio: {
+                      prompt: audioPrompt,
+                      output: audioOutput,
+                      ...(audioReference ? { reference: true } : {}),
+                    },
+                  }
                 : {}),
               ...(video
                 ? {

@@ -55,11 +55,17 @@ const pngFile = () =>
   }) as unknown as File;
 
 /** Offers a Ref2VA checkpoint for video and the ordinary catalogue for stills. */
-function ref2vaClientClass(Base: Env["MockWangpClient"]) {
+function ref2vaClientClass(Base: Env["MockWangpClient"], options: { voices?: boolean } = {}) {
   const REF2VA: WangpModel = {
     modelType: "minimax_h3_ref2va",
     name: "MiniMax H3 Ref2VA",
-    metadata: { mainOutput: "video", outputs: ["video"], family: "minimax_h3", qualityRank: 90 },
+    metadata: {
+      mainOutput: "video",
+      outputs: ["video"],
+      family: "minimax_h3",
+      qualityRank: 90,
+      ...(options.voices ? { mediaInputs: { audio: { reference: true } } } : {}),
+    },
   } as unknown as WangpModel;
 
   return class extends Base {
@@ -78,6 +84,7 @@ function ref2vaClientClass(Base: Env["MockWangpClient"]) {
           resolution: "832x480",
           image_prompt_type: "",
           video_prompt_type: "",
+          ...(options.voices ? { audio_prompt_type: "" } : {}),
         },
         fields: [
           { name: "prompt", type: "string" },
@@ -86,6 +93,12 @@ function ref2vaClientClass(Base: Env["MockWangpClient"]) {
           { name: "image_refs", type: "array" },
           { name: "image_prompt_type", type: "string" },
           { name: "video_prompt_type", type: "string" },
+          ...(options.voices
+            ? ["audio_guide", "audio_guide2", "audio_guide3", "audio_prompt_type"].map((name) => ({
+                name,
+                type: "string",
+              }))
+            : []),
         ],
       } as unknown as WangpModelSchema;
     }
@@ -119,8 +132,12 @@ async function ref2vaProject(env: Env, tier?: "fl2va" | "ref2va") {
 }
 
 /** The references sent on the one video job of a scene. */
-async function videoRefs(env: Env, record: Awaited<ReturnType<typeof ref2vaProject>>) {
-  const Client = ref2vaClientClass(env.MockWangpClient);
+async function videoRefs(
+  env: Env,
+  record: Awaited<ReturnType<typeof ref2vaProject>>,
+  options: { voices?: boolean } = {},
+) {
+  const Client = ref2vaClientClass(env.MockWangpClient, options);
   const client = new Client();
   const submitted = vi.spyOn(client, "generate");
   env.setWangpClient(client);
@@ -133,6 +150,7 @@ async function videoRefs(env: Env, record: Awaited<ReturnType<typeof ref2vaProje
   return {
     refs: Array.isArray(video?.image_refs) ? (video!.image_refs as string[]) : [],
     prompt: String(video?.prompt ?? ""),
+    settings: video ?? {},
   };
 }
 
@@ -295,5 +313,106 @@ describe("more than one photograph per character", () => {
     // Two stored, four requested: two sent, and no empty slot in the list.
     expect(refs).toHaveLength(4);
     expect(refs.every((ref) => ref.length > 0)).toBe(true);
+  });
+});
+
+/**
+ * A character's voice recording, sent as an `<Audio N>` reference (SPEC-012).
+ *
+ * Sent only where all three hold: the model reuses reference audio, the
+ * character is a photographed subject of the clip, and they have a line in the
+ * scene. Each missing condition is a render without the voice, never a failure.
+ */
+describe("a character's voice in reference mode", () => {
+  /** Three seconds of 8 kHz mono silence: a real WAV, whether or not ffprobe is installed. */
+  function wavFile() {
+    const samples = 8000 * 3;
+    const bytes = Buffer.alloc(44 + samples * 2);
+    bytes.write("RIFF", 0);
+    bytes.writeUInt32LE(36 + samples * 2, 4);
+    bytes.write("WAVEfmt ", 8);
+    bytes.writeUInt32LE(16, 16);
+    bytes.writeUInt16LE(1, 20);
+    bytes.writeUInt16LE(1, 22);
+    bytes.writeUInt32LE(8000, 24);
+    bytes.writeUInt32LE(16000, 28);
+    bytes.writeUInt16LE(2, 32);
+    bytes.writeUInt16LE(16, 34);
+    bytes.write("data", 36);
+    bytes.writeUInt32LE(samples * 2, 40);
+    return {
+      name: "mara.wav",
+      type: "audio/wav",
+      size: bytes.byteLength,
+      arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
+    } as unknown as File;
+  }
+
+  async function voicedProject(env: Env, options: { speaks: boolean; photo?: boolean }) {
+    const character = await env.characters.createCharacter({
+      name: "Mara",
+      description: "A woman in her fifties.",
+      faceSwap: false,
+    });
+    if (options.photo !== false) await env.characters.setReferenceImage(character.id, pngFile());
+    await env.characters.setVoiceSample(character.id, wavFile());
+
+    const project = await env.projects.createProject({
+      concept: "Mara turns from the window as the rain starts.",
+      requestedDurationSeconds: 40,
+      useCharacterLibrary: true,
+      characterIds: [character.id],
+      dialogueRequired: options.speaks,
+    });
+    await env.projects.updateProjectModels(project.id, { videoModel: "minimax_h3_ref2va" });
+    await env.projects.generateStoryboard(project.id);
+    return env.projects.getProjectRecord(project.id);
+  }
+
+  it("sends the speaker's recording and binds it to her lines", async () => {
+    const env = await isolated();
+    const record = await voicedProject(env, { speaks: true });
+
+    const { settings, prompt } = await videoRefs(env, record, { voices: true });
+
+    expect(String(settings.audio_guide)).toContain("character-voices");
+    expect(settings.audio_guide2).toBeUndefined();
+    expect(settings.audio_prompt_type).toBe("A");
+    expect(prompt).toContain("<Audio 1> is the voice of <Subject 1>");
+    expect(prompt).toContain("audio reference]");
+    expect(prompt).toContain("in the voice from <Audio 1>");
+  });
+
+  it("sends nothing for a character with no line in the scene", async () => {
+    const env = await isolated();
+    const record = await voicedProject(env, { speaks: false });
+
+    const { settings, prompt } = await videoRefs(env, record, { voices: true });
+
+    expect(settings.audio_guide).toBeUndefined();
+    expect(settings.audio_prompt_type).toBe("");
+    expect(prompt).not.toContain("<Audio");
+  });
+
+  it("sends nothing to a reference model that does not reuse reference audio", async () => {
+    const env = await isolated();
+    const record = await voicedProject(env, { speaks: true });
+
+    const { settings, prompt, refs } = await videoRefs(env, record);
+
+    expect(settings.audio_guide).toBeUndefined();
+    expect(prompt).not.toContain("<Audio");
+    // The photograph still goes: only the voice is withheld.
+    expect(refs.at(-1)).toContain("character-images");
+  });
+
+  it("sends nothing for a speaker with no photograph to bind it to", async () => {
+    const env = await isolated();
+    const record = await voicedProject(env, { speaks: true, photo: false });
+
+    const { settings, prompt } = await videoRefs(env, record, { voices: true });
+
+    expect(settings.audio_guide).toBeUndefined();
+    expect(prompt).not.toContain("<Audio");
   });
 });

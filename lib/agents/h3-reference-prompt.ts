@@ -56,6 +56,11 @@ export type H3ReferenceSubject = {
    * without the photograph's pose, framing or clothing.
    */
   retention?: H3Retention;
+  /**
+   * 1-based `<Audio N>` this character's voice recording occupies, when one is
+   * sent. Numbered independently of pictures, as the guide requires.
+   */
+  audioIndex?: number;
 };
 
 export type H3Retention =
@@ -146,11 +151,13 @@ export function h3ReferenceTaskType(
   hasAnchors: boolean,
   hasSubjects: boolean,
   hasVideoSource = false,
+  hasVoices = false,
 ): string {
   const tasks = [
     ...(hasVideoSource ? ["video continuation"] : []),
     ...(hasAnchors ? ["keyframe completion"] : []),
     ...(hasSubjects ? ["reference generation"] : []),
+    ...(hasVoices ? ["audio reference"] : []),
   ];
   if (tasks.length) return `[${tasks.join(" + ")}]`;
   return "[text to video]";
@@ -210,6 +217,49 @@ function subjectLine(subject: H3ReferenceSubject, index: number, hasEstablishedF
     `<Subject ${index + 1}> is ${tidy(subject.name)}, shown in ` +
     `${pictureClause(subject)} which defines their facial identity.${detail}`
   );
+}
+
+/**
+ * Bind a voice recording to the subject who speaks with it.
+ *
+ * Stated as identity only. The guide's wording for a reference — as opposed to
+ * copied audio — reuses the timbre and delivery and generates the words anew,
+ * which is what keeps the storyboard's lines, rather than the sample's, coming
+ * out of the character's mouth.
+ */
+function voiceLine(subject: H3ReferenceSubject, index: number): string | null {
+  if (!subject.audioIndex) return null;
+  const who = `<Subject ${index + 1}>`;
+  return (
+    `<Audio ${subject.audioIndex}> is the voice of ${who}: its timbre, accent, pitch and cadence ` +
+    `define how ${who} sounds whenever they speak; its words, timing and background sound are not copied.`
+  );
+}
+
+/** The phrase that ties one spoken line to its voice recording. */
+export function voiceClause(audioIndex: number): string {
+  return `in the voice from <Audio ${audioIndex}>`;
+}
+
+/**
+ * Say, at each line a voiced subject speaks, which recording it is spoken in.
+ *
+ * Runs on the bound prose, so it keys off `<Subject K>` rather than a name and
+ * can never match inside `<d>`. The speaker's tag, verb and delivery must run
+ * straight into the speech: a sentence break or another tag in between means
+ * the line belongs to someone else, and an unnamed "he says" is left alone —
+ * the binding in `subject_definitions` still covers it.
+ */
+function voiceSpokenLines(body: string, subjects: readonly H3ReferenceSubject[]): string {
+  return subjects.reduce((text, subject, index) => {
+    if (!subject.audioIndex) return text;
+    const speech = new RegExp(`(<Subject ${index + 1}>[^<.!?\\n]{0,160}?)(\\s*:\\s*|\\s+)(<d>)`, "g");
+    return text.replace(
+      speech,
+      (_match, head: string, separator: string, open: string) =>
+        `${head} ${voiceClause(subject.audioIndex!)}${separator}${open}`,
+    );
+  }, body);
 }
 
 /** Everything inside `<d>…</d>`, which is spoken aloud and must not be edited. */
@@ -319,6 +369,17 @@ function retentionLines(
     );
   });
 
+  // Audio has its own retention vocabulary; `reference` is the guide's word for
+  // a voice that is reused but not copied.
+  subjects.forEach((subject, index) => {
+    if (!subject.audioIndex) return;
+    lines.push(
+      `<Audio ${subject.audioIndex}> (heard in [Shot 1]): reference - <Subject ${index + 1}>'s ` +
+        "vocal identity is kept for every line they speak; the sample's words, timing and " +
+        "ambience are not reused.",
+    );
+  });
+
   return lines;
 }
 
@@ -343,7 +404,10 @@ export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
         ]
       : []),
     ...anchorLines(parts),
-    ...subjects.map((subject, index) => subjectLine(subject, index, hasAnchors || hasVideoSource)),
+    ...subjects.flatMap((subject, index) => {
+      const voice = voiceLine(subject, index);
+      return [subjectLine(subject, index, hasAnchors || hasVideoSource), ...(voice ? [voice] : [])];
+    }),
   ];
 
   // Where the anchoring actually has to be said.
@@ -376,10 +440,10 @@ export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
       "or audio reset, and the first described action continues from that exact state."
     : "";
 
-  const body = bindSubjects(markDialogue(tidy(parts.body)), subjects).replace(
-    /^\[Shot 1\]\s*/,
-    "",
-  );
+  const body = voiceSpokenLines(
+    bindSubjects(markDialogue(tidy(parts.body)), subjects),
+    subjects,
+  ).replace(/^\[Shot 1\]\s*/, "");
   const style = tidy(parts.style);
   // The guide opens `detailed_description` with a whole-video statement ahead of
   // the first shot marker; the anchors are asserted in the sentences after it.
@@ -399,9 +463,12 @@ export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
 
   const values: Record<(typeof SECTIONS)[number], string> = {
     subject_definitions: definitions.join("\n") || "N/A",
-    summary: `${h3ReferenceTaskType(hasAnchors, subjects.length > 0, hasVideoSource)} ${journey} ${
-      tidy(parts.summary)
-    }`.trim(),
+    summary: `${h3ReferenceTaskType(
+      hasAnchors,
+      subjects.length > 0,
+      hasVideoSource,
+      subjects.some((subject) => subject.audioIndex),
+    )} ${journey} ${tidy(parts.summary)}`.trim(),
     retention_analysis:
       retentionLines(parts.hasStart, parts.hasEnd, subjects, hasVideoSource).join("\n") || "N/A",
     detailed_description: timeline,
@@ -481,6 +548,8 @@ function dropReferenceSentences(text: string): string {
     // better than dropping the action they perform.
     .filter((sentence) => !/<Picture\s*\d*>/i.test(sentence))
     .join(" ")
+    // A voice clause names a recording the fallback model is not being sent.
+    .replace(/\s*in the voice from <Audio\s*\d*>/gi, "")
     .replace(/<Subject\s*\d*>/gi, "the character")
     .replace(/<Video\s*\d*>/gi, "the source video")
     .replace(/(^|[.!?]\s+)the character/g, (_match, lead: string) => `${lead}The character`)

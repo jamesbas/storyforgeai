@@ -35,6 +35,12 @@ export const wangpModelSchema = z.object({
           .object({
             /** Accepts an audio prompt / voice sample (lip-sync, voice cloning). */
             prompt: z.boolean().optional(),
+            /**
+             * Accepts voice or sound *references* (`audio_guide`..`audio_guide3`)
+             * whose identity is reused in newly generated audio, as opposed to a
+             * soundtrack it keeps. WanGP `reference_audio_enabled`.
+             */
+            reference: z.boolean().optional(),
             /** Produces an audio track. */
             output: z.boolean().optional(),
           })
@@ -128,6 +134,8 @@ export const modelCapabilitySchema = z.object({
   supportsAudioOutput: z.boolean(),
   /** Accepts an audio prompt or voice sample as input. */
   acceptsAudioPrompt: z.boolean(),
+  /** Reuses the voice in up to three reference recordings (H3 Ref2VA). */
+  acceptsAudioReference: z.boolean(),
   maxFrames: z.number().optional(),
   recommendedFps: z.array(z.number()).optional(),
   vramProfile: z.enum(["low", "medium", "high"]).optional(),

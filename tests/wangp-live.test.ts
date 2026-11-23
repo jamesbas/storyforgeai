@@ -462,6 +462,91 @@ describe("knownKeys", () => {
       expect(keys.has(key)).toBe(true);
     }
   });
+
+  it("exposes the voice guides only for a model that reuses reference audio", () => {
+    const ref2va = knownKeys(
+      { metadata: { media_inputs: { audio: ["prompt", "reference", "control"] } } },
+      { prompt: "" },
+    );
+    for (const key of ["audio_guide", "audio_guide2", "audio_guide3", "audio_prompt_type"]) {
+      expect(ref2va.has(key)).toBe(true);
+    }
+
+    // FL2VA keeps a soundtrack but has no reference role.
+    const fl2va = knownKeys(
+      { metadata: { media_inputs: { audio: ["prompt", "control"] } } },
+      { prompt: "" },
+    );
+    expect(fl2va.has("audio_guide")).toBe(false);
+  });
+});
+
+describe("voice references", () => {
+  it("reports the audio reference role as a capability", () => {
+    const model = normalizeModel({
+      model_type: "minimax_h3_ref2va_pruned",
+      main_output: ["video"],
+      media_inputs: { audio: ["prompt", "reference", "control", "soundtrack"] },
+    })!;
+    expect(model.metadata.mediaInputs?.audio?.reference).toBe(true);
+    expect(toCapability(model).acceptsAudioReference).toBe(true);
+
+    const fl2va = normalizeModel({
+      model_type: "minimax_h3_fl2va",
+      main_output: ["video"],
+      media_inputs: { audio: ["prompt", "control"] },
+    })!;
+    expect(toCapability(fl2va).acceptsAudioReference).toBe(false);
+  });
+
+  const voiceSchema = {
+    modelType: "minimax_h3_ref2va",
+    defaultSettings: { prompt: "", audio_prompt_type: "AS" },
+    fields: [
+      { name: "prompt", type: "string" },
+      { name: "audio_guide", type: "string" },
+      { name: "audio_guide2", type: "string" },
+      { name: "audio_guide3", type: "string" },
+      { name: "audio_prompt_type", type: "string" },
+    ],
+  };
+  const manifestWith = (audioRefs?: string[], schema = voiceSchema) =>
+    buildSettingsManifest(schema, {
+      sceneId: "s1",
+      purpose: "video_segment",
+      prompt: "a clip",
+      audioRefs,
+    }).settings;
+
+  it.each([
+    [["/v/a.wav"], "A"],
+    [["/v/a.wav", "/v/b.wav"], "AB"],
+    [["/v/a.wav", "/v/b.wav", "/v/c.wav"], "ABD"],
+  ])("sends %j as the guides with letters %s", (refs, letters) => {
+    const settings = manifestWith(refs);
+    expect(settings.audio_prompt_type).toBe(letters);
+    expect(settings.audio_guide).toBe(refs[0]);
+    expect(settings.audio_guide2).toBe(refs[1]);
+    expect(settings.audio_guide3).toBe(refs[2]);
+  });
+
+  it("clears a saved soundtrack mode on a reference job with no voices", () => {
+    // A saved "AS" would make a supplied recording a kept soundtrack instead.
+    const settings = manifestWith([]);
+    expect(settings.audio_prompt_type).toBe("");
+    expect(settings.audio_guide).toBeUndefined();
+  });
+
+  it("leaves audio alone on a job that is not reference mode", () => {
+    const settings = manifestWith(undefined);
+    expect(settings.audio_prompt_type).toBe("AS");
+    expect("audio_guide" in settings).toBe(false);
+  });
+
+  it("refuses voices a model would silently ignore", () => {
+    const silent = { ...voiceSchema, fields: [{ name: "prompt", type: "string" }] };
+    expect(() => manifestWith(["/v/a.wav"], silent)).toThrow(/audio_guide/);
+  });
 });
 
 describe("normalizeChoices", () => {

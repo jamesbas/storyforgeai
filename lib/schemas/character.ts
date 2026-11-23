@@ -24,6 +24,12 @@ import {
  */
 export const MAX_REFERENCE_IMAGES = 4;
 
+/** WanGP refuses an audio reference shorter than this. */
+export const MIN_VOICE_SECONDS = 2;
+
+/** MiniMax H3 keeps at most this much reference audio per clip, split evenly across speakers. */
+export const VOICE_REFERENCE_BUDGET_SECONDS = 15;
+
 /**
  * Room for a swap prompt.
  *
@@ -103,6 +109,14 @@ export const characterSchema = z.object({
    * Keyframe generation keeps this order when a model's capacity trims the list.
    */
   referenceImages: z.array(z.string()).max(MAX_REFERENCE_IMAGES).optional(),
+  /**
+   * Stored filename of an uploaded voice recording, relative to the voice
+   * directory. Generated on upload, never caller-supplied. Sent to MiniMax H3
+   * Ref2VA as an `<Audio N>` reference for the scenes this character speaks in.
+   */
+  voiceSample: z.string().optional(),
+  /** Measured length of `voiceSample`, when ffprobe could read it. */
+  voiceSampleSeconds: z.number().nonnegative().optional(),
   /**
    * Run a face-swap pass over generated keyframes for this character.
    *

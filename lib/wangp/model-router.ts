@@ -37,6 +37,7 @@ export function toCapability(model: WangpModel): ModelCapability {
     supportsLora: Boolean(model.metadata.supportsLora),
     supportsAudioOutput: Boolean(audio?.output) || outputs.includes("audio"),
     acceptsAudioPrompt: Boolean(audio?.prompt) || model.metadata.inputs.includes("audio"),
+    acceptsAudioReference: Boolean(audio?.reference),
     maxFrames: model.metadata.maxFrames,
     recommendedFps: model.metadata.recommendedFps,
     vramProfile: model.metadata.vramProfile,

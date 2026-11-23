@@ -7,6 +7,8 @@ import {
   MAX_FACE_SWAP_STEPS,
   MIN_FACE_SWAP_STEPS,
   MAX_REFERENCE_IMAGES,
+  MIN_VOICE_SECONDS,
+  VOICE_REFERENCE_BUDGET_SECONDS,
   faceSwapPromptOf,
   referenceImagesOf,
 } from "@/lib/schemas/character";
@@ -111,6 +113,7 @@ export function CharacterLibrary() {
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
   const fileInputs = useRef<Record<string, HTMLInputElement | null>>({});
+  const voiceInputs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const load = useCallback(async (isCurrent: () => boolean = () => true) => {
     try {
@@ -203,6 +206,19 @@ export function CharacterLibrary() {
         `/api/characters/${id}/image`,
         { method: "POST", body },
         "Failed to upload the reference image",
+      );
+    },
+    [request],
+  );
+
+  const uploadVoice = useCallback(
+    async (id: string, file: File) => {
+      const body = new FormData();
+      body.append("file", file);
+      await request(
+        `/api/characters/${id}/voice`,
+        { method: "POST", body },
+        "Failed to upload the voice sample",
       );
     },
     [request],
@@ -592,6 +608,30 @@ export function CharacterLibrary() {
                 </p>
               ) : null}
 
+              {character.voiceSample ? (
+                <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                  <span>Voice sample</span>
+                  <audio
+                    controls
+                    preload="none"
+                    src={`/api/characters/${character.id}/voice?v=${encodeURIComponent(character.updatedAt)}`}
+                    aria-label={`Voice sample for ${character.name}`}
+                    className="h-8 max-w-full"
+                  />
+                  <span>
+                    {character.voiceSampleSeconds === undefined
+                      ? "length unknown"
+                      : `${character.voiceSampleSeconds.toFixed(1)}s`}
+                  </span>
+                  {character.voiceSampleSeconds !== undefined &&
+                  character.voiceSampleSeconds > VOICE_REFERENCE_BUDGET_SECONDS ? (
+                    <span className="text-amber-400">
+                      only the first {VOICE_REFERENCE_BUDGET_SECONDS}s or less is used
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+
               <div className="mt-2 flex flex-wrap gap-3 text-xs">
                 <button
                   type="button"
@@ -654,6 +694,30 @@ export function CharacterLibrary() {
                 <button
                   type="button"
                   disabled={busy}
+                  onClick={() => voiceInputs.current[character.id]?.click()}
+                  className="text-accent hover:underline disabled:opacity-50"
+                >
+                  {character.voiceSample ? "Replace voice sample" : "Add voice sample"}
+                </button>
+                {character.voiceSample ? (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() =>
+                      void request(
+                        `/api/characters/${character.id}/voice`,
+                        { method: "DELETE" },
+                        "Failed to remove the voice sample",
+                      )
+                    }
+                    className="text-slate-400 hover:text-white disabled:opacity-50"
+                  >
+                    Remove voice
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  disabled={busy}
                   onClick={() => {
                     if (!window.confirm(`Delete "${character.name}" from the library?`)) return;
                     void request(
@@ -681,6 +745,19 @@ export function CharacterLibrary() {
                   if (file) void uploadImage(character.id, file);
                 }}
               />
+              <input
+                ref={(el) => {
+                  voiceInputs.current[character.id] = el;
+                }}
+                type="file"
+                accept=".wav,.flac,.mp3,.ogg,audio/wav,audio/flac,audio/mpeg,audio/ogg"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  e.target.value = "";
+                  if (file) void uploadVoice(character.id, file);
+                }}
+              />
             </div>
           </li>
         ))}
@@ -692,6 +769,17 @@ export function CharacterLibrary() {
         face across scenes. This needs an image model that accepts reference images — Flux 2 Klein
         and Qwen Image Edit both do. The video clip inherits the identity from those two frames, so
         nothing extra is needed there.
+      </p>
+      <p className="text-[11px] text-slate-500">
+        A <strong>voice sample</strong> (WAV, FLAC, MP3 or OGG) makes a character sound the same in
+        every clip. Use 5–15 seconds of this one person speaking clearly, with no music and little
+        room noise. It is used only on <strong>MiniMax H3 reference mode (Ref2VA)</strong>, only when
+        the character also has a reference image, and only in scenes where they speak — the words
+        still come from the storyboard. The opening seconds are what count: H3 keeps at most{" "}
+        {VOICE_REFERENCE_BUDGET_SECONDS} seconds of reference audio per clip, split evenly between
+        speakers (15s for one, 7.5s each for two, 5s each for three), so put the cleanest speech
+        first. Recordings under {MIN_VOICE_SECONDS} seconds are refused. Only use a voice you have
+        the right to use.
       </p>
     </CollapsibleSection>
   );

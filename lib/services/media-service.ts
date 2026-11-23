@@ -1,4 +1,5 @@
 import { randomInt, randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
 import type { ProjectRecord, Scene } from "@/lib/schemas/storyboard";
 import type { Project } from "@/lib/schemas/project";
 import type { SceneAttempt } from "@/lib/schemas/generation";
@@ -25,7 +26,7 @@ import { resolveResolution } from "@/lib/wangp/resolution";
 import { DEFAULT_SCENE_CONTINUITY, generationStages } from "@/lib/types";
 import { resolveProjectCast } from "@/lib/services/character-service";
 import { neighboursOf, peopleInScene } from "@/lib/agents/review-context";
-import { frameCast, charactersInScene } from "@/lib/agents/scene-cast";
+import { frameCast, charactersInScene, speaksInScene } from "@/lib/agents/scene-cast";
 import { othersInFrame, wardrobeTimeline } from "@/lib/agents/wardrobe";
 import {
   withActGuards,
@@ -36,7 +37,7 @@ import {
   withoutCharacterScopedTerms,
 } from "@/lib/agents/negative-prompt";
 import { depictsSexAct } from "@/lib/agents/prompt-gate";
-import { resolveReferenceImagePath } from "@/lib/db/character-store";
+import { resolveReferenceImagePath, resolveVoiceSamplePath } from "@/lib/db/character-store";
 import { config } from "@/lib/config";
 import { qcAgent } from "@/lib/agents/qc-agent";
 import { getPlanningProvider } from "@/lib/agents/llm/provider";
@@ -238,17 +239,51 @@ async function resolveCastSubjects(
   // sequence at roughly seven minutes of render each.
   const perCharacter = Math.max(1, record.project.videoReferencesPerCharacter ?? 1);
   const cast = await resolveProjectCast(record.project);
-  return charactersInScene(scene, cast)
-    .map((character): CastReference | null => {
-      const imagePaths = referenceImagesOf(character)
-        .slice(0, perCharacter)
-        .map((filename) => resolveReferenceImagePath(filename))
-        .filter((filePath): filePath is string => filePath !== null);
-      return imagePaths.length
-        ? { name: character.name, description: character.description, imagePaths }
-        : null;
-    })
-    .filter((subject): subject is CastReference => subject !== null);
+  const subjects: CastReference[] = [];
+  for (const character of charactersInScene(scene, cast)) {
+    const imagePaths = referenceImagesOf(character)
+      .slice(0, perCharacter)
+      .map((filename) => resolveReferenceImagePath(filename))
+      .filter((filePath): filePath is string => filePath !== null);
+    const voicePath = await sceneVoicePath(scene, character, imagePaths.length > 0);
+    if (!imagePaths.length) continue;
+    subjects.push({
+      characterId: character.id,
+      name: character.name,
+      description: character.description,
+      imagePaths,
+      ...(voicePath ? { voicePath } : {}),
+    });
+  }
+  return subjects;
+}
+
+/**
+ * The voice recording this character contributes to one shot, if any.
+ *
+ * Only for a line of their own: a recording sent for someone who never speaks
+ * spends the clip's reference-audio budget and invites H3 to give them words.
+ * Only with a photograph too, because WanGP requires at least as many image
+ * references as audio ones and the voice is bound to the subject the
+ * photograph defines. Withholding is logged, never fatal (SPEC-012 FR-8).
+ */
+async function sceneVoicePath(
+  scene: Scene,
+  character: Character,
+  photographed: boolean,
+): Promise<string | undefined> {
+  if (!character.voiceSample) return undefined;
+  const skip = (reason: string) => {
+    logEvent("wangp.ref2va.voice_skipped", { sceneId: scene.id, characterId: character.id, reason });
+    return undefined;
+  };
+  if (!speaksInScene(scene, character.name)) return skip("not_speaking");
+  if (!photographed) return skip("no_reference_image");
+  const voicePath = resolveVoiceSamplePath(character.voiceSample);
+  if (!voicePath || !(await fs.stat(voicePath).then((s) => s.isFile(), () => false))) {
+    return skip("file_missing");
+  }
+  return voicePath;
 }
 
 /** The face-swap targets for one shot: the opted-in characters actually in it. */

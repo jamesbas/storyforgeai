@@ -38,6 +38,15 @@ export const CANONICAL_ALIASES = {
    * the same way `image_refs` is advertised through `image.reference`.
    */
   video_source: ["video_source", "source_video", "input_video"],
+  /**
+   * Voice or sound references (MiniMax H3 Ref2VA `<Audio 1>`..`<Audio 3>`).
+   * Advertised through `media_inputs.audio.reference`, and activated by the
+   * matching `audio_prompt_type` letters: A, AB or ABD.
+   */
+  audio_guide: ["audio_guide"],
+  audio_guide2: ["audio_guide2"],
+  audio_guide3: ["audio_guide3"],
+  audio_prompt_type: ["audio_prompt_type"],
   image_prompt_type: ["image_prompt_type"],
   video_prompt_type: ["video_prompt_type"],
   prompt_enhancer: ["prompt_enhancer"],

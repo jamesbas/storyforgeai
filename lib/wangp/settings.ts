@@ -54,6 +54,16 @@ export type ManifestOverrides = {
    */
   videoSource?: string;
   /**
+   * Voice references for MiniMax H3 Ref2VA, in `<Audio N>` order: the first
+   * becomes `audio_guide`, then `audio_guide2`, `audio_guide3`. Absolute paths
+   * readable by the WanGP process.
+   *
+   * Undefined leaves the audio inputs alone (every non-Ref2VA job). An empty
+   * list still writes `audio_prompt_type: ""`, so WanGP's saved UI state cannot
+   * turn a reference-mode clip into one that keeps a soundtrack nobody supplied.
+   */
+  audioRefs?: string[];
+  /**
    * LoRAs to activate for this generation, already reconciled against the
    * resolved model's catalog. Order is significant: `loras_multipliers` is
    * matched to `activated_loras` by index.
@@ -206,6 +216,50 @@ export function singlePromptGenType(
 ): "FG" | undefined {
   if (typeof prompt !== "string" || !prompt.includes("\n")) return undefined;
   return "multi_prompts_gen_type" in (schema.defaultSettings ?? {}) ? "FG" : undefined;
+}
+
+/** WanGP's guide keys and activating letters, in `<Audio N>` order. */
+const AUDIO_GUIDES = [
+  ["audio_guide", "A"],
+  ["audio_guide2", "B"],
+  ["audio_guide3", "D"],
+] as const;
+
+/**
+ * Write the voice references and the letters that activate them.
+ *
+ * `audio_prompt_type` is always written when references are in play, including
+ * as "" when there are none: like `video_prompt_type`, it is saved UI state,
+ * and a saved "AS" would make the recording a kept soundtrack instead of a
+ * voice to reuse — a different mode entirely.
+ */
+function applyAudioReferences(
+  settings: Record<string, unknown>,
+  schema: WangpModelSchema,
+  fieldNames: Set<string>,
+  audioRefs: string[] | undefined,
+): void {
+  if (audioRefs === undefined) return;
+  if (audioRefs.length > AUDIO_GUIDES.length) {
+    throw new ValidationError(
+      `At most ${AUDIO_GUIDES.length} voice references can be sent; got ${audioRefs.length}.`,
+    );
+  }
+  const used = AUDIO_GUIDES.slice(0, audioRefs.length);
+  const missing = used.map(([key]) => key).filter((key) => !fieldNames.has(key));
+  if (missing.length) {
+    throw new Error(
+      `Model ${schema.modelType} does not accept ${missing.join(", ")}, so the voice references ` +
+        "would be silently ignored.",
+    );
+  }
+  for (const [key] of AUDIO_GUIDES) delete settings[key];
+  used.forEach(([key], index) => {
+    settings[key] = audioRefs[index];
+  });
+  if (audioRefs.length || fieldNames.has("audio_prompt_type") || "audio_prompt_type" in settings) {
+    settings.audio_prompt_type = used.map(([, letter]) => letter).join("");
+  }
 }
 
 /**
@@ -439,6 +493,8 @@ export function singlePromptGenType(
     // control image this pathway never sends.
     setIf("video_prompt_type", overrides.imageGuide ? "V" : "");
   }
+
+  applyAudioReferences(settings, schema, fieldNames, overrides.audioRefs);
 
   // Audio models express length in seconds, clamped to any published bounds.
   //

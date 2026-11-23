@@ -14,6 +14,7 @@ import {
   stripH3ReferencePrompt,
   summariseFrame,
   usesH3ReferenceFormat,
+  type H3ReferenceSubject,
 } from "@/lib/agents/h3-reference-prompt";
 import type { WangpModel, WangpModelSchema } from "@/lib/schemas/wangp";
 
@@ -450,6 +451,97 @@ describe("binding a character to their photograph", () => {
   });
 });
 
+describe("a character's voice recording", () => {
+  const JON = { name: "Jon", description: "Fifties, grey beard.", pictureIndex: 4 };
+  const voiced = (body: string, subjects: H3ReferenceSubject[] = [{ ...MARA, audioIndex: 1 }]) =>
+    renderH3ReferencePrompt({ body, subjects, hasStart: true, hasEnd: true });
+  const section = (prompt: string, from: string, to?: string) =>
+    prompt.slice(prompt.indexOf(from), to ? prompt.indexOf(to) : undefined);
+
+  it("binds the recording to its subject, directly after that subject", () => {
+    const definitions = section(voiced("Mara waits."), "subject_definitions:", "summary:");
+    const lines = definitions.split("\n");
+    const subject = lines.findIndex((line) => line.startsWith("<Subject 1> is Mara"));
+    expect(lines[subject + 1]).toMatch(/^<Audio 1> is the voice of <Subject 1>:/);
+    expect(lines[subject + 1]).toContain("its words, timing and background sound are not copied");
+  });
+
+  it("names the audio reference as one of the job's tasks", () => {
+    expect(voiced("Mara waits.")).toContain(
+      "[keyframe completion + reference generation + audio reference]",
+    );
+  });
+
+  it("retains the voice with the guide's audio marker, not a visual one", () => {
+    const analysis = section(voiced("Mara waits."), "retention_analysis:", "detailed_description:");
+    expect(analysis).toContain("<Audio 1> (heard in [Shot 1]): reference - <Subject 1>'s vocal identity");
+  });
+
+  it("says which recording each line is spoken in, outside the spoken words", () => {
+    const body = section(
+      voiced('Mara turns and says quietly, "Not tonight."'),
+      "detailed_description:",
+    );
+    expect(body).toContain(
+      "<Subject 1> turns and (S1) says quietly in the voice from <Audio 1>: <d>[English] Not tonight.</d>",
+    );
+  });
+
+  it("gives each voiced speaker their own recording and leaves an unvoiced one alone", () => {
+    const prompt = voiced('Mara says, "Go." Jon says, "No."', [
+      { ...MARA, audioIndex: 1 },
+      JON,
+    ]);
+    expect(prompt).toContain("<Subject 1> (S1) says in the voice from <Audio 1>: <d>[English] Go.</d>");
+    expect(prompt).toContain("<Subject 2> (S2) says: <d>[English] No.</d>");
+    expect(prompt).not.toContain("<Audio 2>");
+  });
+
+  it("numbers recordings by voiced speaker, independently of pictures", () => {
+    const prompt = voiced('Mara says, "Go." Jon says, "No."', [
+      MARA,
+      { ...JON, audioIndex: 1 },
+    ]);
+    expect(prompt).toContain("<Audio 1> is the voice of <Subject 2>");
+    expect(prompt).toContain("<Subject 2> (S2) says in the voice from <Audio 1>");
+  });
+
+  it("keeps the binding when the line has no named speaker to attach to", () => {
+    const prompt = voiced('Mara waits. A voice says, "Not tonight."');
+    expect(prompt).toContain("<Audio 1> is the voice of <Subject 1>");
+    expect(prompt).not.toContain("in the voice from <Audio 1>");
+  });
+
+  /** Rendered by the release before voice references, for the same input. */
+  const BEFORE_VOICES =
+    "subject_definitions:\n<Picture 1> is the first frame of [Shot 1], showing medium shot of Mara at a rain-streaked window.\n<Picture 2> is the last frame of [Shot 1], showing close-up of Mara facing the room.\n<Subject 1> is Mara, shown in <Picture 3>, which defines their facial identity. Pose and clothing follow the frame anchors or continued video.\nsummary:\n[keyframe completion + reference generation] The target video is a single continuous shot that begins from <Picture 1> and ends on <Picture 2>.\nretention_analysis:\n<Picture 1> ([Shot 1] first frame): fully_preserved - the opening composition, camera position, set dressing and lighting are reproduced exactly at the start of the shot.\n<Picture 2> ([Shot 1] last frame): fully_preserved - the closing framing, subject position and lighting are reached exactly at the end of the shot.\n<Subject 1> (appears in [Shot 1]): attribute_transfer - facial identity is carried over with no drift across the clip; the photograph's own pose, framing, wardrobe and background are not.\ndetailed_description:\nThe target video is a single continuous shot. [Shot 1] The shot begins from <Picture 1> — Medium shot of Mara at a rain-streaked window —, holding its composition, camera position, framing, lighting and the subject's exact pose in that frame. Nothing happens before the first change described below. <Subject 1> turns and (S1) says quietly: <d>[English] Not tonight.</d> The shot settles into the exact framing, subject position and lighting established by <Picture 2>, which is its final frame.\noverall_soundscape: Rain on glass.\nnon_diegetic_music: Low strings.";
+
+  it("leaves a prompt with no recordings exactly as it was", () => {
+    expect(
+      renderH3ReferencePrompt({
+        body: 'Mara turns and says quietly, "Not tonight."',
+        subjects: [MARA],
+        hasStart: true,
+        hasEnd: true,
+        startFrameDescription: "Medium shot of Mara at a rain-streaked window.",
+        endFrameDescription: "Close-up of Mara facing the room.",
+        soundscape: "Rain on glass.",
+        score: "Low strings.",
+      }),
+    ).toBe(BEFORE_VOICES);
+  });
+
+  it("adds no blank line, which Wan2GP would read as a second video", () => {
+    expect(voiced('Mara says, "Go."')).not.toContain("\n\n");
+  });
+
+  it("drops the voice clause when the prompt falls back to plain prose", () => {
+    const plain = stripH3ReferencePrompt(voiced('Mara says, "Go."'));
+    expect(plain).not.toContain("<Audio");
+    expect(plain).toContain('"Go."');
+  });
+});
+
 describe("the cost estimate", () => {
   it("matches the measured runs", () => {
     // One character is three references, measured at 15:26 un-accelerated.
@@ -667,6 +759,101 @@ describe("the Ref2VA manifest", () => {
   it("reports a cast past the cap rather than trimming it", async () => {
     const cast = ["a", "b", "c", "d"].map((name) => ({ name, imagePath: `/refs/${name}.png` }));
     await expect(ref2vaManifest({ cast })).rejects.toThrow(/at most 3 characters/);
+  });
+});
+
+/** The same checkpoint, declaring the audio reference role a live Ref2VA publishes. */
+class VoicedRef2vaClient extends Ref2vaClient {
+  async listModels(): Promise<WangpModel[]> {
+    return (await super.listModels()).map((model) => ({
+      ...model,
+      metadata: { ...model.metadata, mediaInputs: { audio: { reference: true } } },
+    })) as WangpModel[];
+  }
+
+  async getModelSchema(modelType: string): Promise<WangpModelSchema> {
+    const schema = await super.getModelSchema(modelType);
+    return {
+      ...schema,
+      fields: [
+        ...schema.fields,
+        ...["audio_guide", "audio_guide2", "audio_guide3", "audio_prompt_type"].map((name) => ({
+          name,
+          type: "string",
+        })),
+      ],
+    };
+  }
+}
+
+describe("voice references on the Ref2VA manifest", () => {
+  const JON = { name: "Jon", description: "Fifties.", imagePaths: ["/refs/jon.png"] };
+  const MARA_CAST = { name: "Mara", description: "Late thirties.", imagePaths: ["/refs/mara.png"] };
+
+  it("numbers recordings in subject order, skipping subjects with none", async () => {
+    const manifest = await ref2vaManifest(
+      {
+        prompt: 'Mara waits. Jon says, "We go now."',
+        cast: [MARA_CAST, { ...JON, voicePath: "/voices/jon.wav" }],
+      },
+      new VoicedRef2vaClient(),
+    );
+    const prompt = String(manifest.settings.prompt);
+
+    expect(manifest.settings.audio_guide).toBe("/voices/jon.wav");
+    expect(manifest.settings.audio_guide2).toBeUndefined();
+    expect(manifest.settings.audio_prompt_type).toBe("A");
+    expect(prompt).toContain("<Audio 1> is the voice of <Subject 2>");
+    expect(prompt).toContain("<Subject 2> (S1) says in the voice from <Audio 1>: <d>[English] We go now.</d>");
+  });
+
+  it("sends two speakers' recordings to the first two guides", async () => {
+    const manifest = await ref2vaManifest(
+      {
+        prompt: 'Mara says, "Now?" Jon says, "Now."',
+        cast: [
+          { ...MARA_CAST, voicePath: "/voices/mara.wav" },
+          { ...JON, voicePath: "/voices/jon.wav" },
+        ],
+      },
+      new VoicedRef2vaClient(),
+    );
+    expect(manifest.settings.audio_guide).toBe("/voices/mara.wav");
+    expect(manifest.settings.audio_guide2).toBe("/voices/jon.wav");
+    expect(manifest.settings.audio_prompt_type).toBe("AB");
+  });
+
+  it("records a voice whose line it could not find, and still sends it", async () => {
+    vi.resetModules();
+    const logEvent = vi.fn();
+    vi.doMock("@/lib/telemetry", async (original) => ({
+      ...(await original<typeof import("@/lib/telemetry")>()),
+      logEvent,
+    }));
+    try {
+      const { setWangpClient } = await import("@/lib/wangp/factory");
+      setWangpClient(new VoicedRef2vaClient());
+      const { buildVideoManifest } = await import("@/lib/services/wangp-service");
+
+      const manifest = await buildVideoManifest({
+        sceneId: "s1",
+        prompt: 'Mara waits. A voice says, "Not tonight."',
+        modelStrategy: "auto",
+        modelType: "minimax_h3_ref2va",
+        imageStart: "/frames/start.png",
+        imageEnd: "/frames/end.png",
+        durationSeconds: 14,
+        cast: [{ ...MARA_CAST, characterId: "mara-id", voicePath: "/voices/mara.wav" }],
+      });
+
+      expect(manifest.settings.audio_guide).toBe("/voices/mara.wav");
+      expect(logEvent).toHaveBeenCalledWith(
+        "wangp.ref2va.voice_unbound",
+        expect.objectContaining({ sceneId: "s1", characterId: "mara-id" }),
+      );
+    } finally {
+      vi.doUnmock("@/lib/telemetry");
+    }
   });
 });
 

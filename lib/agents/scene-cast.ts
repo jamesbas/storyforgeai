@@ -86,6 +86,19 @@ export function presentCharacterNames(
 }
 
 /**
+ * Whether this character has a line of their own in the scene.
+ *
+ * Read from `dialogue` alone, by the same whole-word, case-insensitive rule as
+ * the card text, so an attribution such as "Marcus (V.O.)" still counts. A
+ * line with no words is not a line.
+ */
+export function speaksInScene(scene: Pick<SceneSubject, "dialogue">, name: string): boolean {
+  return (scene.dialogue ?? []).some(
+    (line) => line.line.trim().length > 0 && mentions(line.character, name),
+  );
+}
+
+/**
  * The subset of a scene's cast that one frame prompt actually frames.
  *
  * Presence is read from the scene card, but the sheet is appended to a frame,
