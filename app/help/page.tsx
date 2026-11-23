@@ -2027,7 +2027,28 @@ export default function HelpPage() {
             tick-box selection with <strong>Select all</strong> and <strong>Clear all</strong>, the
             same shape as <em>Regenerate video for selected scenes</em> beside it, and rewrites only
             what you pick. Reaching for the all-scenes button to fix five scenes is how the hand
-            edits on the other thirteen get thrown away.
+            edits on the other thirteen get thrown away. Tick <strong>Start frame</strong>,{" "}
+            <strong>End frame</strong> and/or <strong>Video</strong> to choose which prompts are
+            rewritten; an unticked frame keeps its wording.
+          </p>
+          <p className={p}>
+            The same panel has an optional <strong>Refine with feedback</strong> box for a mistake
+            the storyboard artist made in several scenes. Describe the correction once and the
+            planning model edits each picked scene&apos;s ticked prompts to follow it, saving
+            straight away with no preview. Only the ticked prompts change — a keyframe fix leaves
+            the video prompt alone unless <strong>Video</strong> is ticked — and a scene it cannot
+            refine is listed as unchanged while the rest still save. Leave the box empty to rewrite
+            from the cards instead.
+          </p>
+          <p className={p}>
+            When the mistake is in the cards themselves (the action, who is in the shot, a line of
+            dialogue or the clothes), tick <strong>Also correct the scene cards</strong>. The
+            planning model corrects each picked scene&apos;s card and the wardrobe changes set at
+            it, and you review those card changes before anything is saved.{" "}
+            <strong>Accept and rewrite prompts</strong> saves them, then rewrites the ticked
+            prompts from the corrected cards, so the next rewrite cannot bring the mistake back.
+            Wardrobe changes carry forward to later scenes as they do when set by hand; the preview
+            names those scenes, and <strong>Repair prompts</strong> updates their wardrobe.
           </p>
           <p className={p}>
             The panel lints what you type and shows warnings under the field — a repeated sentence,

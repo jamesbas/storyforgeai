@@ -10,6 +10,48 @@ export const FEEDBACK_SCOPE_LABELS: Record<SceneFeedbackScope, string> = {
   video: "Video prompt only",
 };
 
+/** One prompt a feedback refinement may rewrite; several may be chosen at once. */
+export const feedbackTargetSchema = z.enum(["start", "end", "video"]);
+export type FeedbackTarget = z.infer<typeof feedbackTargetSchema>;
+
+export const FEEDBACK_TARGET_LABELS: Record<FeedbackTarget, string> = {
+  start: "Start frame",
+  end: "End frame",
+  video: "Video",
+};
+
+/**
+ * What a refinement may change. The per-scene panel picks one scope and lets a
+ * keyframe fix pull the clip along; the multi-scene tool picks targets and
+ * changes nothing it was not asked to.
+ */
+export type FeedbackPlan = {
+  targets: readonly FeedbackTarget[];
+  videoFollowsKeyframes: boolean;
+};
+
+export function scopePlan(scope: SceneFeedbackScope): FeedbackPlan {
+  return {
+    targets: scope === "keyframes" ? ["start", "end"] : [scope],
+    videoFollowsKeyframes: scope !== "video",
+  };
+}
+
+/** The prompt-agent passes, and for a single keyframe which one, that rewrite the ticked targets. */
+export function rewriteOptionsFor(targets: readonly FeedbackTarget[]): {
+  passes?: ("image" | "video")[];
+  frames?: ("start" | "end")[];
+} {
+  const frames = (["start", "end"] as const).filter((frame) => targets.includes(frame));
+  const video = targets.includes("video");
+  // Everything ticked is the full rewrite, including its deferral of an unused clip prompt.
+  if (frames.length === 2 && video) return {};
+  return {
+    passes: [...(frames.length ? ["image" as const] : []), ...(video ? ["video" as const] : [])],
+    ...(frames.length === 1 ? { frames } : {}),
+  };
+}
+
 export const FEEDBACK_FIELDS = [
   "startFramePrompt",
   "endFramePrompt",
@@ -53,6 +95,21 @@ export const sceneFeedbackApplySchema = z.object({
   sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
   proposal: sceneFeedbackProposalSchema,
 }).strict();
+
+const uniqueTargets = z.array(feedbackTargetSchema).min(1, "Pick at least one of start frame, end frame or video.")
+  .max(3).refine((targets) => new Set(targets).size === targets.length, "Each target may be picked once.");
+
+/** Applied directly, scene by scene: there is no preview step for the multi-scene tool. */
+export const bulkFeedbackRequestSchema = z.object({
+  sceneIds: z.array(z.string().min(1)).min(1, "Pick at least one scene.").max(500),
+  targets: uniqueTargets,
+  feedback: z.string().trim().min(1, "Describe what is wrong or what you want to see.").max(4000),
+}).strict();
+
+export type BulkFeedbackResult = {
+  refined: { sceneId: string; sceneNumber: number; summary: string; warnings: string[] }[];
+  failed: { sceneId: string; sceneNumber: number; error: string }[];
+};
 
 export type SceneFeedbackChange = {
   sceneId: string;

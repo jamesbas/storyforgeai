@@ -10,25 +10,32 @@ import { toErrorResponse } from "@/lib/http";
 export const dynamic = "force-dynamic";
 
 const PASSES: readonly PromptPass[] = ["image", "video"];
+const FRAMES = ["start", "end"] as const;
 
 type RewriteRequest = { sceneIds: string[]; options: PromptRewriteOptions };
 
 /**
- * The picked scenes and passes, defaulting to everything.
+ * The picked scenes, passes and frames, defaulting to everything.
  *
  * A body naming no passes means both, so an older caller — or a caller that
- * sends no body at all — keeps the behaviour it had.
+ * sends no body at all — keeps the behaviour it had. Frames likewise: none
+ * named means both keyframes.
  */
 async function parseRequest(request: Request): Promise<RewriteRequest> {
   try {
-    const body = (await request.json()) as { sceneIds?: unknown; passes?: unknown };
+    const body = (await request.json()) as { sceneIds?: unknown; passes?: unknown; frames?: unknown };
     const wanted: unknown[] = Array.isArray(body?.passes) ? body.passes : [];
     const passes = PASSES.filter((pass) => wanted.includes(pass));
+    const wantedFrames: unknown[] = Array.isArray(body?.frames) ? body.frames : [];
+    const frames = FRAMES.filter((frame) => wantedFrames.includes(frame));
     return {
       sceneIds: Array.isArray(body?.sceneIds)
         ? body.sceneIds.filter((id): id is string => typeof id === "string")
         : [],
-      options: passes.length ? { passes } : {},
+      options: {
+        ...(passes.length ? { passes } : {}),
+        ...(frames.length ? { frames } : {}),
+      },
     };
   } catch {
     return { sceneIds: [], options: {} };

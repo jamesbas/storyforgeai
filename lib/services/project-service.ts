@@ -1155,11 +1155,23 @@ export async function regenerateScenePrompts(
   return regenerateScenesPrompts(id, [sceneId], options);
 }
 
-/** Which prompt passes a rewrite should spend model calls on. Absent means both. */
-export type PromptRewriteOptions = { passes?: readonly PromptPass[] };
+/**
+ * Which prompt passes a rewrite should spend model calls on. Absent means both.
+ *
+ * `frames` narrows the image pass of a picked-scene rewrite to one keyframe.
+ * The image agent writes both frames in one call, so the frame not asked for
+ * is put back afterwards; an end frame keeps its edit prompt with it.
+ */
+export type PromptRewriteOptions = {
+  passes?: readonly PromptPass[];
+  frames?: readonly ("start" | "end")[];
+};
 
 /** "video prompts" reads better in a history line than a bare list. */
-function passLabel(passes: readonly PromptPass[] | undefined): string {
+function passLabel(passes: readonly PromptPass[] | undefined, frames?: readonly ("start" | "end")[]): string {
+  const image = !passes || passes.includes("image");
+  const frame = image && frames?.length === 1 ? `${frames[0]} frame prompts` : null;
+  if (frame) return passes?.includes("video") || !passes ? `${frame} and video prompts` : frame;
   if (!passes || passes.length !== 1) return "prompts";
   return passes[0] === "image" ? "image prompts" : "video prompts";
 }
@@ -1221,9 +1233,39 @@ export async function regenerateScenesPrompts(
       correlationId: run.correlationId,
     });
 
+    const frames = options.frames?.length && (!options.passes || options.passes.includes("image"))
+      ? options.frames : undefined;
+    const keepStart = Boolean(frames && !frames.includes("start"));
+    const keepEnd = Boolean(frames && !frames.includes("end"));
+    const narrowed = keepStart || keepEnd
+      ? rebuilt.map((s) => {
+          if (!sceneIds.includes(s.id)) return s;
+          const old = existing[s.id]!;
+          return {
+            ...s,
+            prompts: {
+              ...s.prompts,
+              ...(keepStart ? { startFramePrompt: old.startFramePrompt } : {}),
+              ...(keepEnd ? { endFramePrompt: old.endFramePrompt, endFrameEditPrompt: old.endFrameEditPrompt } : {}),
+            },
+          };
+        })
+      : rebuilt;
+    const withWarnings = narrowed === rebuilt ? rebuilt : narrowed.map((s) => sceneIds.includes(s.id)
+      ? {
+          ...s,
+          prompts: {
+            ...s.prompts,
+            promptWarnings: storedPromptWarnings(s, storedSceneImageContext(
+              record.project, s, cast, record.storyboard!.visualBible, narrowed,
+            )),
+          },
+        }
+      : s);
+
     // A kept scene opening on a rewritten one would otherwise keep describing
     // the ending that was just replaced.
-    const carriedForward = carryEndFramesForward(record.project, record.storyboard.scenes, rebuilt);
+    const carriedForward = carryEndFramesForward(record.project, record.storyboard.scenes, withWarnings);
     const scenes = carriedForward.scenes.map((s) => carriedForward.carried.includes(s.id)
       ? {
           ...s,
@@ -1236,7 +1278,7 @@ export async function regenerateScenesPrompts(
         }
       : s);
 
-    const detail = `${passLabel(options.passes)} — ${targets
+    const detail = `${passLabel(options.passes, frames)} — ${targets
       .map((s) => `Scene ${s.sceneNumber}`)
       .join(", ")}`;
     const updated: ProjectRecord = {
@@ -1253,6 +1295,7 @@ export async function regenerateScenesPrompts(
       change: "scene_prompts_rewritten",
       sceneIds: [...sceneIds],
       passes: [...(options.passes ?? ["image", "video"])],
+      ...(frames ? { frames: [...frames] } : {}),
     });
     return updated;
   });

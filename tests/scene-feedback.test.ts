@@ -8,10 +8,11 @@ import { repository } from "@/lib/db/store";
 import { sceneFeedbackRequestSchema, type SceneFeedbackProposal } from "@/lib/schemas/scene-feedback";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import { createProject, generateStoryboard, getProjectRecord, updateScenePrompts } from "@/lib/services/project-service";
-import { applySceneFeedback, previewSceneFeedback } from "@/lib/services/scene-feedback-service";
+import { applySceneFeedback, previewSceneFeedback, refineScenesWithFeedback } from "@/lib/services/scene-feedback-service";
 import { getAgentRun, resetAgentRuns, trackAgentRun } from "@/lib/services/agent-runs";
 import { getQueue } from "@/lib/services/scene-queue";
 import { POST, PUT } from "@/app/api/projects/[projectId]/scenes/[sceneId]/feedback/route";
+import { POST as BULK_POST } from "@/app/api/projects/[projectId]/feedback/route";
 
 vi.mock("@/lib/agents/llm/provider", async (original) => ({
   ...await original<typeof import("@/lib/agents/llm/provider")>(),
@@ -392,6 +393,87 @@ describe("proposal contracts", () => {
     await previewSceneFeedback(record.project.id, record.storyboard!.scenes[0]!.id, { scope: "end", feedback: "Hold the cup." });
     expect(provider.generateJson).toHaveBeenCalledTimes(2);
     expect(JSON.parse(vi.mocked(provider.generateJson).mock.calls[1]![1]).correction).toContain("outside the chosen scope");
+    expect(await getProjectRecord(record.project.id)).toEqual(record);
+  });
+});
+
+describe("feedback across selected scenes", () => {
+  const revisedStart = "Medium shot, eye level. Mara stands beside the table, reaching for the cup.";
+  const endAnswer = proposal([
+    { field: "endFramePrompt", after: revisedEnd, reason: "Put the cup in her left hand." },
+    { field: "endFrameEditPrompt", after: revisedEdit, reason: "Make the edit reach the new destination." },
+  ], false);
+
+  it("saves straight to the picked scenes in story order, changing only the ticked prompts", async () => {
+    const record = await seeded();
+    const provider = model(endAnswer);
+    vi.mocked(getPlanningProvider).mockReturnValue(provider);
+    const [first, second] = record.storyboard!.scenes;
+    const response = await BULK_POST(new Request("http://localhost/feedback", {
+      method: "POST",
+      body: JSON.stringify({ sceneIds: [second!.id, first!.id], targets: ["end"], feedback: "She holds the cup." }),
+    }), { params: Promise.resolve({ projectId: record.project.id }) });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    const body = await response.json();
+    expect(body.refined.map((entry: { sceneNumber: number }) => entry.sceneNumber)).toEqual([1, 2]);
+    expect(body.refined[0].warnings).toContainEqual(expect.stringContaining("Video prompt left unchanged"));
+    expect(body.failed).toEqual([]);
+
+    const saved = await getProjectRecord(record.project.id);
+    for (const scene of saved.storyboard!.scenes.slice(0, 2)) {
+      expect(scene.prompts).toMatchObject({
+        startFramePrompt: start, endFramePrompt: revisedEnd, endFrameEditPrompt: revisedEdit, videoPromptSegment: video,
+      });
+    }
+    expect(saved.storyboard!.scenes.slice(2)).toEqual(record.storyboard!.scenes.slice(2));
+    expect(saved.attempts).toEqual(record.attempts);
+    const payload = JSON.parse(vi.mocked(provider.generateJson).mock.calls[0]![1]);
+    expect(payload).toMatchObject({ targets: ["end"], videoFollowsKeyframes: false, acrossScenes: true });
+    expect(payload.scope).toBeUndefined();
+    expect(getAgentRun(record.project.id)).toBeNull();
+  });
+
+  it("refines start and video together when both are ticked, leaving the end frame alone", async () => {
+    const record = await seeded();
+    vi.mocked(getPlanningProvider).mockReturnValue(model(proposal([
+      { field: "startFramePrompt", after: revisedStart, reason: "Reach for the cup." },
+      { field: "endFrameEditPrompt", after: edit, reason: "Still reaches the same end state." },
+      { field: "videoPromptSegment", after: revisedVideo, reason: "Pick up the cup." },
+    ])));
+    const scene = record.storyboard!.scenes[0]!;
+    const result = await refineScenesWithFeedback(record.project.id, {
+      sceneIds: [scene.id], targets: ["start", "video"], feedback: "She reaches for the cup and picks it up.",
+    });
+    expect(result.record.storyboard!.scenes[0]!.prompts).toMatchObject({
+      startFramePrompt: revisedStart, endFramePrompt: end, videoPromptSegment: revisedVideo,
+    });
+  });
+
+  it("keeps the clip locked when video is not ticked, reporting the scene it could not refine and keeping the rest", async () => {
+    const record = await seeded();
+    const provider = model(proposal());
+    vi.mocked(provider.generateJson).mockResolvedValueOnce(endAnswer);
+    vi.mocked(getPlanningProvider).mockReturnValue(provider);
+    const [first, second] = record.storyboard!.scenes;
+    const result = await refineScenesWithFeedback(record.project.id, {
+      sceneIds: [first!.id, second!.id], targets: ["end"], feedback: "She holds the cup.",
+    });
+    expect(result.refined.map((entry) => entry.sceneId)).toEqual([first!.id]);
+    expect(result.failed).toEqual([expect.objectContaining({ sceneId: second!.id, error: expect.stringMatching(/outside the chosen scope/) })]);
+    const saved = await getProjectRecord(record.project.id);
+    expect(saved.storyboard!.scenes[0]!.prompts.endFramePrompt).toBe(revisedEnd);
+    expect(saved.storyboard!.scenes[1]).toEqual(record.storyboard!.scenes[1]);
+  });
+
+  it("refuses an unknown scene before contacting the model", async () => {
+    const record = await seeded();
+    const provider = model(endAnswer);
+    vi.mocked(getPlanningProvider).mockReturnValue(provider);
+    await expect(refineScenesWithFeedback(record.project.id, {
+      sceneIds: [record.storyboard!.scenes[0]!.id, "no-such-scene"], targets: ["end"], feedback: "Hold it.",
+    })).rejects.toThrow(/not found/);
+    expect(provider.generateJson).not.toHaveBeenCalled();
     expect(await getProjectRecord(record.project.id)).toEqual(record);
   });
 });

@@ -7,7 +7,10 @@ import { hasFiboVgl, parseFiboPrompt } from "@/lib/agents/fibo-prompt";
 import { ValidationError } from "@/lib/errors";
 import {
   sceneFeedbackProposalSchema,
+  scopePlan,
   type FeedbackField,
+  type FeedbackPlan,
+  type FeedbackTarget,
   type SceneFeedbackProposal,
   type SceneFeedbackScope,
 } from "@/lib/schemas/scene-feedback";
@@ -29,13 +32,19 @@ export const SCENE_FEEDBACK_SYSTEM =
   "descriptions of the intended result, not a critique or instructions to the user. " +
   "Do not change the scene card, other scenes, negative prompts, or who speaks each line. " +
   "Keep spoken dialogue verbatim; changing dialogue belongs in the scene card editor.\n\n" +
-  "Scope start permits only startFramePrompt; end permits only endFramePrompt; keyframes " +
-  "permits either or both; video permits only videoPromptSegment and its soundscape/score. " +
-  "For a keyframe scope, also review the existing video against BOTH the revised opening " +
-  "and closing states: check motion, intent, direction, camera and the reachable destination. " +
+  "targets lists the prompts you may revise: start permits startFramePrompt; end permits " +
+  "endFramePrompt; video permits videoPromptSegment and its soundscape/score. Revise at least " +
+  "one target, and never change a keyframe that is not a target. " +
+  "When targets include a keyframe and videoFollowsKeyframes is true, also review the existing " +
+  "video against BOTH the revised opening and closing states: check motion, intent, direction, " +
+  "camera and the reachable destination. " +
   "If it must change to connect those states, include its corrected text as a dependent " +
   "revision, and explain why. If it still fits, leave it unchanged and explain why. " +
-  "Never change the opposite keyframe outside scope. If an endFrameEditPrompt exists and " +
+  "When videoFollowsKeyframes is false, revise video fields only if video is a target; " +
+  "otherwise leave them unchanged and say in videoReview whether the clip may now need attention. " +
+  "When acrossScenes is true, the person is applying the same feedback to several scenes they " +
+  "selected, one scene at a time: interpret it for this scene and still revise its targets. " +
+  "If an endFrameEditPrompt exists and " +
   "either frame changes, also supply its complete reviewed text. A changed end frame MUST " +
   "have a revised edit prompt; a start-only change may keep a compatible edit unchanged. " +
   "it must edit the supplied start/reference frame into the revised end state, preserving " +
@@ -49,22 +58,31 @@ export const SCENE_FEEDBACK_SYSTEM =
   "shape. Preserve existing video labels and audio-field separation. A soundscape or score " +
   "may be an empty string when the feedback removes it; visual and motion prompts cannot. Return only JSON.";
 
+/** The prompts a refinement exists to change; at least one must actually change. */
+export function primaryFields(targets: readonly FeedbackTarget[]): FeedbackField[] {
+  return [
+    ...(targets.includes("start") ? ["startFramePrompt" as const] : []),
+    ...(targets.includes("end") ? ["endFramePrompt" as const] : []),
+    ...(targets.includes("video") ? VIDEO_FIELDS : []),
+  ];
+}
+
 /** Rechecked on apply, not just trusted because a model or browser supplied it. */
 export function feedbackPatch(
   scene: Scene,
-  scope: SceneFeedbackScope,
+  scope: SceneFeedbackScope | FeedbackPlan,
   proposal: SceneFeedbackProposal,
   rendersVideo: boolean,
 ): ScenePromptsPatch {
-  if (scope === "video" && !rendersVideo) {
+  const { targets, videoFollowsKeyframes } = typeof scope === "string" ? scopePlan(scope) : scope;
+  if (targets.includes("video") && !rendersVideo) {
     throw new ValidationError("This scene has no active video prompt to refine.");
   }
-  const primary: readonly FeedbackField[] = scope === "start" ? ["startFramePrompt"]
-    : scope === "end" ? ["endFramePrompt"]
-      : scope === "keyframes" ? ["startFramePrompt", "endFramePrompt"] : VIDEO_FIELDS;
+  const primary = primaryFields(targets);
   const allowed = new Set(primary);
-  if (scope !== "video") {
-    if (rendersVideo) VIDEO_FIELDS.forEach((field) => allowed.add(field));
+  const keyframes = targets.includes("start") || targets.includes("end");
+  if (keyframes) {
+    if (rendersVideo && videoFollowsKeyframes) VIDEO_FIELDS.forEach((field) => allowed.add(field));
     if (scene.prompts.endFrameEditPrompt) allowed.add("endFrameEditPrompt");
   }
   const seen = new Set<FeedbackField>();
@@ -124,7 +142,9 @@ export function feedbackPatch(
 
 export async function proposeSceneFeedback(args: {
   scene: Scene;
-  scope: SceneFeedbackScope;
+  /** A per-scene scope, or the targets picked for a multi-scene refinement. */
+  scope: SceneFeedbackScope | FeedbackPlan;
+  acrossScenes?: boolean;
   feedback: string;
   context: Omit<SceneCheckInput, "frames"> & {
     prompts: SceneCheckInput["prompts"] & { videoSoundscape?: string; videoScore?: string };
@@ -134,14 +154,18 @@ export async function proposeSceneFeedback(args: {
   provider: PlanningProvider;
 }): Promise<SceneFeedbackProposal> {
   let correction: string | undefined;
+  const plan = typeof args.scope === "string" ? scopePlan(args.scope) : args.scope;
   for (let attempt = 0; attempt < 2; attempt++) {
     const { value, execution } = await executeArtifact({
       artifact: `${args.scene.id}.feedback`,
       scope: args.scene.id,
-      promptVersion: "scene-feedback-v1",
+      promptVersion: "scene-feedback-v2",
       provider: args.provider,
       llm: providerCall(args.provider, SCENE_FEEDBACK_SYSTEM + args.directives, JSON.stringify({
-        scope: args.scope,
+        ...(typeof args.scope === "string" ? { scope: args.scope } : {}),
+        targets: plan.targets,
+        videoFollowsKeyframes: plan.videoFollowsKeyframes,
+        ...(args.acrossScenes ? { acrossScenes: true } : {}),
         feedback: args.feedback,
         context: args.context,
         project: args.project,

@@ -39,11 +39,11 @@ recent updates are kept below — every release ever made is in
 
 | Version | Date | What changed |
 | --- | --- | --- |
+| **3.05** | 2026-11-23 | **Fix a prompt mistake across several scenes by describing it once.** **Rewrite prompts for selected scenes** now lets you tick which prompts to rewrite (**Start frame**, **End frame**, **Video**, or any combination), so fixing one frame no longer replaces the other frame's wording, hand edits included. It also has an optional **Refine with feedback** box. Describe the correction once, for example "Mara wears her glasses in every shot", and the planning model edits each picked scene's ticked prompts to follow it, saving straight away with no preview. Only the ticked prompts on the picked scenes change, apart from a continuous next scene's carried opening. A keyframe fix leaves the video prompt alone unless **Video** is ticked. A scene the model cannot refine is listed as unchanged while the rest still save. When the scene cards themselves are wrong (the action, who is in the shot, dialogue or wardrobe), tick **Also correct the scene cards**: the planning model corrects each picked card and the wardrobe changes set at it, you review those card changes first, and **Accept and rewrite prompts** saves them and rewrites the ticked prompts from the corrected cards, so later rewrites cannot bring the mistake back. Wardrobe changes carry forward to later scenes as hand-set ones do, and the preview names the scenes they reach. Leave the box empty to rewrite from the scene cards as before. Nothing is rendered automatically. |
 | **3.04** | 2026-11-22 | **Give a character their own voice in MiniMax H3 reference mode.** H3 used to invent a new voice for every clip, so the same character could sound different in every scene. In **Settings → Character library**, each character now has **Add voice sample**: upload 5–15 seconds of that person speaking clearly (WAV, FLAC, MP3 or OGG). When a scene renders on a MiniMax H3 **reference mode (Ref2VA)** model and that character has a line in it, the recording goes to H3 as a voice reference — the words still come from the storyboard, the recording only sets how they sound. It is used only when the character also has a reference image, and only in scenes where they speak; up to three voices fit in one scene. H3 keeps at most 15 seconds of reference audio per clip, read from the start of each recording and split between speakers, so put the cleanest speech first. Recordings under 2 seconds are refused at upload. First-and-last-frame H3, LTX and other models ignore the recording, and characters without one render exactly as before. Lip sync and likeness are not guaranteed — listen to the result. |
 | **3.03** | 2026-11-16 | **Fix several Scene check findings in one pass, without re-running the check.** Applying one fix used to strand every other finding: the fix changed the scene, the check went *Out of date*, and its remaining errors and warnings lost their buttons — so a deep check that took minutes had to be run again for each issue. Now, when the only changes since a check are fixes applied from it, the other findings stay fixable, the fixed ones are marked *fix applied · re-check to confirm*, and a note says what has happened. Tick several findings and press **Fix selected** to walk through them: each fix is previewed in turn against the text the one before it left, and you **Apply**, **Skip** or **Stop** as you go. The check still reads *Out of date* until you run it again — it has not read the fixed text — and any other edit to the scene ends the run as before. A fix the model finds already resolved now says so instead of reporting that it changed nothing. |
 | **3.02** | 2026-11-15 | **Choose the vision model in Settings, and see when it is wrong.** The model that reads images (reference images, QC keyframes, Deep scene checks) could only be set with `OPENAI_VISION_MODEL` in `.env.local`, so a mistyped id showed up only as LM Studio answering "No models loaded" when you pressed **Write from images** or **Expand with AI**. **Settings → AI planning models** now has a **Vision model** dropdown listing the models LM Studio marks as vision-capable; it is saved without a restart, and *Use environment default* still follows `OPENAI_VISION_MODEL`. If the vision model in use - saved or from the environment - is not a model LM Studio has, the section warns you. Existing setups keep working unchanged. |
 | **3.01** | 2026-11-15 | **Start a project from pictures alone.** Expand with AI used to need typed concept text, so a few reference images could shape a story but never start one. Now, leave the concept box empty, attach one or more reference images, and the button becomes **Write from images**: the planning model finds a premise, characters and an arc in the pictures, connecting several into one film, sized to the duration, style, tone and format you have set. It arrives as a suggestion you accept with **Use this**, edit, or discard, exactly like an expansion. It needs a vision model (`OPENAI_VISION_MODEL`); without one, or if no image can be read, it says so rather than inventing a story. Typing a concept works as before. **Your planning model now writes the story even when it cannot see.** If `OPENAI_VISION_MODEL` is a different model from your planning model, both **Write from images** and **Expand with AI** with images attached now have the vision model only describe the pictures, and the planning model writes the concept from that description - so a small, fast vision model no longer ends up writing your story. When one model does both, it still sees the pictures directly. The status line says which happened. |
-| **3.00** | 2026-11-10 | **Keyframe previews release LM Studio before rendering.** After a scene-feedback reply, a single-frame preview used to leave the language model on the GPU because only batch renders ran the unload step. Every live WanGP job now checks the same automatic-unload policy immediately before submission, so start/end previews and direct scene renders free the GPU too. A failed unload or a model still reported as loaded is shown as an error instead of starting the render. Demo mode is unchanged, and the existing runtime-control and auto-unload opt-outs are honoured. |
 
 ---
 
@@ -122,6 +122,10 @@ recent updates are kept below — every release ever made is in
 - **Human-guided prompt refinement** — describe what is wrong on a scene with
   **Refine with feedback**. Preview coordinated keyframe, end-frame edit and video
   corrections before accepting; existing media stays untouched until you regenerate it.
+  For a correction that spans several scenes, add feedback under **Rewrite prompts for
+  selected scenes** and it is applied directly to the start frame, end frame or video
+  prompts you tick, or, with **Also correct the scene cards**, previewed as card and
+  wardrobe corrections that the prompts are then rewritten from.
 - **Project import** — restore a deleted project from its `project.json` record or
   a `storyboard.json` export. Import always creates a new project, so it can never
   overwrite one.
@@ -1420,7 +1424,41 @@ To do several at once without doing all of them, **Rewrite prompts for selected
 scenes** above the scene list takes a tick-box selection with **Select all** and
 **Clear all**, the same shape as the clip queue beside it. Fixing five scenes by
 reaching for the all-scenes button is how the hand edits on the other thirteen get
-thrown away.
+thrown away. Tick which prompts to rewrite — **Start frame**, **End frame**,
+**Video**, or any combination — and only those change; the frame you leave unticked
+keeps its wording, hand edits included.
+
+The same panel has an optional **Refine with feedback** box: the per-scene
+[feedback refinement](#refine-a-scene-with-feedback) swept across the selection, for
+when the storyboard artist got the same thing wrong in several places. Describe the
+correction once ("Mara wears her glasses in every shot"), and the planning model edits
+each picked scene's ticked prompts to follow it and **saves straight away — there is
+no preview**. Scenes are refined in story order. Only the ticked prompts change: a
+keyframe correction does not also rewrite the video prompt unless **Video** is ticked,
+and a note says whether the clip may now need attention. Other scenes are left alone,
+apart from the normal carried opening of a continuous next scene. A scene the model
+cannot refine consistently is listed as unchanged and the rest still save. Leave the
+box empty to rewrite from the cards as before. This needs AI planning and its
+planning connection, and renders nothing.
+
+When the mistake is in the cards themselves, such as the wrong action, the wrong
+person in the shot, a wrong line or the wrong clothes, tick **Also correct the scene
+cards** under the feedback box. Feedback that only fixes prompts would be undone the
+next time those scenes are rewritten from their cards. The button becomes **Preview
+card changes**. For each picked scene in story order, the planning model corrects the
+card (title, objective, story beat, visual description, action, camera, who is visible
+in each frame, and dialogue) and the wardrobe changes set at that scene. Each scene
+sees the corrections made before it. Unlike prompt refinement, **card changes are
+previewed**, because every later rewrite reads the card: review the current and
+corrected text, then **Accept and rewrite prompts** or **Discard**. Accepting saves the
+cards and wardrobe changes together, then rewrites the ticked prompts of those scenes
+from the corrected cards with the prompt agents. A scene whose card needs no change
+still has its ticked prompts rewritten; a scene the model could not correct is left
+out entirely. Wardrobe changes carry forward to later scenes exactly as a hand-set
+change does. The preview names any later scenes they reach, and the storyboard's
+**Repair prompts** banner then updates their appended wardrobe. If the project
+changes after the preview, accepting is refused and nothing is saved. If the cards
+save but the prompt rewrite fails, you are told so and can rerun it with the box empty.
 
 Two additional tools sit beside those batch controls:
 

@@ -15,6 +15,7 @@ import {
 } from "@/components/storyboard/scene-check-tools";
 import { useSceneChecks } from "@/components/storyboard/use-scene-checks";
 import { BulkPromptTools } from "@/components/storyboard/bulk-prompt-tools";
+import { SelectedScenePromptTools } from "@/components/storyboard/selected-scene-prompt-tools";
 import { CreativePlansPanel, planStates } from "@/components/storyboard/creative-plans-panel";
 import { NegativePromptRepair } from "@/components/storyboard/negative-prompt-repair";
 import { TaskRecoveryPanel } from "@/components/storyboard/task-recovery-panel";
@@ -93,14 +94,14 @@ export function StoryboardView({ projectId }: { projectId: string }) {
 
   /** Empty means every scene, matching the clip queue. */
   const rewritePrompts = useCallback(
-    async (sceneIds: string[] = [], passes?: PromptPass[]) => {
+    async (sceneIds: string[] = [], passes?: PromptPass[], frames?: ("start" | "end")[]) => {
       setRewritingAll(true);
       setError(null);
       try {
         const res = await fetch(`/api/projects/${projectId}/prompts`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ sceneIds, passes }),
+          body: JSON.stringify({ sceneIds, passes, frames }),
         });
         if (!res.ok) {
           const detail = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -458,7 +459,6 @@ export function StoryboardView({ projectId }: { projectId: string }) {
   const [videoPicks, setVideoPicks] = useState<string[]>([]);
   /** Scenes ticked for a frames-only rerun. Empty means the whole project. */
   const [keyframePicks, setKeyframePicks] = useState<string[]>([]);
-  const [promptPicks, setPromptPicks] = useState<string[]>([]);
   /** Scenes ticked for a new seed. */
   const [seedPicks, setSeedPicks] = useState<string[]>([]);
   const [seedsBusy, setSeedsBusy] = useState(false);
@@ -1859,33 +1859,16 @@ export function StoryboardView({ projectId }: { projectId: string }) {
             ) : null}
 
             {storyboard.scenes.length > 0 ? (
-              <details className="mt-3 rounded-md border border-white/10 bg-black/20">
-                <summary className="cursor-pointer px-3 py-2 text-xs text-slate-400 hover:text-slate-200">
-                  Rewrite prompts for selected scenes
-                </summary>
-                <div className="space-y-2 px-3 pb-3">
-                  <p className="text-xs text-slate-500">
-                    Re-runs the two prompt agents for the scenes you pick, from their existing
-                    cards. Every other scene keeps its wording, including any hand edits — which is
-                    the reason to use this rather than rewriting all of them.
-                  </p>
-                  <ScenePicker
-                    scenes={storyboard.scenes}
-                    picked={promptPicks}
-                    onChange={setPromptPicks}
-                    testId="prompt-scene-picker"
-                  />
-                  <button
-                    onClick={() => void rewritePrompts(promptPicks)}
-                    disabled={rewritingAll || busy || promptToolsBusy || queue?.active || promptPicks.length === 0}
-                    className="rounded-md border border-white/10 px-3 py-1.5 text-xs hover:border-accent disabled:opacity-50"
-                  >
-                    {rewritingAll
-                      ? "Rewriting prompts…"
-                      : `Rewrite ${promptPicks.length} scene${promptPicks.length === 1 ? "" : "s"}' prompts`}
-                  </button>
-                </div>
-              </details>
+              <SelectedScenePromptTools
+                projectId={projectId}
+                scenes={storyboard.scenes}
+                rendersVideo={stages.video}
+                disabled={busy || promptToolsBusy || Boolean(remoteAgent) || Boolean(queue?.active) || queueBusy || Boolean(sceneBusy)}
+                rewriting={rewritingAll}
+                onRewrite={(sceneIds, request) => rewritePrompts(sceneIds, request.passes, request.frames)}
+                onSaved={setRecord}
+                onBusyChange={setPromptToolsBusy}
+              />
             ) : null}
 
             {storyboard.scenes.length > 0 ? (

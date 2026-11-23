@@ -271,4 +271,25 @@ describe("rewriting a single prompt pass", () => {
       latestExecution(record.executions, `${scene.id}.image_prompt`)?.executionId,
     );
   });
+
+  it.each([
+    { frames: ["end" as const], kept: "startFramePrompt" as const, rewritten: "endFramePrompt" as const },
+    { frames: ["start" as const], kept: "endFramePrompt" as const, rewritten: "startFramePrompt" as const },
+  ])("rewrites only the $rewritten when that keyframe is the one asked for", async ({ frames, kept, rewritten }) => {
+    const record = await seeded();
+    const scene = record.storyboard!.scenes[1]!;
+    await updateScenePrompts(record.project.id, scene.id, {
+      startFramePrompt: "A hand-written opening.",
+      endFramePrompt: "A hand-written ending.",
+    });
+    const before = (await getProjectRecord(record.project.id)).storyboard!.scenes[1]!.prompts;
+
+    const after = await regenerateScenesPrompts(record.project.id, [scene.id], { passes: ["image"], frames });
+    const prompts = after.storyboard!.scenes[1]!.prompts;
+
+    expect(prompts[kept]).toBe(before[kept]);
+    expect(prompts[rewritten]).not.toBe(before[rewritten]);
+    expect(prompts.videoPromptSegment).toBe(before.videoPromptSegment);
+    expect(after.history!.at(-1)?.detail).toContain(`${frames[0]} frame prompts`);
+  });
 });
