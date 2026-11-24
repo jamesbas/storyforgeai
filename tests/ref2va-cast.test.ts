@@ -378,7 +378,7 @@ describe("a character's voice in reference mode", () => {
     expect(String(settings.audio_guide)).toContain("character-voices");
     expect(settings.audio_guide2).toBeUndefined();
     expect(settings.audio_prompt_type).toBe("A");
-    expect(prompt).toContain("<Audio 1> is the voice of <Subject 1>");
+    expect(prompt).toContain("<Audio 1> supplies the voice timbre, accent, cadence and delivery identity for <Subject 1>");
     expect(prompt).toContain("audio reference]");
     expect(prompt).toContain("in the voice from <Audio 1>");
   });

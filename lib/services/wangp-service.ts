@@ -24,12 +24,15 @@ import {
   renderH3Prompt,
   stripH3Envelope,
   usesH3PromptFormat,
+  type SceneLine,
 } from "@/lib/agents/h3-prompt";
 import {
   renderH3ReferencePrompt,
   stripH3ReferencePrompt,
+  unscriptedSpeech,
   usesH3ReferenceFormat,
-  voiceClause,
+  voiceProblems,
+  h3LeadingPictures,
   type H3ReferenceSubject,
 } from "@/lib/agents/h3-reference-prompt";
 import { clipLengthGuidance } from "@/lib/wangp/clip-length";
@@ -256,6 +259,7 @@ function routeH3Format(
     soundscape?: string;
     score?: string;
     videoSource?: string;
+    dialogue?: readonly SceneLine[];
   },
   context: { sceneId: string; purpose: string },
 ): string {
@@ -287,6 +291,7 @@ function routeH3Format(
     hasStart,
     hasEnd,
     hasVideoSource: Boolean(args.videoSource),
+    dialogue: args.dialogue,
   });
 }
 
@@ -371,11 +376,15 @@ function composeRef2vaReferences(
 
   const anchors = [args.imageStart, args.imageEnd].filter((path): path is string => Boolean(path));
 
-  // Picture numbering is positional and the prompt refers to it, so the index
-  // has to be computed from how many pictures actually precede a character —
-  // not from their position in the cast. With one photo each those are the same
-  // number, which is why this was `index + anchors.length + 1` and stayed
-  // correct until a character could contribute two.
+  // Picture numbering is positional and the prompt refers to it. WanGP's H3
+  // pipeline presents the frames it anchors on before any reference image —
+  // the start frame, or the frame a continuation picks up from, then the end
+  // frame — and does so whether they arrive as native inputs or inside
+  // `image_refs` (`prepare_keyframes`, then `_add_image_reference`; its own
+  // guide: "start or continued frame (<Picture 1>), end image, … then
+  // references"). Counting only what is in `image_refs` named the first
+  // keyframe as the character's photograph whenever the keyframes went native.
+  const leadingPictures = h3LeadingPictures(Boolean(args.imageStart), Boolean(args.imageEnd), Boolean(args.videoSource));
   const imageRefs = [...(keyframesAsReferences ? anchors : [])];
   const audioRefs: string[] = [];
   const voicedCharacters: string[] = [];
@@ -397,13 +406,16 @@ function composeRef2vaReferences(
         reason: "unsupported_model",
       });
     }
+    // Computed from how many pictures precede this character, not from their
+    // place in the cast: a character may contribute more than one photograph.
+    const first = leadingPictures + photographs + 1;
     subjects.push({
       name: member.name,
       description: member.description,
       // The first of this character's pictures is the one the prose names.
-      pictureIndex: imageRefs.length + 1,
+      pictureIndex: first,
       ...(member.imagePaths.length > 1
-        ? { additionalPictureIndices: member.imagePaths.slice(1).map((_, i) => imageRefs.length + 2 + i) }
+        ? { additionalPictureIndices: member.imagePaths.slice(1).map((_, i) => first + 1 + i) }
         : {}),
       ...(audioIndex ? { audioIndex } : {}),
     });
@@ -626,6 +638,12 @@ export async function buildVideoManifest(args: {
    * inherit identity from the two frames and are sent none.
    */
   cast?: readonly CastReference[];
+  /**
+   * The scene's dialogue. Tags each line it contains as H3 speech whatever verb
+   * introduces it, and decides whether a voice recording can be tied to its
+   * speaker. Defaults to the dialogue carried in `validation`.
+   */
+  dialogue?: readonly SceneLine[];
 }): Promise<WangpGenerationSettings> {
   const client = getWangpClient();
   const videoModels = await client.listModels("video");
@@ -655,34 +673,74 @@ export async function buildVideoManifest(args: {
   const acceptsVoices =
     Boolean(model.metadata.mediaInputs?.audio?.reference) &&
     schema.fields.some((field) => field.name === "audio_guide");
-  const reference = usesH3ReferenceFormat(family)
-    ? composeRef2vaReferences(args, context, !ref2vaHasKeyframeInputs, acceptsVoices)
+  const ref2vaKeyframesAsReferences = !ref2vaHasKeyframeInputs;
+  let reference = usesH3ReferenceFormat(family)
+    ? composeRef2vaReferences(args, context, ref2vaKeyframesAsReferences, acceptsVoices)
     : undefined;
 
-  const prompt = reference
-    ? renderH3ReferencePrompt({
-        body: stripH3Envelope(routed.prompt),
-        subjects: reference.subjects,
-        startFrameDescription: args.startFramePrompt,
-        endFrameDescription: args.endFramePrompt,
-        hasStart: Boolean(args.imageStart),
-        hasEnd: Boolean(args.imageEnd),
-        hasVideoSource: Boolean(args.videoSource),
-        soundscape: args.soundscape,
-        score: args.score,
-      })
-    : routeH3Format(model, routed.prompt, args, context);
-
-  // A voice whose line could not be found keeps its binding in the subject
-  // definitions; the miss is recorded so a drifting voice can be traced to it.
-  reference?.subjects.forEach((subject) => {
-    if (subject.audioIndex && !prompt.includes(voiceClause(subject.audioIndex))) {
-      logEvent("wangp.ref2va.voice_unbound", {
-        ...context,
-        characterId: args.cast?.find((member) => member.name === subject.name)?.characterId,
-      });
-    }
+  const dialogue = args.dialogue ?? args.validation?.scene.dialogue ?? undefined;
+  const referenceParts = (subjects: H3ReferenceSubject[]) => ({
+    body: stripH3Envelope(routed.prompt),
+    subjects,
+    startFrameDescription: args.startFramePrompt,
+    endFrameDescription: args.endFramePrompt,
+    hasStart: Boolean(args.imageStart),
+    hasEnd: Boolean(args.imageEnd),
+    hasVideoSource: Boolean(args.videoSource),
+    soundscape: args.soundscape,
+    score: args.score,
+    dialogue,
   });
+
+  // A recording is withheld rather than sent with words it cannot be tied to:
+  // H3 given a voice and untagged speech improvises in it, and was heard reading
+  // the scene's description aloud. Withholding costs the likeness of one voice
+  // in one clip; sending costs the clip.
+  const voiceWarnings: string[] = [];
+  const problems = reference ? voiceProblems(referenceParts(reference.subjects)) : [];
+  if (reference && problems.length) {
+    const reasons = new Map(problems.map((problem) => [problem.name.trim().toLocaleLowerCase(), problem.reason]));
+    const reasonOf = (member: CastReference) => reasons.get(member.name.trim().toLocaleLowerCase());
+    for (const member of args.cast ?? []) {
+      const reason = reasonOf(member);
+      if (!reason) continue;
+      logEvent("wangp.ref2va.voice_skipped", { ...context, characterId: member.characterId, reason });
+      voiceWarnings.push(
+        reason === "line_not_tagged"
+          ? `video: ${member.name}'s voice sample was not sent, because their dialogue could not be ` +
+              "found word for word in the video prompt. Quote each of their lines exactly as the scene " +
+              "card has it, then render the video again."
+          : `video: ${member.name}'s voice sample was not sent, because the video prompt quotes speech ` +
+              "that is not in the scene's dialogue, which H3 could make up in that voice. Add those " +
+              "words to the scene's dialogue or take them out of the video prompt, then render the " +
+              "video again.",
+      );
+    }
+    reference = composeRef2vaReferences(
+      { ...args, cast: args.cast?.map((member) => (reasonOf(member) ? { ...member, voicePath: undefined } : member)) },
+      context,
+      ref2vaKeyframesAsReferences,
+      acceptsVoices,
+    );
+  }
+  // Said whether or not anyone has a voice: an untagged quotation is something
+  // H3 is not told to say, and a tagged one the card lacks means the two disagree.
+  if (reference) {
+    for (const extra of unscriptedSpeech(referenceParts(reference.subjects))) {
+      const words = `"${extra.words.length > 80 ? `${extra.words.slice(0, 77)}...` : extra.words}"`;
+      voiceWarnings.push(
+        extra.tagged
+          ? `video: ${words} is spoken in the video prompt but is not a line in the scene's dialogue. ` +
+              "Make the scene's dialogue and the video prompt match."
+          : `video: ${words} reads as speech, but it is not a line in the scene's dialogue, so H3 is ` +
+              "not told to say it. Add it to the scene's dialogue or take it out of the video prompt.",
+      );
+    }
+  }
+
+  const prompt = reference
+    ? renderH3ReferencePrompt(referenceParts(reference.subjects))
+    : routeH3Format(model, routed.prompt, { ...args, dialogue }, context);
 
   // A heavy model can make its own quality preset impractical, so the request
   // is held at the model's ceiling. Only ever downward — see `clampPreset`.
@@ -754,6 +812,9 @@ export async function buildVideoManifest(args: {
     if (manifest.promptWarnings.length) logEvent("prompt.validation", {
       sceneId: args.sceneId, kind: "video", warningCount: manifest.promptWarnings.length,
     });
+  }
+  if (voiceWarnings.length) {
+    manifest.promptWarnings = [...(manifest.promptWarnings ?? []), ...voiceWarnings];
   }
   return manifest;
 }

@@ -1,5 +1,6 @@
 import type { Character } from "@/lib/schemas/character";
 import type { SceneDraft } from "@/lib/schemas/storyboard";
+import { isSpokenLine } from "@/lib/agents/h3-prompt";
 
 /**
  * Which pinned characters are actually in a shot.
@@ -94,7 +95,7 @@ export function presentCharacterNames(
  */
 export function speaksInScene(scene: Pick<SceneSubject, "dialogue">, name: string): boolean {
   return (scene.dialogue ?? []).some(
-    (line) => line.line.trim().length > 0 && mentions(line.character, name),
+    (line) => isSpokenLine(line.line) && mentions(line.character, name),
   );
 }
 

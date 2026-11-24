@@ -1,4 +1,10 @@
-import { markDialogue, stripDialogueMarkup, withoutBlankLines } from "@/lib/agents/h3-prompt";
+import {
+  markSceneDialogue,
+  stripDialogueMarkup,
+  withoutBlankLines,
+  type ExtraSpeech,
+  type SceneLine,
+} from "@/lib/agents/h3-prompt";
 import type { ModelFamily } from "@/lib/wangp/family";
 
 /**
@@ -96,6 +102,8 @@ export type H3ReferencePromptParts = {
   soundscape?: string;
   /** Audience-only score. Empty means there is none, which the guide writes `N/A`. */
   score?: string;
+  /** The scene's dialogue: tags every line it contains and says who speaks each. */
+  dialogue?: readonly SceneLine[];
 };
 
 /**
@@ -112,6 +120,100 @@ export function summariseFrame(text: string | undefined, maxWords = 45): string 
   if (!words.length) return "";
   const trimmed = words.slice(0, maxWords).join(" ");
   return trimmed.replace(/[.,;:]+$/, "");
+}
+
+/** Text StoryForge appends to a keyframe prompt for the image model, from where it starts. */
+const FRAME_APPENDIX = [
+  " Character continuity — ",
+  " Wardrobe continuity — ",
+  " Render with ",
+  " The frame is free of ",
+];
+
+/** A leading clause that only places the camera: shot size, height, angle, lens or move. */
+const CAMERA_CLAUSE = new RegExp(
+  "^(?:" +
+    [
+      "(?:extreme\\s+)?(?:wide|full|medium(?:[\\s-]+(?:wide|close[\\s-]*up))?|close[\\s-]*up|cowboy|establishing|two)(?:\\s+shot)?",
+      "(?:ews|ws|fs|mws|ms|mcu|cu|ecu)",
+      "eye[\\s-]level\\b.*",
+      "(?:low|high|overhead|dutch|bird'?s[\\s-]eye|worm'?s[\\s-]eye|top[\\s-]down)(?:[\\s-]+angle)?\\b.*",
+      "(?:\\d+\\s?mm|[a-z-]+\\s+millimet(?:er|re))(?:\\s+(?:lens|prime))?\\b.*",
+      "(?:static|handheld|locked[\\s-]off|tracking|dolly|crane|slow\\s+push[\\s-]in)\\b.*",
+      "(?:slight\\s+)?(?:downward|upward)\\s+tilt\\b.*",
+      "from\\s+(?:behind|above|below|the\\s+(?:left|right|side|front|rear))\\b.*",
+      "over[\\s-]the[\\s-]shoulder\\b.*",
+      "(?:front|profile|three[\\s-]quarter(?:\\s+rear)?|rear)(?:\\s+(?:view|angle))?",
+    ].join("|") +
+    ")$",
+  "i",
+);
+
+/** Sentences written for the image model rather than describing what is in the picture. */
+function directsTheImageModel(sentence: string): boolean {
+  const text = sentence.trim();
+  return (
+    /^intended audience:/i.test(text) ||
+    /^exactly\s+\w+\s+(?:people|persons?)\s+(?:is|are)\s+in\s+(?:the\s+)?frame\b/i.test(text) ||
+    // The look suffix: "<style> style, <tone> mood." It starts in lower case,
+    // because it is the project's style value verbatim, or pairs the two words.
+    (/\b(?:style|mood)\.?$/i.test(text) &&
+      text.split(/\s+/).length <= 14 &&
+      (/^\p{Ll}/u.test(text) || /\bstyle,\s[^,]+\smood\.?$/i.test(text)))
+  );
+}
+
+/**
+ * What a keyframe shows, as a picture rather than as instructions for drawing it.
+ *
+ * A keyframe prompt is written for an image model, so StoryForge appends the
+ * project's style and tone, the intended audience, the cast sheet and the
+ * wardrobe to it, and the writing agent opens it with shot size, angle and lens
+ * and states a headcount. Pasted into the H3 prompt to say what an anchor
+ * picture contains, that text sat at the very start of the timeline — and with
+ * a voice reference attached H3 read it aloud: "erotic art film style, raw and
+ * carnal mood. Intended audience: adults only, explicit content" spoken over the
+ * first eight seconds of a clip whose line came at the end. The picture itself
+ * already carries the framing and the look; only its contents are worth saying.
+ */
+export function visibleFrameContent(prompt: string | undefined): string {
+  let text = tidy(prompt);
+  const cut = FRAME_APPENDIX.map((marker) => ` ${text}`.indexOf(marker))
+    .filter((at) => at >= 0)
+    .reduce((lowest, at) => Math.min(lowest, at), Number.POSITIVE_INFINITY);
+  if (Number.isFinite(cut)) text = text.slice(0, Math.max(0, cut - 1)).trim();
+
+  const sentences = text.split(/(?<=[.!?])\s+/).filter(Boolean);
+  const [first, ...rest] = sentences;
+  const opening = first ? withoutCameraOpening(first) : "";
+  return [opening, ...rest]
+    .map((sentence) => sentence.replace(/^Setting:\s*/i, ""))
+    .filter((sentence) => sentence && !directsTheImageModel(sentence))
+    .map((sentence) => sentence.charAt(0).toUpperCase() + sentence.slice(1))
+    .join(" ")
+    .trim();
+}
+
+/**
+ * Drop the camera placement a keyframe prompt opens with, keeping anything in
+ * the same sentence that describes the shot's contents: "Wide shot, eye level,
+ * a woman stands at a window" keeps "a woman stands at a window", and
+ * "Full shot, eye level, 50mm: Mara walks…" keeps "Mara walks…".
+ */
+function withoutCameraOpening(sentence: string): string {
+  const colon = sentence.indexOf(":");
+  if (colon > 0) {
+    const lead = sentence.slice(0, colon).split(",").map((clause) => clause.trim());
+    if (lead.length && lead.every((clause) => CAMERA_CLAUSE.test(clause))) {
+      return sentence.slice(colon + 1).trim();
+    }
+  }
+  const clauses = sentence.replace(/[.!?]+$/, "").split(",").map((clause) => clause.trim());
+  let kept = 0;
+  while (kept < clauses.length && CAMERA_CLAUSE.test(clauses[kept]!)) kept += 1;
+  if (kept === 0) return sentence;
+  if (kept === clauses.length) return "";
+  return `${clauses.slice(kept).join(", ")}${/[.!?]$/.test(sentence) ? sentence.slice(-1) : "."}`;
 }
 
 const SECTIONS = [
@@ -163,31 +265,48 @@ export function h3ReferenceTaskType(
   return "[text to video]";
 }
 
-/** Where each anchor frame sits in the reference list, per FR-3. */
+/** Where each anchor frame sits in WanGP's picture order; see `h3LeadingPictures`. */
 function anchorLines(parts: H3ReferencePromptParts): string[] {
   const lines: string[] = [];
   const shows = (text: string | undefined) => {
     const summary = summariseFrame(text);
     return summary ? `, showing ${summary[0]!.toLowerCase()}${summary.slice(1)}` : "";
   };
+  const { start, continued, end } = anchorRefs(parts.hasStart, parts.hasEnd, Boolean(parts.hasVideoSource));
 
-  if (parts.hasStart) {
-    lines.push(`<Picture 1> is the first frame of [Shot 1]${shows(parts.startFrameDescription)}.`);
+  if (start) {
+    lines.push(`${start} is the first frame of [Shot 1]${shows(parts.startFrameDescription)}.`);
   }
-  if (parts.hasEnd) {
-    lines.push(
-      `<Picture ${parts.hasStart ? 2 : 1}> is the last frame of [Shot 1]` +
-        `${shows(parts.endFrameDescription)}.`,
-    );
+  // WanGP presents the frame a continuation picks up from as a picture of its
+  // own, ahead of the end frame. Left unnamed it was an unexplained image, and
+  // the end frame was being called by its number.
+  if (continued) {
+    lines.push(`${continued} is the final frame of <Video 1>, the frame [Shot 1] begins from.`);
+  }
+  if (end) {
+    lines.push(`${end} is the last frame of [Shot 1]${shows(parts.endFrameDescription)}.`);
   }
   return lines;
 }
 
-/** The picture number an anchor occupies, or null when it was not supplied. */
-function anchorRefs(hasStart: boolean, hasEnd: boolean) {
+/**
+ * How many pictures WanGP's H3 pipeline presents before the first reference
+ * image: the start frame or the frame a continuation picks up from, then the
+ * end frame. The same whether the frames are native inputs or sent inside
+ * `image_refs` — its handler documents the order as "start or continued frame
+ * (<Picture 1>), end image, … then references".
+ */
+export function h3LeadingPictures(hasStart: boolean, hasEnd: boolean, hasVideoSource: boolean): number {
+  return (hasStart || hasVideoSource ? 1 : 0) + (hasEnd ? 1 : 0);
+}
+
+/** The picture number each anchor occupies, or null when it was not supplied. */
+function anchorRefs(hasStart: boolean, hasEnd: boolean, hasVideoSource = false) {
+  const opens = hasStart || hasVideoSource;
   return {
     start: hasStart ? "<Picture 1>" : null,
-    end: hasEnd ? `<Picture ${hasStart ? 2 : 1}>` : null,
+    continued: hasVideoSource && !hasStart ? "<Picture 1>" : null,
+    end: hasEnd ? `<Picture ${opens ? 2 : 1}>` : null,
   };
 }
 
@@ -230,9 +349,12 @@ function subjectLine(subject: H3ReferenceSubject, index: number, hasEstablishedF
 function voiceLine(subject: H3ReferenceSubject, index: number): string | null {
   if (!subject.audioIndex) return null;
   const who = `<Subject ${index + 1}>`;
+  // Wan2GP's own voice-clone wording. A further sentence telling the subject to
+  // say nothing else was itself read aloud, so the restriction lives in the
+  // summary and the soundscape instead.
   return (
-    `<Audio ${subject.audioIndex}> is the voice of ${who}: its timbre, accent, pitch and cadence ` +
-    `define how ${who} sounds whenever they speak; its words, timing and background sound are not copied.`
+    `<Audio ${subject.audioIndex}> supplies the voice timbre, accent, cadence and delivery identity ` +
+    `for ${who}; its words, timing and background noise are not copied.`
   );
 }
 
@@ -244,26 +366,179 @@ export function voiceClause(audioIndex: number): string {
 /**
  * Say, at each line a voiced subject speaks, which recording it is spoken in.
  *
- * Runs on the bound prose, so it keys off `<Subject K>` rather than a name and
- * can never match inside `<d>`. The speaker's tag, verb and delivery must run
- * straight into the speech: a sentence break or another tag in between means
- * the line belongs to someone else, and an unnamed "he says" is left alone —
- * the binding in `subject_definitions` still covers it.
+ * Each `<d>` is attributed by its words, against the scene's dialogue, so a line
+ * introduced as "she speaks" or "his voice carries" is found as surely as one
+ * introduced with the speaker's name. Without dialogue, the subject tag in the
+ * same sentence with nothing between it and the speech decides, and an unnamed
+ * "a voice says" is left alone.
+ *
+ * The clause goes ahead of the speaker id and the colon introducing the speech,
+ * outside `<d>`, so it is direction and never words to be said.
  */
-function voiceSpokenLines(body: string, subjects: readonly H3ReferenceSubject[]): string {
-  return subjects.reduce((text, subject, index) => {
-    if (!subject.audioIndex) return text;
-    const speech = new RegExp(`(<Subject ${index + 1}>[^<.!?\\n]{0,160}?)(\\s*:\\s*|\\s+)(<d>)`, "g");
-    return text.replace(
-      speech,
-      (_match, head: string, separator: string, open: string) =>
-        `${head} ${voiceClause(subject.audioIndex!)}${separator}${open}`,
-    );
-  }, body);
+function voiceSpokenLines(
+  body: string,
+  subjects: readonly H3ReferenceSubject[],
+  speakers: readonly (string | undefined)[],
+  hasDialogue: boolean,
+): { body: string; voiced: Set<number> } {
+  const voiced = new Set<number>();
+  const tags = [...body.matchAll(/<d>[\s\S]*?<\/d>/g)];
+  let text = body;
+  for (let i = tags.length - 1; i >= 0; i -= 1) {
+    const open = tags[i]!.index!;
+    const owner = speakers[i]?.trim().toLocaleLowerCase();
+    let index = owner
+      ? subjects.findIndex((subject) => tidy(subject.name).toLocaleLowerCase() === owner)
+      : -1;
+    // Proximity only when there is no dialogue to ask. With dialogue, a tagged
+    // line it does not have belongs to nobody known: "Gripping Tracey's hips,
+    // Leroy says, …" put Tracey's voice on Leroy's line.
+    if (index < 0 && owner === undefined && !hasDialogue) {
+      const near = /<Subject (\d+)>[^<]*$/.exec(sentenceUpTo(text, open));
+      index = near ? Number(near[1]) - 1 : -1;
+    }
+    const audioIndex = subjects[index]?.audioIndex;
+    if (!audioIndex) continue;
+
+    let at = open;
+    const id = /\(S\d+\)\s*$/.exec(text.slice(0, at));
+    if (id) at = id.index;
+    at = /\s*[:,]?\s*$/.exec(text.slice(0, at))!.index;
+    text = `${text.slice(0, at)} ${voiceClause(audioIndex)}${text.slice(at)}`;
+    voiced.add(index);
+  }
+  return { body: text, voiced };
 }
 
-/** Everything inside `<d>…</d>`, which is spoken aloud and must not be edited. */
-const SPEECH = /<d>[\s\S]*?<\/d>/g;
+function sentenceUpTo(text: string, offset: number): string {
+  const before = text.slice(0, offset);
+  let start = 0;
+  for (const match of before.matchAll(/[.!?]["”']?\s+|<\/d>/g)) start = match.index! + match[0].length;
+  return before.slice(start);
+}
+
+/**
+ * The timeline prose with speech tagged, subjects bound and voices attached,
+ * plus what could not be attached.
+ */
+function timelineBody(parts: H3ReferencePromptParts) {
+  const voiced = parts.subjects.some((subject) => subject.audioIndex);
+  const source = voiced ? withoutInstructions(tidy(parts.body)) : tidy(parts.body);
+  const marking = markSceneDialogue(
+    source,
+    parts.dialogue,
+    parts.subjects.map((subject) => subject.name),
+  );
+  const { body, voiced: bound } = voiceSpokenLines(
+    bindSubjects(marking.text, parts.subjects),
+    parts.subjects,
+    marking.speakers,
+    parts.dialogue !== undefined,
+  );
+  return {
+    body: voiced ? closeDialogue(body) : body,
+    voiced: bound,
+    unmatched: marking.unmatched,
+    extras: marking.extras,
+  };
+}
+
+/**
+ * Sentences in a clip prompt that instruct rather than show.
+ *
+ * Each is added for a reason — identity continuity, an exclusion folded into
+ * positive text because H3 has no negative prompt, a request for lip sync —
+ * but none describes anything to see or hear, and with a voice reference
+ * attached H3 voiced such sentences in the character's voice. Removed only for
+ * voiced clips: there the photograph already holds identity, and the risk of a
+ * line of instructions being spoken outweighs what they add.
+ */
+const INSTRUCTION_SENTENCES = [
+  /^Lip movement matches the spoken words\.?$/i,
+  /^The start frame fixes how\b[^.]*\.?$/i,
+  /^Keep (?:face|faces)\b[^.]*\bunchanged\b[^.]*\.?$/i,
+  /^Render with\b[^.]*\.?$/i,
+  /^The frame is free of\b[^.]*\.?$/i,
+];
+
+function withoutInstructions(text: string): string {
+  const cut = text.indexOf(" Character continuity — ");
+  const kept = (cut >= 0 ? text.slice(0, cut) : text)
+    .replace(/,?\s*evolving from the start frame to the end frame over [\d.]+ seconds/gi, "")
+    // The phrase can follow a full stop the prompt already had ("matters.,").
+    .replace(/(?<!\.)\.\.(?!\.)/g, ".")
+    .split(/(?<=[.!?]["”’']?)\s+/)
+    .filter((sentence) => !INSTRUCTION_SENTENCES.some((pattern) => pattern.test(sentence.trim())));
+  return kept.join(" ").trim();
+}
+
+/** Wan2GP's own close to a voice-cloned line, after the last spoken line. */
+export const DIALOGUE_COMPLETE = "The dialogue is complete and no other words are spoken.";
+
+function closeDialogue(body: string): string {
+  const last = body.lastIndexOf("</d>");
+  if (last < 0) return body;
+  const at = last + "</d>".length;
+  return `${body.slice(0, at)} ${DIALOGUE_COMPLETE}${body.slice(at)}`;
+}
+
+/** Why a voiced subject's recording cannot safely be sent. */
+export type VoiceProblem = {
+  name: string;
+  /**
+   * `line_not_tagged`: one of their lines never reached the prompt as tagged
+   * speech. `unscripted_speech`: the prompt quotes speech the dialogue does not
+   * have, either theirs or nobody's in particular, which H3 could improvise in
+   * their voice.
+   */
+  reason: "line_not_tagged" | "unscripted_speech";
+};
+
+/**
+ * The voiced subjects whose recording cannot safely be sent.
+ *
+ * A recording is only safe when every line its speaker has in the scene
+ * reached the prompt as tagged speech carrying the voice clause, and no speech
+ * the dialogue lacks — tagged or not — sits where it could be theirs. Anything
+ * less hands H3 a voice with words it is free to make up — the failure that had
+ * a character reading her scene's description aloud. Unscripted speech whose
+ * sentence names nobody, or several people, could be anyone's, so it stops
+ * every voice. With no dialogue to check against, at least one bound line is
+ * required.
+ */
+export function voiceProblems(parts: H3ReferencePromptParts): VoiceProblem[] {
+  const { voiced, unmatched, extras } = timelineBody(parts);
+  const problems: VoiceProblem[] = [];
+  parts.subjects.forEach((subject, index) => {
+    if (!subject.audioIndex) return;
+    const name = tidy(subject.name).toLocaleLowerCase();
+    const same = (other: string | undefined) => other?.trim().toLocaleLowerCase() === name;
+    if (unmatched.some((entry) => same(entry.character)) || !voiced.has(index)) {
+      problems.push({ name: subject.name, reason: "line_not_tagged" });
+    } else if (extras.some((extra) => extra.speaker === undefined || same(extra.speaker))) {
+      problems.push({ name: subject.name, reason: "unscripted_speech" });
+    }
+  });
+  return problems;
+}
+
+/** The voiced subjects whose recording cannot safely be sent — see `voiceProblems`. */
+export function unvoicedSubjects(parts: H3ReferencePromptParts): string[] {
+  return voiceProblems(parts).map((problem) => problem.name);
+}
+
+/** Speech the prompt quotes that the scene's dialogue does not have. */
+export function unscriptedSpeech(parts: H3ReferencePromptParts): ExtraSpeech[] {
+  return timelineBody(parts).extras;
+}
+
+/**
+ * Everything spoken, which must not be edited: tagged speech, and any quotation
+ * left untagged. A name inside a quotation is who is being spoken to as often
+ * as not — "faster, Tracey" is someone else's line — and a tag there would be
+ * read out, or bind her face to the wrong speaker.
+ */
+const SPEECH = /<d>[\s\S]*?<\/d>|["“][^"“”\n]+["”]/g;
 
 /**
  * Where the scene's own description ends and the appended clauses begin.
@@ -336,7 +611,7 @@ function retentionLines(
   subjects: readonly H3ReferenceSubject[],
   hasVideoSource: boolean,
 ): string[] {
-  const { start, end } = anchorRefs(hasStart, hasEnd);
+  const { start, end } = anchorRefs(hasStart, hasEnd, hasVideoSource);
   const lines: string[] = [];
 
   if (hasVideoSource) {
@@ -374,9 +649,8 @@ function retentionLines(
   subjects.forEach((subject, index) => {
     if (!subject.audioIndex) return;
     lines.push(
-      `<Audio ${subject.audioIndex}> (heard in [Shot 1]): reference - <Subject ${index + 1}>'s ` +
-        "vocal identity is kept for every line they speak; the sample's words, timing and " +
-        "ambience are not reused.",
+      `<Audio ${subject.audioIndex}> (heard in [Shot 1]): reference - retain only the stable vocal ` +
+        `identity of <Subject ${index + 1}>; generate the requested words and performance anew.`,
     );
   });
 
@@ -390,11 +664,17 @@ function retentionLines(
  * continuous take by construction, and the guide warns that multi-shot prompts
  * make the model cut.
  */
-export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
+export function renderH3ReferencePrompt(input: H3ReferencePromptParts): string {
+  // The anchors are described by their contents alone; see `visibleFrameContent`.
+  const parts: H3ReferencePromptParts = {
+    ...input,
+    startFrameDescription: visibleFrameContent(input.startFrameDescription) || undefined,
+    endFrameDescription: visibleFrameContent(input.endFrameDescription) || undefined,
+  };
   const hasAnchors = parts.hasStart || parts.hasEnd;
   const hasVideoSource = Boolean(parts.hasVideoSource);
   const subjects = parts.subjects;
-  const { start, end } = anchorRefs(parts.hasStart, parts.hasEnd);
+  const { start, end } = anchorRefs(parts.hasStart, parts.hasEnd, hasVideoSource);
 
   const definitions = [
     ...(hasVideoSource
@@ -426,10 +706,13 @@ export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
   // than left in `subject_definitions` — this sentence sits immediately before
   // the agent's prose, which is the text the opening actually gets built from.
   const openingShows = summariseFrame(parts.startFrameDescription);
+  // With a voice attached H3 reads sentences that show nothing aloud, and this
+  // one was heard in two clips running ("the first change they described…").
+  const voiced = subjects.some((subject) => subject.audioIndex);
   const opening = start
     ? `The shot begins from ${start}${openingShows ? ` — ${openingShows} —` : ""}, holding its ` +
       "composition, camera position, framing, lighting and the subject's exact pose in that " +
-      "frame. Nothing happens before the first change described below."
+      `frame.${voiced ? "" : " Nothing happens before the first change described below."}`
     : "";
   const closing = end
     ? `The shot settles into the exact framing, subject position and lighting established by ` +
@@ -440,10 +723,7 @@ export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
       "or audio reset, and the first described action continues from that exact state."
     : "";
 
-  const body = voiceSpokenLines(
-    bindSubjects(markDialogue(tidy(parts.body)), subjects),
-    subjects,
-  ).replace(/^\[Shot 1\]\s*/, "");
+  const body = timelineBody(parts).body.replace(/^\[Shot 1\]\s*/, "");
   const style = tidy(parts.style);
   // The guide opens `detailed_description` with a whole-video statement ahead of
   // the first shot marker; the anchors are asserted in the sentences after it.
@@ -467,12 +747,12 @@ export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
       hasAnchors,
       subjects.length > 0,
       hasVideoSource,
-      subjects.some((subject) => subject.audioIndex),
-    )} ${journey} ${tidy(parts.summary)}`.trim(),
+      voiced,
+    )} ${journey} ${[tidy(parts.summary), voiced ? SPEECH_LIMIT : ""].filter(Boolean).join(" ")}`.trim(),
     retention_analysis:
       retentionLines(parts.hasStart, parts.hasEnd, subjects, hasVideoSource).join("\n") || "N/A",
     detailed_description: timeline,
-    overall_soundscape: tidy(parts.soundscape) || "N/A",
+    overall_soundscape: soundscapeWithVoices(parts.soundscape, subjects),
     non_diegetic_music: tidy(parts.score) || "N/A",
   };
 
@@ -490,6 +770,32 @@ export function renderH3ReferencePrompt(parts: H3ReferencePromptParts): string {
 /** Whether a prompt is already in this format. */
 export function isH3ReferencePrompt(prompt: string): boolean {
   return prompt.includes("subject_definitions:");
+}
+
+/** Closes the soundscape whenever a voice recording is sent. */
+export const NO_OTHER_SPEECH =
+  "No speech other than the marked lines; between them, only the ambience described.";
+
+/**
+ * The summary's statement of what is spoken, after Wan2GP's voice-clone prompt
+ * ("…with no extra words before or after it"). The summary states the task,
+ * which is where a restriction is read as one rather than as words to say.
+ */
+export const SPEECH_LIMIT = "Only the marked lines are spoken, with no extra words before or after them.";
+
+/**
+ * The soundscape, closed against invented speech when a voice is sent.
+ *
+ * A twenty-second clip carrying four seconds of dialogue leaves H3 sixteen
+ * seconds to fill, and holding a voice it filled them with speech. Said in the
+ * section that owns the soundtrack, so the silence between lines is something
+ * it was asked for rather than a gap.
+ */
+function soundscapeWithVoices(soundscape: string | undefined, subjects: readonly H3ReferenceSubject[]): string {
+  const described = tidy(soundscape);
+  if (!subjects.some((subject) => subject.audioIndex)) return described || "N/A";
+  if (!described) return NO_OTHER_SPEECH;
+  return `${described.replace(/[.\s]*$/, ".")} ${NO_OTHER_SPEECH}`;
 }
 
 /**

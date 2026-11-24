@@ -5,6 +5,7 @@ import Link from "next/link";
 import { LoraSelector } from "@/components/settings/lora-selector";
 import { ConceptImages } from "@/components/settings/concept-images";
 import { ClimaxSettings } from "@/components/settings/climax-settings";
+import { DialogueSyncPanel } from "@/components/storyboard/dialogue-sync-panel";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import type { LoraSelectionSet } from "@/lib/schemas/lora";
 import type { WangpModel } from "@/lib/schemas/wangp";
@@ -371,6 +372,20 @@ export function ProjectSettings({ projectId }: { projectId: string }) {
           save({ climax: climax.trim() || null, aftermathScenes: aftermathScenes ?? null })
         }
       />
+
+      {record.storyboard?.scenes.length ? (
+        <section className="space-y-3 rounded-lg border border-white/10 bg-panel/40 p-4" data-testid="dialogue-sync-settings">
+          <h2 className="font-semibold">Scene dialogue</h2>
+          <p className="text-sm text-slate-400">
+            Generation speaks each scene card&apos;s dialogue: it decides which quoted words in the
+            video prompt are dialogue, who says each line and whose voice sample is used. If you
+            changed what characters say in the video prompts, copy that wording back to the scene
+            cards here. Every scene is previewed first and nothing is saved until you apply it; the
+            prompts themselves are not changed.
+          </p>
+          <DialogueSyncPanel projectId={projectId} scope="project" disabled={busy} onApplied={setRecord} />
+        </section>
+      ) : null}
 
       <section className="space-y-4 rounded-lg border border-white/10 bg-panel/40 p-4">
         <div className="flex items-baseline justify-between">

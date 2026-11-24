@@ -437,6 +437,26 @@ export default function HelpPage() {
             and split evenly: 15 seconds for one speaker, 7.5 each for two, 5 each for three — so
             put the cleanest speech first. First-and-last-frame mode has no voice input and ignores
             the recording. Lip sync and voice likeness are not guaranteed; listen to the result.
+            The voice is tied to the character&apos;s lines from the scene card. A line you have
+            reworded in the video prompt still counts as long as most of its words survive, and
+            H3 says your version. If a line has been rewritten beyond recognition or left out, or
+            the prompt quotes speech that is not on the scene card, the voice is left out of that
+            clip and the attempt shows a warning saying so, rather than letting H3 make up speech
+            in that voice. Edit the scene&apos;s dialogue or the video prompt so they agree, then
+            render the video again.
+          </p>
+          <p className={p}>
+            <strong>Copying dialogue from the video prompt.</strong> The scene card&apos;s dialogue,
+            not the video prompt, decides which quoted words are spoken as dialogue, who says each
+            line and whose voice sample is used. If you changed what someone says in a video prompt,
+            copy it back: open a scene&apos;s <strong>Prompts</strong> and use{" "}
+            <strong>Copy dialogue from the video prompt to the scene card</strong>, or do every scene
+            at once from the project&apos;s Settings page under <strong>Scene dialogue</strong>. Both
+            show a preview first — the card now, the card afterwards, which lines were reworded,
+            which are new and which would be removed — with each speaker editable and every guess
+            marked. A scene whose prompt quotes no speech at all is not ticked in the project-wide
+            copy, because that usually means the prompt left a line out. Nothing is saved until you
+            apply it, and the prompts themselves are never changed.
           </p>
           <p className={p}>
             Every time quoted above was measured on {ESTIMATE_HARDWARE} at 848×480, and yours will

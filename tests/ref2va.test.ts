@@ -13,9 +13,16 @@ import {
   renderH3ReferencePrompt,
   stripH3ReferencePrompt,
   summariseFrame,
+  unvoicedSubjects,
   usesH3ReferenceFormat,
+  visibleFrameContent,
+  voiceProblems,
+  NO_OTHER_SPEECH,
+  SPEECH_LIMIT,
+  DIALOGUE_COMPLETE,
   type H3ReferenceSubject,
 } from "@/lib/agents/h3-reference-prompt";
+import { markDialogue, markSceneDialogue } from "@/lib/agents/h3-prompt";
 import type { WangpModel, WangpModelSchema } from "@/lib/schemas/wangp";
 
 /**
@@ -322,11 +329,11 @@ describe("the six-section prompt", () => {
       startFrameDescription: "Wide shot, eye level, a woman stands at a rain-streaked window.",
       endFrameDescription: "Close-up of her eyes as she turns away.",
     });
-    expect(described).toContain("showing wide shot, eye level, a woman stands at a rain-streaked window.");
+    expect(described).toContain("showing a woman stands at a rain-streaked window.");
     expect(described).toContain("showing close-up of her eyes as she turns away.");
     // Repeated in the description, where the opening is actually built from.
     const body = described.slice(described.indexOf("detailed_description:"));
-    expect(body).toContain("a woman stands at a rain-streaked window");
+    expect(body).toContain("A woman stands at a rain-streaked window");
     expect(body).toContain("Nothing happens before the first change");
   });
 
@@ -374,6 +381,92 @@ describe("the six-section prompt", () => {
   });
 });
 
+/**
+ * What an anchor picture is said to show.
+ *
+ * Taken from a live clip whose first thirteen seconds were the keyframe
+ * prompt's style, audience and camera wording read aloud in the character's
+ * voice, before her one line.
+ */
+describe("describing an anchor picture to H3", () => {
+  const START =
+    "Medium close-up, eye level with a slight downward tilt from behind and to the left of TLBr3f, " +
+    "fifty millimeter lens. erotic art film style, raw and carnal mood. Intended audience: adults " +
+    "only, explicit content. Center-frame she stands on weathered coastal hardwood decking, her bare " +
+    "back three-quarters turned toward camera. Exactly two people are in frame: one woman standing " +
+    "center-frame and one man face-down left background.";
+  const END =
+    "Medium wide shot, high angle, fifty millimeter lens, from behind and to the right of TLBr3f on " +
+    "weathered coastal hardwood decking. erotic art film style, raw and carnal mood. She walks briskly " +
+    "away from camera toward a white condo door. Exactly one person is in frame: a woman walking " +
+    "center-frame to the door. Wardrobe continuity — TLBr3f is completely naked with no clothing.";
+
+  it("keeps what the picture contains and drops what was written for the image model", () => {
+    expect(visibleFrameContent(START)).toBe(
+      "Center-frame she stands on weathered coastal hardwood decking, her bare back three-quarters " +
+        "turned toward camera.",
+    );
+    expect(visibleFrameContent(END)).toBe("She walks briskly away from camera toward a white condo door.");
+  });
+
+  it("keeps the contents of an opening that also places the camera", () => {
+    expect(visibleFrameContent("Full shot, eye level, 50mm: Mara walks along the surf line.")).toBe(
+      "Mara walks along the surf line.",
+    );
+    expect(visibleFrameContent("Wide shot, eye level, a woman stands at a window.")).toBe(
+      "A woman stands at a window.",
+    );
+    expect(visibleFrameContent("Medium shot of Mara at a rain-streaked window.")).toBe(
+      "Medium shot of Mara at a rain-streaked window.",
+    );
+  });
+
+  it("leaves a sentence that only sounds like the look alone", () => {
+    expect(visibleFrameContent("Mara laughs. She is in a playful mood.")).toBe(
+      "Mara laughs. She is in a playful mood.",
+    );
+  });
+
+  it("puts none of the image model's directions into the prompt", () => {
+    const prompt = renderH3ReferencePrompt({
+      body: 'TLBr3f says, "Come on."',
+      subjects: [{ name: "TLBr3f", pictureIndex: 3, audioIndex: 1 }],
+      hasStart: true,
+      hasEnd: true,
+      startFrameDescription: START,
+      endFrameDescription: END,
+      dialogue: [{ character: "TLBr3f", line: "Come on." }],
+    });
+    for (const leaked of ["Intended audience", "carnal mood", "millimeter", "Exactly two people", "Wardrobe continuity"]) {
+      expect(prompt).not.toContain(leaked);
+    }
+    expect(prompt).toContain("showing center-frame she stands on weathered coastal hardwood decking");
+  });
+});
+
+describe("the soundscape when a voice is sent", () => {
+  const render = (audioIndex: number | undefined, soundscape?: string) =>
+    renderH3ReferencePrompt({
+      body: 'Mara says, "Go."',
+      subjects: [{ ...MARA, audioIndex }],
+      hasStart: true,
+      hasEnd: true,
+      soundscape,
+    });
+
+  it("asks for silence between the marked lines", () => {
+    expect(render(1, "Footsteps on wood")).toContain(
+      `overall_soundscape: Footsteps on wood. ${NO_OTHER_SPEECH}`,
+    );
+    expect(render(1)).toContain(`overall_soundscape: ${NO_OTHER_SPEECH}`);
+  });
+
+  it("is unchanged without a voice", () => {
+    expect(render(undefined, "Footsteps on wood")).toContain("overall_soundscape: Footsteps on wood\n");
+    expect(render(undefined)).toContain("overall_soundscape: N/A");
+  });
+});
+
 describe("tagging a spoken line", () => {
   const tagged = (body: string) =>
     renderH3ReferencePrompt({ body, subjects: [], hasStart: true, hasEnd: true });
@@ -397,6 +490,149 @@ describe("tagging a spoken line", () => {
   it("leaves prose that merely reports speech alone", () => {
     const rendered = tagged("She says the room is cold and nobody answers.");
     expect(rendered).not.toContain("<d>");
+  });
+});
+
+/**
+ * Tagging from the scene's own dialogue.
+ *
+ * Taken from a live project where only "says" was recognised: the two lines
+ * introduced with "speaks" and "his voice carries" reached H3 as description,
+ * and with a voice recording attached the character improvised in that voice.
+ */
+describe("tagging speech from the scene's dialogue", () => {
+  const DIALOGUE = [
+    { character: "TLBr3f", line: "Still got it. Bare feet on wet sand beats sandals any day." },
+    { character: "Darius", line: "Yeah... yeah, it does." },
+  ];
+  const SCENE_ONE =
+    'Mid-stride she speaks while keeping steady pace: "Still got it. Bare feet on wet sand beats ' +
+    'sandals any day." Then she stops. His voice carries as his beard breaks the corner: ' +
+    '"Yeah... yeah, it does."';
+
+  it("tags every line whatever verb introduces it, naming an unnamed speaker", () => {
+    const { text, speakers, unmatched } = markSceneDialogue(SCENE_ONE, DIALOGUE);
+    // "she" is the only person in her sentence, so it becomes her name; "his
+    // voice" has no pronoun to replace, so his name goes before the tag.
+    expect(text).toContain(
+      "Mid-stride TLBr3f speaks while keeping steady pace: (S1) <d>[English] Still got it. Bare feet on wet sand beats sandals any day.</d>",
+    );
+    expect(text).toContain("corner: Darius (S2) <d>[English] Yeah... yeah, it does.</d>");
+    expect(speakers).toEqual(["TLBr3f", "Darius"]);
+    expect(unmatched).toEqual([]);
+  });
+
+  it.each([
+    ['The tide turns. She shouts "any spoken word"', "The tide turns. TLBr3f shouts (S1) <d>"],
+    ['She cries out "please help me" as the wave hits.', "TLBr3f cries out (S1) <d>"],
+    ['She raises her hand and cries out "please help me"', "TLBr3f raises her hand and cries out (S1) <d>"],
+  ])("replaces the lone pronoun with the speaker: %s", (body, expected) => {
+    const { text } = markSceneDialogue(body, [
+      { character: "TLBr3f", line: "Any spoken word!" },
+      { character: "TLBr3f", line: "Please help me." },
+    ]);
+    expect(text).toContain(expected);
+  });
+
+  it.each([
+    ['She watches as he shouts "please help me"', "two people of either kind"],
+    ['Darius turns as she cries out "please help me"', "another named person"],
+    ['She sees she cannot run and cries out "please help me"', "the pronoun twice"],
+    ['They run and she cries out "please help me"', "a plural"],
+  ])("keeps the pronoun when the sentence may be about two people: %s (%s)", (body) => {
+    const { text } = markSceneDialogue(
+      body,
+      [{ character: "TLBr3f", line: "Please help me." }],
+      ["Darius"],
+    );
+    expect(text).toContain("TLBr3f (S1) <d>[English] please help me</d>");
+    expect(text).not.toMatch(/TLBr3f (?:watches|sees|cries out \(S1\))/);
+  });
+
+  it("does not repeat a name the sentence already gives", () => {
+    const { text } = markSceneDialogue(
+      'TLBr3f speaks in a low steady voice: "Don\'t try. That\'s the whole trick."',
+      [{ character: "TLBr3f", line: "Don't try. That's the whole trick." }],
+    );
+    expect(text).toBe(
+      "TLBr3f speaks in a low steady voice: (S1) <d>[English] Don't try. That's the whole trick.</d>",
+    );
+  });
+
+  it("keeps the established form for a line introduced with says", () => {
+    const { text, speakers } = markSceneDialogue(
+      'Darius says low and unhurried, "You got a body that don\'t even try."',
+      [{ character: "Darius", line: "You got a body that don't even try." }],
+    );
+    expect(text).toBe(
+      "Darius (S1) says low and unhurried: <d>[English] You got a body that don't even try.</d>",
+    );
+    expect(speakers).toEqual(["Darius"]);
+  });
+
+  it("matches across quote style, case and punctuation, and a line split by its delivery", () => {
+    const { text, speakers, unmatched } = markSceneDialogue(
+      "She grins. “still got it,” she murmurs. “Bare feet on wet sand beats sandals any day”",
+      [DIALOGUE[0]!],
+    );
+    expect(text.match(/<d>/g)).toHaveLength(2);
+    expect(text.match(/\(S1\)/g)).toHaveLength(2);
+    expect(speakers).toEqual(["TLBr3f", "TLBr3f"]);
+    expect(unmatched).toEqual([]);
+  });
+
+  it("leaves a quote that is not a line of the scene alone", () => {
+    const { text, unmatched, extras } = markSceneDialogue('A sign reads "CLOSED". She stays silent.', DIALOGUE);
+    expect(text).not.toContain("<d>");
+    expect(unmatched).toEqual(DIALOGUE);
+    // A sign is not speech, so it is not reported either.
+    expect(extras).toEqual([]);
+  });
+
+  it("reports speech the scene's dialogue does not have, and who it belongs to", () => {
+    const { extras } = markSceneDialogue(
+      'TLBr3f says, "Hi." Later she cries out "please help me". Darius yells "Run!" ' +
+        'Darius says, "Over here."',
+      [{ character: "TLBr3f", line: "Hi." }],
+      ["Darius"],
+    );
+    expect(extras).toEqual([
+      { words: "Over here.", tagged: true, speaker: "Darius" },
+      { words: "please help me", tagged: false, speaker: undefined },
+      { words: "Run!", tagged: false, speaker: "Darius" },
+    ]);
+  });
+
+  it("reports nothing when there is no dialogue to compare against", () => {
+    expect(markSceneDialogue('She cries out "please help me"').extras).toEqual([]);
+  });
+
+  it("does not count a stage direction in the dialogue as a line to find", () => {
+    const { unmatched } = markSceneDialogue('Colin says, "Can I?"', [
+      { character: "Colin", line: "Can I?" },
+      { character: "Tracey", line: "(Nods)" },
+      { character: "Tracey", line: "[sharp inhale]" },
+    ]);
+    expect(unmatched).toEqual([]);
+  });
+
+  it("does not treat a 'said' inside a quoted line as the start of another", () => {
+    const line = "...You said just standing there was all you needed.";
+    const { text, unmatched } = markSceneDialogue(
+      `She steps closer, voice low: "${line}" He answers, "I'm changing what's enough."`,
+      [
+        { character: "Mara", line },
+        { character: "Jon", line: "I'm changing what's enough." },
+      ],
+    );
+    expect(text).toContain(`<d>[English] ${line}</d>`);
+    expect(text).not.toContain("You (S");
+    expect(unmatched).toEqual([]);
+  });
+
+  it("is the verb rule alone when there is no dialogue", () => {
+    expect(markSceneDialogue(SCENE_ONE).text).toBe(markDialogue(SCENE_ONE));
+    expect(markDialogue(SCENE_ONE)).not.toContain("<d>");
   });
 });
 
@@ -462,8 +698,8 @@ describe("a character's voice recording", () => {
     const definitions = section(voiced("Mara waits."), "subject_definitions:", "summary:");
     const lines = definitions.split("\n");
     const subject = lines.findIndex((line) => line.startsWith("<Subject 1> is Mara"));
-    expect(lines[subject + 1]).toMatch(/^<Audio 1> is the voice of <Subject 1>:/);
-    expect(lines[subject + 1]).toContain("its words, timing and background sound are not copied");
+    expect(lines[subject + 1]).toMatch(/^<Audio 1> supplies the voice timbre, accent, cadence and delivery identity for <Subject 1>;/);
+    expect(lines[subject + 1]).toContain("its words, timing and background noise are not copied");
   });
 
   it("names the audio reference as one of the job's tasks", () => {
@@ -474,7 +710,7 @@ describe("a character's voice recording", () => {
 
   it("retains the voice with the guide's audio marker, not a visual one", () => {
     const analysis = section(voiced("Mara waits."), "retention_analysis:", "detailed_description:");
-    expect(analysis).toContain("<Audio 1> (heard in [Shot 1]): reference - <Subject 1>'s vocal identity");
+    expect(analysis).toContain("<Audio 1> (heard in [Shot 1]): reference - retain only the stable vocal identity of <Subject 1>");
   });
 
   it("says which recording each line is spoken in, outside the spoken words", () => {
@@ -502,13 +738,13 @@ describe("a character's voice recording", () => {
       MARA,
       { ...JON, audioIndex: 1 },
     ]);
-    expect(prompt).toContain("<Audio 1> is the voice of <Subject 2>");
+    expect(prompt).toContain("<Audio 1> supplies the voice timbre, accent, cadence and delivery identity for <Subject 2>");
     expect(prompt).toContain("<Subject 2> (S2) says in the voice from <Audio 1>");
   });
 
   it("keeps the binding when the line has no named speaker to attach to", () => {
     const prompt = voiced('Mara waits. A voice says, "Not tonight."');
-    expect(prompt).toContain("<Audio 1> is the voice of <Subject 1>");
+    expect(prompt).toContain("<Audio 1> supplies the voice timbre, accent, cadence and delivery identity for <Subject 1>");
     expect(prompt).not.toContain("in the voice from <Audio 1>");
   });
 
@@ -539,6 +775,173 @@ describe("a character's voice recording", () => {
     const plain = stripH3ReferencePrompt(voiced('Mara says, "Go."'));
     expect(plain).not.toContain("<Audio");
     expect(plain).toContain('"Go."');
+  });
+
+  /**
+   * Sentences that show nothing were voiced in the character's voice once a
+   * recording was attached: "Nothing happens before the first change described
+   * below" and the restriction this block used to add were both heard spoken.
+   */
+  it("limits speech in the summary and after the lines, not in sentences that could be read out", () => {
+    const prompt = voiced('Mara says, "Go."');
+    expect(prompt).not.toContain("speaks only the lines marked as theirs");
+    expect(prompt).not.toContain("Nothing happens before the first change");
+    const summary = prompt.slice(prompt.indexOf("summary:"), prompt.indexOf("retention_analysis:"));
+    expect(summary).toContain(SPEECH_LIMIT);
+    expect(summary).not.toContain("  ");
+    expect(prompt).toContain(`<d>[English] Go.</d> ${DIALOGUE_COMPLETE}`);
+  });
+
+  it("takes instruction sentences out of a voiced clip's timeline", () => {
+    const body =
+      'Mara walks to the door. Camera: slow push-in so only the door matters., evolving from the start ' +
+      'frame to the end frame over 20 seconds. While the movement continues, Mara says, "Go... now." Lip movement matches the ' +
+      "spoken words. The start frame fixes how Mara look. Keep face, hair, wardrobe and lighting " +
+      "unchanged throughout. Render with correct natural anatomy.";
+    const description = (prompt: string) => prompt.slice(prompt.indexOf("detailed_description:"));
+
+    const withVoice = description(voiced(body));
+    for (const gone of ["evolving from the start frame", "Lip movement", "The start frame fixes", "Keep face", "Render with"]) {
+      expect(withVoice).not.toContain(gone);
+    }
+    expect(withVoice).toContain("Camera: slow push-in so only the door matters. While");
+    expect(withVoice).toContain("<d>[English] Go... now.</d>");
+    expect(withVoice).toContain("<Subject 1> walks to the door.");
+
+    // Without a voice, nothing is removed.
+    const withoutVoice = description(voiced(body, [{ ...MARA }]));
+    expect(withoutVoice).toContain("Lip movement matches the spoken words.");
+    expect(withoutVoice).toContain("Nothing happens before the first change");
+    expect(withoutVoice).not.toContain(DIALOGUE_COMPLETE);
+  });
+
+  it("finds the speaker of a line from the dialogue, not from a name beside it", () => {
+    const prompt = renderH3ReferencePrompt({
+      body: 'Mid-stride she speaks while keeping steady pace: "Still got it." Jon nods.',
+      subjects: [{ ...MARA, name: "TLBr3f", audioIndex: 1 }],
+      hasStart: true,
+      hasEnd: true,
+      dialogue: [{ character: "TLBr3f", line: "Still got it." }],
+    });
+    expect(prompt).toContain(
+      "Mid-stride <Subject 1> speaks while keeping steady pace in the voice from <Audio 1>: (S1) <d>[English] Still got it.</d>",
+    );
+  });
+
+  it("reports a voiced subject whose line never reached the prompt", () => {
+    const parts = {
+      body: 'Mara mutters, "Maybe later."',
+      subjects: [{ ...MARA, audioIndex: 1 }],
+      hasStart: true,
+      hasEnd: true,
+    };
+    expect(unvoicedSubjects({ ...parts, dialogue: [{ character: "Mara", line: "Not tonight." }] }))
+      .toEqual(["Mara"]);
+    expect(unvoicedSubjects({ ...parts, dialogue: [{ character: "Mara", line: "Maybe later." }] }))
+      .toEqual([]);
+    // Without dialogue, an unattributable line cannot carry the voice either.
+    expect(unvoicedSubjects({ ...parts, body: 'Mara waits. A voice says, "Go."' })).toEqual(["Mara"]);
+  });
+
+  it("withholds a voice when the prompt quotes speech the dialogue lacks", () => {
+    const parts = {
+      subjects: [{ ...MARA, audioIndex: 1 }, { name: "Jon", pictureIndex: 4, audioIndex: 2 }],
+      hasStart: true,
+      hasEnd: true,
+      dialogue: [
+        { character: "Mara", line: "Not tonight." },
+        { character: "Jon", line: "Then when?" },
+      ],
+    };
+    const lines = 'Mara says, "Not tonight." Jon says, "Then when?"';
+
+    // Named: only that speaker's voice is at risk.
+    expect(voiceProblems({ ...parts, body: `${lines} Jon shouts "Wait!"` })).toEqual([
+      { name: "Jon", reason: "unscripted_speech" },
+    ]);
+    // Nobody named: it could be either of them.
+    expect(voiceProblems({ ...parts, body: `${lines} Someone cries out "Help!"` })).toEqual([
+      { name: "Mara", reason: "unscripted_speech" },
+      { name: "Jon", reason: "unscripted_speech" },
+    ]);
+    expect(voiceProblems({ ...parts, body: lines })).toEqual([]);
+  });
+
+  /**
+   * A name inside a quotation is usually who is being spoken to: "faster,
+   * Tracey" is Leroy's line. It must neither be tagged nor decide whose voice
+   * the line is in.
+   */
+  describe("a voiced character named in someone else's line", () => {
+    const tracey = { name: "Tracey", pictureIndex: 3, audioIndex: 1 };
+    const dialogue = [
+      { character: "Tracey", line: "Oh god, yes." },
+      { character: "Leroy", line: "Faster, take it faster, baby." },
+    ];
+    const render = (leroy: string) => {
+      const parts = {
+        body: `Tracey gasps, "Oh god, yes." ${leroy}`,
+        subjects: [tracey],
+        hasStart: true,
+        hasEnd: true,
+        dialogue,
+      };
+      return { prompt: renderH3ReferencePrompt(parts), problems: voiceProblems(parts) };
+    };
+
+    it("leaves the name in the quotation and keeps her voice for her own line", () => {
+      const { prompt, problems } = render('Leroy growls, "Come here, Tracey."');
+      expect(prompt).toContain('"Come here, Tracey."');
+      expect(prompt).not.toContain("Come here, <Subject 1>");
+      expect(problems).toEqual([]);
+    });
+
+    it("never puts her voice on his line because she is named nearby", () => {
+      const { prompt, problems } = render(
+        'Gripping Tracey\'s hips, Leroy says, "Faster, take it faster, Tracey."',
+      );
+      expect(prompt).toContain("<d>[English] Faster, take it faster, Tracey.</d>");
+      expect(prompt).not.toMatch(/Leroy \(S\d\) says in the voice from/);
+      // The reworded line is still Leroy's card line, so her voice is safe.
+      expect(problems).toEqual([]);
+    });
+
+    it("credits his reworded line to him even when the sentence only says he", () => {
+      const { prompt, problems } = render('He growls, "Faster, take it faster, Tracey, my girl."');
+      expect(prompt).toContain("Leroy growls, (S2) <d>[English] Faster, take it faster, Tracey, my girl.</d>");
+      expect(prompt).not.toContain("in the voice from <Audio 1>, (S2)");
+      expect(problems).toEqual([]);
+    });
+  });
+
+  describe("a line reworded in the video prompt", () => {
+    const lines = [
+      { character: "Leroy", line: "Faster, take it faster, baby." },
+      { character: "Tracey", line: "Fuck... keep going." },
+    ];
+
+    it.each([
+      ["Faster — take it faster, Tracey, my little slut.", "Leroy"],
+      ["Fuck yeah!... keep going.", "Tracey"],
+    ])("is still the card line it came from: %s", (quote, speaker) => {
+      const { speakers, unmatched } = markSceneDialogue(`Someone cries out, "${quote}"`, lines);
+      expect(speakers).toEqual([speaker]);
+      expect(unmatched.map((entry) => entry.character)).not.toContain(speaker);
+    });
+
+    it("is not matched on a few shared words", () => {
+      const { speakers } = markSceneDialogue('He says, "Take it slow and look at me."', lines);
+      expect(speakers).toEqual([undefined]);
+    });
+
+    it("is left unmatched when two speakers' lines are equally close", () => {
+      const { speakers, extras } = markSceneDialogue('Someone says, "Come here and hold me now."', [
+        { character: "Mara", line: "Come here and hold me close." },
+        { character: "Jon", line: "Come here, hold me now, please." },
+      ]);
+      expect(speakers).toEqual([undefined]);
+      expect(extras).toHaveLength(1);
+    });
   });
 });
 
@@ -717,8 +1120,10 @@ describe("the Ref2VA manifest", () => {
     expect(manifest.settings.image_refs).toEqual(["/frames/end.png", "/refs/mara.png"]);
     expect(prompt).toContain("<Video 1> supplies the source clip being continued");
     expect(prompt).toContain("[video continuation + keyframe completion + reference generation]");
-    expect(prompt).toContain("<Picture 1> is the last frame of [Shot 1]");
-    expect(prompt).toContain("<Subject 1> is Mara, shown in <Picture 2>");
+    // WanGP shows the continued frame first, then the end frame, then photos.
+    expect(prompt).toContain("<Picture 1> is the final frame of <Video 1>, the frame [Shot 1] begins from.");
+    expect(prompt).toContain("<Picture 2> is the last frame of [Shot 1]");
+    expect(prompt).toContain("<Subject 1> is Mara, shown in <Picture 3>");
     expect(prompt).toContain("begins immediately after <Video 1>'s final frame");
   });
 
@@ -749,7 +1154,8 @@ describe("the Ref2VA manifest", () => {
     expect(manifest.settings.image_end).toBe("/frames/end.png");
     expect(manifest.settings.image_prompt_type).toBe("EV");
     expect(manifest.settings.image_refs).toEqual(["/refs/mara.png"]);
-    expect(String(manifest.settings.prompt)).toContain("<Picture 1> is the last frame");
+    expect(String(manifest.settings.prompt)).toContain("<Picture 2> is the last frame");
+    expect(String(manifest.settings.prompt)).toContain("<Subject 1> is Mara, shown in <Picture 3>");
   });
 
   it("refuses a single anchor rather than rendering from the prompt alone", async () => {
@@ -803,7 +1209,7 @@ describe("voice references on the Ref2VA manifest", () => {
     expect(manifest.settings.audio_guide).toBe("/voices/jon.wav");
     expect(manifest.settings.audio_guide2).toBeUndefined();
     expect(manifest.settings.audio_prompt_type).toBe("A");
-    expect(prompt).toContain("<Audio 1> is the voice of <Subject 2>");
+    expect(prompt).toContain("<Audio 1> supplies the voice timbre, accent, cadence and delivery identity for <Subject 2>");
     expect(prompt).toContain("<Subject 2> (S1) says in the voice from <Audio 1>: <d>[English] We go now.</d>");
   });
 
@@ -823,7 +1229,7 @@ describe("voice references on the Ref2VA manifest", () => {
     expect(manifest.settings.audio_prompt_type).toBe("AB");
   });
 
-  it("records a voice whose line it could not find, and still sends it", async () => {
+  async function withLog<T>(run: (logEvent: ReturnType<typeof vi.fn>) => Promise<T>): Promise<T> {
     vi.resetModules();
     const logEvent = vi.fn();
     vi.doMock("@/lib/telemetry", async (original) => ({
@@ -831,29 +1237,80 @@ describe("voice references on the Ref2VA manifest", () => {
       logEvent,
     }));
     try {
-      const { setWangpClient } = await import("@/lib/wangp/factory");
-      setWangpClient(new VoicedRef2vaClient());
-      const { buildVideoManifest } = await import("@/lib/services/wangp-service");
-
-      const manifest = await buildVideoManifest({
-        sceneId: "s1",
-        prompt: 'Mara waits. A voice says, "Not tonight."',
-        modelStrategy: "auto",
-        modelType: "minimax_h3_ref2va",
-        imageStart: "/frames/start.png",
-        imageEnd: "/frames/end.png",
-        durationSeconds: 14,
-        cast: [{ ...MARA_CAST, characterId: "mara-id", voicePath: "/voices/mara.wav" }],
-      });
-
-      expect(manifest.settings.audio_guide).toBe("/voices/mara.wav");
-      expect(logEvent).toHaveBeenCalledWith(
-        "wangp.ref2va.voice_unbound",
-        expect.objectContaining({ sceneId: "s1", characterId: "mara-id" }),
-      );
+      return await run(logEvent);
     } finally {
       vi.doUnmock("@/lib/telemetry");
     }
+  }
+
+  async function voicedManifest(prompt: string, dialogue: { character: string; line: string }[]) {
+    const { setWangpClient } = await import("@/lib/wangp/factory");
+    setWangpClient(new VoicedRef2vaClient());
+    const { buildVideoManifest } = await import("@/lib/services/wangp-service");
+    return buildVideoManifest({
+      sceneId: "s1",
+      prompt,
+      modelStrategy: "auto",
+      modelType: "minimax_h3_ref2va",
+      imageStart: "/frames/start.png",
+      imageEnd: "/frames/end.png",
+      durationSeconds: 14,
+      cast: [{ ...MARA_CAST, characterId: "mara-id", voicePath: "/voices/mara.wav" }],
+      dialogue,
+    });
+  }
+
+  /**
+   * A voice with no tagged words was heard improvising — reading the scene's
+   * description aloud in the character's voice — so it is withheld instead.
+   */
+  it("withholds a voice whose line it could not find, and says why", async () => {
+    await withLog(async (logEvent) => {
+      const manifest = await voicedManifest('Mara waits, then mutters, "Maybe later."', [
+        { character: "Mara", line: "Not tonight." },
+      ]);
+
+      expect(manifest.settings.audio_guide).toBeUndefined();
+      expect(manifest.settings.audio_prompt_type).toBe("");
+      expect(String(manifest.settings.prompt)).not.toContain("<Audio");
+      expect(manifest.promptWarnings?.some((w) => w.includes("Mara's voice sample was not sent"))).toBe(true);
+      expect(logEvent).toHaveBeenCalledWith(
+        "wangp.ref2va.voice_skipped",
+        expect.objectContaining({ sceneId: "s1", characterId: "mara-id", reason: "line_not_tagged" }),
+      );
+    });
+  });
+
+  it("sends the voice when the line is introduced with any verb", async () => {
+    await withLog(async () => {
+      const manifest = await voicedManifest('Mara speaks in a low steady voice: "Not tonight."', [
+        { character: "Mara", line: "Not tonight." },
+      ]);
+
+      expect(manifest.settings.audio_guide).toBe("/voices/mara.wav");
+      expect(String(manifest.settings.prompt)).toContain(
+        "<Subject 1> speaks in a low steady voice in the voice from <Audio 1>: (S1) <d>[English] Not tonight.</d>",
+      );
+      expect(manifest.promptWarnings ?? []).toEqual([]);
+    });
+  });
+
+  it("warns about unscripted speech and withholds the voice it could be in", async () => {
+    await withLog(async (logEvent) => {
+      const manifest = await voicedManifest(
+        'Mara says, "Not tonight." Later she cries out "please help me".',
+        [{ character: "Mara", line: "Not tonight." }],
+      );
+
+      expect(manifest.settings.audio_guide).toBeUndefined();
+      const warnings = manifest.promptWarnings ?? [];
+      expect(warnings.some((w) => w.includes("quotes speech that is not in the scene's dialogue"))).toBe(true);
+      expect(warnings.some((w) => w.includes('"please help me" reads as speech'))).toBe(true);
+      expect(logEvent).toHaveBeenCalledWith(
+        "wangp.ref2va.voice_skipped",
+        expect.objectContaining({ characterId: "mara-id", reason: "unscripted_speech" }),
+      );
+    });
   });
 });
 
@@ -898,8 +1355,10 @@ describe.each(H3_OMNI_MODEL_TYPES)("%s reference manifests", (modelType) => {
       expect(manifest.settings.video_prompt_type).toBe("I");
       expect(manifest.settings.multi_prompts_gen_type).toBe("FG");
       expect(String(manifest.settings.prompt)).toContain("subject_definitions:");
+      // The keyframes come first in WanGP's picture order whichever way they
+      // are sent, so the photograph is the third picture either way.
       expect(String(manifest.settings.prompt)).toContain(
-        `<Subject 1> is Mara, shown in <Picture ${nativeKeyframes ? 1 : 3}>`,
+        "<Subject 1> is Mara, shown in <Picture 3>",
       );
     },
   );

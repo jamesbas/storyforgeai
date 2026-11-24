@@ -1181,13 +1181,98 @@ WanGP counts only `image_refs` against audio references, and keyframes sent thro
 native start/end inputs are not among them, so a voice without a photograph cannot be
 sent; requiring the photograph is also what gives the voice a `<Subject N>` to bind
 to. The prompt binds it three times: an `<Audio N> is the voice of <Subject K>` line
-directly after the subject's definition, an audio-marker `reference` line in
+directly after the subject's definition (ending "speaks only the lines marked as
+theirs and says nothing else"), an audio-marker `reference` line in
 `retention_analysis`, and `in the voice from <Audio N>` beside each of that subject's
-speech verbs, outside `<d>` so the storyboard's words are still what is said. A line
-whose speaker cannot be found keeps the definition and logs
-`wangp.ref2va.voice_unbound`; a withheld recording logs `wangp.ref2va.voice_skipped`
-with its reason. Trimming is left to WanGP, which reads each reference from its start
-and caps the total at 15 s split evenly.
+lines, outside `<d>` so the storyboard's words are still what is said.
+
+**Speech is tagged from the scene's dialogue, not from its verb.** `markSceneDialogue`
+(`lib/agents/h3-prompt.ts`) keeps the old rule for "says"/"said", then tags every
+other quoted passage that matches a line of `scene.dialogue` — ignoring quote style,
+case and punctuation, and accepting a line split by its delivery — and attributes it
+to that line's speaker, naming the speaker before the tag when the sentence only says
+"she". Recognising the verb alone missed "speaks", "asks" and "his voice carries";
+an untagged line is description to H3, and with a voice reference attached the
+character was heard improvising in that voice, reading the scene's description aloud.
+Where a sentence is plainly about the speaker alone — one "she" or "he", no other
+known name, no pronoun of the other kind and no plural — the pronoun itself becomes
+the name ("She shouts" → "TLBr3f shouts"); otherwise the name goes just before the
+tag. Stage directions written into the dialogue list ("(Nods)") are not lines, and a
+"said" inside a quotation no longer starts a new one.
+A line reworded in the prompt but not on the card still counts as its card line
+(`nearLine`): the passage must keep 60% of the card line's words (at least three, or
+all of a shorter line) and the card line must be at least a quarter of the passage.
+It is credited to the card line's speaker — never to a name inside the quotation,
+which is usually who is being spoken to ("faster, Tracey" is Leroy's line) — and H3
+says the prompt's wording. When two different speakers' lines score within 0.15 of
+each other the passage stays unmatched rather than guess. Names inside any quotation,
+tagged or not, are never replaced with subject tags, and with dialogue supplied a
+tagged line is never given a voice by proximity to a subject tag.
+
+**Anchor pictures are described by their contents only** (`visibleFrameContent`). The
+anchor lines and the opening of the timeline quote the keyframe prompts, which are
+written for the image model: the look suffix ("<style> style, <tone> mood"), the
+"Intended audience:" clause, the headcount sentence, the cast-sheet / wardrobe /
+"Render with" / "The frame is free of" appendix and a camera opening. Live, with a
+voice attached, H3 read that text aloud for the first thirteen seconds of a clip
+whose line came at the end. All of it is removed before the 45-word summary; from a
+camera opening only leading clauses that do nothing but place the camera go, so the
+contents in the same sentence survive. When any voice is sent, `overall_soundscape`
+also ends "No speech other than the marked lines; between them, only the ambience
+described."
+
+**A voiced clip's prompt carries no sentence that only instructs.** Transcripts of
+voiced clips showed H3 voicing whatever in the prompt shows nothing — after the
+keyframe directions were removed it read "Nothing happens before the first change
+described below", and a "speaks only the lines marked as theirs" restriction added
+to the voice definition. Wan2GP's own voice-clone pipeline on the same checkpoint
+trims surplus words with Whisper even with a minimal prompt, so this is a tendency
+of the model rather than of one sentence. For a voiced clip only: the opening drops
+"Nothing happens before…"; the clip prompt loses "Lip movement matches the spoken
+words", the cast-continuity clause, the folded exclusions ("Render with …"), "The
+frame is free of …" and "evolving from the start frame to the end frame over N
+seconds"; the voice definition and its retention line use Wan2GP's wording; the
+summary ends "Only the marked lines are spoken, with no extra words before or after
+them"; and the last spoken line is followed by "The dialogue is complete and no other
+words are spoken." Clips without a voice are unchanged.
+
+**Picture numbers follow WanGP's order, not the `image_refs` list.** H3's pipeline
+presents the frames it anchors on before any reference image — the start frame, or
+the frame a continuation picks up from, then the end frame — whether they arrive as
+native `image_start` / `image_end` or inside `image_refs` (`prepare_keyframes`, then
+`_add_image_reference`; its handler documents "start or continued frame
+(<Picture 1>), end image, … then references"). `h3LeadingPictures` counts them, and
+a character's photograph is numbered after them. Counting only `image_refs` named
+the first keyframe as the photograph whenever the keyframes went native, and a
+continuation now names its continued frame as `<Picture 1>`.
+
+**Copying dialogue from a video prompt to its card** (`lib/agents/dialogue-sync.ts`,
+`lib/services/dialogue-sync-service.ts`, `POST`/`PUT
+/api/projects/[projectId]/dialogue-sync`). Because the card decides what is spoken,
+a line reworded only in the prompt stopped being treated as dialogue.
+`speechInPrompt` lists the prompt's spoken passages in order — scene lines matched
+exactly, in part or reworded, plus any quotation introduced or followed by a speech
+word — and `proposeSceneDialogue` turns them into the card's new dialogue. A
+speaker comes from the card line matched, else the one person the sentence names,
+else (marked as a guess) the card speaker in the same position when the counts
+agree, or the person named most recently; otherwise it is left for the person to
+choose. A split line is merged back into one; stage directions are kept; a prompt
+with no speech is flagged as emptying the card. It is deterministic, so the preview
+is the save. Each previewed scene carries a hash of its dialogue and video prompt
+only, so an unrelated render finishing does not invalidate the preview, and apply
+checks every scene before saving any. Saving goes through `withCardEdits`, so the
+cast in the shot and the prompt warnings are recomputed; prompts are never touched.
+Voices are attached by that attribution, so `voiceProblems` can tell when a voiced
+character's line never reached the prompt as tagged speech (`line_not_tagged`), or
+when the prompt quotes speech the dialogue does not have — introduced or followed by
+a speech word — in a sentence naming them or naming nobody (`unscripted_speech`).
+`buildVideoManifest` then withholds that recording (`wangp.ref2va.voice_skipped` with
+the reason) and adds a prompt warning to the attempt, rather than send a voice with
+words it could make up. Every unscripted quotation also gets its own warning, voice
+or not: untagged, H3 is not told to say it; tagged by the verb rule, the card and the
+prompt disagree. Trimming
+is left to WanGP, which reads each reference from its start and caps the total at 15 s
+split evenly.
 
 **Withholding the written face** (`lib/agents/cast.ts`).
 `castSheet(cast, forRender, wardrobeAt, options)` takes a flag distinguishing render

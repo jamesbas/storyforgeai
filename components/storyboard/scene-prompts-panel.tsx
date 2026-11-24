@@ -5,6 +5,7 @@ import type { Scene } from "@/lib/schemas/storyboard";
 import type { ProjectRecord } from "@/lib/schemas/storyboard";
 import type { ArtifactExecution } from "@/lib/schemas/provenance";
 import { ExecutionBadge } from "@/components/shared/execution-badge";
+import { DialogueSyncPanel } from "@/components/storyboard/dialogue-sync-panel";
 import { dedupeSentences, hasPunctuationArtifact, lintDialogue } from "@/lib/agents/media-prompt-spec";
 import { missingDialogue, opensWithFraming, echoesInstructions, mixesStandingAndSeated } from "@/lib/agents/media-prompt-normalise";
 
@@ -337,6 +338,22 @@ export function ScenePromptsPanel({
           alone, from its existing card — the card, the other scenes and their hand edits are left
           as they are.
         </p>
+
+        <div className="space-y-1 border-t border-white/10 pt-2">
+          <p className="text-[11px] text-slate-400">
+            Changed what someone says in the video prompt? Generation speaks the scene card&apos;s
+            dialogue — which lines, by whom and in whose voice — so copy the new wording back to the
+            card. You&apos;ll see a preview first.
+          </p>
+          <DialogueSyncPanel
+            projectId={projectId}
+            sceneIds={[scene.id]}
+            scope="scene"
+            disabled={disabled || dirty}
+            disabledReason={dirty ? "Save the prompts first — the copy reads the saved video prompt." : undefined}
+            onApplied={onSaved}
+          />
+        </div>
 
         {scene.prompts.promptQualityChecklist.length ? (
           <div>
