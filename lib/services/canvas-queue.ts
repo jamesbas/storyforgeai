@@ -110,6 +110,12 @@ export function getCanvasQueue(projectId: string): {
   };
 }
 
+/** Projects with agents pending or running — for the GPU-wide busy check. */
+export function activeCanvasProjects(): string[] {
+  const active = store().entries.filter((e) => e.state === "pending" || e.state === "running");
+  return [...new Set(active.map((e) => e.projectId))];
+}
+
 /** Drop finished entries so a repeated run starts from a clean slate. */
 export function clearFinishedCanvasRun(projectId: string): void {
   const state = store();

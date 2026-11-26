@@ -3,6 +3,7 @@ import { enhanceConcept } from "@/lib/agents/concept-enhancer";
 import { getPlanningProvider, visionAvailable, visionIsSeparateModel } from "@/lib/agents/llm/provider";
 import { ValidationError } from "@/lib/errors";
 import { toErrorResponse } from "@/lib/http";
+import { assertManualRunAllowed } from "@/lib/services/generation-busy";
 import { uploadsAsDataUrls } from "@/lib/media/data-url";
 import { MAX_CONCEPT_IMAGES } from "@/lib/media/concept-image-files";
 import { enhanceConceptSchema } from "@/lib/schemas/intake";
@@ -56,6 +57,7 @@ async function readRequest(request: Request): Promise<{ raw: unknown; files: Fil
  */
 export async function POST(request: Request) {
   try {
+    assertManualRunAllowed("concept/enhance");
     const { raw, files } = await readRequest(request);
     const input = enhanceConceptSchema.parse(raw);
 

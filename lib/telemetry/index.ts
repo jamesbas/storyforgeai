@@ -130,6 +130,18 @@ export type TelemetryEvent =
   | "scene.inserted"
   | "scene.insert_follower_stale"
   | "scene.deleted"
+  | "scheduler.started"
+  | "scheduler.item_dispatched"
+  | "scheduler.item_finished"
+  | "scheduler.item_skipped"
+  | "scheduler.paused"
+  | "scheduler.resumed"
+  | "scheduler.completed"
+  | "scheduler.restart_interrupted"
+  | "scheduler.manual_run_refused"
+  | "scheduler.autostart_suppressed"
+  | "scheduler.wangp_restart"
+  | "scheduler.quarantined"
   | "health.check";
 
 export function logEvent(event: TelemetryEvent, data: Record<string, unknown> = {}): void {

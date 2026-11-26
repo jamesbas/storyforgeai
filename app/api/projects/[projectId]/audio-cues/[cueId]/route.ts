@@ -7,6 +7,7 @@ import {
   updateAudioCue,
 } from "@/lib/services/audio-service";
 import { toErrorResponse } from "@/lib/http";
+import { assertManualRunAllowed, trackSceneRender } from "@/lib/services/generation-busy";
 
 export const dynamic = "force-dynamic";
 
@@ -40,9 +41,12 @@ export async function POST(request: Request, props: Params) {
   const params = await props.params;
   try {
     const { action } = actionSchema.parse(await request.json());
+    if (action === "generate") assertManualRunAllowed("audio-cues generate");
     const record =
       action === "generate"
-        ? await generateAudioCue(params.projectId, params.cueId)
+        ? await trackSceneRender(params.projectId, "Audio cue", () =>
+            generateAudioCue(params.projectId, params.cueId),
+          )
         : await approveAudioCue(params.projectId, params.cueId, action === "approve");
     return NextResponse.json(record);
   } catch (err) {

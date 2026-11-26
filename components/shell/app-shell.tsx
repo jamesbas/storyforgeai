@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { APP_VERSION } from "@/lib/version";
 
@@ -30,6 +31,7 @@ const NAV: NavItem[] = [
     ],
   },
   { href: "/projects/new", label: "New project" },
+  { href: "/scheduler", label: "Scheduler" },
   { href: "/settings", label: "Settings" },
   { href: "/help", label: "Help" },
   { href: "/about", label: "About" },
@@ -37,6 +39,34 @@ const NAV: NavItem[] = [
 
 const under = (pathname: string, base: string) =>
   pathname === base || pathname.startsWith(`${base}/`);
+
+/**
+ * Whether the Scheduler is running, read once per navigation.
+ *
+ * Not polled: the header is on every screen, and a timer per screen would put
+ * a request on a loop the operator never asked for. The Scheduler tab itself
+ * polls while it is open.
+ */
+function useSchedulerRunning(pathname: string): boolean {
+  const [running, setRunning] = useState(false);
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      try {
+        const res = await fetch("/api/scheduler?summary=1", { cache: "no-store" });
+        if (!res.ok) return;
+        const body = (await res.json()) as { state?: string };
+        if (live) setRunning(body.state === "running");
+      } catch {
+        // The dot is a hint; a failed read leaves it off.
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [pathname]);
+  return running;
+}
 
 /**
  * The single active tab, or none on the landing page.
@@ -55,6 +85,7 @@ function activeHref(pathname: string): string | undefined {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? "/";
   const active = activeHref(pathname);
+  const schedulerRunning = useSchedulerRunning(pathname);
 
   return (
     <div className="flex min-h-screen flex-col">
@@ -69,11 +100,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <nav aria-label="Main" className="flex flex-wrap items-center gap-1 text-sm">
             {NAV.map((item) => {
               const isActive = item.href === active;
+              const running = item.href === "/scheduler" && schedulerRunning;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   aria-current={isActive ? "page" : undefined}
+                  aria-label={running ? `${item.label} — running` : undefined}
                   className={
                     isActive
                       ? "rounded-md bg-accent/15 px-3 py-1.5 font-medium text-white"
@@ -81,6 +114,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   }
                 >
                   {item.label}
+                  {running && (
+                    <span
+                      aria-hidden
+                      data-testid="scheduler-running-dot"
+                      className="ml-1.5 inline-block h-2 w-2 rounded-full bg-emerald-400 align-middle"
+                    />
+                  )}
                 </Link>
               );
             })}

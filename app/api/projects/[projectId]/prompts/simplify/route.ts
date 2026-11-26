@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/http";
+import { assertManualRunAllowed } from "@/lib/services/generation-busy";
 import { applySimplifiedPrompts, previewSimplifiedPrompts } from "@/lib/services/prompt-tools-service";
 
 export const dynamic = "force-dynamic";
@@ -7,6 +8,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request, props: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await props.params;
   try {
+    assertManualRunAllowed("prompts/simplify");
     const preview = await previewSimplifiedPrompts(projectId, await request.json());
     return NextResponse.json(preview, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {

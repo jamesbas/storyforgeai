@@ -6,6 +6,7 @@ import {
 } from "@/lib/services/project-service";
 import type { PromptPass } from "@/lib/agents/prompt-agents";
 import { toErrorResponse } from "@/lib/http";
+import { assertManualRunAllowed } from "@/lib/services/generation-busy";
 
 export const dynamic = "force-dynamic";
 
@@ -55,6 +56,7 @@ export async function POST(
 ) {
   const { projectId } = await props.params;
   try {
+    assertManualRunAllowed("prompts");
     const { sceneIds, options } = await parseRequest(request);
     const record = sceneIds.length
       ? await regenerateScenesPrompts(projectId, sceneIds, options)

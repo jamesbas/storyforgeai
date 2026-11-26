@@ -1447,6 +1447,46 @@ as the scene queue. QC itself was not folded in: it grades attempts and stores
 `qcResult` on them, but now receives the same `review-context.ts` people and
 previous scene.
 
+### 4.2c The project run scheduler
+
+Nothing owned the GPU across projects: the canvas queue and the scene queue each
+have one worker, but neither knows about the other, and the scene queue picks the
+lowest scene number across *all* projects. The Scheduler
+(`lib/services/scheduler-service.ts`) is a thin sequencer **above** both. It never
+runs a unit of work; it decides when the next run may begin, then calls the same
+service the run's own button would.
+
+```mermaid
+flowchart LR
+    ui["Scheduler tab<br/>polls GET /api/scheduler"] --> svc["scheduler-service<br/>worker on globalThis"]
+    svc --> file[/"library/run-schedule.json"/]
+    svc -->|"waits on"| busy["generation-busy<br/>isGenerationBusy()"]
+    busy --> q1["agent runs · canvas queue · scene queue<br/>scene checks · durable drains · single renders"]
+    svc -->|storyboard| cq["enqueueCanvasRun / enqueueDurableCanvasRun"]
+    svc -->|keyframes| kq["enqueueKeyframeRerun"]
+    svc -->|video| sq["enqueueSceneRun / enqueueDurableSceneBatch"]
+    svc -->|"storyboard after a render"| rs["restartWangp()<br/>wan2gp-mcp-launcher -Action Restart"]
+    routes["GPU-starting routes"] -->|"assertManualRunAllowed()"| state["scheduler-state<br/>running item"]
+```
+
+- **Worker.** Exists only while the schedule is `running`: wait until
+  `isGenerationBusy()` is false, take the first `queued` item, revalidate it,
+  prepare the GPU, dispatch, poll the underlying queue every `SCHEDULER_FOLLOW_MS`,
+  record the outcome, settle. Idle, paused and completed schedules hold no timers.
+- **Exclusivity.** `generation-busy.ts` is the one place that knows every GPU
+  user, including single-scene renders, which `trackSceneRender` now tracks.
+  Route handlers that start GPU work call `assertManualRunAllowed()` and answer
+  409 while an item runs; the services themselves are unguarded so the Scheduler
+  does not trip over itself. `tests/scheduler.test.ts` fails when a route that
+  calls a GPU-starting service lacks the guard.
+- **Failure policy.** A `failed` item skips the same project's later items;
+  `completed_with_errors` skips nothing.
+- **`full_auto`.** A scheduled storyboard adds its project to
+  `scheduler-state`'s suppression set, and `autoStartMedia` returns early for it.
+- **Restart.** `instrumentation.ts` calls `loadScheduleAtStartup()`: `running`
+  becomes `paused`, the running item `interrupted`, and nothing is dispatched.
+  An unparseable schedule file is quarantined and replaced by an empty one.
+
 ### 4.3 The prompt acceptance gate
 
 Everything upstream of here is *instruction*. The image agent is told to name the
@@ -1799,6 +1839,7 @@ the scene because a change carries forward to every scene after it.
 | --- | --- | --- |
 | `ProjectRecord` — project, variants, all agent plans, storyboard, audio plan, attempts, assembly metadata, history, SPEC-004 executions | **`./projects/{projectId}/project.json`**, written atomically | Survives restart |
 | Durable task state — SPEC-008 queue entries, states, external job ids, lease | **`./projects/{projectId}/tasks.json`**, written atomically | Survives restart; only written when `DURABLE_TASKS=true` |
+| Run schedule — Scheduler items, states, outcomes (ids, titles and redacted reasons only) | **`./projects/library/run-schedule.json`**, written atomically | Survives restart; a running schedule reloads paused |
 | Rendered media — images, video segments, the assembled cuts | **Local filesystem** under `config.dataDir` (`./projects/{projectId}/…`) | Survives restart |
 
 ```mermaid
@@ -1946,8 +1987,8 @@ flowchart LR
 Three things the shape encodes. **The character library is project-independent** —
 it lives at `/api/characters`, and a project references entries by id, which is
 why a wardrobe change is stored per project rather than on the character.
-**Long-running work is polled, not awaited**: `canvas-run`, `queue`, `tasks` and
-`scene-checks` are each a queue surface, because an agent or a render is minutes of local GPU or
+**Long-running work is polled, not awaited**: `canvas-run`, `queue`, `tasks`,
+`scene-checks` and `/api/scheduler` are each a queue surface, because an agent or a render is minutes of local GPU or
 CPU and an HTTP request that waits for it is one navigation away from being
 abandoned. **Scene authoring is structural as well as textual**: `insert`, `move`
 and `delete` edit the running order in place, which exists so that fixing one

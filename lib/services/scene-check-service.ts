@@ -108,6 +108,12 @@ export function getSceneCheckProgress(projectId: string): SceneCheckProgress {
   return { entries, active: remaining > 0, remaining, ...(followUp ? { followUp } : {}) };
 }
 
+/** Projects with checks pending or running — for the GPU-wide busy check. */
+export function activeSceneCheckProjects(): string[] {
+  const active = store().entries.filter((e) => e.state === "pending" || e.state === "running");
+  return [...new Set(active.map((e) => e.projectId))];
+}
+
 /**
  * Check the chosen scenes, then render the ones that pass.
  *

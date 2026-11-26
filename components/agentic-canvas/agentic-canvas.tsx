@@ -5,6 +5,7 @@ import Link from "next/link";
 import { PlanPanel } from "@/components/agentic-canvas/plan-panel";
 import { useAgentRun } from "@/components/shared/use-agent-run";
 import { AsyncStatus } from "@/components/shared/async-status";
+import { RunError } from "@/components/shared/run-error";
 import { useLoadEffect } from "@/components/shared/use-load-effect";
 import { ExecutionBadge } from "@/components/shared/execution-badge";
 import { latestExecution } from "@/lib/schemas/provenance";
@@ -481,7 +482,7 @@ export function AgenticCanvas({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+      <RunError message={error} />
 
       <AsyncStatus
         testId="canvas-run-status"

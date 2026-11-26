@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { checkConceptFidelity } from "@/lib/services/project-service";
 import { toErrorResponse } from "@/lib/http";
+import { assertManualRunAllowed } from "@/lib/services/generation-busy";
 
 export const dynamic = "force-dynamic";
 
@@ -13,6 +14,7 @@ export const dynamic = "force-dynamic";
 export async function POST(_request: Request, props: { params: Promise<{ projectId: string }> }) {
   const params = await props.params;
   try {
+    assertManualRunAllowed("concept-fidelity");
     const record = await checkConceptFidelity(params.projectId);
     return NextResponse.json(
       { conceptFidelity: record.conceptFidelity },

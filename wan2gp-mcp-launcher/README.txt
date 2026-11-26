@@ -1,12 +1,12 @@
-WAN2GP MCP POWERSHELL LAUNCHER v1.4
+WAN2GP MCP POWERSHELL LAUNCHER v1.5
 ====================================
 
 QA COVERAGE
 -----------
 QA-REPORT.json and QA-SUMMARY.txt record the static validation of v1.2. The
-v1.3 and v1.4 changes -- filesystem-read support and making Tailscale optional
--- are not covered by them. Run Validate-Wan2GP-MCP.cmd on the target machine
-before relying on this package.
+v1.3, v1.4 and v1.5 changes -- filesystem-read support, making Tailscale
+optional and the -NoClipboard switch -- are not covered by them. Run
+Validate-Wan2GP-MCP.cmd on the target machine before relying on this package.
 
 MANIFEST.json is regenerated whenever a file here changes; verify against it
 rather than against the hashes quoted in the QA files.
@@ -164,6 +164,21 @@ powershell -ExecutionPolicy Bypass -File .\Wan2GP-MCP-Launcher.ps1 -Port 7867
 Start without filesystem reads:
 powershell -ExecutionPolicy Bypass -File .\Wan2GP-MCP-Launcher.ps1 `
   -Action Start -NoFilesystemReads
+
+Unattended restart, as the StoryForge Scheduler runs it (no prompt at the end,
+clipboard left alone):
+powershell -ExecutionPolicy Bypass -File .\Wan2GP-MCP-Launcher.ps1 `
+  -Action Restart -NoPause -NoClipboard -BindAddress 100.100.100.100 -Port 7866
+
+UNATTENDED RESTARTS (v1.5)
+--------------------------
+StoryForge's Scheduler restarts a launcher-managed Wan2GP before a storyboard
+run that follows a render, to free the GPU memory Wan2GP keeps after a batch.
+It passes -NoClipboard so the restart does not overwrite whatever you last
+copied. Restart stops only the process this launcher started; a Wan2GP started
+from Pinokio is left running ("No launcher-managed Wan2GP MCP process...").
+The restart ends any Wan2GP job in progress, including one started outside
+StoryForge.
 
 TROUBLESHOOTING
 ---------------

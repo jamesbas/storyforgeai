@@ -35,9 +35,10 @@ const TOC: Section[] = [
   { id: "wangp", title: "11. WanGP & generation" },
   { id: "qc", title: "12. QC, scene check, attempts & approval" },
   { id: "assembly", title: "13. Assembly & exports" },
-  { id: "deepy", title: "14. Deepy assist" },
-  { id: "flags", title: "15. Modes & feature flags" },
-  { id: "faq", title: "16. FAQ & troubleshooting" },
+  { id: "scheduler", title: "14. Scheduler (overnight runs)" },
+  { id: "deepy", title: "15. Deepy assist" },
+  { id: "flags", title: "16. Modes & feature flags" },
+  { id: "faq", title: "17. FAQ & troubleshooting" },
 ];
 
 function Anchor({ id }: { id: string }) {
@@ -2328,10 +2329,83 @@ export default function HelpPage() {
           </p>
         </section>
 
+        {/* Scheduler */}
+        <section className={card}>
+          <Anchor id="scheduler" />
+          <h2 className={h2}>14. Scheduler (overnight runs)</h2>
+          <p className={p}>
+            The <a href="/scheduler" className="text-accent underline underline-offset-2">Scheduler</a> tab
+            lines up runs across any number of projects — or several runs of the same project — and
+            plays them one at a time, back to back. A render that finishes at 3 AM is followed by the
+            next item instead of an idle GPU. You press <strong>Start</strong>; nothing starts by itself.
+          </p>
+          <h3 className={h3}>What each run does</h3>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li className={li}>
+              <strong>Storyboard (Agentic Canvas)</strong> — the same as <em>Run the crew</em> with the
+              Storyboard Artist included: World Builder, Director, Cinematographer, Art Director, then
+              the Storyboard Artist. It replaces the project&apos;s plans and scene cards, so adding one
+              for a project that already has a storyboard asks first. On a <em>Full auto</em> project
+              the automatic media start is skipped — add a Video item to render it.
+            </li>
+            <li className={li}>
+              <strong>Keyframes generation</strong> — frames only, no clips, like{" "}
+              <em>Regenerate keyframes</em>. On all scenes it renders only the scenes without keyframes
+              by default; <em>Re-render every scene</em> redoes them all. On picked scenes it re-renders
+              exactly those.
+            </li>
+            <li className={li}>
+              <strong>Video generation</strong> — the same as <em>Generate all media</em>: a scene
+              with no keyframes gets a full pass, a scene with keyframes but no clip gets its clip, and
+              a finished scene is skipped unless <em>Redo finished scenes</em> is ticked.
+            </li>
+          </ul>
+          <p className={p}>
+            Picked scenes can&apos;t follow a Storyboard item for the same project, because that run
+            replaces the scenes they name. An item that ends up there after a reorder is marked
+            invalid, and Start stays disabled until you move it, switch it to All scenes, or remove it.
+          </p>
+          <h3 className={h3}>Queueing behind a run that is already going</h3>
+          <p className={p}>
+            Press <strong>Start</strong> while a run you started by hand is still going: the first item
+            waits for it to finish. That is the usual way to use it — start a render at bedtime, add a
+            storyboard for another project and keyframes for a third, press Start, and go to bed.
+          </p>
+          <p className={p}>
+            While a scheduled item is running, run buttons elsewhere are refused with a message naming
+            the item, so two jobs never share the GPU. Pause the schedule to run something by hand.
+          </p>
+          <h3 className={h3}>Keep StoryForge running and the PC awake</h3>
+          <p className={p}>
+            The batch runs inside StoryForge itself. You can close the browser tab, but the{" "}
+            <code>run-storyforge-ai.bat</code> window must stay open until the batch finishes, and the PC
+            must not sleep (Windows <em>Settings → System → Power</em>). If StoryForge restarts
+            mid-batch, the schedule comes back paused with the interrupted item marked; requeue it and
+            press Resume. A requeued Video item skips the scenes that already finished.
+          </p>
+          <h3 className={h3}>When an item fails</h3>
+          <p className={p}>
+            The project&apos;s later items are skipped — a keyframe run would otherwise render a
+            storyboard that does not exist — and every other project carries on. A media run in which
+            only some scenes failed counts as <em>completed with errors</em> and skips nothing.
+          </p>
+          <h3 className={h3}>Freeing GPU memory between renders and storyboards</h3>
+          <p className={p}>
+            WanGP can keep its last model in memory after a render batch, which leaves no room for the
+            planning model. Before a Storyboard item that follows a Keyframes or Video item, the
+            Scheduler restarts WanGP and waits for it to come back. This only works when WanGP was
+            started with <code>wan2gp-mcp-launcher</code>; one started from Pinokio is left running,
+            with a warning on the item. The restart ends any WanGP job started outside StoryForge, and
+            with a launcher older than v1.5 (no <code>-NoClipboard</code>) it also overwrites your
+            clipboard with the MCP URL. Set <code>SCHEDULER_WANGP_RESTART=false</code> to turn it off —
+            then put storyboard runs first.
+          </p>
+        </section>
+
         {/* 10. Deepy */}
         <section className={card}>
           <Anchor id="deepy" />
-          <h2 className={h2}>14. Deepy assist</h2>
+          <h2 className={h2}>15. Deepy assist</h2>
           <p className={p}>
             Deepy is an optional media helper. On the Assembly page you can &quot;Ask Deepy&quot; about a
             clip to inspect it, extract the final frame, transcribe audio, suggest why a generation
@@ -2343,7 +2417,7 @@ export default function HelpPage() {
         {/* 11. Flags */}
         <section className={card}>
           <Anchor id="flags" />
-          <h2 className={h2}>15. Modes &amp; feature flags</h2>
+          <h2 className={h2}>16. Modes &amp; feature flags</h2>
           <p className={p}>
             Every external integration is off by default. An administrator can enable them via
             environment variables (see the project README and the <a href="/about" className="text-accent underline underline-offset-2">About</a> page for current status):
@@ -2366,7 +2440,7 @@ export default function HelpPage() {
         {/* 12. FAQ */}
         <section className={card}>
           <Anchor id="faq" />
-          <h2 className={h2}>16. FAQ &amp; troubleshooting</h2>
+          <h2 className={h2}>17. FAQ &amp; troubleshooting</h2>
 
           <h3 className={h3}>Why are all my scenes 20 seconds?</h3>
           <p className={p}>

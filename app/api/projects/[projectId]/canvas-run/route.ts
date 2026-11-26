@@ -5,6 +5,7 @@ import {
   getCanvasQueue,
 } from "@/lib/services/canvas-queue";
 import { toErrorResponse } from "@/lib/http";
+import { assertManualRunAllowed } from "@/lib/services/generation-busy";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +32,7 @@ export async function GET(_request: Request, props: Params) {
 export async function POST(request: Request, props: Params) {
   const params = await props.params;
   try {
+    assertManualRunAllowed("canvas-run");
     const body = (await request.json().catch(() => ({}))) as { includeStoryboard?: boolean };
     enqueueCanvasRun(params.projectId, { includeStoryboard: body.includeStoryboard ?? true });
     return NextResponse.json(getCanvasQueue(params.projectId), {

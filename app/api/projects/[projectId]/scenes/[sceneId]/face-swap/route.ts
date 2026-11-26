@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { revertAttemptFrame, swapAttemptFrame } from "@/lib/services/media-service";
 import { toErrorResponse } from "@/lib/http";
+import { assertManualRunAllowed, trackSceneRender } from "@/lib/services/generation-busy";
 
 export const dynamic = "force-dynamic";
 
@@ -20,6 +21,7 @@ export async function POST(
 ) {
   const params = await props.params;
   try {
+    assertManualRunAllowed("scenes/face-swap");
     const body = (await request.json()) as { purpose?: unknown };
     const purpose = framePurpose(body.purpose);
     if (!purpose) {
@@ -28,7 +30,9 @@ export async function POST(
         { status: 400 },
       );
     }
-    const record = await swapAttemptFrame(params.projectId, params.sceneId, purpose);
+    const record = await trackSceneRender(params.projectId, "Face swap", () =>
+      swapAttemptFrame(params.projectId, params.sceneId, purpose),
+    );
     return NextResponse.json(record, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     return toErrorResponse(err);

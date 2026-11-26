@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/http";
+import { assertManualRunAllowed } from "@/lib/services/generation-busy";
 import { sceneCheckFixPreviewSchema } from "@/lib/schemas/scene-check";
 import { applySceneCheckFix, previewSceneCheckFix } from "@/lib/services/scene-check-service";
 
@@ -14,6 +15,7 @@ export async function POST(
 ) {
   const { projectId, sceneId } = await props.params;
   try {
+    assertManualRunAllowed("scene-checks/fix");
     const { depth, findingId } = sceneCheckFixPreviewSchema.parse(await request.json());
     return NextResponse.json(await previewSceneCheckFix(projectId, sceneId, depth, findingId), noStore);
   } catch (err) {

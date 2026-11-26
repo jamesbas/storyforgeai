@@ -24,7 +24,9 @@ import { OrderImpactDialog } from "@/components/storyboard/order-impact-dialog";
 import { InsertSceneDialog } from "@/components/storyboard/insert-scene-dialog";
 import { DeleteSceneDialog } from "@/components/storyboard/delete-scene-dialog";
 import { chipLabel, phaseLabel } from "@/components/storyboard/phase-labels";
+import { CASCADE_NOTICE, followOnNotice } from "@/components/storyboard/rerun-notices";
 import { AsyncStatus } from "@/components/shared/async-status";
+import { RunError } from "@/components/shared/run-error";
 import { WardrobeCheck } from "@/components/storyboard/wardrobe-check";
 import { GENERATION_MODE_DOCS, SCENE_CONTINUITY_OPTIONS } from "@/lib/presets";
 import type { GenerationMode, SceneContinuityMode } from "@/lib/types";
@@ -770,9 +772,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         const body = (await res.json()) as QueueSnapshot & { cascaded?: boolean };
         setQueue(body);
         if (body.cascaded) {
-          setCascadeNotice(
-            "This project continues each clip from the previous one, so every scene after the earliest you picked was included too. Leaving them alone would have left them continuing from a clip that no longer exists.",
-          );
+          setCascadeNotice(CASCADE_NOTICE);
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to queue clips");
@@ -809,13 +809,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         const body = (await res.json()) as QueueSnapshot & { followOn?: number[] };
         setQueue(body);
         if (body.followOn?.length) {
-          const list = body.followOn.join(", ");
-          setCascadeNotice(
-            `This project carries each scene's end frame into the next one's start frame. ` +
-              `Scene${body.followOn.length === 1 ? "" : "s"} ${list} still show${body.followOn.length === 1 ? "s" : ""} ` +
-              `the old frame and ${body.followOn.length === 1 ? "was" : "were"} not included — ` +
-              `pick ${body.followOn.length === 1 ? "it" : "them"} too if the seam matters.`,
-          );
+          setCascadeNotice(followOnNotice(body.followOn));
         }
       } catch (e) {
         setError(e instanceof Error ? e.message : "Failed to queue keyframes");
@@ -1299,7 +1293,7 @@ export function StoryboardView({ projectId }: { projectId: string }) {
         </div>
       </div>
 
-      {error && <p role="alert" className="text-sm text-red-300">{error}</p>}
+      <RunError message={error} />
 
       {promptFamily || outdatedGuidance ? (
         <section

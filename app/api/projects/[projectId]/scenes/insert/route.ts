@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { insertScene, previewSceneInsert } from "@/lib/services/scene-order-service";
 import { toErrorResponse } from "@/lib/http";
 import { ValidationError } from "@/lib/errors";
+import { assertManualRunAllowed } from "@/lib/services/generation-busy";
 
 export const dynamic = "force-dynamic";
 
@@ -43,7 +44,10 @@ export async function GET(request: Request, props: Params) {
 export async function POST(request: Request, props: Params) {
   const { projectId } = await props.params;
   try {
-    const result = await insertScene(projectId, await request.json());
+    const body = (await request.json()) as { writePrompts?: unknown } | null;
+    // Writing the new scene's prompts runs the planning model.
+    if (body?.writePrompts) assertManualRunAllowed("scenes/insert");
+    const result = await insertScene(projectId, body);
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     return toErrorResponse(err);

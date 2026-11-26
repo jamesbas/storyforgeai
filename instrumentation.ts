@@ -32,6 +32,20 @@ export async function register() {
     await reconcileStartup();
   }
 
+  // A schedule that was running comes back paused, with the item it was on
+  // marked interrupted. Nothing restarts GPU work until the operator resumes.
+  try {
+    const { loadScheduleAtStartup } = await import("@/lib/services/scheduler-service");
+    await loadScheduleAtStartup();
+  } catch (err) {
+    console.error(
+      JSON.stringify({
+        event: "scheduler.startup_failed",
+        error: err instanceof Error ? err.message : String(err),
+      }),
+    );
+  }
+
   // Read the model catalogue now rather than making the first project-settings
   // visit pay for it. Deliberately not awaited: WanGP may not be up yet, and
   // the boot should not wait on a machine that never runs it.

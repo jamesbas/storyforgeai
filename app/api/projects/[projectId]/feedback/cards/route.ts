@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/http";
+import { assertManualRunAllowed } from "@/lib/services/generation-busy";
 import { applyCardFeedback, previewCardFeedback } from "@/lib/services/card-feedback-service";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +13,7 @@ export async function POST(
 ) {
   const { projectId } = await props.params;
   try {
+    assertManualRunAllowed("feedback/cards");
     return NextResponse.json(await previewCardFeedback(projectId, await request.json()), noStore);
   } catch (error) {
     return toErrorResponse(error);

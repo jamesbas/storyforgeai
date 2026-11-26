@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/http";
+import { assertManualRunAllowed } from "@/lib/services/generation-busy";
 import { refineScenesWithFeedback } from "@/lib/services/scene-feedback-service";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ export async function POST(
 ) {
   const { projectId } = await props.params;
   try {
+    assertManualRunAllowed("feedback");
     return NextResponse.json(
       await refineScenesWithFeedback(projectId, await request.json()),
       { headers: { "Cache-Control": "no-store" } },

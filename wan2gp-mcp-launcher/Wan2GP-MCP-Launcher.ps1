@@ -47,13 +47,17 @@ param(
     # job refused without them, so they are on unless this is passed.
     [switch]$NoFilesystemReads,
 
+    # Leave the clipboard alone. An unattended restart (the StoryForge
+    # Scheduler) would otherwise overwrite whatever the operator last copied.
+    [switch]$NoClipboard,
+
     [switch]$NoPause
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
-$LauncherVersion = "1.4"
+$LauncherVersion = "1.5"
 $LauncherDataPath = Join-Path $env:LOCALAPPDATA "Wan2GP-MCP-Launcher"
 $StateFile = Join-Path $LauncherDataPath "wan2gp-mcp-state.json"
 $CurrentLogFile = Join-Path $LauncherDataPath "current-log.txt"
@@ -849,12 +853,14 @@ function Start-Wan2GPMcp {
         Write-Host "Wan2GP MCP is listening." -ForegroundColor Green
         Write-Host "Endpoint: $endpoint" -ForegroundColor Cyan
 
-        try {
-            Set-Clipboard -Value $endpoint
-            Write-Host "The MCP URL was copied to your clipboard." -ForegroundColor Green
-        }
-        catch {
-            Write-Host "The URL could not be copied to the clipboard." -ForegroundColor Yellow
+        if (-not $NoClipboard) {
+            try {
+                Set-Clipboard -Value $endpoint
+                Write-Host "The MCP URL was copied to your clipboard." -ForegroundColor Green
+            }
+            catch {
+                Write-Host "The URL could not be copied to the clipboard." -ForegroundColor Yellow
+            }
         }
     }
     else {

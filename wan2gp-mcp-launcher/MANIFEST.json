@@ -8,8 +8,8 @@
     "sha256": "de270a39d81635db302683421a7e8573c50d0460b730646e10512292c4cc73f8"
   },
   "README.txt": {
-    "bytes": 5693,
-    "sha256": "0ab35ea4fc924e71ccd320b30d7d608d9c473f30bb18b43b0dc1dd599727c270"
+    "bytes": 6504,
+    "sha256": "cdb01cbd89d2a32425dafcc8060569d072922faf451daf66f63985c01c8465a4"
   },
   "Validate-Wan2GP-MCP.cmd": {
     "bytes": 265,
@@ -20,7 +20,7 @@
     "sha256": "df8d563c32e7cd9d3e2e29f769015f4e08fc1a74687d25f407f1e1bf56ab1d37"
   },
   "Wan2GP-MCP-Launcher.ps1": {
-    "bytes": 35012,
-    "sha256": "3d8cba9872706a576c15e917c32af1beea20dae9bdcf00061d7ab8b8b35a9caa"
+    "bytes": 35259,
+    "sha256": "3ea371547dda8dba023678b7e18f201c917d496f0777828c67edb745fca05a56"
   }
 }

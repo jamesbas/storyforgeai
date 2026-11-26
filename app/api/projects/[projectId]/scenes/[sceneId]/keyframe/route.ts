@@ -6,6 +6,7 @@ import {
   generateSceneKeyframe,
 } from "@/lib/services/media-service";
 import { toErrorResponse } from "@/lib/http";
+import { assertManualRunAllowed, trackSceneRender } from "@/lib/services/generation-busy";
 
 export const dynamic = "force-dynamic";
 
@@ -26,8 +27,11 @@ export async function POST(
 ) {
   const params = await props.params;
   try {
+    assertManualRunAllowed("scenes/keyframe");
     const { purpose } = bodySchema.parse(await request.json());
-    const record = await generateSceneKeyframe(params.projectId, params.sceneId, purpose);
+    const record = await trackSceneRender(params.projectId, "Keyframe preview", () =>
+      generateSceneKeyframe(params.projectId, params.sceneId, purpose),
+    );
     return NextResponse.json(record, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     return toErrorResponse(err);

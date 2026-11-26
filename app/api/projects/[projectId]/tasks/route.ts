@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/http";
 import { ValidationError } from "@/lib/errors";
+import { assertManualRunAllowed } from "@/lib/services/generation-busy";
 import { getProjectRecord } from "@/lib/services/project-service";
 import {
   dismissCompleted,
@@ -51,6 +52,7 @@ export async function POST(request: Request, props: Params) {
 
     switch (body.action) {
       case "resume": {
+        assertManualRunAllowed("tasks resume");
         // Reconciliation already decided what each entry becomes; this restarts
         // the drainer so `reconciling` entries get polled.
         const scene = await activeSceneTask(projectId);
@@ -60,6 +62,7 @@ export async function POST(request: Request, props: Params) {
         break;
       }
       case "retry": {
+        assertManualRunAllowed("tasks retry");
         if (!body.taskId) throw new ValidationError("A task id is required to retry.");
         await retryEntries(projectId, body.taskId, body.entryIds);
         const scene = await activeSceneTask(projectId);

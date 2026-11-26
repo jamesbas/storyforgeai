@@ -8,6 +8,7 @@ import {
   getQueue,
 } from "@/lib/services/scene-queue";
 import { toErrorResponse } from "@/lib/http";
+import { assertManualRunAllowed } from "@/lib/services/generation-busy";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,7 @@ export async function GET(_request: Request, props: Params) {
 export async function POST(request: Request, props: Params) {
   const params = await props.params;
   try {
+    assertManualRunAllowed("queue");
     const url = new URL(request.url);
     if (url.searchParams.get("video") === "1") {
       const body = (await request.json().catch(() => ({}))) as { sceneIds?: string[] };

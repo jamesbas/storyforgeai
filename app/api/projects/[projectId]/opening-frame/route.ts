@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { pinOpeningFrame, unpinOpeningFrame } from "@/lib/services/media-service";
 import { toErrorResponse } from "@/lib/http";
 import { ValidationError } from "@/lib/errors";
+import { assertManualRunAllowed, trackSceneRender } from "@/lib/services/generation-busy";
 
 export const dynamic = "force-dynamic";
 
@@ -16,11 +17,14 @@ type Params = { params: Promise<{ projectId: string }> };
 export async function POST(request: Request, props: Params) {
   const params = await props.params;
   try {
+    assertManualRunAllowed("opening-frame");
     const form = await request.formData();
     const file = form.get("file");
     if (!(file instanceof File)) throw new ValidationError("Expected a file field named 'file'");
 
-    const result = await pinOpeningFrame(params.projectId, file, form.get("faceSwap") === "true");
+    const result = await trackSceneRender(params.projectId, "Opening frame", () =>
+      pinOpeningFrame(params.projectId, file, form.get("faceSwap") === "true"),
+    );
     return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     return toErrorResponse(err);

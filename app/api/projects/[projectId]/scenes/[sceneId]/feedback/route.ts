@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/http";
+import { assertManualRunAllowed } from "@/lib/services/generation-busy";
 import { applySceneFeedback, previewSceneFeedback } from "@/lib/services/scene-feedback-service";
 
 export const dynamic = "force-dynamic";
@@ -11,6 +12,7 @@ export async function POST(
 ) {
   const { projectId, sceneId } = await props.params;
   try {
+    assertManualRunAllowed("scenes/feedback");
     return NextResponse.json(await previewSceneFeedback(projectId, sceneId, await request.json()), noStore);
   } catch (error) {
     return toErrorResponse(error);

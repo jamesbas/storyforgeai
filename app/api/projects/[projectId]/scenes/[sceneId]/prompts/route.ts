@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { regenerateScenePrompts, updateScenePrompts } from "@/lib/services/project-service";
 import { toErrorResponse } from "@/lib/http";
+import { assertManualRunAllowed } from "@/lib/services/generation-busy";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +15,7 @@ export async function POST(
 ) {
   const params = await props.params;
   try {
+    assertManualRunAllowed("scenes/prompts");
     const record = await regenerateScenePrompts(params.projectId, params.sceneId);
     return NextResponse.json(record, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {

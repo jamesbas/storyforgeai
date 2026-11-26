@@ -32,6 +32,11 @@ export function getAgentRun(projectId: string): AgentRun | null {
   return store().get(projectId) ?? null;
 }
 
+/** Every agent run in flight, across projects — for the GPU-wide busy check. */
+export function listAgentRuns(): AgentRun[] {
+  return [...store().values()];
+}
+
 /**
  * Record a run for its duration.
  *

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { DEEPY_ACTIONS, runDeepy } from "@/lib/deepy/deepy";
 import { toErrorResponse } from "@/lib/http";
+import { assertManualRunAllowed } from "@/lib/services/generation-busy";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,7 @@ const bodySchema = z.object({
 export async function POST(request: Request, props: Params) {
   const params = await props.params;
   try {
+    assertManualRunAllowed("scenes/deepy");
     const body = bodySchema.parse(await request.json());
     const result = runDeepy(body.action, body.target ?? params.sceneId);
     return NextResponse.json(result);

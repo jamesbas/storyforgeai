@@ -55,6 +55,11 @@ export function isDraining(projectId: string): boolean {
   return inFlight().has(projectId);
 }
 
+/** Projects with a durable drainer running in this process. */
+export function drainingProjects(): string[] {
+  return [...inFlight()];
+}
+
 /**
  * Drain one project's active task.
  *

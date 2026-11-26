@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { ZodError } from "zod";
-import { NotFoundError, PrerequisiteError, ValidationError } from "@/lib/errors";
+import { ConflictError, NotFoundError, PrerequisiteError, ValidationError } from "@/lib/errors";
 
 /**
  * Map thrown errors to JSON responses with the correct status.
@@ -12,6 +12,9 @@ export function toErrorResponse(err: unknown): NextResponse {
       { error: "Validation failed", details: err.flatten() },
       { status: 400 },
     );
+  }
+  if (err instanceof ConflictError) {
+    return NextResponse.json({ error: err.message, details: err.details }, { status: err.status });
   }
   if (err instanceof PrerequisiteError) {
     return NextResponse.json({ error: err.message, details: err.details }, { status: err.status });

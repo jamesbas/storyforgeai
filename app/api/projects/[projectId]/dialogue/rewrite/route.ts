@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/http";
+import { assertManualRunAllowed } from "@/lib/services/generation-busy";
 import { rewriteDialogue } from "@/lib/services/dialogue-rewrite-service";
 
 export const dynamic = "force-dynamic";
@@ -14,6 +15,7 @@ export async function POST(
 ) {
   const { projectId } = await props.params;
   try {
+    assertManualRunAllowed("dialogue/rewrite");
     const body = await request.json().catch(() => ({}));
     return NextResponse.json(await rewriteDialogue(projectId, body), {
       headers: { "Cache-Control": "no-store" },

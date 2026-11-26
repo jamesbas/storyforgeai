@@ -78,6 +78,7 @@ import { getPlanningProvider } from "@/lib/agents/llm/provider";
 import { attachScenePrompts, type PromptPass } from "@/lib/agents/prompt-agents";
 import { resolveProjectCast } from "@/lib/services/character-service";
 import { trackAgentRun } from "@/lib/services/agent-runs";
+import { schedulerSuppressesAutoStart } from "@/lib/services/scheduler-state";
 import { planOn, planSpecFor } from "@/lib/agents/plan-fields";
 import { NotFoundError, ValidationError } from "@/lib/errors";
 import { config } from "@/lib/config";
@@ -737,6 +738,9 @@ export async function generateStoryboard(
  */
 async function autoStartMedia(record: ProjectRecord): Promise<void> {
   if (!generationStages(record.project.generationMode).autoStart) return;
+  // A scheduled storyboard leaves rendering to a Video item (decision D-7), so
+  // the media batch cannot start beside whatever the Scheduler runs next.
+  if (schedulerSuppressesAutoStart(record.project.id)) return;
   try {
     const { enqueueProjectScenes } = await import("@/lib/services/scene-queue");
     const queued = await enqueueProjectScenes(record.project.id);

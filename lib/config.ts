@@ -150,6 +150,14 @@ export const config = {
      */
     minImageSteps: int(process.env.WANGP_MIN_IMAGE_STEPS, 30),
     minVideoSteps: int(process.env.WANGP_MIN_VIDEO_STEPS, 30),
+    /**
+     * The launcher the Scheduler restarts WanGP through to free GPU memory.
+     * Empty means `<repo>/wan2gp-mcp-launcher/Wan2GP-MCP-Launcher.ps1`, resolved
+     * at call time so this module stays free of filesystem paths.
+     */
+    launcherPath: str(process.env.WANGP_LAUNCHER_PATH, ""),
+    /** Must exceed the launcher's own 180 s startup wait. */
+    restartTimeoutMs: int(process.env.WANGP_RESTART_TIMEOUT_MS, 240_000),
   },
   openai: {
     apiKey: str(process.env.OPENAI_API_KEY, ""),
@@ -272,6 +280,22 @@ export const config = {
     retryDelayMs: int(process.env.SCENE_QUEUE_RETRY_DELAY_MS, 20_000),
     /** Pause between scenes so WanGP can release VRAM before the next load. */
     settleDelayMs: int(process.env.SCENE_QUEUE_SETTLE_DELAY_MS, 5_000),
+  },
+  /**
+   * The project run scheduler: one GPU run at a time, across projects.
+   *
+   * It only polls while a batch is running, so none of this costs anything on
+   * an idle machine.
+   */
+  scheduler: {
+    followMs: int(process.env.SCHEDULER_FOLLOW_MS, 5_000),
+    settleMs: int(
+      process.env.SCHEDULER_SETTLE_MS,
+      int(process.env.SCENE_QUEUE_SETTLE_DELAY_MS, 5_000),
+    ),
+    historyLimit: int(process.env.SCHEDULER_HISTORY_LIMIT, 50),
+    /** Restart a launcher-managed WanGP before a storyboard that follows a render. */
+    wangpRestart: bool(process.env.SCHEDULER_WANGP_RESTART, true),
   },
 } as const;
 

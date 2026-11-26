@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { toErrorResponse } from "@/lib/http";
+import { assertManualRunAllowed } from "@/lib/services/generation-busy";
 import { sceneCheckRunSchema } from "@/lib/schemas/scene-check";
 import { getProjectRecord } from "@/lib/services/project-service";
 import {
@@ -43,6 +44,7 @@ export async function GET(_request: Request, props: { params: Promise<{ projectI
 export async function POST(request: Request, props: { params: Promise<{ projectId: string }> }) {
   const { projectId } = await props.params;
   try {
+    assertManualRunAllowed("scene-checks");
     const { sceneIds, depth, thenRender } = sceneCheckRunSchema.parse(await request.json());
     const queued = thenRender
       ? await checkThenRender(projectId, sceneIds, depth, thenRender)

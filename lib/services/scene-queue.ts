@@ -413,6 +413,111 @@ export async function enqueueKeyframeRerun(
   };
 }
 
+/** Projects with scenes pending or running — for the GPU-wide busy check. */
+export function activeSceneQueueProjects(): string[] {
+  const active = store().entries.filter((e) => e.state === "pending" || e.state === "running");
+  return [...new Set(active.map((e) => e.projectId))];
+}
+
+/**
+ * Scenes whose chosen attempt has no start frame.
+ *
+ * The chosen attempt, not any attempt: an older attempt holding frames says
+ * nothing about what the scene shows now (see `enqueueProjectScenes`).
+ */
+export function missingKeyframeSceneIds(record: ProjectRecord): string[] {
+  return (record.storyboard?.scenes ?? [])
+    .filter((scene) => !chosenAttempt(record, scene.id)?.startImagePath)
+    .map((scene) => scene.id);
+}
+
+/**
+ * "Generate all media", optionally for picked scenes and optionally redoing
+ * finished ones — the Scheduler's Video item.
+ *
+ * Each scene in scope is handled by what its chosen attempt already holds:
+ * nothing → a full pass; keyframes without a clip → the clip alone; a clip →
+ * skipped, or rebuilt from the existing keyframes when `redoFinished` is set.
+ * With no picked scenes and `redoFinished` off this queues exactly what
+ * `enqueueProjectScenes` does.
+ *
+ * A selection under `continue_video` extends forward from the earliest picked
+ * scene (`videoRerunScope`). Once a clip in that chain is rebuilt, every later
+ * clip is rebuilt with it — each continues from the one before, so keeping the
+ * old ones would leave them continuing from a clip that no longer exists.
+ */
+export async function enqueueSceneRun(
+  projectId: string,
+  options: { sceneIds?: readonly string[]; redoFinished?: boolean } = {},
+): Promise<{ entries: SceneQueueEntry[]; cascaded: boolean; skippedFinished: number }> {
+  if (config.flags.durableTasks) {
+    throw new ValidationError("Durable tasks are enabled; use the task queue for this project.");
+  }
+  const record = await getProjectRecord(projectId);
+  if (!record.storyboard) throw new ValidationError("Generate a storyboard before media");
+  const stages = generationStages(record.project.generationMode);
+  if (!stages.video) {
+    throw new ValidationError(
+      "This project's generation mode does not render clips. Change it to Video segments first.",
+    );
+  }
+
+  const scenes = record.storyboard.scenes;
+  const scope = options.sceneIds?.length
+    ? videoRerunScope(record, options.sceneIds)
+    : { sceneIds: scenes.map((scene) => scene.id), cascaded: false };
+
+  const state = store();
+  const alreadyQueued = new Set(
+    state.entries
+      .filter((e) => e.projectId === projectId && (e.state === "pending" || e.state === "running"))
+      .map((e) => e.sceneId),
+  );
+
+  const byId = new Map(scenes.map((scene) => [scene.id, scene]));
+  const queued: SceneQueueEntry[] = [];
+  let skippedFinished = 0;
+  let chainRebuilt = false;
+  for (const sceneId of scope.sceneIds) {
+    const scene = byId.get(sceneId);
+    if (!scene || alreadyQueued.has(sceneId)) continue;
+
+    const attempt = chosenAttempt(record, sceneId);
+    let entryScope: SceneQueueScope;
+    if (!attempt?.startImagePath) entryScope = "full";
+    else if (!attempt.videoPath) entryScope = "video";
+    else if (options.redoFinished || (scope.cascaded && chainRebuilt)) entryScope = "video";
+    else {
+      skippedFinished += 1;
+      continue;
+    }
+    chainRebuilt = true;
+
+    const entry: SceneQueueEntry = {
+      projectId,
+      sceneId,
+      sceneNumber: scene.sceneNumber,
+      state: "pending",
+      scope: entryScope,
+      attempts: 0,
+    };
+    state.entries.push(entry);
+    queued.push(entry);
+  }
+
+  if (queued.length === 0) return { entries: [], cascaded: scope.cascaded, skippedFinished };
+
+  logEvent("scene_queue.enqueued", {
+    projectId,
+    scenes: queued.length,
+    clipOnly: queued.filter((entry) => entry.scope === "video").length,
+    trigger: "scheduler",
+  });
+  await freeGpuForGeneration();
+  void drain();
+  return { entries: queued, cascaded: scope.cascaded, skippedFinished };
+}
+
 /**
  * Evict the planning model before a batch run.
  *
