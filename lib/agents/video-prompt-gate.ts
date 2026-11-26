@@ -1,4 +1,5 @@
 import type { SceneDraft } from "@/lib/schemas/storyboard";
+import { SPEECH_VERB_PATTERN } from "@/lib/agents/speech-verbs";
 
 export interface VideoGateContext {
   scene: Pick<SceneDraft, "actionDescription" | "dialogue" | "visualDescription">;
@@ -80,19 +81,41 @@ function withoutSpans(text: string, spans: readonly Span[]): string {
 }
 
 const ADVERB = "(?:(?:quietly|softly|loudly|gently|slowly|quickly|calmly|then|now)\\s+)*";
-const SPEECH = "(?:says?|said|asks?|asked|repl(?:y|ies|ied)|whispers?|whispered|shouts?|shouted|tells?|told|adds?|added|answers?|answered|speaks?|responds?|remarks?|calls?)";
+const SPEECH = SPEECH_VERB_PATTERN;
 
 function speechCues(text: string, cast: readonly Person[], quotes: readonly Span[]): SpeechCue[] {
   const narrative = withoutSpans(text, quotes);
   return cast.flatMap((person) => {
+    const others = cast.filter((other) => other !== person);
     const direct = `${person.pattern}(?:['’]s\\s+voice)?\\s*(?::|\\s+${ADVERB}${SPEECH}\\b)`;
     const continued = `${person.pattern}\\s+${ADVERB}[\\p{L}]+(?:s|ed|ing)\\b[^.!?;\\n]{0,160}?\\b(?:and|then)\\s+${ADVERB}${SPEECH}\\b`;
-    return [direct, continued].flatMap((pattern) =>
-      [...narrative.matchAll(new RegExp(pattern, "giu"))].map((match) => ({
-        name: person.name, start: match.index, end: match.index + match[0].length,
-      })),
+    // "Juan keeps pulling while he speaks low:" — the pronoun is Juan only when
+    // nobody else is named in between, so such a match is dropped otherwise.
+    const subordinate = `${person.pattern}\\s+${ADVERB}[\\p{L}]+(?:s|ed|ing)\\b[^.!?;\\n]{0,160}?\\b(?:while|as)\\s+(?:he|she|they)\\s+${ADVERB}${SPEECH}\\b`;
+    return [direct, continued, subordinate].flatMap((pattern, index) =>
+      [...narrative.matchAll(new RegExp(pattern, "giu"))]
+        .filter((match) => index < 2 ||
+          !others.some((other) => mentions(match[0].replace(new RegExp(person.pattern, "giu"), " "), other)))
+        .map((match) => ({
+          name: person.name, start: match.index, end: match.index + match[0].length,
+        })),
     );
   }).sort((a, b) => a.end - b.end || a.start - b.start);
+}
+
+/**
+ * The speaker of a quotation introduced by a colon after an action clause —
+ * `Juan holds her gaze, jaw tight: "…"` — when that sentence names exactly one
+ * known person. Two named people leave it unresolved rather than guessed.
+ */
+function colonSpeaker(text: string, quoteStart: number, quotes: readonly Span[], cast: readonly Person[]): string | undefined {
+  const lead = text.slice(0, quoteStart);
+  if (!/:\s*$/.test(lead)) return undefined;
+  const narrative = withoutSpans(lead, quotes.filter((span) => span.end <= quoteStart));
+  const boundaries = [...narrative.matchAll(/[.!?;\n]/g)];
+  const sentence = narrative.slice((boundaries.at(-1)?.index ?? -1) + 1);
+  const named = cast.filter((person) => mentions(sentence, person));
+  return named.length === 1 ? named[0]!.name : undefined;
 }
 
 function speakerFor(
@@ -116,7 +139,7 @@ function speakerFor(
     if (gap.length <= 100 && !/[.!?;\n]/.test(gap) &&
         !/\b(?:not|never|to (?:say|repeat)|asks? .+ to)\b/i.test(gap)) return cue.name;
   }
-  return undefined;
+  return quote ? colonSpeaker(text, quote.start, quotes, cast) : undefined;
 }
 
 const ACTOR_VERB = "(?:says?|said|asks?|replies|whispers?|shouts?|speaks?|responds?|enters?|arrives?|joins?|walks?|steps?|runs?|waves?|smiles?|nods?|hands?|carries|carry|opens?|closes?|picks?|lifts?|places?|reads?|writes?|wears?|removes?)";

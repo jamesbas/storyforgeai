@@ -129,6 +129,20 @@ export const DIRECTOR_SYSTEM =
   "past the beat you are on. " +
   "Return only valid JSON matching the DirectorialPlan schema.";
 
+/**
+ * Asks each scene intent to say how the scene is carried by speech, so the
+ * Storyboard Artist's choice of full, brief or silent dialogue has something
+ * to read beyond the beat.
+ */
+export function directorDialogueDirective(project: { dialogueRequired: boolean }): string {
+  if (!project.dialogueRequired) return "";
+  return (
+    " This project has dialogue. Each sceneIntent should say whether the scene is driven by " +
+    "conversation, carries only a brief spoken beat, or plays without words — and, when " +
+    "characters speak, what they are trying to get from each other."
+  );
+}
+
 export const CINEMATOGRAPHER_SYSTEM =
   "You are the Cinematographer Agent. Define the visual camera language for the project. " +
   "Specify shot types, lens/framing rules, camera movements, lighting approach, and transition " +
@@ -399,6 +413,7 @@ export async function directorAgent(
   const payload = payloadFor(opening);
   const base =
     DIRECTOR_SYSTEM +
+    directorDialogueDirective(project) +
     explicitnessDirective(project, "plan") +
     castSystemDirective(ctx.cast ?? []) +
     precedenceDirective(ctx.cast ?? [], ctx.plans) +

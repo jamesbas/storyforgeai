@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { maybe } from "@/lib/schemas/maybe";
-import { MAX_SEGMENT_SECONDS, MIN_SEGMENT_SECONDS, SCENE_STATUSES } from "@/lib/types";
+import { DIALOGUE_MODES, MAX_SEGMENT_SECONDS, MIN_SEGMENT_SECONDS, SCENE_STATUSES } from "@/lib/types";
 import { conceptFidelitySchema, conceptVisualsSchema, creativeBriefSchema, storyPlanSchema, visualBibleSchema } from "@/lib/schemas/agents";
 import { projectSchema } from "@/lib/schemas/project";
 import { dialogueLineSchema, audioPlanSchema, animaticPlanSchema } from "@/lib/schemas/audio";
@@ -18,6 +18,32 @@ import {
 } from "@/lib/schemas/canvas";
 
 export const sceneStatusSchema = z.enum(SCENE_STATUSES);
+
+/** Full conversation, one short line, or none. See `DIALOGUE_MODES`. */
+export const dialogueModeSchema = z.enum(DIALOGUE_MODES);
+/** One sentence on what is verbally at stake, or why the scene plays silent. */
+export const dialogueIntentSchema = z.string().max(400);
+
+const MODE_SYNONYMS: Record<string, (typeof DIALOGUE_MODES)[number]> = {
+  full: "full", conversation: "full", dialogue: "full", long: "full", extended: "full",
+  brief: "brief", short: "brief", line: "brief", minimal: "brief",
+  silent: "silent", none: "silent", wordless: "silent", no: "silent", mute: "silent",
+};
+
+/**
+ * A model-written mode, read leniently: a scene card batch is one parse, so a
+ * single "Short" or "none" would otherwise throw away every card in it.
+ * Anything unrecognisable is dropped and the mode is inferred from the lines.
+ */
+export const sceneDialogueModeSchema = z
+  .preprocess(
+    (value) => (typeof value === "string" ? MODE_SYNONYMS[value.trim().toLowerCase()] ?? null : value),
+    dialogueModeSchema.nullish(),
+  )
+  .transform((value) => value ?? undefined);
+
+/** Truncated rather than rejected, for the same reason. */
+const sceneDialogueIntentSchema = maybe(z.string().transform((value) => value.trim().slice(0, 400)));
 
 export const frameVisibilitySchema = z.object({
   start: z.array(z.string().trim().min(1)).max(30),
@@ -135,6 +161,8 @@ export const sceneCardPatchSchema = z
     cameraMovement: z.string().max(500),
     /** What the characters say aloud. The video model speaks it verbatim. */
     dialogue: z.array(dialogueLineSchema).max(24),
+    dialogueMode: dialogueModeSchema,
+    dialogueIntent: dialogueIntentSchema,
     narrationText: z.string().max(2000),
   })
   .partial()
@@ -161,6 +189,8 @@ export const insertSceneCardSchema = z.object({
   transitionIn: z.string().max(200).optional(),
   transitionOut: z.string().max(200).optional(),
   dialogue: z.array(dialogueLineSchema).max(24).optional(),
+  dialogueMode: dialogueModeSchema.optional(),
+  dialogueIntent: dialogueIntentSchema.optional(),
 });
 export type InsertSceneCard = z.infer<typeof insertSceneCardSchema>;
 
@@ -250,6 +280,12 @@ export const sceneSchema = z.object({
     .default([]),
   narrationText: maybe(z.string()),
   dialogue: maybe(z.array(dialogueLineSchema)),
+  /**
+   * How much of the scene is spoken. Absent on scenes written before modes
+   * existed; read through `inferDialogueMode`, never assumed.
+   */
+  dialogueMode: sceneDialogueModeSchema,
+  dialogueIntent: sceneDialogueIntentSchema,
   musicNotes: maybe(z.string()),
   sfxNotes: maybe(z.string()),
   status: sceneStatusSchema,

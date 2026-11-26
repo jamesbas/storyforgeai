@@ -55,11 +55,14 @@ function lintField(key: FieldKey, text: string, scene: Scene): string[] {
     }
   }
 
-  if (key === "videoPromptSegment" && scene.dialogue?.length) {
+  if (key === "videoPromptSegment") {
     notes.push(...lintDialogue(
-      scene.dialogue,
+      scene.dialogue ?? [],
       scene.trimAtEndSeconds ?? scene.targetDurationSeconds,
+      { mode: scene.dialogueMode, narrationText: scene.narrationText },
     ).map((finding) => finding.message));
+  }
+  if (key === "videoPromptSegment" && scene.dialogue?.length) {
     const dropped = missingDialogue(text, scene.dialogue);
     if (dropped.length) {
       notes.push(`Dialogue missing from the prompt, so it will not be spoken: ${dropped.join(" / ")}`);

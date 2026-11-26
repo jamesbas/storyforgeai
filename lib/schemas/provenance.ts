@@ -115,7 +115,14 @@ export function redactDetail(detail: string | undefined, limit = 200): string | 
   return safe.length <= limit ? safe : `${safe.slice(0, limit).trimEnd()}…`;
 }
 
-/** Append a record and enforce both bounds, oldest dropped first. */
+/**
+ * Append a record and enforce both bounds, oldest dropped first.
+ *
+ * The per-project bound applies to scene-scoped records only. A storyboard
+ * writes three of those per scene (image prompt, video prompt, dialogue), and
+ * on a long project they would otherwise evict the handful of project-level
+ * records — the storyboard's own among them — that the canvas reads.
+ */
 export function appendExecution(
   existing: ArtifactExecution[] | undefined,
   next: ArtifactExecution,
@@ -124,13 +131,16 @@ export function appendExecution(
 
   const perArtifact = new Map<string, number>();
   const keptReversed: ArtifactExecution[] = [];
+  let sceneScoped = 0;
   for (let i = all.length - 1; i >= 0; i -= 1) {
     const record = all[i]!;
     const seen = perArtifact.get(record.artifact) ?? 0;
     if (seen >= MAX_EXECUTIONS_PER_ARTIFACT) continue;
+    const projectScoped = record.scope === "project";
+    if (!projectScoped && sceneScoped >= MAX_EXECUTIONS_PER_PROJECT) continue;
     perArtifact.set(record.artifact, seen + 1);
     keptReversed.push(record);
-    if (keptReversed.length >= MAX_EXECUTIONS_PER_PROJECT) break;
+    if (!projectScoped) sceneScoped += 1;
   }
   return keptReversed.reverse();
 }

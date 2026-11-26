@@ -31,7 +31,10 @@ export const CARD_FEEDBACK_SYSTEM =
   "Otherwise changed false with the current lists.\n" +
   "dialogue: changed true only when the feedback concerns what is said or who says it; then " +
   "return the complete ordered list of lines, each {character, line}, keeping every other line " +
-  "word for word. Otherwise changed false with the current lines.\n" +
+  "word for word. Otherwise changed false with the current lines. Set mode only when the " +
+  "feedback changes how much the scene is spoken: \"full\" for a conversation through most of " +
+  "the clip, \"brief\" for one short line or exchange, \"silent\" for none (with no lines). " +
+  "Otherwise leave mode out.\n" +
   "wardrobe: changed true only when the feedback concerns what someone wears. Then return the " +
   "COMPLETE list of wardrobe changes that take effect at this scene, at most one per person: who " +
   "(a cast name, or a plain label such as 'the bartender'), wardrobe (concrete garments worn " +
@@ -97,6 +100,14 @@ export function cardEditFrom(
       throw new ValidationError("Every dialogue line needs a speaker and words.");
     }
     if (JSON.stringify(lines) !== JSON.stringify(scene.dialogue ?? [])) card.dialogue = lines;
+    // Feedback that removes every line is asking for a silent scene; saying so
+    // in the proposal keeps a "full" card from warning that it is underwritten.
+    const proposed = proposal.dialogue.mode ?? (lines.length ? undefined : "silent");
+    // A silent mode beside lines contradicts itself; the lines are the clearer signal.
+    const mode = proposed === "silent" && lines.length ? undefined : proposed;
+    if (mode && mode !== scene.dialogueMode) card.dialogueMode = mode;
+  } else if (proposal.dialogue.mode && proposal.dialogue.mode !== scene.dialogueMode) {
+    card.dialogueMode = proposal.dialogue.mode;
   }
   let wardrobe: WardrobeChange[] | null = null;
   if (proposal.wardrobe.changed) {

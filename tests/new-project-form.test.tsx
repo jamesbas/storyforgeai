@@ -24,6 +24,8 @@ describe("NewProjectForm", () => {
     expect(values.concept).toBe("A robot paints a sunset.");
     expect(values.requestedDurationSeconds).toBe(60);
     expect(values.aspectRatio).toBe("16:9");
+    // Unchecked now means a silent film, so a project speaks unless asked not to.
+    expect(values.dialogueRequired).toBe(true);
   });
 
   it("disables the button while submitting", () => {

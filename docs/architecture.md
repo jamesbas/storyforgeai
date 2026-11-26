@@ -181,7 +181,8 @@ subject of §3.2.
 | 6 | **Intake Producer** | `intake-agent.ts` | `Project` (+ selected variant) (+ reference look) | Creative brief | `creativeBriefSchema` | Orchestrator, step 1 |
 | 7 | **Story Architect** | `story-architect-agent.ts` | `Project` + brief | Story plan, 1 beat per segment | `storyPlanSchema` | Orchestrator, step 2 |
 | 8 | **Visual Bible** | `visual-bible-agent.ts` | `Project` + brief (+ reference look) | Continuity guide | `visualBibleSchema` | Orchestrator, step 3 |
-| 9 | **Storyboard Artist** | `storyboard-agent.ts` | `Project` + brief + story plan + visual bible (+ explicitness directive) | Scene drafts, incl. `charactersPresent` and `wardrobeChanges` | `sceneDraftSchema[]` | Orchestrator, step 4 |
+| 9 | **Storyboard Artist** | `storyboard-agent.ts` | `Project` + brief + story plan + visual bible (+ explicitness directive) | Scene drafts, incl. `charactersPresent`, `wardrobeChanges`, `dialogueMode`, `dialogueIntent` and a dialogue draft | `sceneDraftSchema[]` | Orchestrator, step 4 |
+| 9a | **Dialogue Writer** | `dialogue-agent.ts` | One scene card + mode targets (after voice-over) + allowed speakers + previous scene's finished lines + next scene's beat (+ Director's scene intent, creator's note) | That scene's `dialogueMode` and `dialogue` | `dialogueAnswerSchema` | Orchestrator, step 4a, when `dialogueRequired`; `POST /dialogue/rewrite` |
 | 10 | **Image Prompt Engineer** | `prompt-agents.ts` | `Project` + scene draft + **previous end-frame prompt** + visual bible + **this scene's cast** + plan slices + wardrobe state | Start/end frame prompts + negative | subset of `scenePromptsSchema` | Orchestrator, step 5 |
 | 11 | **Video Prompt Engineer** | `prompt-agents.ts` | as above, but the cast arrives as **names only** — the start frame already carries the likeness | Motion prompt + negative + checklist | subset of `scenePromptsSchema` | Orchestrator, step 5 |
 | 12 | **Audio Director** | `audio-agents.ts` | `Project` + scene refs | Audio plan, music/SFX cues | `audioPlanSchema` | `POST /generate-audio-plan` |
@@ -321,7 +322,8 @@ flowchart TB
         IN["6 Intake Producer<br/>→ CreativeBrief"]
         SA["7 Story Architect<br/>→ StoryPlan"]
         VB["8 Visual Bible<br/>→ VisualBible"]
-        SB["9 Storyboard Artist<br/>→ SceneDraft[]<br/>incl. charactersPresent · wardrobeChanges"]
+        SB["9 Storyboard Artist<br/>→ SceneDraft[]<br/>incl. charactersPresent · wardrobeChanges · dialogueMode"]
+        DW["9a Dialogue Writer<br/>→ dialogue per scene, in order"]
         FOLD["foldWardrobeChanges<br/>→ project.wardrobeChanges"]
         IP["10 Image Prompt Engineer<br/>→ start/end frame prompts"]
         VP["11 Video Prompt Engineer<br/>→ motion prompt + checklist"]
@@ -363,6 +365,8 @@ flowchart TB
     SA -->|"segmentBeats[i] → scene.storyBeat<br/>emotionalProgression[i]"| SB
     VB -->|"continuity + negative rules"| SB
     SB --> FOLD
+    SB -->|"dialogueMode · draft lines"| DW
+    DW -->|"finished dialogue"| VP
     FOLD -->|"declared changes persisted<br/>before any prompt is written"| WT
     SB -->|SceneDraft| SC
     CAST --> SC
@@ -593,6 +597,13 @@ sequenceDiagram
     end
     SB-->>OR: ctx.sceneDrafts
 
+    opt project.dialogueRequired
+        loop each scene, in order — skipped when silent or the draft already fits
+            OR->>LLM: generateJson(dialogueWriterSystem, {scene, targets, allowedSpeakers,<br/>previousSceneDialogue, nextSceneBeat, revisionNeeded?})
+            Note right of OR: up to 3 attempts, each told why the last failed;<br/>closest usable attempt kept, else the draft
+        end
+    end
+
     OR->>OR: foldWardrobeChanges(project, drafts, cast)
     Note right of OR: costume changes the story called for<br/>reach the project before prompts are written
 
@@ -618,7 +629,8 @@ sequenceDiagram
 | Intake Producer | `INTAKE_SYSTEM` | parses as `creativeBriefSchema` | `buildCreativeBrief` |
 | Story Architect | `storyArchitectSystem(segmentSeconds, segmentCount)` + directives ‡ | parses, **and** `segmentBeats.length === segmentCount` *after* the continuation rounds | `buildStoryPlan` |
 | Visual Bible | `VISUAL_BIBLE_SYSTEM` | parses as `visualBibleSchema` | `buildVisualBible` |
-| Storyboard Artist | `storyboardSystem(segmentSeconds)` + directives † | parses, per batch of `CARDS_PER_CALL` | `buildSceneDrafts`, per missing card |
+| Storyboard Artist | `storyboardSystem(segmentSeconds, dialogueRequired)` + directives † | parses, per batch of `CARDS_PER_CALL`; a dialogue mode it cannot read is dropped and inferred, not rejected | `buildSceneDrafts`, per missing card |
+| Dialogue Writer | `dialogueWriterSystem(project, targets, speakers, lockMode)` | every speaker resolves to someone in the scene, the mode is an allowed demotion (never a promotion, never when the creator locked it), and `lintDialogue` passes for that mode | the closest usable attempt (`hybrid`), else the storyboard's draft |
 | Image Prompt | `IMAGE_PROMPT_SYSTEM` + directives † | parses the picked subset of `scenePromptsSchema` **and** clears the acceptance gate ([§4.3](#43-the-prompt-acceptance-gate)) | `buildImagePrompts` |
 | Video Prompt | `videoPromptSystem(segmentSeconds)` + directives † | parses the picked subset | `buildVideoPrompts` |
 | Variant Explorer | `VARIANT_EXPLORER_SYSTEM` | parses **and** returns at least one variant; duplicate axes are repaired rather than rejected | `buildVariants` |

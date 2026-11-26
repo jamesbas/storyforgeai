@@ -15,6 +15,34 @@ import type { ArtifactExecution } from "@/lib/schemas/provenance";
 import type { SceneAttempt } from "@/lib/schemas/generation";
 import type { MediaDescriptor } from "@/lib/media/refs";
 import type { AspectRatio } from "@/lib/types";
+import { countSpokenWords, inferDialogueMode, lintDialogue, WORDS_PER_SECOND } from "@/lib/agents/media-prompt-spec";
+
+/**
+ * How much of the clip is spoken, at a glance. Words and seconds are spelled
+ * out, so the warning never rests on the amber alone.
+ */
+export function DialogueCoverage({ scene }: { scene: Scene }) {
+  const seconds = scene.trimAtEndSeconds ?? scene.targetDurationSeconds;
+  const mode = inferDialogueMode(scene.dialogue, scene.dialogueMode);
+  const words = countSpokenWords(scene.dialogue ?? []);
+  const findings = lintDialogue(scene.dialogue ?? [], seconds, {
+    mode: scene.dialogueMode,
+    narrationText: scene.narrationText,
+  });
+  const speech = words / WORDS_PER_SECOND;
+  const text = mode === "silent" && !words
+    ? "Silent"
+    : `${mode === "brief" ? "Brief" : mode === "silent" ? "Silent" : "Full"} · ${words}w (~${speech.toFixed(1)}s · ${Math.round((speech / Math.max(1, seconds)) * 100)}%)`;
+  return (
+    <div data-testid="dialogue-coverage">
+      <dt className="inline text-slate-400">Dialogue: </dt>
+      <dd className={`inline ${findings.length ? "text-amber-300" : ""}`}>
+        {text}
+        {findings.length ? ` — ${findings[0]!.code === "dialogue_under_budget" ? "short for its mode" : findings[0]!.code === "dialogue_over_budget" ? "too long for the clip" : "lines in a silent scene"}` : ""}
+      </dd>
+    </div>
+  );
+}
 
 type SceneCardProps = {
   scene: Scene;
@@ -268,6 +296,7 @@ export function SceneCard({
           <dt className="inline text-slate-400">Camera: </dt>
           <dd className="inline">{scene.cameraMovement}</dd>
         </div>
+        <DialogueCoverage scene={scene} />
       </dl>
       {onFaceVisibleChange ? (
         <label className="mt-3 flex items-center gap-2 text-xs text-slate-400">

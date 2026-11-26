@@ -234,6 +234,10 @@ export const videoPromptSystem = (segmentSeconds: number) =>
   "or leave out is not heard. Do not paraphrase it, summarise it, or reduce an exchange to one " +
   "line. Where the scene has no dialogue, do not invent any. Weave each spoken line into the " +
   "moment of action it responds to, naming what the speaker keeps doing while talking. " +
+  // A pronoun leaves the speaker to the video model, and with two people of the
+  // same pronoun in shot it guesses; the gate cannot tell either.
+  "Name the speaker before every line by their exact name — Ana says, \"...\" Ben replies, " +
+  "\"...\" — never only he, she or they, even when the speaker was named a sentence earlier. " +
   "Speech and physical action happen concurrently; do not stop the movement for an exchange " +
   "or append a separate conversation after the action has finished. Keep delivery and movement " +
   "directions outside the quotation marks, and do not invent extra action to accompany speech. " +
@@ -1237,11 +1241,13 @@ function clipBudget(
   context: VideoGateContext,
 ): ClipBudget {
   const limit = wordBudget(family, "video", seconds, budget);
-  const finalWords = (part: VideoPart) => visualWordCount(finalise(part).videoPromptSegment);
+  const lines = context.scene.dialogue;
+  const visual = (text: string) => visualWordCount(text, lines);
+  const finalWords = (part: VideoPart) => visual(finalise(part).videoPromptSegment);
   const bodyWords = (part: VideoPart) =>
     Math.max(
       MIN_CLIP_WORDS,
-      limit - Math.max(0, finalWords(part) - visualWordCount(part.videoPromptSegment)),
+      limit - Math.max(0, finalWords(part) - visual(part.videoPromptSegment)),
     );
   return {
     exceeds: (part) => finalWords(part) > limit,
@@ -1249,9 +1255,9 @@ function clipBudget(
     fit: (part) => {
       const text = part.videoPromptSegment;
       const room = bodyWords(part);
-      if (visualWordCount(text) <= room) return part;
+      if (visual(text) <= room) return part;
       // Speech is excluded from the ceiling but not from the trimmer's count.
-      const speech = countWords(text) - visualWordCount(text);
+      const speech = countWords(text) - visual(text);
       return {
         ...part,
         videoPromptSegment: trimToBudget(text, room + speech, 0, essentialVideoSentences(text, context)),
@@ -1350,10 +1356,13 @@ function composerLint(
   budget: BudgetContext,
 ): string[] {
   const seconds = draft.trimAtEndSeconds ?? draft.targetDurationSeconds;
-  const findings = lintRendered(text, family, kind, kind === "image" ? 0 : seconds, budget);
+  const findings = lintRendered(text, family, kind, kind === "image" ? 0 : seconds, budget, draft.dialogue);
   const codes = findings.map((f) => f.code as string);
   if (kind === "video") {
-    codes.push(...lintDialogue(draft.dialogue ?? [], seconds).map((finding) => finding.code));
+    codes.push(...lintDialogue(draft.dialogue ?? [], seconds, {
+      mode: draft.dialogueMode,
+      narrationText: draft.narrationText,
+    }).map((finding) => finding.code));
   }
   if (kind === "video" && draft.dialogue?.length) {
     if (missingDialogue(text, draft.dialogue).length) codes.push("dialogue_dropped");

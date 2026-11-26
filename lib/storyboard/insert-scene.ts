@@ -59,6 +59,8 @@ export function newSceneDraft(project: Project, card: InsertSceneCard, id: strin
     charactersPresent: [],
     wardrobeChanges: [],
     ...(card.dialogue?.length ? { dialogue: card.dialogue } : {}),
+    ...(card.dialogueMode ? { dialogueMode: card.dialogueMode } : {}),
+    ...(card.dialogueIntent?.trim() ? { dialogueIntent: card.dialogueIntent.trim() } : {}),
     status: "planned",
   };
 }

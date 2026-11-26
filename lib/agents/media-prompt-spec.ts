@@ -1,4 +1,6 @@
 import type { ModelFamily } from "@/lib/wangp/family";
+import type { DialogueMode } from "@/lib/types";
+import { SPEECH_VERB_PATTERN } from "@/lib/agents/speech-verbs";
 import {
   DEFAULT_PROMPT_BUDGET_SETTINGS,
   type PromptBudgetSettings,
@@ -61,6 +63,8 @@ export type MediaPromptSpec = {
   secondaryMotion?: string;
   cameraMotion?: string;
   dialogue: SpecDialogue[];
+  /** How much of the scene is meant to be spoken; inferred from `dialogue` when absent. */
+  dialogueMode?: DialogueMode;
   narration?: string;
   continuity: string[];
   exclusions: string[];
@@ -79,6 +83,7 @@ export type LintCode =
   | "punctuation_artifact"
   | "dialogue_under_budget"
   | "dialogue_over_budget"
+  | "dialogue_in_silent_scene"
   | "over_budget";
 
 export type LintSeverity = "error" | "warning";
@@ -102,18 +107,52 @@ export type LintFinding = {
  */
 export const WORDS_PER_SECOND = 2.5;
 
+/**
+ * How much of a scene is spoken.
+ *
+ * `full` carries a conversation through most of the clip, `brief` one short
+ * line or exchange, `silent` none. A single project-wide "dialogue on" flag
+ * made every scene speak at conversation length, so wordless beats were padded
+ * with filler and talking scenes had nothing telling them to keep going.
+ */
+export { DIALOGUE_MODES, type DialogueMode } from "@/lib/types";
+
+/** Below this much speech time a `full` scene is written and checked as `brief`. */
+export const MIN_FULL_SPEECH_SECONDS = 4;
+
 export function dialogueWordBudget(seconds: number): number {
   return Math.max(1, Math.round(seconds * WORDS_PER_SECOND));
 }
 
-export function dialogueWordTargets(seconds: number) {
-  const maximum = dialogueWordBudget(seconds);
-  return {
-    minimum: Math.ceil(maximum / 2),
-    targetMin: Math.max(1, Math.round(maximum * 0.6)),
-    targetMax: Math.max(1, Math.round(maximum * 0.7)),
-    maximum,
-  };
+export type DialogueWordTargets = {
+  minimum: number;
+  targetMin: number;
+  targetMax: number;
+  maximum: number;
+};
+
+/**
+ * Word bounds for a scene of this length and mode.
+ *
+ * `full` aims at 68–84% of the clip: enough that speech carries the scene, with
+ * room left for turn-taking pauses and lip-sync settling so the last line is
+ * not clipped at the final frame. Every bound is clamped to the clip's capacity.
+ */
+export function dialogueWordTargets(seconds: number, mode: DialogueMode = "full"): DialogueWordTargets {
+  if (mode === "silent" || seconds <= 0) return { minimum: 0, targetMin: 0, targetMax: 0, maximum: 0 };
+  const capacity = dialogueWordBudget(seconds);
+  if (mode === "brief") {
+    return {
+      minimum: 1,
+      targetMin: Math.min(capacity, Math.max(3, Math.round(capacity * 0.12))),
+      targetMax: Math.min(capacity, Math.max(10, Math.round(capacity * 0.36))),
+      maximum: Math.min(capacity, Math.max(15, Math.round(capacity * 0.45))),
+    };
+  }
+  const minimum = Math.min(capacity, Math.ceil(capacity * 0.6));
+  const targetMin = Math.min(capacity, Math.max(minimum, Math.round(capacity * 0.68)));
+  const targetMax = Math.min(capacity, Math.max(targetMin, Math.round(capacity * 0.84)));
+  return { minimum, targetMin, targetMax, maximum: capacity };
 }
 
 export function countWords(text: string): number {
@@ -121,37 +160,155 @@ export function countWords(text: string): number {
   return trimmed ? trimmed.split(/\s+/).length : 0;
 }
 
+/** Remove `(whispers)`, `[sighs]` and `*laughs*`: direction, not speech. */
+export function stripStageDirections(line: string): string {
+  return line.replace(/\([^)]*\)|\[[^\]]*\]|\*[^*]*\*/g, " ");
+}
+
+/** Words actually said aloud, so a stage direction never counts as speech time. */
+export function countSpokenWords(lines: readonly { line: string }[]): number {
+  return countWords(lines.map((entry) => stripStageDirections(entry.line)).join(" "));
+}
+
+/** Seconds left for on-screen speech once any voice-over has had its share. */
+export function effectiveSpeechSeconds(sceneSeconds: number, narrationText?: string | null): number {
+  const narrationSeconds = narrationText?.trim() ? countWords(narrationText) / WORDS_PER_SECOND : 0;
+  return Math.max(0, Number((sceneSeconds - narrationSeconds).toFixed(2)));
+}
+
+/**
+ * The mode a scene behaves as. A stored mode wins; a scene written before modes
+ * existed is `full` when it has spoken words and `silent` when it has none, so
+ * nothing stored has to be rewritten.
+ */
+export function inferDialogueMode(
+  dialogue: readonly { line: string }[] | null | undefined,
+  stored?: DialogueMode | null,
+): DialogueMode {
+  if (stored) return stored;
+  return countSpokenWords(dialogue ?? []) > 0 ? "full" : "silent";
+}
+
+export type SpeechOptions = {
+  mode?: DialogueMode | null;
+  narrationText?: string | null;
+};
+
+export type SceneSpeechTargets = DialogueWordTargets & {
+  /** The stored or inferred mode. */
+  mode: DialogueMode;
+  /** The mode the targets were computed for: `brief` when voice-over leaves too little room for `full`. */
+  targetMode: DialogueMode;
+  seconds: number;
+  /** Seconds left for speech after any voice-over. */
+  effectiveSeconds: number;
+  narrationSeconds: number;
+};
+
+/**
+ * Targets for one scene, after voice-over and mode are accounted for.
+ *
+ * The single place the writer, the lint and the editor read from, so the number
+ * a model is told to aim at and the number the lint enforces cannot drift apart.
+ */
+export function sceneSpeechTargets(
+  dialogue: readonly { line: string }[] | null | undefined,
+  seconds: number,
+  options: SpeechOptions = {},
+): SceneSpeechTargets {
+  const mode = inferDialogueMode(dialogue, options.mode);
+  const effectiveSeconds = effectiveSpeechSeconds(seconds, options.narrationText);
+  const targetMode = mode === "full" && effectiveSeconds < MIN_FULL_SPEECH_SECONDS ? "brief" : mode;
+  return {
+    mode,
+    targetMode,
+    seconds,
+    effectiveSeconds,
+    narrationSeconds: Number((seconds - effectiveSeconds).toFixed(2)),
+    ...dialogueWordTargets(effectiveSeconds, targetMode),
+  };
+}
+
+function voiceOverNote(targets: SceneSpeechTargets): string {
+  return targets.narrationSeconds > 0
+    ? ` after about ${targets.narrationSeconds.toFixed(1)}s of voice-over`
+    : "";
+}
+
 export function lintDialogue(
   dialogue: readonly { line: string }[],
   seconds: number,
+  options: SpeechOptions = {},
 ): LintFinding[] {
-  if (!dialogue.length) return [];
-  const spoken = countWords(dialogue.map((d) => d.line).join(" "));
-  const { minimum, maximum } = dialogueWordTargets(seconds);
-  if (spoken < minimum) {
-    return [{
-      code: "dialogue_under_budget",
-      severity: "warning",
-      message: `Dialogue has ${spoken} words, about ${(spoken / WORDS_PER_SECOND).toFixed(1)}s of speech. Aim for at least ${minimum} words to cover half of this ${seconds}s scene while the action continues. Timing is estimated, not measured audio.`,
-    }];
+  const targets = sceneSpeechTargets(dialogue, seconds, options);
+  const spoken = countSpokenWords(dialogue);
+  const speechSeconds = (spoken / WORDS_PER_SECOND).toFixed(1);
+  if (targets.mode === "silent") {
+    return spoken > 0
+      ? [{
+          code: "dialogue_in_silent_scene",
+          severity: "warning",
+          message: `This scene is marked Silent but has ${spoken} spoken words. Clear the lines or change its dialogue mode.`,
+        }]
+      : [];
   }
-  if (spoken > maximum) {
+  if (spoken > targets.maximum) {
+    const brief = targets.mode === "brief" ? " That is more than a brief line; mark the scene Full or trim it." : "";
     return [{
       code: "dialogue_over_budget",
       severity: "warning",
-      message: `Dialogue runs about ${spoken} words against roughly ${maximum} for ${seconds}s. It will be rushed or clipped.`,
+      message: `Dialogue runs about ${spoken} words against roughly ${targets.maximum} for ${seconds}s${voiceOverNote(targets)}. It will be rushed or clipped.${brief}`,
+    }];
+  }
+  if (spoken < targets.minimum) {
+    if (targets.mode === "brief") {
+      return [{
+        code: "dialogue_under_budget",
+        severity: "warning",
+        message: "This scene is marked Brief but has no spoken line. Add a short line or mark it Silent.",
+      }];
+    }
+    const cramped = targets.targetMode === "brief"
+      ? ` Voice-over leaves only ${targets.effectiveSeconds.toFixed(1)}s for speech; consider Brief or Silent.`
+      : "";
+    return [{
+      code: "dialogue_under_budget",
+      severity: "warning",
+      message: `Dialogue has ${spoken} spoken words, about ${speechSeconds}s of speech. Aim for ${targets.targetMin}-${targets.targetMax} words, at least ${targets.minimum}, so speech carries most of this ${seconds}s scene${voiceOverNote(targets)} while the action continues.${cramped} Timing is estimated, not measured audio.`,
     }];
   }
   return [];
 }
 
-/** Exclude attributed speech, but not quoted visual instructions or signage. */
-export function visualWordCount(text: string): number {
-  const withoutSpeech = text.replace(
-    /\b(?:says?|said|asks?|replies|whispers?|shouts?|voice[- ]?over)\b[^"“”.!?\n]{0,80}["“][^"”]*["”]/gi,
-    (speech) => speech.replace(/["“][^"”]*["”]/g, ""),
-  );
-  return countWords(withoutSpeech);
+function normalisedWords(text: string): string {
+  return text.toLowerCase().replace(/[’‘`]/g, "'").replace(/[^\p{L}\p{N}' ]+/gu, " ").replace(/\s+/g, " ").trim();
+}
+
+const ATTRIBUTED_BEFORE = new RegExp(
+  `\\b${SPEECH_VERB_PATTERN}\\b[^"“”.!?\\n]{0,80}$|:\\s*$`,
+  "i",
+);
+const ATTRIBUTED_AFTER = new RegExp(`^[\\s,—-]*(?:[\\p{Lu}][\\p{L}'’-]*\\s+){0,3}${SPEECH_VERB_PATTERN}\\b`, "iu");
+
+/**
+ * Words of a video prompt that describe the picture, excluding speech.
+ *
+ * A quotation is speech when a speech verb introduces it, a colon introduces it
+ * (`Ana: "…"`), a speech verb follows it (`"…" Ana says`), or it is one of the
+ * scene's own lines. Quoted signage — `a neon sign reading "OPEN"` — is none of
+ * those and still counts, because it is something the picture must show.
+ */
+export function visualWordCount(text: string, dialogue?: readonly { line: string }[] | null): number {
+  const lines = (dialogue ?? []).map((entry) => normalisedWords(stripStageDirections(entry.line))).filter(Boolean);
+  let result = text.replace(/<d>[\s\S]*?<\/d>/g, " ");
+  result = result.replace(/["“]([^"”]*)["”]/g, (quote, inner: string, offset: number, whole: string) => {
+    const before = whole.slice(Math.max(0, offset - 100), offset);
+    const after = whole.slice(offset + quote.length, offset + quote.length + 60);
+    const words = normalisedWords(inner);
+    const isLine = Boolean(words) && lines.some((line) => line === words || line.includes(words) || words.includes(line));
+    return isLine || ATTRIBUTED_BEFORE.test(before) || ATTRIBUTED_AFTER.test(after) ? " " : quote;
+  });
+  return countWords(result);
 }
 
 /**
@@ -387,7 +544,10 @@ export function lintVideoSpec(spec: MediaPromptSpec, segmentSeconds: number): Li
       message: "No end state; the movement has nowhere to finish.",
     });
   }
-  findings.push(...lintDialogue(spec.dialogue, segmentSeconds));
+  findings.push(...lintDialogue(spec.dialogue, segmentSeconds, {
+    mode: spec.dialogueMode,
+    narrationText: spec.narration,
+  }));
   return findings;
 }
 
@@ -398,6 +558,8 @@ export function lintRendered(
   kind: "image" | "video",
   seconds: number,
   budgetContext: BudgetContext = {},
+  /** The scene's lines, so speech the prompt quotes without a verb is not counted as visual prose. */
+  dialogue?: readonly { line: string }[] | null,
 ): LintFinding[] {
   const findings: LintFinding[] = [];
   if (duplicateSentence(text)) {
@@ -415,7 +577,7 @@ export function lintRendered(
     });
   }
   const budget = wordBudget(family, kind, seconds, budgetContext);
-  const words = kind === "video" ? visualWordCount(text) : countWords(text);
+  const words = kind === "video" ? visualWordCount(text, dialogue) : countWords(text);
   if (words > budget) {
     findings.push({
       code: "over_budget",

@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { sceneDraftSchema, type SceneDraft } from "@/lib/schemas/storyboard";
-import { dialogueLineSchema } from "@/lib/schemas/audio";
 import { buildSceneDrafts } from "@/lib/agents/mock-agents";
 import { castSystemDirective } from "@/lib/agents/cast";
 import { seamDirective } from "@/lib/agents/continuity";
@@ -10,7 +9,7 @@ import { planningPayloadForSegments, planningProject, precedenceDirective } from
 import { castWardrobeAfter } from "@/lib/agents/wardrobe";
 import { revealUnstated, VISIBLE_RESULT_DIRECTIVE } from "@/lib/agents/clothing-wording";
 import { composeExecution, executeArtifact, providerCall } from "@/lib/agents/provenance";
-import { countWords, dialogueWordTargets, lintDialogue } from "@/lib/agents/media-prompt-spec";
+import { inferDialogueMode } from "@/lib/agents/media-prompt-spec";
 import { BUILDER_VERSION, PROMPT_VERSIONS } from "@/lib/agents/prompt-version";
 import { SEGMENT_SECONDS } from "@/lib/types";
 import type { FailureReason } from "@/lib/schemas/provenance";
@@ -20,26 +19,45 @@ import type { AgentContext } from "@/lib/agents/types";
 import type { PlanningProvider } from "@/lib/agents/llm/provider";
 import { logEvent } from "@/lib/telemetry";
 
-function dialogueDirection(seconds: number): string {
-  const { minimum, targetMin, targetMax, maximum } = dialogueWordTargets(seconds);
+/**
+ * What the Storyboard Artist is told about speech.
+ *
+ * It decides how much each scene is spoken and drafts the lines; the Dialogue
+ * Writer then develops any draft that does not fit its mode, one scene per
+ * call. Word counts are left out on purpose: asked for them inside a four-card
+ * batch, a 27B model compressed every scene to two short remarks and still
+ * missed, and every card spoke because the prompt said nobody may be silent.
+ */
+function dialoguePolicy(dialogueRequired: boolean): string {
+  if (!dialogueRequired) {
+    return (
+      "This project has no dialogue. Nobody speaks on screen: set dialogueMode to \"silent\" " +
+      "and leave dialogue empty on every card. Use narrationText only for a voice-over from " +
+      "outside the scene, and only where the project asks for narration."
+    );
+  }
   return (
-    ` For a ${seconds}-second speaking scene, aim for ${targetMin}-${targetMax} dialogue words ` +
-    `in total, with at least ${minimum} and no more than ${maximum}. This estimates speech ` +
-    "covering at least half the scene, not its entire runtime. Shorter final scenes use their " +
-    "supplied speech targets instead. Write complete, character-specific lines grounded in this " +
-    "scene's objective, visible action, objects and immediate consequences. Let a line request, " +
-    "challenge, reveal, reassure or change what the other person does; a reply should respond " +
-    "to it rather than repeat it. Use natural exchanges when several people speak, or a " +
-    "motivated longer line for one speaker. Avoid stock remarks, filler and narration of what " +
-    "the viewer can already see. Do not invent extra events or props to reach the word count. " +
-    "Speech accompanies the ongoing physical action: the characters keep moving or doing the " +
-    "established task while talking, rather than stopping the scene for a conversation. " +
-    "Keep delivery and action directions outside the spoken words. Leave room for any supplied " +
-    "voice-over rather than making voices talk over one another."
+    "Decide for each card how much of it is spoken, and set dialogueMode. Use \"full\" when " +
+    "characters talk through most of the clip while the action continues — negotiating, " +
+    "confronting, explaining, comforting, persuading, arguing, bantering, interrogating. Use " +
+    "\"brief\" when only a short remark, command or reaction fits — an entrance, a quick " +
+    "exchange during fast physical action, a tense quiet. Use \"silent\" when nobody is on " +
+    "screen, or the beat is wordless, solitary or visually self-contained and talking would " +
+    "feel forced. Choose from the beat and the scene's intent, not from habit: a film in which " +
+    "every scene talks at the same length is as false as one in which nobody speaks. Set " +
+    "dialogueIntent to one short sentence — what each speaker is trying to get from the other " +
+    "for full or brief, or why silence serves the shot. " +
+    "The dialogue is not an annotation: it is what the characters say out loud, and the video " +
+    "model speaks it. For full and brief cards, draft whole lines that sound like people " +
+    "talking, grounded in this scene's objective and action, each given to the character who " +
+    "says it by their exact name; a dedicated dialogue writer develops the draft to its full " +
+    "length, so do not pad it. Leave dialogue empty on silent cards. Keep delivery and action " +
+    "directions outside the spoken words. Use narrationText only for a voice-over from outside " +
+    "the scene, never as a substitute for people speaking."
   );
 }
 
-export const storyboardSystem = (segmentSeconds: number) =>
+export const storyboardSystem = (segmentSeconds: number, dialogueRequired = true) =>
   "You are the Storyboard Agent. You write a set of scene cards \u2014 one card for each " +
   `${segmentSeconds}-second segment you are asked to cover, always more than one, returned ` +
   "together as an array in the order they play. " +
@@ -53,18 +71,7 @@ export const storyboardSystem = (segmentSeconds: number) =>
   "camera movement, transition in/out, continuity notes, and any music or SFX notes. " +
   "Scope the action to what can actually happen in " +
   `${segmentSeconds} seconds. ` +
-  // Dialogue was listed as an "optional note" and the model dropped it: eleven
-  // of eighteen cards came back silent and the rest averaged five words, which
-  // is what the video model then had to speak. It is script, not annotation.
-  "Write the dialogue. It is not an annotation \u2014 it is what the characters say out loud, and " +
-  "the video model speaks it, so a card with no dialogue is a silent scene. Any scene with " +
-  "people in it who would plausibly speak gets dialogue. Write whole lines that sound " +
-  "like people talking, exchanges between characters where more than one is present, and give " +
-  "each line to the character who says it by their exact name. Leave dialogue empty only when " +
-  "nobody is on screen, nobody would speak, or the moment is deliberately wordless \u2014 not " +
-  "because it was easier to omit. Use narrationText only for a voice-over from outside the " +
-  "scene, never as a substitute for people speaking." +
-  dialogueDirection(segmentSeconds) + " " +
+  dialoguePolicy(dialogueRequired) + " " +
   // This gates the face swap and nothing else. It once said "the main
   // character's face", which a model reasonably read as false for any scene
   // that character is absent from — and then wrote the shot to match its own
@@ -196,119 +203,21 @@ function carriedWardrobeDirective(
 
 const sceneDraftsSchema = z.object({ scenes: z.array(sceneDraftSchema) });
 
-const dialogueRevisionsSchema = z.object({
-  scenes: z.array(z.object({
-    sceneNumber: z.number().int().positive(),
-    dialogue: z.array(dialogueLineSchema).max(24),
-  })),
-});
-
-function sceneSeconds(project: Project, sceneNumber: number): number {
-  return project.segmentSeconds -
-    (sceneNumber === project.segmentCount ? project.finalTrimSeconds : 0);
-}
-
-async function repairDialogue(
-  cards: SceneDraft[],
-  start: number,
-  user: string,
-  ctx: AgentContext,
-  provider: PlanningProvider,
-): Promise<SceneDraft[]> {
-  const pending = () => cards.flatMap((card, index) => {
-    const sceneNumber = start + index + 1;
-    const seconds = sceneSeconds(ctx.project, sceneNumber);
-    const findings = lintDialogue(card.dialogue ?? [], seconds);
-    return findings.length ? [{ card, index, sceneNumber, seconds, findings }] : [];
+/**
+ * Give every card a dialogue mode, and honour a project with no dialogue.
+ *
+ * The flag used to be ignored on the model path: the prompt said "write the
+ * dialogue" and every scene of a project created with Dialogue unchecked spoke
+ * anyway. A silent card's lines are dropped, because silent is the decision.
+ */
+function withDialogueModes(cards: SceneDraft[], project: Project): SceneDraft[] {
+  return cards.map((card) => {
+    if (!project.dialogueRequired) return { ...card, dialogueMode: "silent", dialogue: [] };
+    const dialogueMode = inferDialogueMode(card.dialogue, card.dialogueMode);
+    return dialogueMode === "silent"
+      ? { ...card, dialogueMode, dialogue: [] }
+      : { ...card, dialogueMode };
   });
-  const needed = pending().length;
-  if (!needed) return cards;
-
-  const result = await executeArtifact<SceneDraft[]>({
-    artifact: "storyboard_dialogue",
-    scope: "project",
-    correlationId: ctx.correlationId,
-    promptVersion: PROMPT_VERSIONS.storyboard,
-    builderVersion: BUILDER_VERSION,
-    provider,
-    onExecution: ctx.onExecution,
-    llm: async () => {
-      let model: string | undefined;
-      let format: string | undefined;
-      let previousAnswer: unknown;
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        const remaining = pending();
-        if (!remaining.length) break;
-        const response = await providerCall(
-          provider,
-          "You are the Storyboard Dialogue Writer. Revise only the dialogue of the listed scenes." +
-            dialogueDirection(ctx.project.segmentSeconds) +
-            " The scene cards, physical action, objectives, cast, wardrobe, camera and endpoints " +
-            "are fixed. Keep the existing speakers and their exact names; add conversational turns " +
-            "as needed, but no new speaker. Return only {scenes: [{sceneNumber, dialogue}]} for " +
-            "the requested scenes. Do not return or rewrite the rest of the scene cards. " +
-            creativeModeDirective(ctx.project) +
-            explicitnessDirective(ctx.project, "plan"),
-          JSON.stringify({
-            context: JSON.parse(user),
-            scenes: remaining.map(({ card, sceneNumber, seconds, findings }) => ({
-              sceneNumber,
-              seconds,
-              speechTargets: dialogueWordTargets(seconds),
-              scene: card,
-              findings: findings.map((finding) => finding.message),
-            })),
-            previousAnswer,
-          }),
-          dialogueRevisionsSchema,
-          { systemPromptScope: "storyboard" },
-        )();
-        if (!response.ok) return response;
-        model = response.model;
-        format = response.format;
-        const parsed = dialogueRevisionsSchema.safeParse(response.value);
-        if (!parsed.success) {
-          return { ok: false, reason: "schema_mismatch", provider: provider.name, model, format };
-        }
-        previousAnswer = parsed.data;
-        for (const { card, index, sceneNumber, seconds } of remaining) {
-          const matches = parsed.data.scenes.filter((entry) => entry.sceneNumber === sceneNumber);
-          if (matches.length !== 1) continue;
-          const dialogue = matches[0]!.dialogue;
-          const speakers = new Set((card.dialogue ?? []).map((line) => line.character));
-          if (
-            !dialogue.length ||
-            dialogue.some((line) => !speakers.has(line.character) || !line.line.trim()) ||
-            [...speakers].some((speaker) => !dialogue.some((line) => line.character === speaker)) ||
-            lintDialogue(dialogue, seconds).length
-          ) continue;
-          cards[index] = { ...card, dialogue };
-        }
-      }
-      return { ok: true, value: cards, provider: provider.name, model, format };
-    },
-    fallback: () => cards,
-    outcome: () => {
-      const unresolved = pending();
-      return unresolved.length
-        ? {
-            source: "hybrid",
-            fallbackReason: "invalid_set",
-            detail: `Dialogue coverage still needs review in scenes ${unresolved.map((entry) => entry.sceneNumber).join(", ")}; original lines kept.`,
-          }
-        : { detail: `Dialogue revised for ${needed} speaking scenes without changing their action.` };
-    },
-  });
-  for (const { card, sceneNumber, seconds, findings } of pending()) {
-    logEvent("storyboard.dialogue.warning", {
-      projectId: ctx.project.id,
-      sceneNumber,
-      words: countWords((card.dialogue ?? []).map((line) => line.line).join(" ")),
-      seconds,
-      codes: findings.map((finding) => finding.code),
-    });
-  }
-  return result.value;
 }
 
 /**
@@ -371,13 +280,13 @@ export async function storyboardAgent(
         startedAt,
       }),
     );
-    return built();
+    return withDialogueModes(built(), ctx.project);
   }
 
   const cast = ctx.cast ?? [];
   const wanted = ctx.project.segmentCount;
   const system =
-    storyboardSystem(ctx.project.segmentSeconds) +
+    storyboardSystem(ctx.project.segmentSeconds, ctx.project.dialogueRequired) +
     creativeModeDirective(ctx.project) +
     explicitnessDirective(ctx.project, "plan") +
     seamDirective(ctx.project) +
@@ -423,10 +332,6 @@ export async function storyboardAgent(
         segmentNumbers.map((n) => [String(n), storyPlan.segmentBeats[n - 1] ?? ""]),
       ),
       continuedSegments: continuedHere.length ? continuedHere : undefined,
-      speechTargetsBySegment: Object.fromEntries(segmentNumbers.map((n) => [
-        String(n),
-        { seconds: sceneSeconds(ctx.project, n), ...dialogueWordTargets(sceneSeconds(ctx.project, n)) },
-      ])),
       previousScene: previous
         ? {
             sceneNumber: start,
@@ -451,14 +356,13 @@ export async function storyboardAgent(
       { systemPromptScope: "storyboard" },
     )();
     if (result.model) modelsUsed.add(result.model);
-    const returned = result.ok ? result.value.scenes : [];
+    const returned = result.ok ? result.value.scenes.slice(0, end - start) : [];
     // Missing cards still use the existing, explicitly reported builder fallback.
-    const repaired = await repairDialogue(returned.slice(0, end - start), start, user, ctx, provider);
     if (returned.length !== end - start) {
       batchReason ??= returned.length ? "short_collection" : result.ok ? "unknown" : result.reason;
     }
     for (let i = 0; i < end - start; i += 1) {
-      const card = repaired[i];
+      const card = returned[i];
       if (card) scenes.push(card);
       else {
         scenes.push(fallbackDrafts[start + i]!);
@@ -478,9 +382,6 @@ export async function storyboardAgent(
   }
 
   const fromLlm = wanted - builderFilled;
-  const dialogueWarnings = scenes.flatMap((card, index) =>
-    lintDialogue(card.dialogue ?? [], sceneSeconds(ctx.project, index + 1)).length ? [index + 1] : [],
-  );
   // Reported, not rewritten: whether a lowered bra leaves her topless is the
   // story's call. Surfacing it is what lets someone fix the card before the
   // wardrobe is appended to every render prompt that follows it.
@@ -499,15 +400,12 @@ export async function storyboardAgent(
       builderVersion: BUILDER_VERSION,
       provider: provider.name,
       ...(modelsUsed.size ? { model: [...modelsUsed].join(", ") } : {}),
-      source: fromLlm === 0 ? "deterministic" : builderFilled || dialogueWarnings.length || vagueWardrobe.length ? "hybrid" : "llm",
+      source: fromLlm === 0 ? "deterministic" : builderFilled || vagueWardrobe.length ? "hybrid" : "llm",
       fallbackReason: builderFilled
         ? batchReason ?? "unknown"
-        : dialogueWarnings.length || vagueWardrobe.length ? "invalid_set" : undefined,
+        : vagueWardrobe.length ? "invalid_set" : undefined,
       detail: [
         ...(builderFilled ? [`${fromLlm} of ${wanted} scene cards written by the model`] : []),
-        ...(dialogueWarnings.length
-          ? [`Dialogue length needs review in scenes ${dialogueWarnings.join(", ")}; original lines kept.`]
-          : []),
         ...(vagueWardrobe.length
           ? [`Wardrobe in scenes ${vagueWardrobe.join(", ")} moves clothing without saying what is bare; review the costume change.`]
           : []),
@@ -517,7 +415,7 @@ export async function storyboardAgent(
     }),
   );
 
-  if (builderFilled === 0) return withDerivedTiming(scenes, ctx.project);
+  if (builderFilled === 0) return withDialogueModes(withDerivedTiming(scenes, ctx.project), ctx.project);
 
   // Carried on the context so it reaches the stored snapshot, not just the log.
   ctx.fallbacks = [
@@ -528,5 +426,5 @@ export async function storyboardAgent(
       detail: `${wanted - builderFilled} of ${wanted} scene cards written by the model`,
     },
   ];
-  return withDerivedTiming(scenes, ctx.project);
+  return withDialogueModes(withDerivedTiming(scenes, ctx.project), ctx.project);
 }

@@ -247,6 +247,7 @@ export function buildMediaPromptSpec(
     secondaryMotion: motion.secondary,
     cameraMotion: deriveCameraMotion(scene),
     dialogue: (scene.dialogue ?? []).map((d) => ({ speaker: d.character, line: d.line })),
+    ...(scene.dialogueMode ? { dialogueMode: scene.dialogueMode } : {}),
     narration: scene.narrationText ?? undefined,
     continuity,
     exclusions: [],

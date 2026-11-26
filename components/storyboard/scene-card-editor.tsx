@@ -3,7 +3,15 @@
 import { useState } from "react";
 import type { ProjectRecord, Scene } from "@/lib/schemas/storyboard";
 import type { DialogueLine } from "@/lib/schemas/audio";
-import { countWords, dialogueWordTargets, lintDialogue, WORDS_PER_SECOND } from "@/lib/agents/media-prompt-spec";
+import type { DialogueMode } from "@/lib/types";
+import { DIALOGUE_MODE_LABELS } from "@/lib/schemas/card-feedback";
+import {
+  countSpokenWords,
+  inferDialogueMode,
+  lintDialogue,
+  sceneSpeechTargets,
+  WORDS_PER_SECOND,
+} from "@/lib/agents/media-prompt-spec";
 
 /** The story content a person may correct. Timing and identity are derived. */
 const FIELDS = [
@@ -38,6 +46,10 @@ function draftFrom(scene: Scene): Draft {
 const linesFrom = (scene: Scene): DialogueLine[] =>
   (scene.dialogue ?? []).map((d) => ({ character: d.character, line: d.line }));
 
+/** The mode the scene behaves as: stored, or read from its lines. */
+const modeFrom = (scene: Scene): DialogueMode => inferDialogueMode(scene.dialogue, scene.dialogueMode);
+const intentFrom = (scene: Scene): string => scene.dialogueIntent ?? "";
+
 const sameLines = (a: DialogueLine[], b: DialogueLine[]) =>
   a.length === b.length && a.every((l, i) => l.character === b[i]!.character && l.line === b[i]!.line);
 
@@ -64,14 +76,23 @@ export function SceneCardEditor({
   const [synced, setSynced] = useState<Draft>(() => draftFrom(scene));
   const [lines, setLines] = useState<DialogueLine[]>(() => linesFrom(scene));
   const [syncedLines, setSyncedLines] = useState<DialogueLine[]>(() => linesFrom(scene));
-  const [saving, setSaving] = useState<null | "card" | "prompts">(null);
+  const [mode, setMode] = useState<DialogueMode>(() => modeFrom(scene));
+  const [syncedMode, setSyncedMode] = useState<DialogueMode>(() => modeFrom(scene));
+  const [intent, setIntent] = useState<string>(() => intentFrom(scene));
+  const [syncedIntent, setSyncedIntent] = useState<string>(() => intentFrom(scene));
+  const [guidance, setGuidance] = useState("");
+  const [updateVideo, setUpdateVideo] = useState(() => Boolean(scene.prompts.videoPromptSegment.trim()));
+  const [saving, setSaving] = useState<null | "card" | "prompts" | "dialogue">(null);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState<string | null>(null);
 
   const stored = draftFrom(scene);
   const storedLines = linesFrom(scene);
+  const storedMode = modeFrom(scene);
+  const storedIntent = intentFrom(scene);
   const dirty =
-    FIELDS.some((f) => draft[f.key] !== synced[f.key]) || !sameLines(lines, syncedLines);
+    FIELDS.some((f) => draft[f.key] !== synced[f.key]) || !sameLines(lines, syncedLines) ||
+    mode !== syncedMode || intent !== syncedIntent;
 
   // Regenerating the storyboard replaces this card while the panel may be open.
   // The draft is seeded once at mount, so without this it keeps showing the
@@ -103,18 +124,38 @@ export function SceneCardEditor({
     setSyncedLines(storedLines);
     if (sameLines(lines, syncedLines)) setLines(storedLines);
   }
+  if (storedMode !== syncedMode) {
+    setSyncedMode(storedMode);
+    if (mode === syncedMode) setMode(storedMode);
+  }
+  if (storedIntent !== syncedIntent) {
+    setSyncedIntent(storedIntent);
+    if (intent === syncedIntent) setIntent(storedIntent);
+  }
 
-  const spokenWords = countWords(lines.map((line) => line.line).join(" "));
+  const spokenWords = countSpokenWords(lines);
   const seconds = scene.trimAtEndSeconds ?? scene.targetDurationSeconds;
-  const speechTargets = dialogueWordTargets(seconds);
-  const dialogueFindings = lintDialogue(lines, seconds);
+  const speech = { mode, narrationText: draft.narrationText };
+  const speechTargets = sceneSpeechTargets(lines, seconds, speech);
+  const dialogueFindings = lintDialogue(lines, seconds, speech);
+  const speechSeconds = spokenWords / WORDS_PER_SECOND;
+  const coverage = Math.round((speechSeconds / Math.max(1, seconds)) * 100);
+
+  /** Silent clears the lines (Revert brings them back); a line added to a silent scene makes it brief. */
+  const chooseMode = (next: DialogueMode) => {
+    setDone(null);
+    setMode(next);
+    if (next === "silent") setLines([]);
+  };
 
   const save = async (thenRewrite: boolean) => {
     // Only what was actually edited. Sending the whole card wrote this
     // editor's copy of every untouched field back over whatever was stored.
     const edited = FIELDS.filter((f) => draft[f.key] !== synced[f.key]);
     const linesEdited = !sameLines(lines, syncedLines);
-    if (!edited.length && !linesEdited) return;
+    const modeEdited = mode !== syncedMode;
+    const intentEdited = intent !== syncedIntent;
+    if (!edited.length && !linesEdited && !modeEdited && !intentEdited) return;
 
     const dialogue = lines.filter((l) => l.character.trim() && l.line.trim());
     const fields = Object.fromEntries(edited.map((f) => [f.key, draft[f.key]]));
@@ -126,6 +167,8 @@ export function SceneCardEditor({
       patch.frameVisibility = { start: names(draft.startVisible), end: names(draft.endVisible) };
     }
     if (linesEdited) patch.dialogue = dialogue;
+    if (modeEdited) patch.dialogueMode = mode;
+    if (intentEdited) patch.dialogueIntent = intent.trim();
 
     setSaving(thenRewrite ? "prompts" : "card");
     setError(null);
@@ -161,6 +204,11 @@ export function SceneCardEditor({
         setLines(dialogue);
         setSyncedLines(dialogue);
       }
+      if (modeEdited) setSyncedMode(mode);
+      if (intentEdited) {
+        setIntent(intent.trim());
+        setSyncedIntent(intent.trim());
+      }
       setDone(thenRewrite ? "Card saved and prompts rewritten." : "Card saved.");
       onSaved?.(record);
     } catch (e) {
@@ -171,6 +219,42 @@ export function SceneCardEditor({
   };
 
   const disabled = busy || saving !== null;
+
+  const rewriteDialogue = async () => {
+    setSaving("dialogue");
+    setError(null);
+    setDone(null);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/dialogue/rewrite`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sceneIds: [scene.id],
+          modeOverride: mode,
+          ...(guidance.trim() ? { instruction: guidance.trim() } : {}),
+          rewriteVideoPrompts: updateVideo,
+        }),
+      });
+      const body = (await res.json().catch(() => null)) as {
+        record?: ProjectRecord;
+        updatedSceneIds?: string[];
+        warnings?: Record<string, string[]>;
+        promptError?: string;
+        error?: string;
+      } | null;
+      if (!res.ok || !body?.record) throw new Error(body?.error ?? `Failed to rewrite the dialogue (HTTP ${res.status})`);
+      if (body.promptError) setError(body.promptError);
+      const still = body.warnings?.[scene.id]?.length ? " Its length still needs a look." : "";
+      setDone(body.updatedSceneIds?.includes(scene.id)
+        ? `Dialogue rewritten${updateVideo && !body.promptError ? " and video prompt updated" : ""}.${still}`
+        : "The writer kept the existing dialogue.");
+      onSaved?.(body.record);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to rewrite the dialogue");
+    } finally {
+      setSaving(null);
+    }
+  };
 
   return (
     <details className="mt-3 text-sm" data-testid="scene-card-editor">
@@ -210,16 +294,51 @@ export function SceneCardEditor({
         <div className="space-y-2">
           <span className="text-[11px] uppercase tracking-wide text-slate-500">
             Dialogue
-            <span className="ml-2 normal-case tracking-normal text-slate-600">
-              {spokenWords} words · about {(spokenWords / WORDS_PER_SECOND).toFixed(1)}s speech
-              {" "}· aim for {speechTargets.targetMin}–{speechTargets.targetMax} words in {seconds}s
+            <span className="ml-2 normal-case tracking-normal text-slate-600" data-testid="dialogue-readout">
+              {mode === "silent"
+                ? `Silent · no spoken lines in ${seconds}s`
+                : `${spokenWords} spoken words · about ${speechSeconds.toFixed(1)}s of ${seconds}s (${coverage}%)` +
+                  ` · target ${speechTargets.targetMin}–${speechTargets.targetMax} words` +
+                  (speechTargets.narrationSeconds > 0 ? ` after ${speechTargets.narrationSeconds.toFixed(1)}s of voice-over` : "")}
             </span>
           </span>
           <p className="text-xs text-slate-500">
             Spoken aloud by the video model, word for word. This is the only source of speech in
-            the clip. Aim for speech through at least half the scene while the physical action
-            continues. Intentionally wordless scenes can stay empty. Timing is estimated.
+            the clip. A Full scene talks through most of the clip while the action continues; a
+            Brief one has a short line or two; a Silent one has none. Stage directions in brackets
+            are not counted. Timing is estimated.
           </p>
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="space-y-1">
+              <span className="block text-[11px] uppercase tracking-wide text-slate-500">Dialogue mode</span>
+              <select
+                value={mode}
+                disabled={disabled}
+                aria-label="Dialogue mode"
+                onChange={(e) => chooseMode(e.target.value as DialogueMode)}
+                className="rounded-md border border-white/10 bg-canvas px-2 py-1 text-sm"
+              >
+                {(["full", "brief", "silent"] as const).map((value) => (
+                  <option key={value} value={value}>{DIALOGUE_MODE_LABELS[value]}</option>
+                ))}
+              </select>
+            </label>
+            <label className="min-w-[16rem] flex-1 space-y-1">
+              <span className="block text-[11px] uppercase tracking-wide text-slate-500">Dialogue intent</span>
+              <input
+                type="text"
+                value={intent}
+                maxLength={400}
+                disabled={disabled}
+                placeholder="What is verbally at stake, or why the scene is silent"
+                onChange={(e) => {
+                  setDone(null);
+                  setIntent(e.target.value);
+                }}
+                className="w-full rounded-md border border-white/10 bg-canvas px-2 py-1 text-sm"
+              />
+            </label>
+          </div>
           {dialogueFindings.length ? (
             <div className="text-xs text-amber-300" aria-live="polite" data-testid="dialogue-warning">
               {dialogueFindings.map((finding) => <p key={finding.code}>{finding.message}</p>)}
@@ -275,11 +394,55 @@ export function SceneCardEditor({
             onClick={() => {
               setDone(null);
               setLines((rows) => [...rows, { character: "", line: "" }]);
+              if (mode === "silent") setMode("brief");
             }}
             className="rounded-md border border-white/15 px-2 py-1 text-xs hover:border-accent disabled:opacity-50"
           >
             Add a line
           </button>
+
+          <div className="space-y-2 rounded-md border border-white/10 p-2" data-testid="dialogue-rewrite">
+            <label className="block space-y-1">
+              <span className="block text-[11px] uppercase tracking-wide text-slate-500">
+                Rewrite dialogue — guidance (optional)
+              </span>
+              <input
+                type="text"
+                value={guidance}
+                maxLength={500}
+                disabled={disabled}
+                placeholder="e.g. make it tenser, focus on the negotiation"
+                onChange={(e) => setGuidance(e.target.value)}
+                className="w-full rounded-md border border-white/10 bg-canvas px-2 py-1 text-sm"
+              />
+            </label>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={disabled || dirty || mode === "silent"}
+                onClick={() => void rewriteDialogue()}
+                className="rounded-md border border-white/15 px-3 py-1.5 text-xs text-slate-200 hover:border-accent disabled:opacity-50"
+              >
+                {saving === "dialogue" ? "Rewriting dialogue…" : "Rewrite dialogue"}
+              </button>
+              <label className="flex items-center gap-2 text-xs text-slate-400">
+                <input
+                  type="checkbox"
+                  checked={updateVideo}
+                  disabled={disabled}
+                  onChange={(e) => setUpdateVideo(e.target.checked)}
+                />
+                Also update the video prompt
+              </label>
+            </div>
+            <p className="text-[10px] text-slate-600">
+              {dirty
+                ? "Save or revert your edits first — the writer works from the saved card."
+                : mode === "silent"
+                  ? "A silent scene has nothing to write. Choose Brief or Full to write lines."
+                  : `Writes ${DIALOGUE_MODE_LABELS[mode].toLowerCase()} dialogue from this card. Keyframes and image prompts are not touched.`}
+            </p>
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -306,6 +469,8 @@ export function SceneCardEditor({
               setDone(null);
               setDraft(stored);
               setLines(storedLines);
+              setMode(storedMode);
+              setIntent(storedIntent);
             }}
             className="rounded-md border border-white/15 px-3 py-1.5 text-xs text-slate-300 hover:border-accent disabled:opacity-50"
           >

@@ -19,7 +19,8 @@ import {
 import { config } from "@/lib/config";
 import type { ModelFamily } from "@/lib/wangp/family";
 import { buildMediaPromptSpec } from "@/lib/agents/media-prompt-builder";
-import type { BudgetContext } from "@/lib/agents/media-prompt-spec";
+import { countWords, sceneSpeechTargets, type BudgetContext } from "@/lib/agents/media-prompt-spec";
+import type { DialogueLine } from "@/lib/schemas/audio";
 import { stillStates } from "@/lib/agents/still-frame";
 import { dialogueClause, renderImagePrompt, renderVideoPrompt } from "@/lib/agents/media-prompt-renderers";
 import { hasNativeAudio } from "@/lib/agents/model-directives";
@@ -169,6 +170,55 @@ export function buildVisualBible(
   };
 }
 
+/**
+ * Placeholder lines long enough for the scene they sit in.
+ *
+ * One five-to-seven word line per scene failed the dialogue lint on every
+ * 20-second project, so the deterministic path and the model path disagreed
+ * about what a finished card looks like (SPEC-003). Whole sentences are added,
+ * alternating between up to two speakers, until the scene's target is met.
+ */
+const PLACEHOLDER_SENTENCES = [
+  "We can't keep pretending everything is fine.",
+  "Look at me.",
+  "I know what this costs us.",
+  "Then we decide now, together.",
+  "Stay close and keep moving.",
+  "Tell me what you saw.",
+  "All of it, from the start.",
+  "No more waiting.",
+  "We finish what we started tonight.",
+  "I am not leaving without you.",
+  "Then hold on and do not let go.",
+  "We need to talk about this.",
+];
+
+function placeholderDialogue(
+  speakers: readonly string[],
+  sceneNumber: number,
+  seconds: number,
+  narrationText: string | undefined,
+): DialogueLine[] {
+  const targets = sceneSpeechTargets([{ line: "placeholder" }], seconds, { mode: "full", narrationText });
+  const chosen: string[] = [];
+  let words = 0;
+  for (let step = 0; step < PLACEHOLDER_SENTENCES.length * 3 && words < targets.targetMin; step += 1) {
+    const sentence = PLACEHOLDER_SENTENCES[(sceneNumber - 1 + step) % PLACEHOLDER_SENTENCES.length]!;
+    const length = countWords(sentence);
+    if (words + length > targets.targetMax) continue;
+    chosen.push(sentence);
+    words += length;
+  }
+  const lines: DialogueLine[] = [];
+  chosen.forEach((sentence, index) => {
+    const character = speakers[index % speakers.length]!;
+    const last = lines.at(-1);
+    if (last?.character === character) last.line = `${last.line} ${sentence}`;
+    else lines.push({ character, line: sentence });
+  });
+  return lines;
+}
+
 export function buildSceneDrafts(
   project: Project,
   storyPlan: StoryPlan,
@@ -257,19 +307,18 @@ export function buildSceneDrafts(
         ...(plans?.worldBible?.continuityConstraints ?? []).slice(0, 2),
       ],
       narrationText: project.narrationRequired ? `Narration cue for scene ${sceneNumber}.` : undefined,
-      dialogue: project.dialogueRequired
-        ? [
-            {
-              character: speaker,
-              line:
-                sceneNumber === 1
-                  ? "We can't keep pretending everything is fine."
-                  : isLast
-                    ? "Then we decide now, together."
-                    : `We need to talk about this.`,
-            },
-          ]
-        : undefined,
+      ...(project.dialogueRequired
+        ? {
+            dialogueMode: "full" as const,
+            dialogueIntent: "Talk carries the beat while the action continues.",
+            dialogue: placeholderDialogue(
+              cast.length ? cast.slice(0, 2).map((c) => c.name) : [speaker],
+              sceneNumber,
+              trimAtEndSeconds ?? project.segmentSeconds,
+              project.narrationRequired ? `Narration cue for scene ${sceneNumber}.` : undefined,
+            ),
+          }
+        : { dialogueMode: "silent" as const, dialogue: undefined }),
       musicNotes: project.musicRequired ? "Underscore supporting the beat." : undefined,
       sfxNotes: project.sfxRequired ? "Ambient and accent SFX as needed." : undefined,
       status: "planned",

@@ -51,9 +51,10 @@ describe("dialogue coverage in the scene editor", () => {
       scene={sceneWith({ dialogue: [{ character: "Ana", line: "Keep the light steady." }] })}
       projectId="p1"
     />);
-    expect(screen.getByText(/4 words.*1.6s speech/)).toBeInTheDocument();
-    expect(screen.getByText(/aim for 30–35 words in 20s/)).toBeInTheDocument();
-    expect(screen.getByTestId("dialogue-warning")).toHaveTextContent("at least 25 words");
+    expect(screen.getByTestId("dialogue-readout")).toHaveTextContent(
+      "4 spoken words · about 1.6s of 20s (8%) · target 34–42 words",
+    );
+    expect(screen.getByTestId("dialogue-warning")).toHaveTextContent("at least 30");
     fireEvent.change(screen.getByLabelText("Line 1"), { target: { value: "Keep the light steady now." } });
     expect(screen.getByRole("button", { name: /save card/i })).toBeEnabled();
   });
@@ -64,7 +65,7 @@ describe("dialogue coverage in the scene editor", () => {
       projectId="p1"
     />);
     fireEvent.change(screen.getByLabelText("Line 1"), {
-      target: { value: Array.from({ length: 25 }, () => "word").join(" ") },
+      target: { value: Array.from({ length: 30 }, () => "word").join(" ") },
     });
     expect(screen.queryByTestId("dialogue-warning")).toBeNull();
   });
@@ -72,15 +73,57 @@ describe("dialogue coverage in the scene editor", () => {
   it("keeps intentional silence quiet and uses the actual trimmed duration", () => {
     const { rerender } = render(<SceneCardEditor scene={sceneWith({ dialogue: [] })} projectId="p1" />);
     expect(screen.queryByTestId("dialogue-warning")).toBeNull();
+    expect(screen.getByTestId("dialogue-readout")).toHaveTextContent("Silent");
     rerender(<SceneCardEditor
       scene={sceneWith({
         trimAtEndSeconds: 10,
-        dialogue: [{ character: "Ana", line: Array.from({ length: 13 }, () => "word").join(" ") }],
+        dialogue: [{ character: "Ana", line: Array.from({ length: 15 }, () => "word").join(" ") }],
       })}
       projectId="p1"
     />);
-    expect(screen.getByText(/aim for 15–18 words in 10s/)).toBeInTheDocument();
+    expect(screen.getByTestId("dialogue-readout")).toHaveTextContent("target 17–21 words");
     expect(screen.queryByTestId("dialogue-warning")).toBeNull();
+  });
+
+  it("does not ask a brief scene for a conversation, and silences a scene by clearing its lines", () => {
+    render(<SceneCardEditor
+      scene={sceneWith({ dialogueMode: "brief", dialogue: [{ character: "Ana", line: "Down, now!" }] })}
+      projectId="p1"
+    />);
+    expect(screen.queryByTestId("dialogue-warning")).toBeNull();
+    fireEvent.change(screen.getByLabelText("Dialogue mode"), { target: { value: "silent" } });
+    expect(screen.queryByLabelText("Line 1")).toBeNull();
+    expect(screen.getByTestId("dialogue-readout")).toHaveTextContent("Silent");
+    fireEvent.click(screen.getByRole("button", { name: "Add a line" }));
+    expect(screen.getByLabelText("Dialogue mode")).toHaveValue("brief");
+  });
+
+  it("asks the writer for the chosen mode, and only from a saved card", async () => {
+    const fetchMock = vi.fn(async () => Response.json({
+      record: { project: { id: "p1" } },
+      updatedSceneIds: ["scene-1"],
+      skippedSceneIds: [],
+      warnings: {},
+      promptsRewritten: true,
+    }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<SceneCardEditor
+      scene={sceneWith({ dialogue: [{ character: "Ana", line: "Keep turning." }] })}
+      projectId="p1"
+    />);
+    const rewrite = screen.getByRole("button", { name: "Rewrite dialogue" });
+    fireEvent.change(screen.getByLabelText("Line 1"), { target: { value: "Edited." } });
+    expect(rewrite).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Revert" }));
+    fireEvent.change(screen.getByPlaceholderText(/make it tenser/), { target: { value: "make it tenser" } });
+    fireEvent.click(rewrite);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(url).toBe("/api/projects/p1/dialogue/rewrite");
+    expect(JSON.parse(String(init.body))).toEqual({
+      sceneIds: ["scene-1"], modeOverride: "full", instruction: "make it tenser", rewriteVideoPrompts: true,
+    });
+    vi.unstubAllGlobals();
   });
 });
 

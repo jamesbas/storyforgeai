@@ -10,6 +10,7 @@ import { repository } from "@/lib/db/store";
 import { NotFoundError, PrerequisiteError, ValidationError } from "@/lib/errors";
 import {
   CARD_TEXT_FIELDS,
+  DIALOGUE_MODE_LABELS,
   cardFeedbackApplySchema,
   cardFeedbackRequestSchema,
   type CardEdit,
@@ -142,6 +143,10 @@ function describeEdit(
   const dialogue = (lines: readonly { character: string; line: string }[]) =>
     lines.map((l) => `${l.character}: "${l.line}"`).join("\n") || "(no dialogue)";
   if (edit.card?.dialogue) changes.push({ field: "dialogue", before: dialogue(scene.dialogue ?? []), after: dialogue(edit.card.dialogue) });
+  if (edit.card?.dialogueMode) {
+    const mode = (value: Scene["dialogueMode"]) => value ? DIALOGUE_MODE_LABELS[value] : "(read from the lines)";
+    changes.push({ field: "dialogueMode", before: mode(scene.dialogueMode), after: mode(edit.card.dialogueMode) });
+  }
   const wardrobe = (list: readonly WardrobeChange[]) => list.map((c) =>
     `${nameOf(c, cast)}: ${c.wardrobe} (${c.mode === "within" ? "changes during this scene" : "already wearing it as the scene opens"})`,
   ).join("\n") || "(no change at this scene)";

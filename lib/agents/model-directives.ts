@@ -182,7 +182,8 @@ export function videoPromptDirective(
     case "ltx":
       return (
         " This clip renders on LTX. Write one flowing paragraph in the present tense, with " +
-        "six short sentences at most, and fewer for a held shot. Convey feeling " +
+        "six short visual and motion sentences at most, and fewer for a held shot; spoken lines " +
+        "are additional and are kept whole and verbatim, however many turns there are. Convey feeling " +
         "through what the body does — a jaw tightening, a gaze dropping — never through an " +
         "emotional label, which the model cannot render. State the camera move relative to the " +
         "subject and say what the framing settles on at the end, so the movement has somewhere " +

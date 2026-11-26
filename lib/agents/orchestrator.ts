@@ -4,6 +4,7 @@ import { intakeAgent } from "@/lib/agents/intake-agent";
 import { storyArchitectAgent } from "@/lib/agents/story-architect-agent";
 import { visualBibleAgent } from "@/lib/agents/visual-bible-agent";
 import { storyboardAgent } from "@/lib/agents/storyboard-agent";
+import { writeSceneDialogue } from "@/lib/agents/dialogue-agent";
 import { attachScenePrompts } from "@/lib/agents/prompt-agents";
 import { getPlanningProvider } from "@/lib/agents/llm/provider";
 import { hasCreativePlans } from "@/lib/agents/creative-context";
@@ -53,6 +54,21 @@ export async function runStoryboardOrchestrator(
   ctx.visualBible = await visualBibleAgent(ctx, provider);
   deps.onProgress?.({ phase: "Drafting the scenes" });
   ctx.sceneDrafts = await storyboardAgent(ctx, provider);
+  // Dialogue is developed scene by scene after the cards exist, so each scene
+  // can be handed the finished lines of the one before it.
+  if (project.dialogueRequired) {
+    deps.onProgress?.({ phase: "Writing dialogue" });
+    ctx.sceneDrafts = (await writeSceneDialogue(ctx.sceneDrafts, {
+      project,
+      provider,
+      cast: ctx.cast,
+      visualBible: ctx.visualBible,
+      plans: ctx.plans,
+      onExecution: ctx.onExecution,
+      onProgress: deps.onProgress,
+      correlationId: ctx.correlationId,
+    })).scenes;
+  }
   // A costume change the story called for has to reach the project before the
   // prompts are written, or the proposal would only take effect on the next
   // regeneration. Manual entries win: they are the ones a person chose. After

@@ -39,11 +39,11 @@ recent updates are kept below — every release ever made is in
 
 | Version | Date | What changed |
 | --- | --- | --- |
+| **3.07** | 2026-11-24 | **Speaking scenes now talk through most of the clip, and quiet scenes can stay quiet.** A 20-second speaking scene used to average about 7 seconds of speech: dialogue was written inside the storyboard's four-scene batches, and the follow-up meant to lengthen it rejected its own revisions almost every time. Each scene now has a **dialogue mode** — **Full** (a conversation through most of the clip, about 34–42 words for 20 seconds), **Brief** (a short line or two) or **Silent** — chosen by the storyboard from the beat, so action and wordless moments are no longer padded with chatter. A new **Dialogue Writer** then develops any scene whose draft is short or wrong, one scene at a time and in order so a conversation carries across the cut. It can give lines to anyone in the shot, is told exactly why an earlier attempt fell short, and when nothing fits keeps the closest attempt instead of the shortest. A voice-over now takes its share of the clip, and stage directions such as "(whispers)" no longer count as speech. On each scene card you can switch the mode, say what the dialogue is for, and press **Rewrite dialogue**, with optional guidance and **Also update the video prompt**; **Rewrite dialogue for selected scenes** on the storyboard does several at once or fills every short speaking scene. Keyframes and image prompts are never touched. Video prompts now name the speaker before every line, which removes most "Speaker is unclear" warnings and the extra model call each one cost, and LTX's sentence limit no longer squeezes out dialogue turns. **The Dialogue checkbox on a new project now does what it says**: unchecked makes every scene silent (it used to be ignored), and it is now checked by default. Existing projects keep their dialogue until you regenerate or rewrite it; scenes of 25–29 words now show a short-dialogue warning, and the storyboard asks you to rewrite video prompts because their guidance changed. Speech timing is still estimated at 2.5 words per second, not measured from the audio. |
 | **3.06** | 2026-11-23 | **Characters with a voice sample no longer make up speech in reference mode.** In MiniMax H3 reference mode, a character with a voice sample could be heard saying things that were not in their dialogue — sometimes reading the scene's description aloud — and their lips did not always move. The cause was that a line only counted as speech if the video prompt introduced it with "says": lines written as "she speaks…", "she shouts…" or "his voice carries…" reached H3 as plain description, and given a voice with no words to say, H3 improvised. Spoken lines are now found by matching them against the scene card's dialogue, whatever verb the prompt uses, and each is tied to the right speaker and voice; "She shouts" becomes "Linda shouts" when she is the only person in the sentence. A line you reworded in the video prompt but not on the scene card still counts, as long as most of its words survive: it stays with the character who says it on the card — a name inside it, as in "faster, Linda", is never mistaken for the speaker — and H3 says your wording. A voice sample is left out of a clip, with a warning on the attempt, when one of that character's lines is missing from the video prompt or rewritten beyond recognition, or when the prompt quotes speech that is not on the scene card — instead of risking invented speech. Every quotation that reads as speech but is not on the scene card now gets its own warning too. Stage directions in the dialogue such as "(Nods)" are no longer treated as lines. It also stops H3 reading StoryForge's own instructions aloud: the description of each keyframe given to H3 used to include text written for the image model — the project's style and tone, "Intended audience: …", the shot size and lens — and a voiced character was heard speaking it over the start of the clip. Keyframes are now described by what they show, and a clip with a voice sample no longer carries sentences that only give instructions — "Lip movement matches the spoken words", "Keep face, hair, wardrobe and lighting unchanged", "Render with …" and StoryForge's own anchoring notes — since H3 was heard reading those aloud too. Instead the prompt says, the way Wan2GP's own voice-cloning does, that only the scripted lines are spoken with no extra words before or after them. Clips without a voice sample are unchanged. This reduces invented speech but may not remove it entirely; H3 tends to fill a long clip with speech once it has a voice. Existing projects need no changes to keep rendering: render the affected videos again, and where a warning appears, make the scene's dialogue and the video prompt agree. **Copy dialogue from a video prompt back to its scene card.** The scene card's dialogue, not the video prompt, decides which quoted words are spoken as dialogue, who says each line and whose voice sample is used, so a line you changed only in the prompt was not treated as dialogue. Each scene's **Prompts** now has **Copy dialogue from the video prompt to the scene card**, and the project's Settings page has **Scene dialogue** to do every scene at once. Both preview the change first — the card now and afterwards, reworded, new and removed lines, with each speaker editable and guesses marked — and save nothing until you apply. The prompts themselves are not changed. **Reference mode now names each character's photograph by the right picture number.** With keyframes sent as first and last frames — what current Wan2GP builds do — the prompt pointed the character's identity at the first keyframe instead of their photograph, and a scene continuing the previous clip had every picture number off by one. |
 | **3.05** | 2026-11-23 | **Fix a prompt mistake across several scenes by describing it once.** **Rewrite prompts for selected scenes** now lets you tick which prompts to rewrite (**Start frame**, **End frame**, **Video**, or any combination), so fixing one frame no longer replaces the other frame's wording, hand edits included. It also has an optional **Refine with feedback** box. Describe the correction once, for example "Mara wears her glasses in every shot", and the planning model edits each picked scene's ticked prompts to follow it, saving straight away with no preview. Only the ticked prompts on the picked scenes change, apart from a continuous next scene's carried opening. A keyframe fix leaves the video prompt alone unless **Video** is ticked. A scene the model cannot refine is listed as unchanged while the rest still save. When the scene cards themselves are wrong (the action, who is in the shot, dialogue or wardrobe), tick **Also correct the scene cards**: the planning model corrects each picked card and the wardrobe changes set at it, you review those card changes first, and **Accept and rewrite prompts** saves them and rewrites the ticked prompts from the corrected cards, so later rewrites cannot bring the mistake back. Wardrobe changes carry forward to later scenes as hand-set ones do, and the preview names the scenes they reach. Leave the box empty to rewrite from the scene cards as before. Nothing is rendered automatically. |
 | **3.04** | 2026-11-22 | **Give a character their own voice in MiniMax H3 reference mode.** H3 used to invent a new voice for every clip, so the same character could sound different in every scene. In **Settings → Character library**, each character now has **Add voice sample**: upload 5–15 seconds of that person speaking clearly (WAV, FLAC, MP3 or OGG). When a scene renders on a MiniMax H3 **reference mode (Ref2VA)** model and that character has a line in it, the recording goes to H3 as a voice reference — the words still come from the storyboard, the recording only sets how they sound. It is used only when the character also has a reference image, and only in scenes where they speak; up to three voices fit in one scene. H3 keeps at most 15 seconds of reference audio per clip, read from the start of each recording and split between speakers, so put the cleanest speech first. Recordings under 2 seconds are refused at upload. First-and-last-frame H3, LTX and other models ignore the recording, and characters without one render exactly as before. Lip sync and likeness are not guaranteed — listen to the result. |
 | **3.03** | 2026-11-16 | **Fix several Scene check findings in one pass, without re-running the check.** Applying one fix used to strand every other finding: the fix changed the scene, the check went *Out of date*, and its remaining errors and warnings lost their buttons — so a deep check that took minutes had to be run again for each issue. Now, when the only changes since a check are fixes applied from it, the other findings stay fixable, the fixed ones are marked *fix applied · re-check to confirm*, and a note says what has happened. Tick several findings and press **Fix selected** to walk through them: each fix is previewed in turn against the text the one before it left, and you **Apply**, **Skip** or **Stop** as you go. The check still reads *Out of date* until you run it again — it has not read the fixed text — and any other edit to the scene ends the run as before. A fix the model finds already resolved now says so instead of reporting that it changed nothing. |
-| **3.02** | 2026-11-15 | **Choose the vision model in Settings, and see when it is wrong.** The model that reads images (reference images, QC keyframes, Deep scene checks) could only be set with `OPENAI_VISION_MODEL` in `.env.local`, so a mistyped id showed up only as LM Studio answering "No models loaded" when you pressed **Write from images** or **Expand with AI**. **Settings → AI planning models** now has a **Vision model** dropdown listing the models LM Studio marks as vision-capable; it is saved without a restart, and *Use environment default* still follows `OPENAI_VISION_MODEL`. If the vision model in use - saved or from the environment - is not a model LM Studio has, the section warns you. Existing setups keep working unchanged. |
 
 ---
 
@@ -502,24 +502,36 @@ action, story beat, camera move, and dialogue. Dialogue is quoted inline in the
 prose (`Lead says, "..."`), which is the format LTX-2 expects and how spoken
 audio reaches the clip; nothing is synthesized separately.
 
-Speaking scenes aim for dialogue during at least half the shot: **30-35 words
-for 20 seconds**, with a **25-word estimated minimum** and a 50-word capacity.
-Targets scale with the scene's final duration, including a trimmed last scene.
-The storyboard writer is asked for character-specific exchanges tied to the
-scene's objective and action, not filler or narration of the picture. Characters
-continue their physical task while speaking; the conversation is not a separate
-pause after the action.
+Every scene has a **dialogue mode**. A **Full** scene talks through most of the
+clip: **34-42 words for 20 seconds**, with a **30-word estimated minimum** and a
+50-word capacity, which leaves room for pauses between turns so the last line is
+not clipped. A **Brief** scene has a short line or exchange (about 6-18 words for
+20 seconds, at most 23) and is never asked to pad it. A **Silent** scene has
+none. Targets scale with the scene's final duration, including a trimmed last
+scene; a voice-over takes its share of the clip first, and stage directions such
+as "(whispers)" do not count as speech. Characters continue their physical task
+while speaking; the conversation is not a separate pause after the action.
 
-An underwritten or overlong model-authored script gets up to two targeted
-dialogue-only revisions. These cannot change the scene's action, camera, wardrobe,
-endpoints or speakers. If revisions fail, the original lines remain and the run
-is flagged for review; the scene editor and video-prompt panel show nonblocking
-dialogue warnings. Intentionally wordless scenes stay empty. Demo/builder dialogue
-is not creatively expanded and can show the same warnings. These checks estimate
-speech at 2.5 words per second; they do not measure the rendered audio.
-Existing saved storyboards are unchanged: regenerate the storyboard for newly
-authored dialogue, or edit a scene's dialogue and save/rewrite its prompts.
-Rewriting video prompts alone preserves the existing script rather than expanding it.
+The Storyboard Agent chooses each scene's mode and a one-line **dialogue intent**
+from the beat (and the Director's scene intent, when there is one) and drafts the
+lines. The **Dialogue Writer** then develops any speaking scene whose draft is
+empty, the wrong length for its mode, or given to someone not in the shot: one
+scene per call, in scene order, with the previous scene's finished lines and the
+next scene's beat, so a conversation carries across the cut without repeating or
+racing ahead. It may give lines to anyone visible in the scene, is told exactly
+why a rejected attempt fell short, and gets three attempts; if none fits, it keeps
+the closest usable attempt rather than the short draft. It may turn a Full scene
+into a Brief or Silent one when the action leaves no room to talk, but never the
+other way. Scenes still out of range keep nonblocking warnings in the scene editor
+and video-prompt panel. These checks estimate speech at 2.5 words per second; they
+do not measure the rendered audio. A project created with **Dialogue** unchecked is
+silent throughout.
+
+Existing saved storyboards are unchanged. To lengthen or rethink what a scene
+says without touching its keyframes, use **Rewrite dialogue** on its scene card, or
+**Rewrite dialogue for selected scenes** on the storyboard (which can also **Fill
+short speaking scenes**), optionally updating the video prompts too. Rewriting
+video prompts alone preserves the existing script rather than expanding it.
 
 Deterministic builders always produce a complete prompt. When `AI_PLANNING_ENABLED`
 is set, an LLM refines each artifact and falls back to the builder on any failure.
@@ -1407,11 +1419,18 @@ describes the wrong thing produces the wrong shot again, however many times you 
 
 Dialogue is the only source of speech in a clip: LTX speaks it word for word out of
 the prompt, quoted inline in the prose the way its own model defaults do, and
-nothing is synthesised separately. The editor estimates speech at 2.5 words per
-second and targets 30-35 words for a twenty-second speaking scene, with a warning
-below 25 words or above the 50-word capacity. Targets use the final trimmed scene
-duration. These are writing estimates, not measurements of the finished audio;
-warnings do not prevent saving deliberately short lines or wordless scenes.
+nothing is synthesised separately. Choose the scene's **Dialogue mode** — Full,
+Brief or Silent — and its **Dialogue intent**. The editor estimates speech at 2.5
+words per second and shows the words, seconds and share of the clip against the
+mode's target: 34-42 words for a twenty-second Full scene, with a warning below 30
+words or above the 50-word capacity, and no length warning for a Brief line.
+Targets use the final trimmed scene duration less any voice-over. Choosing Silent
+clears the lines (**Revert** brings them back), and adding a line to a silent scene
+makes it Brief. **Rewrite dialogue** asks the Dialogue Writer for new lines in the
+chosen mode, with optional guidance, and can update the video prompt in the same
+step; keyframes and image prompts are not touched. These are writing estimates,
+not measurements of the finished audio; warnings do not prevent saving
+deliberately short lines or wordless scenes.
 
 **Prompts** — start frame, end frame, motion, and both negative prompts, exactly as
 sent to WanGP. Edits apply to that scene only. **Regenerate these prompts** asks the

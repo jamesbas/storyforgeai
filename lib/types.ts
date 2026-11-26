@@ -10,6 +10,10 @@ export type AspectRatio = (typeof ASPECT_RATIOS)[number];
 export const RESOLUTION_PRESETS = ["draft", "standard", "high"] as const;
 export type ResolutionPreset = (typeof RESOLUTION_PRESETS)[number];
 
+/** How much of a scene is spoken: a conversation, one short line, or none. */
+export const DIALOGUE_MODES = ["full", "brief", "silent"] as const;
+export type DialogueMode = (typeof DIALOGUE_MODES)[number];
+
 export const GENERATION_MODES = [
   "storyboard_only",
   "keyframes_only",

@@ -123,6 +123,53 @@ describe("gateVideoPrompt dialogue", () => {
     });
     expect(gateVideoPrompt('Ada says, "Ready." Ben says, "Welcome."', ctx)).toEqual([]);
   });
+
+  describe("multi-turn attribution", () => {
+    const turns = context({
+      scene: {
+        actionDescription: "", visualDescription: "",
+        dialogue: [
+          { character: "Ada", line: "Not here." },
+          { character: "Ben", line: "Please, just once." },
+          { character: "Ada", line: "Fine, but quickly." },
+          { character: "Ben", line: "Thank you." },
+        ],
+      },
+    });
+    const unclear = (text: string, ctx = turns) =>
+      gateVideoPrompt(text, ctx).filter((warning) => warning.startsWith("Speaker is unclear"));
+
+    it.each(["murmurs", "pleads", "mutters", "breathes", "snaps", "gasps", "growls"])(
+      "recognises %s as speech",
+      (verb) => {
+        expect(unclear(
+          `Ada ${verb}, "Not here." Ben ${verb}, "Please, just once." ` +
+          `Ada ${verb}, "Fine, but quickly." Ben ${verb}, "Thank you."`,
+        )).toEqual([]);
+      },
+    );
+
+    it("attributes a colon after an action clause to the one person that sentence names", () => {
+      const ctx = context({ participants: ["Ada", "Ben"] });
+      expect(unclear('Ada holds his gaze, jaw tight: "The records are ready." Ben carries the blue folder.', ctx))
+        .toEqual([]);
+      expect(unclear('Ada holds Ben\'s gaze, jaw tight: "The records are ready."', ctx)).toHaveLength(1);
+    });
+
+    it("attributes a while-clause pronoun only when nobody else is named in between", () => {
+      const ctx = context({ participants: ["Ada", "Ben"] });
+      expect(unclear('Ada keeps pulling the door while she speaks low: "The records are ready."', ctx)).toEqual([]);
+      expect(unclear('Ada keeps pulling Ben\'s arm while he speaks low: "The records are ready."', ctx)).toHaveLength(1);
+    });
+
+    it("still reports a line given only to a pronoun", () => {
+      const warnings = gateVideoPrompt(
+        'Ada opens the archive door. She speaks, voice breaking: "The records are ready."',
+        context(),
+      );
+      expect(warnings).toContainEqual(expect.stringMatching(/^(?:Speaker is unclear|Dialogue for Ada).*explicitly/));
+    });
+  });
 });
 
 describe("gateVideoPrompt actors and action", () => {

@@ -556,7 +556,8 @@ describe("what LTX is told, against its own prompting guide", () => {
   it("keeps the guide's other fundamentals", () => {
     const text = directive(8);
     expect(text).toMatch(/present tense/i);
-    expect(text).toMatch(/six short sentences at most/i);
+    expect(text).toMatch(/six short visual and motion sentences at most/i);
+    expect(text).toMatch(/spoken lines are additional/i);
     expect(text).toMatch(/never through an emotional label/i);
   });
 });

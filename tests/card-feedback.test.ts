@@ -186,4 +186,22 @@ describe("card edit contracts", () => {
     const twice = proposal({ revisions: [...proposal().revisions, ...proposal().revisions] });
     expect(() => cardEditFrom(scene, twice, cast, [])).toThrow(/twice/);
   });
+
+  it("proposes a dialogue mode with the lines, and silence when feedback removes them all", async () => {
+    const base = (await seeded()).storyboard!.scenes[0]!;
+    const speaking = { ...base, dialogueMode: "full" as const, dialogue: [{ character: "Mara", line: "Not now." }] };
+    const emptied = cardEditFrom(speaking, proposal({ revisions: [], dialogue: { changed: true, lines: [] } }), cast, []);
+    expect(emptied.card).toEqual({ dialogue: [], dialogueMode: "silent" });
+    const shorter = cardEditFrom(speaking, proposal({
+      revisions: [],
+      dialogue: { changed: true, lines: [{ character: "Mara", line: "Later." }], mode: "brief" },
+    }), cast, []);
+    expect(shorter.card).toEqual({ dialogue: [{ character: "Mara", line: "Later." }], dialogueMode: "brief" });
+    // Silence beside lines contradicts itself; the lines win.
+    const contradictory = cardEditFrom(speaking, proposal({
+      revisions: [],
+      dialogue: { changed: true, lines: [{ character: "Mara", line: "Later." }], mode: "silent" },
+    }), cast, []);
+    expect(contradictory.card).toEqual({ dialogue: [{ character: "Mara", line: "Later." }] });
+  });
 });

@@ -1,8 +1,10 @@
 import { z } from "zod";
 import { dialogueLineSchema } from "@/lib/schemas/audio";
+import { maybe } from "@/lib/schemas/maybe";
 import { feedbackTargetSchema } from "@/lib/schemas/scene-feedback";
-import { sceneCardPatchSchema, type ProjectRecord } from "@/lib/schemas/storyboard";
+import { dialogueModeSchema, sceneCardPatchSchema, type ProjectRecord } from "@/lib/schemas/storyboard";
 import { sceneWardrobeChangesSchema } from "@/lib/schemas/wardrobe";
+import type { DialogueMode } from "@/lib/types";
 
 export const CARD_TEXT_FIELDS = [
   "title",
@@ -14,7 +16,7 @@ export const CARD_TEXT_FIELDS = [
 ] as const;
 export type CardTextField = (typeof CARD_TEXT_FIELDS)[number];
 
-export const CARD_CHANGE_LABELS: Record<CardTextField | "frameVisibility" | "dialogue" | "wardrobe", string> = {
+export const CARD_CHANGE_LABELS: Record<CardTextField | "frameVisibility" | "dialogue" | "dialogueMode" | "wardrobe", string> = {
   title: "Title",
   sceneObjective: "Objective",
   storyBeat: "Story beat",
@@ -23,7 +25,15 @@ export const CARD_CHANGE_LABELS: Record<CardTextField | "frameVisibility" | "dia
   cameraMovement: "Camera movement",
   frameVisibility: "Who is visible",
   dialogue: "Dialogue",
+  dialogueMode: "Dialogue mode",
   wardrobe: "Wardrobe change at this scene",
+};
+
+/** How a dialogue mode reads in the UI. */
+export const DIALOGUE_MODE_LABELS: Record<DialogueMode, string> = {
+  full: "Full (most of the clip)",
+  brief: "Brief (a short line)",
+  silent: "Silent (no dialogue)",
 };
 
 export const cardFeedbackRequestSchema = z.object({
@@ -52,6 +62,8 @@ export const cardFeedbackProposalSchema = z.object({
   dialogue: z.object({
     changed: z.boolean(),
     lines: z.array(dialogueLineSchema).max(24),
+    /** Set when the feedback changes how much the scene is spoken, e.g. "make it silent". */
+    mode: maybe(dialogueModeSchema),
   }).strict(),
   wardrobe: z.object({
     changed: z.boolean(),

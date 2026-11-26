@@ -7,6 +7,7 @@ import {
   latestExecution,
   redactDetail,
   MAX_EXECUTIONS_PER_ARTIFACT,
+  MAX_EXECUTIONS_PER_PROJECT,
   type ArtifactExecution,
   type FailureReason,
 } from "@/lib/schemas/provenance";
@@ -295,6 +296,18 @@ describe("retention", () => {
   it("reads nothing for an artifact that has no record", () => {
     expect(latestExecution(undefined, "storyboard")).toBeUndefined();
     expect(latestExecution([], "storyboard")).toBeUndefined();
+  });
+
+  it("never lets per-scene records push out the project-level ones", () => {
+    let all: ArtifactExecution[] | undefined = appendExecution(undefined, { ...record("storyboard", "sb"), scope: "project" });
+    for (let i = 0; i < 70; i += 1) {
+      for (const pass of ["image_prompt", "video_prompt", "dialogue"]) {
+        all = appendExecution(all, { ...record(`scene-${i}.${pass}`, `${i}-${pass}`), scope: `scene-${i}` });
+      }
+    }
+    expect(latestExecution(all, "storyboard")?.executionId).toBe("sb");
+    expect(all!.filter((e) => e.scope !== "project")).toHaveLength(MAX_EXECUTIONS_PER_PROJECT);
+    expect(latestExecution(all, "scene-69.dialogue")?.executionId).toBe("69-dialogue");
   });
 });
 

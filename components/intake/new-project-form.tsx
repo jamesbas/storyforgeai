@@ -106,7 +106,9 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
   const [generationMode, setGenerationMode] =
     useState<(typeof GENERATION_MODES)[number]>("video_segments");
   const [narrationRequired, setNarration] = useState(false);
-  const [dialogueRequired, setDialogue] = useState(false);
+  // On by default: since dialogue modes, unchecked means every scene is silent,
+  // where before the flag was ignored and scenes spoke anyway.
+  const [dialogueRequired, setDialogue] = useState(true);
   const [musicRequired, setMusic] = useState(false);
   const [sfxRequired, setSfx] = useState(false);
   const [useCharacterLibrary, setUseCharacterLibrary] = useState(false);
@@ -608,7 +610,7 @@ export function NewProjectForm({ onSubmit, submitting = false }: NewProjectFormP
           <input type="checkbox" checked={narrationRequired} onChange={(e) => setNarration(e.target.checked)} />
           Narration
         </label>
-        <label className="flex items-center gap-2">
+        <label className="flex items-center gap-2" title="Characters speak on screen. Unchecked makes every scene silent.">
           <input type="checkbox" checked={dialogueRequired} onChange={(e) => setDialogue(e.target.checked)} />
           Dialogue
         </label>

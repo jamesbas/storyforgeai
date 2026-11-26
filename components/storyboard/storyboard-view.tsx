@@ -16,6 +16,7 @@ import {
 import { useSceneChecks } from "@/components/storyboard/use-scene-checks";
 import { BulkPromptTools } from "@/components/storyboard/bulk-prompt-tools";
 import { SelectedScenePromptTools } from "@/components/storyboard/selected-scene-prompt-tools";
+import { SelectedSceneDialogueTools } from "@/components/storyboard/selected-scene-dialogue-tools";
 import { CreativePlansPanel, planStates } from "@/components/storyboard/creative-plans-panel";
 import { NegativePromptRepair } from "@/components/storyboard/negative-prompt-repair";
 import { TaskRecoveryPanel } from "@/components/storyboard/task-recovery-panel";
@@ -1866,6 +1867,17 @@ export function StoryboardView({ projectId }: { projectId: string }) {
                 disabled={busy || promptToolsBusy || Boolean(remoteAgent) || Boolean(queue?.active) || queueBusy || Boolean(sceneBusy)}
                 rewriting={rewritingAll}
                 onRewrite={(sceneIds, request) => rewritePrompts(sceneIds, request.passes, request.frames)}
+                onSaved={setRecord}
+                onBusyChange={setPromptToolsBusy}
+              />
+            ) : null}
+
+            {storyboard.scenes.length > 0 ? (
+              <SelectedSceneDialogueTools
+                projectId={projectId}
+                scenes={storyboard.scenes}
+                rendersVideo={stages.video}
+                disabled={busy || promptToolsBusy || Boolean(remoteAgent) || Boolean(queue?.active) || queueBusy || Boolean(sceneBusy)}
                 onSaved={setRecord}
                 onBusyChange={setPromptToolsBusy}
               />

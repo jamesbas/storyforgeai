@@ -1997,22 +1997,38 @@ export default function HelpPage() {
           </p>
           <p className={p}>
             The card also holds the scene&apos;s <strong>dialogue</strong>, which is the only source
-            of speech in a clip — LTX speaks it word for word from the prompt, and nothing is
-            synthesised separately. Speaking scenes target 30-35 words per 20 seconds, with a
-            25-word minimum estimate, so speech covers at least half the shot while the physical
-            action continues. Dialogue should respond to the scene&apos;s action and stakes, not
-            simply narrate the picture or pause it for a conversation.
+            of speech in a clip — the video model speaks it word for word from the prompt, and
+            nothing is synthesised separately. Each scene has a <strong>dialogue mode</strong>:
+            <strong> Full</strong> scenes talk through most of the clip, about 34-42 words per 20
+            seconds with a 30-word minimum estimate, leaving room for pauses between turns;
+            <strong> Brief</strong> scenes have a short line or exchange and are never asked to pad
+            it; <strong>Silent</strong> scenes have none. A voice-over takes its share of the clip
+            first, and stage directions in brackets do not count as speech. Dialogue should respond
+            to the scene&apos;s action and stakes, not simply narrate the picture or pause it for a
+            conversation.
           </p>
           <p className={p}>
-            The storyboard writer gets up to two dialogue-only revisions for short or overlong
-            scripts, preserving the action, speakers and camera. If it still misses the length
-            target, the original lines stay and a warning asks you to review them; generation is
-            not blocked. The editor estimates speech at 2.5 words per second and adjusts its targets
-            for a trimmed final scene. These are writing estimates, not checks of the finished
-            audio. Intentionally wordless scenes stay empty. Existing saved scripts are not
-            automatically rewritten: regenerate the storyboard for newly authored dialogue, or
-            edit the dialogue and use <strong>Save and rewrite prompts</strong>. Rewriting video
-            prompts alone keeps the existing words.
+            The storyboard chooses each scene&apos;s mode and a one-line <strong>dialogue
+            intent</strong> from the beat, and drafts the lines. The <strong>Dialogue
+            Writer</strong> then develops any speaking scene whose draft is short, overlong or given
+            to someone not in the shot — one scene at a time, in order, continuing the previous
+            scene&apos;s conversation. If it still misses the target, the closest attempt is kept and
+            a warning asks you to review it; generation is not blocked. A project created with
+            <strong> Dialogue</strong> unchecked is silent throughout. The editor estimates speech at
+            2.5 words per second, shows the share of the clip it fills, and adjusts its targets for
+            a trimmed final scene. These are writing estimates, not checks of the finished audio.
+          </p>
+          <p className={p}>
+            In the scene card, change the <strong>Dialogue mode</strong> or the intent, or press
+            <strong> Rewrite dialogue</strong> — with optional guidance such as &ldquo;make it
+            tenser&rdquo; — to have the Dialogue Writer write new lines in that mode. Tick
+            <strong> Also update the video prompt</strong> to rewrite the clip prompt in the same
+            step; keyframes and image prompts are not touched. Choosing Silent clears the lines, and
+            <strong> Revert</strong> brings them back. On the storyboard, <strong>Rewrite dialogue for
+            selected scenes</strong> does several scenes at once, and <strong>Fill short speaking
+            scenes</strong> picks out every scene whose dialogue is short for its mode. Existing saved
+            scripts are not rewritten automatically. Rewriting video prompts alone keeps the existing
+            words.
           </p>
 
           <h3 className={h3}>Editing prompts by hand</h3>
